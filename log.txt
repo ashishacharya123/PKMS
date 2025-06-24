@@ -258,3 +258,51 @@ Successfully implemented complete frontend authentication system with modern UI 
 - React Router for client-side navigation
 - TypeScript for type safety throughout
 - Axios interceptors for automatic auth handling 
+
+## Log Entry #5 - 2025-06-24 15:15:00
+**Phase**: Bug Fix - Database Foreign Key Relationship Error
+**Status**: COMPLETED
+
+### Summary
+Fixed critical SQLAlchemy foreign key relationship error that was preventing backend startup and causing authentication setup failures.
+
+### Problem Identified
+- Backend container was crashing due to SQLAlchemy relationship errors
+- Session and RecoveryKey models were missing ForeignKey constraints for user_id columns
+- Error: "Could not determine join condition between parent/child tables on relationship User.sessions"
+- Frontend was getting network errors when trying to create user accounts
+
+### Changes Made
+1. **Database Model Fixes**:
+   - Added ForeignKey import to user.py model
+   - Fixed Session.user_id column: `Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)`
+   - Fixed RecoveryKey.user_id column: `Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)`
+
+2. **Backend Restart**:
+   - Restarted backend container to apply model fixes
+   - Verified database initialization completed successfully
+   - Health endpoint responding correctly
+
+3. **Frontend Startup**:
+   - Started frontend development server on port 3000
+   - Both backend and frontend now running properly
+
+### Files Modified
+- `pkms-backend/app/models/user.py` - Added ForeignKey constraints
+
+### Testing Status
+✅ Backend health endpoint responding (HTTP 200)
+✅ Database models loading without errors
+✅ Frontend development server running on port 3000
+✅ Ready for authentication testing
+
+### Next Steps
+- User can now test the authentication setup flow
+- Both backend (port 8000) and frontend (port 3000) are operational
+- Authentication endpoints should work properly
+
+### Technical Notes
+- SQLAlchemy requires explicit ForeignKey constraints for relationships
+- CASCADE delete ensures data integrity when users are deleted
+- Backend now starts successfully with all model relationships working
+- Ready for end-to-end authentication testing 
