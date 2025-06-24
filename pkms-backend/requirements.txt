@@ -54,3 +54,30 @@ aiocache==0.12.2  # Async caching
 # Optional: If you need advanced image processing
 # opencv-python-headless==4.8.1.78
 # pytesseract==0.3.10  # OCR capabilities 
+
+
+
+
+
+
+# 📁 /opt (233MB) - Python Virtual Environment
+# ├── 🐍 PyMuPDF: 60MB        ✅ USED - PDF processing
+# ├── 🗄️ SQLAlchemy: 23MB     ✅ USED - Database ORM
+# ├── 📦 pip: 17MB            ✅ USED - Package manager
+# ├── ⚡ uvloop: 14MB         ✅ USED - Fast event loop
+# ├── 🔐 cryptography: 14MB   ✅ USED - Authentication/security
+# ├── 📄 lxml: 12MB           ✅ USED - XML/HTML processing
+# ├── 🎨 Pygments: 9.3MB      ❌ NOT USED - Code highlighting
+# ├── 🖼️ Pillow.libs: 9.1MB   ✅ USED - Image processing deps
+# ├── 🛠️ setuptools: 6.7MB    ✅ USED - Build tools
+# ├── ✅ pydantic_core: 5.0MB ✅ USED - Data validation
+# ├── 🔒 passlib: 4.3MB      ✅ USED - Password hashing
+# ├── 📊 pydantic: 4.1MB     ✅ USED - Data validation
+# ├── 🖼️ PIL: 3.5MB          ✅ USED - Image processing
+# ├── 🧪 pytest: 3.2MB       ❌ NOT USED IN PROD - Testing
+# └── 📝 yaml: 3.0MB         ✅ USED - Config parsing
+
+# 📁 /usr (133MB) - System libraries
+# 📁 /var (7.0MB) - Variable data
+# 📁 /etc (1.4MB) - Configuration files
+# 📁 /app (512KB) - Your application code
