@@ -8,6 +8,7 @@ https://github.com/aashishaacharya/PKMS
 
 Also:
 1. Always log the changes in a new file log.txt, check for last log number, date time and add new log number,date time accordingly. No need to have all the codes and all, just summary and files affected is enough.
+My time zone is +5:45 so be sure to have correct time.
 2. Always update done_till_now
 3. Update implementation if needed
 4. Update Web_development_tutorial if needed, I see you rewrite everything that was already there. Don't do this.
