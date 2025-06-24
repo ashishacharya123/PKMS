@@ -3,6 +3,9 @@ Then read implementation.txt, to know about the implementation.
 After that, read done_till_now.txt to know what is done and what is let.
 Please do the necessary edit only, don't rewrite everything. Be sure of the implementations before suggesting edits, recheck for errors and best practices as well.
 
+Github repo url:
+https://github.com/aashishaacharya/PKMS
+
 Also:
 1. Always log the changes in a new file log.txt, check for last log number, date time and add new log number,date time accordingly. No need to have all the codes and all, just summary and files affected is enough.
 2. Always update done_till_now
