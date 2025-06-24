@@ -3,25 +3,61 @@ PKMS Backend - Main FastAPI Application
 Personal Knowledge Management System
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
-import os
+import asyncio
+from datetime import datetime, timedelta
 from pathlib import Path
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 # Import routers
 from app.routers import auth
 
 # Import database initialization
-from app.database import init_db, close_db
+from app.database import init_db, close_db, get_db_session
 from app.config import settings, get_data_dir
 
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+
+# Session cleanup task
+cleanup_task = None
+
+async def cleanup_expired_sessions():
+    """Periodic task to clean up expired sessions"""
+    while True:
+        try:
+            async with get_db_session() as db:
+                from app.models.user import Session
+                from sqlalchemy import delete
+                
+                # Delete expired sessions
+                now = datetime.utcnow()
+                result = await db.execute(
+                    delete(Session).where(Session.expires_at < now)
+                )
+                deleted_count = result.rowcount
+                
+                if deleted_count > 0:
+                    print(f"🧹 Cleaned up {deleted_count} expired sessions")
+                    
+        except Exception as e:
+            print(f"❌ Session cleanup error: {e}")
+        
+        # Sleep for configured interval
+        await asyncio.sleep(settings.session_cleanup_interval_hours * 3600)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
+    global cleanup_task
+    
     # Startup
     print("🚀 Starting PKMS Backend...")
     
@@ -50,14 +86,23 @@ async def lifespan(app: FastAPI):
         directory.mkdir(parents=True, exist_ok=True)
         print(f"✅ Created directory: {directory}")
     
+    # Start session cleanup task
+    cleanup_task = asyncio.create_task(cleanup_expired_sessions())
+    print("🧹 Started session cleanup task")
+    
     print("✅ Database and directories initialized")
     
     yield
     
     # Shutdown
     print("🛑 Shutting down PKMS Backend...")
+    
+    # Cancel cleanup task
+    if cleanup_task:
+        cleanup_task.cancel()
+        print("🧹 Stopped session cleanup task")
+    
     await close_db()
-
 
 # Create FastAPI app
 app = FastAPI(
@@ -67,6 +112,48 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Security Headers Middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Add security headers to all responses"""
+    response = await call_next(request)
+    
+    if settings.enable_security_headers:
+        # Prevent clickjacking
+        response.headers["X-Frame-Options"] = "DENY"
+        
+        # Prevent MIME type sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        
+        # XSS Protection (legacy but still useful)
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        
+        # Referrer Policy
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        
+        # Content Security Policy (relaxed for local development)
+        if settings.environment == "production":
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob:; "
+                "font-src 'self'"
+            )
+        
+        # HSTS (only in production with HTTPS)
+        if settings.environment == "production":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    
+    return response
+
+# Trusted Host Middleware (for production)
+if settings.environment == "production":
+    app.add_middleware(
+        TrustedHostMiddleware, 
+        allowed_hosts=["localhost", "127.0.0.1", "0.0.0.0"]
+    )
+
 # CORS middleware for frontend communication
 app.add_middleware(
     CORSMiddleware,
@@ -75,6 +162,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add rate limiter middleware
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, lambda request, exc: HTTPException(status_code=429, detail="Rate limit exceeded"))
+app.add_middleware(SlowAPIMiddleware)
 
 # Health check endpoint
 @app.get("/")

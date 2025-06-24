@@ -3,14 +3,17 @@ Authentication Router
 Handles user registration, login, logout, and password recovery
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie
 from fastapi.security import HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, validator
 from typing import List, Optional
 from datetime import datetime, timedelta
 import json
+import re
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.database import get_db
 from app.models.user import User, Session, RecoveryKey
@@ -24,27 +27,91 @@ from app.config import settings
 
 router = APIRouter()
 
-# Pydantic models for request/response
+limiter = Limiter(key_func=get_remote_address)
+
+# Input validation patterns
+USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{3,50}$')
+SAFE_STRING_PATTERN = re.compile(r'^[a-zA-Z0-9\s\-_.,!?\'\"()\[\]{}@#$%^&*+=|\\:;<>/~`]{1,500}$')
+
+# Pydantic models for request/response with enhanced validation
 class UserSetup(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=8, max_length=128)
     email: Optional[EmailStr] = None
+    
+    @validator('username')
+    def validate_username(cls, v):
+        if not USERNAME_PATTERN.match(v):
+            raise ValueError('Username can only contain letters, numbers, hyphens, and underscores')
+        if v.lower() in ['admin', 'root', 'administrator', 'user', 'test', 'demo']:
+            raise ValueError('This username is not allowed')
+        return v.lower()
+    
+    @validator('password')
+    def validate_password_security(cls, v):
+        # Additional password validation beyond basic strength
+        if any(char in v for char in ['<', '>', '&', '"', "'"]):
+            raise ValueError('Password contains unsafe characters')
+        return v
 
 class UserLogin(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=1, max_length=128)
+    
+    @validator('username')
+    def validate_username(cls, v):
+        if not USERNAME_PATTERN.match(v):
+            raise ValueError('Invalid username format')
+        return v.lower()
 
 class PasswordChange(BaseModel):
-    current_password: str
-    new_password: str
+    current_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=128)
+    
+    @validator('new_password')
+    def validate_new_password(cls, v):
+        if any(char in v for char in ['<', '>', '&', '"', "'"]):
+            raise ValueError('Password contains unsafe characters')
+        return v
 
 class RecoverySetup(BaseModel):
-    questions: List[str]
-    answers: List[str]
+    questions: List[str] = Field(..., min_items=2, max_items=5)
+    answers: List[str] = Field(..., min_items=2, max_items=5)
+    
+    @validator('questions')
+    def validate_questions(cls, v):
+        for question in v:
+            if not SAFE_STRING_PATTERN.match(question):
+                raise ValueError('Security questions contain invalid characters')
+            if len(question.strip()) < 10:
+                raise ValueError('Security questions must be at least 10 characters long')
+        return [q.strip() for q in v]
+    
+    @validator('answers')
+    def validate_answers(cls, v):
+        for answer in v:
+            if not SAFE_STRING_PATTERN.match(answer):
+                raise ValueError('Security answers contain invalid characters')
+            if len(answer.strip()) < 2:
+                raise ValueError('Security answers must be at least 2 characters long')
+        return [a.strip() for a in v]
 
 class RecoveryReset(BaseModel):
-    answers: List[str]
-    new_password: str
+    answers: List[str] = Field(..., min_items=2, max_items=5)
+    new_password: str = Field(..., min_length=8, max_length=128)
+    
+    @validator('answers')
+    def validate_answers(cls, v):
+        for answer in v:
+            if not SAFE_STRING_PATTERN.match(answer):
+                raise ValueError('Security answers contain invalid characters')
+        return [a.strip() for a in v]
+    
+    @validator('new_password')
+    def validate_new_password(cls, v):
+        if any(char in v for char in ['<', '>', '&', '"', "'"]):
+            raise ValueError('Password contains unsafe characters')
+        return v
 
 class RecoveryKeyResponse(BaseModel):
     recovery_key: str
@@ -68,10 +135,16 @@ class UserResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class RefreshTokenRequest(BaseModel):
+    """Empty body – refresh is cookie-based but keeps model for future extensibility"""
+    pass
 
 @router.post("/setup", response_model=TokenResponse)
+@limiter.limit("3/minute")
 async def setup_user(
     user_data: UserSetup,
+    request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -103,15 +176,14 @@ async def setup_user(
             detail="Username already taken"
         )
     
-    # Hash password
-    password_hash, salt = hash_password(user_data.password)
+    # Hash password using bcrypt
+    password_hash = hash_password(user_data.password)
     
     # Create user
     user = User(
         username=user_data.username,
         email=user_data.email,
         password_hash=password_hash,
-        salt=salt,
         is_first_login=True
     )
     
@@ -119,20 +191,30 @@ async def setup_user(
     await db.commit()
     await db.refresh(user)
     
-    # Create session
+    # Create JWT access token
+    access_token = create_access_token(data={"sub": str(user.id)})
+    
+    # --- NEW: Create refresh session & cookie ---
     session_token = generate_session_token()
     session = Session(
-        id=session_token,
-        user_id=user.id,
         session_token=session_token,
-        expires_at=datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
+        user_id=user.id,
+        expires_at=datetime.utcnow() + timedelta(days=7),  # 7-day sliding window
+        ip_address=None,
+        user_agent="internal-setup"
     )
-    
     db.add(session)
     await db.commit()
-    
-    # Create access token
-    access_token = create_access_token(data={"sub": str(user.id)})
+
+    # Secure cookie (HttpOnly, SameSite=Lax)
+    response.set_cookie(
+        key="pkms_refresh",
+        value=session_token,
+        httponly=True,
+        samesite="lax",
+        secure=settings.environment == "production",
+        max_age=7*24*60*60
+    )
     
     return TokenResponse(
         access_token=access_token,
@@ -144,9 +226,11 @@ async def setup_user(
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("5/minute")
 async def login(
     user_data: UserLogin,
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -168,8 +252,8 @@ async def login(
             detail="Account is disabled"
         )
     
-    # Verify password
-    if not verify_password(user_data.password, user.password_hash, user.salt):
+    # Verify password using bcrypt
+    if not verify_password(user_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
@@ -179,22 +263,29 @@ async def login(
     user.last_login = datetime.utcnow()
     await db.commit()
     
-    # Create session
+    # Create JWT access token
+    access_token = create_access_token(data={"sub": str(user.id)})
+    
+    # --- NEW: Create refresh session & cookie ---
     session_token = generate_session_token()
     session = Session(
-        id=session_token,
-        user_id=user.id,
         session_token=session_token,
-        expires_at=datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes),
+        user_id=user.id,
+        expires_at=datetime.utcnow() + timedelta(days=7),
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent")
     )
-    
     db.add(session)
     await db.commit()
-    
-    # Create access token
-    access_token = create_access_token(data={"sub": str(user.id)})
+
+    response.set_cookie(
+        key="pkms_refresh",
+        value=session_token,
+        httponly=True,
+        samesite="lax",
+        secure=settings.environment == "production",
+        max_age=7*24*60*60
+    )
     
     return TokenResponse(
         access_token=access_token,
@@ -211,19 +302,10 @@ async def logout(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    User logout (invalidate session)
+    User logout
+    Note: With JWT tokens, logout is handled client-side by removing the token.
+    This endpoint is provided for completeness and future session management.
     """
-    # Get current session and delete it
-    result = await db.execute(
-        select(Session).where(Session.user_id == current_user.id)
-    )
-    sessions = result.scalars().all()
-    
-    for session in sessions:
-        await db.delete(session)
-    
-    await db.commit()
-    
     return {"message": "Successfully logged out"}
 
 
@@ -260,7 +342,8 @@ async def setup_recovery(
         user_id=current_user.id,
         key_hash=key_hash,
         questions_json=json.dumps(recovery_data.questions),
-        answers_hash=answers_hash
+        answers_hash=answers_hash,
+        salt=salt
     )
     
     db.add(recovery_record)
@@ -315,12 +398,11 @@ async def reset_password(
             detail="User not found"
         )
     
-    # Hash new password
-    password_hash, salt = hash_password(recovery_data.new_password)
+    # Hash new password using bcrypt
+    password_hash = hash_password(recovery_data.new_password)
     
     # Update user password
     user.password_hash = password_hash
-    user.salt = salt
     user.is_first_login = False
     
     # Update recovery key last used
@@ -351,7 +433,7 @@ async def change_password(
     Change user password
     """
     # Verify current password
-    if not verify_password(password_data.current_password, current_user.password_hash, current_user.salt):
+    if not verify_password(password_data.current_password, current_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect"
@@ -365,12 +447,11 @@ async def change_password(
             detail=error_message
         )
     
-    # Hash new password
-    password_hash, salt = hash_password(password_data.new_password)
+    # Hash new password using bcrypt
+    password_hash = hash_password(password_data.new_password)
     
     # Update user
     current_user.password_hash = password_hash
-    current_user.salt = salt
     current_user.is_first_login = False
     
     await db.commit()
@@ -389,4 +470,51 @@ async def complete_setup(
     current_user.is_first_login = False
     await db.commit()
     
-    return {"message": "Setup completed successfully"} 
+    return {"message": "Setup completed successfully"}
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_access_token(
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    session_token: str | None = Cookie(default=None, alias="pkms_refresh")
+):
+    """Silent token renewal using refresh cookie"""
+    if not session_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token")
+
+    # Lookup session
+    result = await db.execute(select(Session).where(Session.session_token == session_token))
+    session = result.scalar_one_or_none()
+    if not session or session.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+
+    # Get user
+    result = await db.execute(select(User).where(User.id == session.user_id))
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account disabled")
+
+    # Issue new access token
+    access_token = create_access_token(data={"sub": str(user.id)})
+
+    # Slide session expiry by another 7 days
+    session.expires_at = datetime.utcnow() + timedelta(days=7)
+    await db.commit()
+
+    # refresh cookie max-age
+    response.set_cookie(
+        key="pkms_refresh",
+        value=session_token,
+        httponly=True,
+        samesite="lax",
+        secure=settings.environment == "production",
+        max_age=7*24*60*60
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+        expires_in=settings.access_token_expire_minutes * 60,
+        user_id=user.id,
+        username=user.username,
+        is_first_login=user.is_first_login
+    ) 

@@ -18,8 +18,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=True)
-    password_hash = Column(String(255), nullable=False)
-    salt = Column(String(255), nullable=False)
+    password_hash = Column(String(255), nullable=False)  # bcrypt hash (includes salt)
     is_active = Column(Boolean, default=True)
     is_first_login = Column(Boolean, default=True)
     settings_json = Column(Text, default="{}")  # User preferences as JSON
@@ -46,9 +45,8 @@ class Session(Base):
     
     __tablename__ = "sessions"
     
-    id = Column(String(255), primary_key=True, index=True)
+    session_token = Column(String(255), primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    session_token = Column(String(255), unique=True, nullable=False, index=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_activity = Column(DateTime(timezone=True), server_default=func.now())
@@ -59,7 +57,7 @@ class Session(Base):
     user = relationship("User", back_populates="sessions")
     
     def __repr__(self):
-        return f"<Session(id='{self.id}', user_id={self.user_id})>"
+        return f"<Session(session_token='{self.session_token}', user_id={self.user_id})>"
 
 
 class RecoveryKey(Base):
@@ -72,7 +70,7 @@ class RecoveryKey(Base):
     key_hash = Column(String(255), nullable=False)
     questions_json = Column(Text, nullable=False)  # Security questions as JSON
     answers_hash = Column(String(255), nullable=False)  # Hashed answers
-    salt = Column(String(255), nullable=False)  # Salt for answers
+    salt = Column(String(255), nullable=False)  # Salt for answers (still needed for security questions)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_used = Column(DateTime(timezone=True), nullable=True)
     

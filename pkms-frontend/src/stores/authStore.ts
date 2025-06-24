@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { notifications } from '@mantine/notifications';
 import authService from '../services/authService';
+import apiService from '../services/api';
 import {
   AuthState,
   LoginCredentials,
@@ -26,7 +27,13 @@ interface AuthActions {
   checkAuth: () => Promise<void>;
   clearError: () => void;
   setLoading: (loading: boolean) => void;
+  startSessionMonitoring: () => void;
+  stopSessionMonitoring: () => void;
 }
+
+// Session monitoring interval
+let sessionInterval: number | null = null;
+let warningShown = false;
 
 export const useAuthStore = create<AuthState & AuthActions>()(
   devtools(
@@ -59,6 +66,9 @@ export const useAuthStore = create<AuthState & AuthActions>()(
             isLoading: false,
             error: null
           });
+
+          // Start session monitoring
+          get().startSessionMonitoring();
 
           notifications.show({
             title: 'Success',
@@ -97,6 +107,9 @@ export const useAuthStore = create<AuthState & AuthActions>()(
             error: null
           });
 
+          // Start session monitoring
+          get().startSessionMonitoring();
+
           notifications.show({
             title: 'Success',
             message: 'Account created successfully!',
@@ -115,6 +128,9 @@ export const useAuthStore = create<AuthState & AuthActions>()(
 
       logout: async () => {
         set({ isLoading: true });
+        
+        // Stop session monitoring
+        get().stopSessionMonitoring();
         
         try {
           await authService.logout();
@@ -256,6 +272,8 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         // If we already have user data and are authenticated, skip the API call
         const currentState = get();
         if (currentState.isAuthenticated && currentState.user && !currentState.isLoading) {
+          // Start session monitoring for existing auth
+          get().startSessionMonitoring();
           return;
         }
 
@@ -271,6 +289,9 @@ export const useAuthStore = create<AuthState & AuthActions>()(
             isLoading: false,
             error: null
           });
+          
+          // Start session monitoring
+          get().startSessionMonitoring();
         } catch (error) {
           // Token is invalid, clear auth data
           authService.clearAuthData();
@@ -282,6 +303,48 @@ export const useAuthStore = create<AuthState & AuthActions>()(
             error: null
           });
         }
+      },
+
+      startSessionMonitoring: () => {
+        // Clear any existing interval
+        if (sessionInterval) {
+          clearInterval(sessionInterval);
+        }
+        
+        warningShown = false;
+        
+        // Check every minute for token expiry
+        sessionInterval = setInterval(() => {
+          const isAuthenticated = get().isAuthenticated;
+          
+          if (!isAuthenticated) {
+            get().stopSessionMonitoring();
+            return;
+          }
+          
+          if (apiService.isTokenExpiringSoon() && !warningShown) {
+            // Try to extend session automatically first
+            apiService.extendSession().then(extended => {
+              if (extended) {
+                warningShown = false; // Reset so we can warn again if needed
+              } else {
+                apiService.showExpiryWarning();
+                warningShown = true;
+              }
+            }).catch(() => {
+              apiService.showExpiryWarning();
+              warningShown = true;
+            });
+          }
+        }, 60000); // Check every minute
+      },
+
+      stopSessionMonitoring: () => {
+        if (sessionInterval) {
+          clearInterval(sessionInterval);
+          sessionInterval = null;
+        }
+        warningShown = false;
       },
 
       clearError: () => set({ error: null }),

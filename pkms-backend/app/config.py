@@ -4,9 +4,11 @@ Handles environment variables and application settings
 """
 
 import os
+import secrets
 from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings
+import warnings
 
 
 class Settings(BaseSettings):
@@ -27,16 +29,21 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./data/pkm_metadata.db"
     auth_db_path: str = "./data/auth.db"
     
-    # Security
-    secret_key: str = "your-secret-key-change-in-production"
+    # Security - MUST be provided via environment variables in production
+    secret_key: Optional[str] = None  # Will be generated if not provided
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
+    refresh_token_lifetime_days: int = 7
     password_min_length: int = 8
+    session_cleanup_interval_hours: int = 24  # Clean expired sessions every 24 hours
     
     # File Storage
     data_dir: str = "./data"
     max_file_size: int = 50 * 1024 * 1024  # 50MB
     allowed_file_types: list = [".pdf", ".docx", ".txt", ".jpg", ".png", ".mp3", ".wav"]
+    
+    # Security Headers
+    enable_security_headers: bool = True
     
     # CORS
     cors_origins: list = [
@@ -46,6 +53,27 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173"
     ]
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        
+        # Generate secret key if not provided (for development only)
+        if not self.secret_key:
+            if self.environment == "production":
+                raise ValueError(
+                    "SECRET_KEY environment variable must be set in production. "
+                    "Generate a secure key using: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+                )
+            else:
+                # Generate a temporary key for development
+                self.secret_key = secrets.token_urlsafe(32)
+                # Only show warning in debug mode, never log the actual key
+                if self.debug:
+                    warnings.warn(
+                        "Using auto-generated SECRET_KEY for development. "
+                        "Set SECRET_KEY environment variable for production.",
+                        stacklevel=2
+                    )
     
     class Config:
         env_file = ".env"

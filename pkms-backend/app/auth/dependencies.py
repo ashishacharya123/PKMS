@@ -11,7 +11,7 @@ from datetime import datetime
 
 from app.database import get_db
 from app.models.user import User, Session
-from app.auth.security import verify_token, generate_session_token
+from app.auth.security import verify_token
 from app.config import settings
 
 # Security scheme
@@ -73,58 +73,6 @@ async def get_current_user(
         )
     
     return user
-
-
-async def get_current_session(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: AsyncSession = Depends(get_db)
-) -> Session:
-    """
-    Get the current user session
-    
-    Args:
-        request: FastAPI request object
-        credentials: HTTP Bearer token
-        db: Database session
-    
-    Returns:
-        Current session object
-    
-    Raises:
-        HTTPException: If session is invalid
-    """
-    token = credentials.credentials
-    
-    # Get session from database
-    result = await db.execute(
-        select(Session).where(Session.session_token == token)
-    )
-    session = result.scalar_one_or_none()
-    
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid session",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    # Check if session is expired
-    if session.expires_at < datetime.utcnow():
-        # Delete expired session
-        await db.delete(session)
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    # Update last activity
-    session.last_activity = datetime.utcnow()
-    await db.commit()
-    
-    return session
 
 
 async def get_optional_user(

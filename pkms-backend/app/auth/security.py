@@ -2,9 +2,7 @@
 Security utilities for authentication and encryption
 """
 
-import os
 import secrets
-import base64
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 from passlib.context import CryptContext
@@ -18,43 +16,31 @@ from app.config import settings
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-def hash_password(password: str, salt: Optional[str] = None) -> Tuple[str, str]:
+def hash_password(password: str) -> str:
     """
-    Hash a password with a salt
+    Hash a password using bcrypt (includes built-in salt)
     
     Args:
         password: Plain text password
-        salt: Optional salt (if not provided, one will be generated)
     
     Returns:
-        Tuple of (hashed_password, salt)
+        Bcrypt hashed password
     """
-    if salt is None:
-        salt = secrets.token_hex(32)
-    
-    # Combine password with salt
-    salted_password = password + salt
-    
-    # Hash the salted password
-    hashed = pwd_context.hash(salted_password)
-    
-    return hashed, salt
+    return pwd_context.hash(password)
 
 
-def verify_password(plain_password: str, hashed_password: str, salt: str) -> bool:
+def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Verify a password against its hash and salt
+    Verify a password against its bcrypt hash
     
     Args:
         plain_password: Plain text password to verify
-        hashed_password: Stored hash
-        salt: Stored salt
+        hashed_password: Stored bcrypt hash
     
     Returns:
         True if password matches, False otherwise
     """
-    salted_password = plain_password + salt
-    return pwd_context.verify(salted_password, hashed_password)
+    return pwd_context.verify(plain_password, hashed_password)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

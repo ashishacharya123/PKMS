@@ -13,6 +13,9 @@ passlib[bcrypt]>=1.7.4
 python-jose[cryptography]>=3.3.0
 cryptography>=42.0.0
 
+# Rate Limiting and Security
+slowapi>=0.1.9
+
 # File Handling
 aiofiles>=23.2.0
 python-multipart>=0.0.6
@@ -32,8 +35,11 @@ pytest>=7.4.0
 pytest-asyncio>=0.21.0
 httpx>=0.25.0
 
-# CORS for frontend communication
-fastapi-cors
-
 # Environment variables
-python-dotenv>=1.0.0 
+python-dotenv>=1.0.0
+
+# Security monitoring and logging
+structlog>=23.2.0
+
+# Input validation and sanitization
+bleach>=6.1.0 
