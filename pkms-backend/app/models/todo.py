@@ -62,8 +62,6 @@ class Todo(Base):
     user = relationship("User", back_populates="todos")
     project = relationship("Project", back_populates="todos")
     tags = relationship("Tag", secondary=todo_tags, back_populates="todos")
-    links = relationship("Link", back_populates="from_todo", cascade="all, delete-orphan")
-    backlinks = relationship("Link", back_populates="to_todo", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Todo(id={self.id}, title='{self.title}', status='{self.status}')>" 

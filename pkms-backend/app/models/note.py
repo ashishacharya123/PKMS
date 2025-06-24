@@ -35,8 +35,6 @@ class Note(Base):
     # Relationships
     user = relationship("User", back_populates="notes")
     tags = relationship("Tag", secondary=note_tags, back_populates="notes")
-    links = relationship("Link", back_populates="from_note", cascade="all, delete-orphan")
-    backlinks = relationship("Link", back_populates="to_note", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Note(id={self.id}, title='{self.title}', area='{self.area}')>" 

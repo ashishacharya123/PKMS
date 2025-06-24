@@ -253,6 +253,12 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           return;
         }
 
+        // If we already have user data and are authenticated, skip the API call
+        const currentState = get();
+        if (currentState.isAuthenticated && currentState.user && !currentState.isLoading) {
+          return;
+        }
+
         set({ isLoading: true });
         
         try {

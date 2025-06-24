@@ -35,10 +35,12 @@ class ApiService {
       (response) => response,
       (error: AxiosError) => {
         if (error.response?.status === 401) {
-          // Token expired or invalid
+          // Token expired or invalid - clear auth data but don't redirect
+          // Let the auth store handle the redirect
           localStorage.removeItem('pkms_token');
           localStorage.removeItem('pkms_user');
-          window.location.href = '/login';
+          // Don't redirect here to prevent loops
+          // window.location.href = '/auth';
         }
 
         const message = this.getErrorMessage(error);

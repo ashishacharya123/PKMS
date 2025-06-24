@@ -24,13 +24,7 @@ class Link(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
-    # Relationships for bidirectional linking
-    from_note = relationship("Note", foreign_keys=[from_id], back_populates="links")
-    to_note = relationship("Note", foreign_keys=[to_id], back_populates="backlinks")
-    from_document = relationship("Document", foreign_keys=[from_id], back_populates="links")
-    to_document = relationship("Document", foreign_keys=[to_id], back_populates="backlinks")
-    from_todo = relationship("Todo", foreign_keys=[from_id], back_populates="links")
-    to_todo = relationship("Todo", foreign_keys=[to_id], back_populates="backlinks")
+    # Relationships for bidirectional linking (no direct relationships - use programmatic lookup)
     
     def __repr__(self):
         return f"<Link(id={self.id}, {self.from_type}:{self.from_id} -> {self.to_type}:{self.to_id})>" 

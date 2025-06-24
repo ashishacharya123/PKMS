@@ -10,7 +10,7 @@ function App() {
 
   useEffect(() => {
     checkAuth();
-  }, [checkAuth]);
+  }, []); // Remove checkAuth from dependencies to prevent infinite loop
 
   if (isLoading) {
     return <LoadingOverlay visible={true} />;

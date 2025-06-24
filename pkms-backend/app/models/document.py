@@ -40,8 +40,6 @@ class Document(Base):
     # Relationships
     user = relationship("User", back_populates="documents")
     tags = relationship("Tag", secondary=document_tags, back_populates="documents")
-    links = relationship("Link", back_populates="from_document", cascade="all, delete-orphan")
-    backlinks = relationship("Link", back_populates="to_document", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Document(uuid='{self.uuid}', filename='{self.filename}')>" 

@@ -29,7 +29,7 @@ export function DashboardPage() {
 
   useEffect(() => {
     checkAuth();
-  }, [checkAuth]);
+  }, []); // Remove checkAuth from dependencies to prevent infinite loop
 
   const handleLogout = async () => {
     await logout();
