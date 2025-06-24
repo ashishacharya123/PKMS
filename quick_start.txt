@@ -1,0 +1,16 @@
+# Start backend
+docker-compose up -d
+
+# Start frontend
+cd pkms-frontend
+npm run dev
+
+
+### Docker Commands:
+```bash
+docker-compose up -d          # Start services
+docker-compose down           # Stop services
+docker-compose logs -f        # View logs
+docker-compose ps             # List containers
+docker-compose restart        # Restart services
+```

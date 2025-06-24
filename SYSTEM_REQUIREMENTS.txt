@@ -1,0 +1,88 @@
+# PKMS System Requirements
+# Development Environment Software Versions
+# Last Updated: 2025-06-23
+
+# ===========================================
+# VERIFIED INSTALLED VERSIONS
+# ===========================================
+
+# Core Runtime Environments
+Python==3.13.1                # Backend (FastAPI) - Required: 3.11+
+Node.js==22.14.0              # Frontend (React) - Required: 18+
+Rust==1.87.0                  # Desktop (Tauri) - Required: Latest stable
+
+# Development Tools
+Git==2.49.0.windows.1         # Version control
+# VS Code (Recommended IDE)
+
+# ===========================================
+# MINIMUM REQUIREMENTS
+# ===========================================
+# Python >= 3.11
+# Node.js >= 18.0
+# Rust >= 1.70
+# Git >= 2.30
+
+# ===========================================
+# INSTALLATION VERIFICATION COMMANDS
+# ===========================================
+# python --version
+# node --version  
+# rustc --version
+# git --version
+
+# ===========================================
+# NEXT STEPS FOR PROJECT SETUP
+# ===========================================
+# 1. Backend Setup (Python/FastAPI):
+#    cd pkms-backend
+#    python -m venv venv
+#    venv\Scripts\activate  # Windows
+#    pip install -r requirements.txt
+
+# 2. Frontend Setup (React/TypeScript):
+#    cd pkms-frontend
+#    npm install
+
+# 3. Desktop Setup (Tauri):
+#    cd pkms-frontend
+#    npm install @tauri-apps/cli
+#    npx tauri init
+
+# ===========================================
+# PLATFORM INFORMATION
+# ===========================================
+# OS: Windows 10.0.26100
+# Shell: PowerShell
+# Architecture: x64 (assumed)
+
+# ===========================================
+# DEVELOPMENT DEPENDENCIES (TO BE INSTALLED)
+# ===========================================
+
+# Python Backend Dependencies:
+# - FastAPI
+# - SQLAlchemy (async)
+# - Passlib
+# - Cryptography
+# - Aiofiles
+# - PyMuPDF
+# - python-docx
+# - Pillow
+
+# Node.js Frontend Dependencies:
+# - React 18
+# - TypeScript
+# - Mantine UI
+# - Zustand
+# - @uiw/react-md-editor
+# - react-pdf
+# - date-fns
+
+# Desktop Dependencies:
+# - @tauri-apps/cli
+# - @tauri-apps/api
+
+# ===========================================
+# STATUS: ✅ ALL SYSTEM REQUIREMENTS MET
+# =========================================== 

@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # PKMS Backend API
+  pkms-backend:
+    build: 
+      context: ./pkms-backend
+      dockerfile: Dockerfile
+    container_name: pkms-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount data directory for persistence
+      - ./PKMS_Data:/app/data
+      # Mount source code for development (hot reload)
+      - ./pkms-backend:/app
+      # Exclude virtual environment and cache
+      - /app/venv
+      - /app/__pycache__
+      - /app/.pytest_cache
+    environment:
+      - DATABASE_URL=sqlite:///app/data/pkm_metadata.db
+      - AUTH_DB_PATH=/app/data/auth.db
+      - LOG_LEVEL=info
+      - ENVIRONMENT=development
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - pkms-network
+
+  # Optional: Redis for caching and session storage
+  redis:
+    image: redis:7-alpine
+    container_name: pkms-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    networks:
+      - pkms-network
+
+  # Optional: Database viewer (for development)
+  db-viewer:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: pkms-db-viewer
+    ports:
+      - "8080:80"
+    environment:
+      - PMA_HOST=pkms-backend
+      - PMA_PORT=8000
+    depends_on:
+      - pkms-backend
+    restart: unless-stopped
+    networks:
+      - pkms-network
+    profiles:
+      - dev
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  pkms-network:
+    driver: bridge 

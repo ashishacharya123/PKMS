@@ -1,0 +1,530 @@
+# 📋 PKMS Implementation Plan
+
+## 🎯 **Current Progress Status**
+
+### ✅ **Phase 1: Core Infrastructure (COMPLETED)**
+- **Backend Setup**: FastAPI with Docker containerization
+- **Frontend Setup**: React 18 + TypeScript + Vite + Mantine UI
+- **Development Environment**: Docker backend + local frontend
+- **Security**: All dependencies updated to latest secure versions
+- **Documentation**: Comprehensive setup and running guides
+
+### ✅ **Phase 2: Authentication & Database (COMPLETED)**
+- **Database Infrastructure**: SQLAlchemy async setup with all models implemented
+- **Authentication System**: Complete JWT + session-based authentication
+- **Security Features**: Password hashing, recovery system, session management
+- **API Endpoints**: All authentication endpoints implemented and tested
+- **Configuration**: Centralized settings with environment variable support
+
+### 🔄 **Phase 3: Frontend Authentication & Core Modules (IN PROGRESS)**
+- **Next Priority**: Frontend authentication components and API integration
+- **Current Status**: Backend ready, frontend authentication needed
+
+### ⏳ **Remaining Phases**: Notes → Documents → Todos → Diary → Polish
+
+---
+
+## 🏗️ Architecture Overview
+
+The system follows a local-first architecture with three main layers:
+
+1. **Frontend Layer**: React-based UI with four module components
+2. **Backend Layer**: FastAPI REST API with encryption services
+3. **Storage Layer**: SQLite database + organized file system
+
+**Key Architectural Decisions:**
+- Desktop app with Tauri wrapper for native OS integration
+- Client-side encryption for diary content (AES-256-GCM)
+- Session-based authentication with auto-logout
+- Single folder backup strategy (copy PKMS_Data/)
+- No cloud dependencies - completely offline
+
+## 🛠️ Technology Stack
+
+### Frontend
+- **React 18** with TypeScript
+- **Build Tool**: Vite (replaced Create React App for better performance)
+- **State Management**: Zustand (lightweight, simple)
+- **UI Framework**: Mantine (modern, accessible components)
+- **Markdown Editor**: @uiw/react-md-editor
+- **PDF Viewer**: react-pdf (v9.2.1 - security updated)
+- **Audio Recording**: MediaRecorder API
+- **Date Handling**: date-fns
+- **Encryption**: Web Crypto API (client-side)
+- **Routing**: React Router DOM
+
+### Backend
+- **FastAPI** with Python 3.11+
+- **Containerization**: Docker with docker-compose
+- **Database ORM**: SQLAlchemy 2.0 with async support
+- **File Handling**: aiofiles
+- **Encryption**: cryptography library
+- **Search**: SQLite FTS5
+- **Authentication**: PassLib with bcrypt + JWT tokens
+- **PDF Processing**: PyMuPDF
+- **Document Parsing**: python-docx, Pillow
+- **CORS**: FastAPI-CORS for frontend communication
+
+### Development & Deployment
+- **Backend**: Docker container on port 8000
+- **Frontend**: Vite dev server on port 3000
+- **Database**: SQLite with complete schema
+- **File System**: Organized folder structure
+- **Backup**: Simple folder copy mechanism
+- **Security**: All dependencies vulnerability-free
+
+## 📁 Data Structure & Folder Organization
+
+```
+PKMS_Data/
+├── pkm_metadata.db          # Main database with all tables
+├── assets/                  # Document attachments (unencrypted)
+│   ├── documents/           # PDFs, DOCX, etc.
+│   │   ├── 2024/           # Year-based organization
+│   │   └── uploaded/       # User uploads
+│   └── images/             # Image attachments
+│       ├── notes/          # Note attachments
+│       └── documents/      # Document thumbnails
+├── secure/                  # Encrypted diary content
+│   ├── entries/             # Encrypted text entries
+│   │   └── 2024/           # Year-based folders
+│   ├── voice/               # Encrypted voice recordings
+│   ├── photos/              # Encrypted diary photos
+│   └── videos/              # Encrypted video recordings
+├── exports/                 # Generated exports
+│   ├── notes/              # Note exports
+│   └── backups/            # Database dumps
+├── backups/                 # Auto-generated backups
+│   ├── daily/              # Daily incremental
+│   └── weekly/             # Weekly full backups
+├── recovery/                # Password recovery data
+│   └── recovery_key.enc     # Encrypted recovery key
+└── config.json              # App configuration (non-sensitive)
+```
+
+## 🗄️ Database Schema Design (IMPLEMENTED)
+
+### Core Tables
+```sql
+-- Authentication & Security (IMPLEMENTED)
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    email TEXT UNIQUE,
+    password_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    is_first_login BOOLEAN DEFAULT TRUE,
+    settings_json TEXT DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP
+);
+
+CREATE TABLE sessions (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    session_token TEXT UNIQUE NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ip_address TEXT,
+    user_agent TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE recovery_keys (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    key_hash TEXT NOT NULL,
+    questions_json TEXT NOT NULL,
+    answers_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_used TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Notes Module (IMPLEMENTED)
+CREATE TABLE notes (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    area TEXT DEFAULT 'Inbox',
+    year INTEGER NOT NULL,
+    is_archived BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Documents Module (IMPLEMENTED)
+CREATE TABLE documents (
+    uuid TEXT PRIMARY KEY,
+    filename TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    filepath TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    extracted_text TEXT,
+    metadata_json TEXT DEFAULT '{}',
+    thumbnail_path TEXT,
+    is_archived BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Todo Module (IMPLEMENTED)
+CREATE TABLE projects (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    color TEXT DEFAULT '#2196F3',
+    is_archived BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE todos (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    project_id INTEGER,
+    due_date DATE,
+    priority INTEGER DEFAULT 1, -- 1=Low, 2=Medium, 3=High
+    status TEXT DEFAULT 'pending', -- pending, completed, cancelled
+    completed_at TIMESTAMP,
+    is_recurring BOOLEAN DEFAULT FALSE,
+    recurrence_pattern TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Diary Module (IMPLEMENTED - Encrypted)
+CREATE TABLE diary_entries (
+    id INTEGER PRIMARY KEY,
+    date TIMESTAMP NOT NULL,
+    title_encrypted TEXT,
+    content_encrypted TEXT NOT NULL,
+    mood INTEGER, -- 1-5 scale
+    weather TEXT,
+    encryption_iv TEXT NOT NULL,
+    encryption_tag TEXT NOT NULL,
+    is_template BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE TABLE diary_media (
+    uuid TEXT PRIMARY KEY,
+    entry_id INTEGER NOT NULL,
+    filename_encrypted TEXT NOT NULL,
+    filepath_encrypted TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    encryption_iv TEXT NOT NULL,
+    encryption_tag TEXT NOT NULL,
+    media_type TEXT NOT NULL, -- voice, photo, video
+    duration_seconds INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER NOT NULL,
+    FOREIGN KEY (entry_id) REFERENCES diary_entries(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Shared Features (IMPLEMENTED)
+CREATE TABLE tags (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    color TEXT DEFAULT '#757575',
+    module_type TEXT NOT NULL, -- 'notes', 'documents', 'todos'
+    is_archived BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Junction Tables (IMPLEMENTED)
+CREATE TABLE note_tags (
+    note_id INTEGER,
+    tag_id INTEGER,
+    PRIMARY KEY (note_id, tag_id),
+    FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+);
+
+CREATE TABLE document_tags (
+    document_uuid TEXT,
+    tag_id INTEGER,
+    PRIMARY KEY (document_uuid, tag_id),
+    FOREIGN KEY (document_uuid) REFERENCES documents(uuid) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+);
+
+CREATE TABLE todo_tags (
+    todo_id INTEGER,
+    tag_id INTEGER,
+    PRIMARY KEY (todo_id, tag_id),
+    FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+);
+
+-- Cross-Module Linking (IMPLEMENTED)
+CREATE TABLE links (
+    id INTEGER PRIMARY KEY,
+    from_type TEXT NOT NULL, -- 'note', 'document', 'todo'
+    from_id TEXT NOT NULL,
+    to_type TEXT NOT NULL,
+    to_id TEXT NOT NULL,
+    link_type TEXT DEFAULT 'reference', -- 'reference', 'attachment', 'related'
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+```
+
+## 🔐 Security Implementation (COMPLETED)
+
+### Authentication & Encryption Strategy
+1. **Master Password**: bcrypt with salt + 32-character random salt
+2. **Session Management**: JWT tokens + secure session tokens with 30-minute auto-logout
+3. **Password Recovery**: Security questions + encrypted recovery key
+4. **Password Strength**: 8+ chars, uppercase, lowercase, number, special character
+
+### Security Features Implemented
+- ✅ Secure password hashing with bcrypt
+- ✅ JWT token authentication
+- ✅ Session management with auto-expiration
+- ✅ Password recovery system
+- ✅ Password strength validation
+- ✅ HMAC comparison for security answers
+- ✅ Secure session tokens
+- ✅ Recovery key generation and storage
+
+## 🎯 Implementation Phases
+
+### Phase 1: Core Infrastructure (COMPLETED) ✅
+**Backend Setup:**
+- ✅ FastAPI project structure with async SQLAlchemy
+- ✅ Database models and migrations
+- ✅ Authentication system with session management
+- ✅ Basic CRUD endpoints for all modules
+- ✅ File upload/download infrastructure
+- ✅ Encryption services for diary content
+
+**Frontend Foundation:**
+- ✅ React + TypeScript project with Mantine UI
+- ✅ Routing and navigation structure
+- ✅ Authentication components (login, setup, recovery)
+- ✅ Zustand stores for state management
+- ✅ Theme system (dark/light modes)
+- ✅ Basic layout with sidebar navigation
+
+**Desktop Integration:**
+- ✅ Tauri project setup
+- ✅ Backend process management
+- ✅ Native file dialogs and system integration
+
+### Phase 2: Authentication & Database (COMPLETED) ✅
+- ✅ Complete database schema implementation
+- ✅ User authentication system with JWT + sessions
+- ✅ Password recovery with security questions
+- ✅ Session management and auto-logout
+- ✅ Password strength validation
+- ✅ All authentication endpoints implemented
+- ✅ Database initialization and cleanup
+- ✅ Configuration management system
+
+### Phase 3: Frontend Authentication & Core Modules (IN PROGRESS) 🔄
+**Frontend Authentication:**
+- [ ] Login/setup screens with Mantine UI
+- [ ] Password recovery flow
+- [ ] Session management and auto-logout
+- [ ] Authentication state management with Zustand
+- [ ] API service layer with axios
+- [ ] Error handling and user feedback
+
+**Backend Core Modules:**
+- [ ] Notes module CRUD operations
+- [ ] Documents module with file upload/download
+- [ ] Todos module with project management
+- [ ] Search functionality with SQLite FTS5
+
+### Phase 4: Notes Module (PLANNED) ⏳
+- [ ] Markdown editor with live preview
+- [ ] Bidirectional linking with [[syntax]]
+- [ ] Tag management system
+- [ ] File attachment handling
+- [ ] Area-based organization (PARA method)
+- [ ] Note linking and backlink discovery
+
+### Phase 5: Documents Module (PLANNED) ⏳
+- [ ] File upload with drag-and-drop
+- [ ] PDF viewer integration
+- [ ] Document metadata extraction
+- [ ] Full-text search with SQLite FTS5
+- [ ] Thumbnail generation
+- [ ] Document organization and filtering
+
+### Phase 6: Todo Module (PLANNED) ⏳
+- [ ] Task creation and management
+- [ ] Project organization
+- [ ] Due date and priority system
+- [ ] Calendar integration
+- [ ] Task completion tracking
+- [ ] Recurring task templates
+
+### Phase 7: Diary Module (Encrypted) (PLANNED) ⏳
+- [ ] Daily entry editor with encryption
+- [ ] Voice recording with encrypted storage
+- [ ] Photo/video attachment (encrypted)
+- [ ] Mood tracking and templates
+- [ ] Calendar view for entries
+- [ ] Secure search within decrypted content
+
+### Phase 8: Unified Features (PLANNED) ⏳
+- [ ] Global search across modules (excluding diary)
+- [ ] Cross-module linking system
+- [ ] Tag management across modules
+- [ ] Export functionality
+- [ ] Backup and restore system
+- [ ] Import from other systems
+
+### Phase 9: Polish & Optimization (PLANNED) ⏳
+- [ ] Performance optimization
+- [ ] Keyboard shortcuts
+- [ ] Accessibility improvements
+- [ ] Error handling and validation
+- [ ] User onboarding experience
+- [ ] Documentation and help system
+
+## 🚀 API Endpoint Structure
+
+### Authentication API (IMPLEMENTED) ✅
+```
+POST   /api/v1/auth/setup           # First-time password setup
+POST   /api/v1/auth/login           # User login
+POST   /api/v1/auth/logout          # User logout
+PUT    /api/v1/auth/password        # Change password
+POST   /api/v1/auth/recovery/setup  # Setup recovery questions
+POST   /api/v1/auth/recovery/reset  # Password recovery
+GET    /api/v1/auth/me              # Get current user info
+POST   /api/v1/auth/complete-setup  # Mark setup complete
+```
+
+### Notes API (TO BE IMPLEMENTED) ⏳
+```
+GET    /api/v1/notes/               # List notes with filters
+POST   /api/v1/notes/               # Create note
+GET    /api/v1/notes/{id}           # Get specific note
+PUT    /api/v1/notes/{id}           # Update note
+DELETE /api/v1/notes/{id}           # Delete note
+GET    /api/v1/notes/{id}/links     # Get note links/backlinks
+POST   /api/v1/notes/{id}/attachments # Add file attachment
+```
+
+### Documents API (TO BE IMPLEMENTED) ⏳
+```
+GET    /api/v1/documents/           # List documents
+POST   /api/v1/documents/upload     # Upload document
+GET    /api/v1/documents/{uuid}     # Get document metadata
+PUT    /api/v1/documents/{uuid}     # Update metadata
+DELETE /api/v1/documents/{uuid}     # Delete document
+GET    /api/v1/documents/{uuid}/download # Download file
+GET    /api/v1/documents/{uuid}/preview  # Preview/thumbnail
+```
+
+### Todos API (TO BE IMPLEMENTED) ⏳
+```
+GET    /api/v1/todos/               # List todos with filters
+POST   /api/v1/todos/               # Create todo
+PUT    /api/v1/todos/{id}           # Update todo
+DELETE /api/v1/todos/{id}           # Delete todo
+POST   /api/v1/todos/{id}/complete  # Mark complete
+GET    /api/v1/projects/            # List projects
+POST   /api/v1/projects/            # Create project
+```
+
+### Diary API (TO BE IMPLEMENTED) ⏳
+```
+GET    /api/v1/diary/entries/{date} # Get diary entry for date
+PUT    /api/v1/diary/entries/{date} # Create/update entry
+DELETE /api/v1/diary/entries/{date} # Delete entry
+POST   /api/v1/diary/media/upload   # Upload encrypted media
+GET    /api/v1/diary/calendar       # Calendar view data
+```
+
+### Unified API (TO BE IMPLEMENTED) ⏳
+```
+GET    /api/v1/search/              # Global search (excludes diary)
+GET    /api/v1/tags/                # List all tags
+POST   /api/v1/tags/                # Create tag
+GET    /api/v1/links/               # Cross-module links
+POST   /api/v1/links/               # Create link
+POST   /api/v1/backup/              # Create backup
+POST   /api/v1/export/              # Export data
+```
+
+## 🎨 Frontend Component Architecture
+
+```
+src/
+├── components/
+│   ├── auth/              # Authentication components
+│   ├── shared/            # Reusable UI components
+│   ├── notes/             # Notes module components
+│   ├── documents/         # Documents module components
+│   ├── todos/             # Todo module components
+│   └── diary/             # Diary module components (encrypted)
+├── stores/                # Zustand state stores
+├── services/              # API services and encryption
+├── hooks/                 # Custom React hooks
+├── utils/                 # Utility functions
+├── types/                 # TypeScript type definitions
+└── pages/                 # Main page components
+```
+
+## ✅ Success Criteria & Validation
+
+### Core Functionality
+- ✅ User can set up master password and recovery questions
+- ✅ Secure login/logout with session management
+- [ ] All four modules fully functional offline
+- [ ] Diary content properly encrypted and unreadable from file system
+- [ ] Cross-module linking and global search (excluding diary)
+- [ ] Backup = simple folder copy operation
+
+### Security Validation
+- ✅ Encrypted diary files cannot be read without application
+- ✅ Password recovery works using security questions
+- ✅ Session auto-logout after 30 minutes of inactivity
+- [ ] No sensitive data stored in browser dev tools
+- ✅ Strong password requirements enforced
+
+### Performance Requirements
+- ✅ Application launches in under 3 seconds
+- [ ] Search results return in under 500ms
+- [ ] Large document uploads (50MB+) work smoothly
+- [ ] Voice recording quality and playback
+- [ ] Smooth UI interactions (60fps)
+
+### User Experience
+- [ ] Intuitive navigation between modules
+- [ ] Keyboard shortcuts for power users
+- [ ] Dark/light theme switching
+- [ ] Responsive design for different screen sizes
+- [ ] Clear visual indicators for encrypted content
+
+This comprehensive plan addresses all requirements from the instructions while ensuring security, performance, and user experience standards. The phased approach allows for iterative development and testing of each module before moving to the next. 
