@@ -17,7 +17,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 # Import routers
-from app.routers import auth
+from app.routers import auth, notes, documents, todos, diary
 
 # Import database initialization
 from app.database import init_db, close_db, get_db_session
@@ -147,11 +147,17 @@ async def add_security_headers(request: Request, call_next):
     
     return response
 
-# Trusted Host Middleware (for production)
+# Trusted Host Middleware - Updated for local development
 if settings.environment == "production":
     app.add_middleware(
         TrustedHostMiddleware, 
-        allowed_hosts=["localhost", "127.0.0.1", "0.0.0.0"]
+        allowed_hosts=["localhost", "127.0.0.1", "0.0.0.0", "localhost:8000", "127.0.0.1:8000"]
+    )
+else:
+    # In development, be more permissive with hosts
+    app.add_middleware(
+        TrustedHostMiddleware, 
+        allowed_hosts=["*"]  # Allow all hosts in development
     )
 
 # CORS middleware for frontend communication
@@ -189,13 +195,10 @@ async def health_check():
 
 # API Routes
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
-
-# TODO: Add other routers as they are implemented
-# app.include_router(notes.router, prefix="/api/v1/notes", tags=["notes"])
-# app.include_router(documents.router, prefix="/api/v1/documents", tags=["documents"])
-# app.include_router(todos.router, prefix="/api/v1/todos", tags=["todos"])
-# app.include_router(diary.router, prefix="/api/v1/diary", tags=["diary"])
-# app.include_router(search.router, prefix="/api/v1/search", tags=["search"])
+app.include_router(notes.router, prefix="/api/v1/notes", tags=["notes"])
+app.include_router(documents.router, prefix="/api/v1/documents", tags=["documents"])
+app.include_router(todos.router, prefix="/api/v1/todos", tags=["todos"])
+app.include_router(diary.router, prefix="/api/v1/diary", tags=["diary"])
 
 if __name__ == "__main__":
     print(f"🌐 Starting server on {settings.host}:{settings.port}")
