@@ -34,6 +34,8 @@ class User(Base):
     todos = relationship("Todo", back_populates="user", cascade="all, delete-orphan")
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
     diary_entries = relationship("DiaryEntry", back_populates="user", cascade="all, delete-orphan")
+    archive_folders = relationship("ArchiveFolder", back_populates="user", cascade="all, delete-orphan")
+    archive_items = relationship("ArchiveItem", back_populates="user", cascade="all, delete-orphan")
     tags = relationship("Tag", back_populates="user", cascade="all, delete-orphan")
     
     def __repr__(self):
