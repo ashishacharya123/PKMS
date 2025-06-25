@@ -20,6 +20,7 @@ import {
   IconFiles,
   IconChecklist,
   IconBook,
+  IconArchive,
   IconSearch,
   IconSettings,
   IconLogout,
@@ -74,6 +75,13 @@ const navigationItems: NavigationItem[] = [
     path: '/diary',
     color: 'purple',
     description: 'Encrypted personal journal'
+  },
+  {
+    label: 'Archive',
+    icon: IconArchive,
+    path: '/archive',
+    color: 'teal',
+    description: 'Hierarchical file organization'
   }
 ];
 

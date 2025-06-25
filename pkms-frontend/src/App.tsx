@@ -9,6 +9,10 @@ import { AuthPage } from './pages/AuthPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { NotesPage } from './pages/NotesPage';
 import { NoteEditorPage } from './pages/NoteEditorPage';
+import { DocumentsPage } from './pages/DocumentsPage';
+import { TodosPage } from './pages/TodosPage';
+import { DiaryPage } from './pages/DiaryPage';
+import { ArchivePage } from './pages/ArchivePage';
 
 // Auth Guard Component
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -109,15 +113,12 @@ function App() {
             } 
           />
 
-          {/* Placeholder routes for other modules */}
+          {/* Other module routes */}
           <Route 
             path="/documents" 
             element={
               <AuthGuard>
-                <div style={{ padding: '2rem' }}>
-                  <h1>Documents Module</h1>
-                  <p>Coming soon...</p>
-                </div>
+                <DocumentsPage />
               </AuthGuard>
             } 
           />
@@ -126,10 +127,7 @@ function App() {
             path="/todos" 
             element={
               <AuthGuard>
-                <div style={{ padding: '2rem' }}>
-                  <h1>Todos Module</h1>
-                  <p>Coming soon...</p>
-                </div>
+                <TodosPage />
               </AuthGuard>
             } 
           />
@@ -138,10 +136,16 @@ function App() {
             path="/diary" 
             element={
               <AuthGuard>
-                <div style={{ padding: '2rem' }}>
-                  <h1>Diary Module</h1>
-                  <p>Coming soon...</p>
-                </div>
+                <DiaryPage />
+              </AuthGuard>
+            } 
+          />
+          
+          <Route 
+            path="/archive" 
+            element={
+              <AuthGuard>
+                <ArchivePage />
               </AuthGuard>
             } 
           />

@@ -17,7 +17,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 # Import routers
-from app.routers import auth, notes, documents, todos, diary
+from app.routers import auth, notes, documents, todos, diary, archive
 
 # Import database initialization
 from app.database import init_db, close_db, get_db_session
@@ -77,6 +77,7 @@ async def lifespan(app: FastAPI):
         data_dir / "secure" / "voice",
         data_dir / "secure" / "photos",
         data_dir / "secure" / "videos",
+        data_dir / "archive",  # Archive storage
         data_dir / "exports",
         data_dir / "backups",
         data_dir / "recovery"
@@ -199,6 +200,7 @@ app.include_router(notes.router, prefix="/api/v1/notes", tags=["notes"])
 app.include_router(documents.router, prefix="/api/v1/documents", tags=["documents"])
 app.include_router(todos.router, prefix="/api/v1/todos", tags=["todos"])
 app.include_router(diary.router, prefix="/api/v1/diary", tags=["diary"])
+app.include_router(archive.router, prefix="/api/v1/archive", tags=["archive"])
 
 if __name__ == "__main__":
     print(f"🌐 Starting server on {settings.host}:{settings.port}")
