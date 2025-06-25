@@ -86,17 +86,17 @@ class ArchiveItem(Base):
     tags = relationship("Tag", secondary=archive_tags, back_populates="archive_items")
     
     @property
-    def metadata(self) -> Dict:
-        """Get metadata as dictionary"""
+    def metadata_dict(self) -> Dict:
+        """Return the parsed metadata JSON as a python dict."""
         import json
         try:
             return json.loads(self.metadata_json) if self.metadata_json else {}
         except json.JSONDecodeError:
             return {}
     
-    @metadata.setter
-    def metadata(self, value: Dict):
-        """Set metadata from dictionary"""
+    @metadata_dict.setter
+    def metadata_dict(self, value: Dict):
+        """Store a python dict into the metadata_json column."""
         import json
         self.metadata_json = json.dumps(value)
     
@@ -111,4 +111,20 @@ class ArchiveItem(Base):
         return self.original_filename.split('.')[-1].lower() if '.' in self.original_filename else ''
     
     def __repr__(self):
-        return f"<ArchiveItem(uuid='{self.uuid}', name='{self.name}', folder='{self.folder.name if self.folder else 'None'}')>" 
+        return f"<ArchiveItem(uuid='{self.uuid}', name='{self.name}', folder='{self.folder.name if self.folder else 'None'}')>"
+
+
+# Runtime alias: allow `item.metadata` to continue working without conflicting with SQLAlchemy
+# This alias is attached AFTER class definition, so it does not interfere with the declarative
+# class construction (when SQLAlchemy inspects attributes).
+
+def _add_metadata_alias():
+    if not hasattr(ArchiveItem, "metadata"):
+        setattr(
+            ArchiveItem,
+            "metadata",
+            property(lambda self: self.metadata_dict, lambda self, v: setattr(self, "metadata_dict", v)),
+        )
+
+
+_add_metadata_alias() 

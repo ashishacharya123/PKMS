@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Container,
   Grid,
@@ -19,30 +19,25 @@ import {
   Modal,
   Textarea,
   Rating,
-  Select,
-  Calendar,
-  Progress
+  Select
 } from '@mantine/core';
+import { Calendar } from '@mantine/dates';
 import {
   IconBook,
   IconPlus,
-  IconSearch,
   IconCalendar,
-  IconMood,
+  IconMoodSmile,
   IconEdit,
   IconTrash,
   IconDots,
   IconAlertTriangle,
   IconLock,
-  IconUpload,
-  IconPhoto,
-  IconMicrophone,
-  IconVideo,
   IconDownload
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useDiaryStore } from '../stores/diaryStore';
 import { diaryService } from '../services/diaryService';
+import { isSameDay } from 'date-fns';
 
 export function DiaryPage() {
   // Local state
@@ -301,8 +296,10 @@ export function DiaryPage() {
               </Group>
               
               <Calendar
-                value={selectedDate}
-                onChange={(date) => date && setSelectedDate(date)}
+                getDayProps={(date) => ({
+                  selected: isSameDay(date, selectedDate),
+                  onClick: () => setSelectedDate(date),
+                })}
                 size="sm"
                 renderDay={(date) => {
                   const dateStr = date.toISOString().split('T')[0];
@@ -334,7 +331,7 @@ export function DiaryPage() {
             <Paper p="md" withBorder>
               <Group justify="space-between" mb="xs">
                 <Text fw={600} size="sm">Mood Filter</Text>
-                <IconMood size={16} />
+                <IconMoodSmile size={16} />
               </Group>
               
               <Stack gap="xs">

@@ -146,7 +146,7 @@ export function DocumentsPage() {
   const handleUpload = async () => {
     if (!uploadFile) return;
     
-    const tags = uploadTags.split(',').map(tag => tag.trim()).filter(tag => tag);
+    const tags: string[] = uploadTags.split(',').map((tag: string) => tag.trim()).filter((tag) => tag);
     const success = await uploadDocument(uploadFile, tags);
     
     if (success) {
@@ -508,7 +508,12 @@ export function DocumentsPage() {
           />
           
           {isUploading && (
-            <Progress value={uploadProgress} label={`${uploadProgress}%`} />
+            <div style={{ position: 'relative' }}>
+              <Progress value={uploadProgress} />
+              <Text size="xs" ta="center" style={{ position: 'absolute', width: '100%', top: 0, left: 0 }}>
+                {uploadProgress}%
+              </Text>
+            </div>
           )}
           
           <Group justify="flex-end">

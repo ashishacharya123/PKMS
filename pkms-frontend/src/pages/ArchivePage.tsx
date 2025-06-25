@@ -23,7 +23,6 @@ import {
   Anchor,
   Checkbox,
   Progress,
-  Tooltip,
   Switch
 } from '@mantine/core';
 import {
@@ -53,11 +52,7 @@ import {
   IconVideo,
   IconMusic,
   IconFileZip,
-  IconCode,
-  IconChevronRight,
-  IconX,
-  IconCheck,
-  IconMove
+  IconCode
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useArchiveStore } from '../stores/archiveStore';
@@ -191,7 +186,7 @@ export function ArchivePage() {
   const handleUploadFiles = async () => {
     if (!selectedFiles.length || !currentFolderUuid) return;
     
-    const tags = uploadTags.split(',').map(tag => tag.trim()).filter(tag => tag);
+    const tags = uploadTags.split(',').map((tag: string) => tag.trim()).filter((tag) => tag);
     const success = await uploadItems(currentFolderUuid, selectedFiles, tags);
     
     if (success) {
@@ -515,7 +510,7 @@ export function ArchivePage() {
               <div>
                 <Text fw={600} mb="md">Folders</Text>
                 <Grid>
-                  {sortedFolders.map((folder) => (
+                  {sortedFolders.map((folder: ArchiveFolder) => (
                     <Grid.Col span={{ base: 12, sm: 6, lg: 4 }} key={folder.uuid}>
                       <Card 
                         shadow="sm" 
@@ -672,19 +667,15 @@ export function ArchivePage() {
                                   )}
                                 </Group>
                                 
-                                {item.tags.length > 0 && (
-                                  <Group gap="xs" mt="xs">
-                                    {item.tags.slice(0, 3).map(tag => (
-                                      <Badge key={tag} variant="dot" size="sm">
-                                        {tag}
-                                      </Badge>
-                                    ))}
-                                    {item.tags.length > 3 && (
-                                      <Badge variant="dot" size="sm" color="gray">
-                                        +{item.tags.length - 3}
-                                      </Badge>
-                                    )}
-                                  </Group>
+                                {item.tags.slice(0, 3).map((tag: string) => (
+                                  <Badge key={tag} variant="dot" size="sm">
+                                    {tag}
+                                  </Badge>
+                                ))}
+                                {item.tags.length > 3 && (
+                                  <Badge variant="dot" size="sm" color="gray">
+                                    +{item.tags.length - 3}
+                                  </Badge>
                                 )}
                               </div>
                             </Group>
@@ -764,7 +755,7 @@ export function ArchivePage() {
                                 <Text size="sm" c="dimmed">•</Text>
                                 <Text size="sm" c="dimmed">{formatDate(item.updated_at)}</Text>
                                 
-                                {item.tags.slice(0, 3).map(tag => (
+                                {item.tags.slice(0, 3).map((tag: string) => (
                                   <Badge key={tag} variant="dot" size="sm">
                                     {tag}
                                   </Badge>
