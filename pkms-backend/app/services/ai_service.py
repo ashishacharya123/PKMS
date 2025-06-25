@@ -11,10 +11,11 @@ from datetime import datetime
 
 try:
     from transformers import pipeline
-    from sentence_transformers import SentenceTransformer
     TRANSFORMERS_AVAILABLE = True
+    SENTENCE_TRANSFORMERS_AVAILABLE = False  # Disabled - requires PyTorch
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +75,8 @@ class AIService:
                 device=-1
             )
             
-            # Load sentence transformer for similarity
-            self.similarity_model = SentenceTransformer('all-MiniLM-L6-v2')
+            # Sentence transformers disabled (requires PyTorch)
+            self.similarity_model = None  # Would need: SentenceTransformer('all-MiniLM-L6-v2')
             
             self.models_loaded = True
             logger.info("✅ AI models loaded successfully")

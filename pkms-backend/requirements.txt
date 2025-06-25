@@ -44,13 +44,13 @@ transformers==4.36.0        # 🧠 Hugging Face transformers for smart tagging (
                             # - Text summarization for diary entries
                             # - Works with CPU inference (no GPU needed)
                             # - Pre-trained models for various tasks
-sentence-transformers==2.2.2 # 🎯 Semantic text similarity (~150MB)
-                            # ✅ Advanced text analysis:
+# sentence-transformers==2.2.2 # ⏸️ DISABLED - Requires PyTorch (~800MB)
+                            # 🔮 FUTURE: Advanced text analysis when PyTorch is added:
                             # - Smart content linking between modules
                             # - Similar document/note detection
                             # - Semantic search improvements
                             # - Find related content automatically
-huggingface-hub==0.19.0     # 🤗 Model downloads and management (~10MB)
+huggingface-hub>=0.19.3     # 🤗 Model downloads and management (~10MB)
                             # ✅ Manages pre-trained models:
                             # - Automatic model downloading
                             # - Model version control and caching
@@ -58,15 +58,16 @@ huggingface-hub==0.19.0     # 🤗 Model downloads and management (~10MB)
 
 # 🔮 FUTURE AI EXPANSION (DO NOT INSTALL UNLESS USER REQUESTS):
 # 
-# For Question & Answer capabilities, consider adding:
+# For advanced AI capabilities, consider adding:
 # - torch==2.1.0 (~800MB) - PyTorch for T5 model support
+# - sentence-transformers==2.2.2 (~150MB) - Semantic similarity (requires PyTorch)
 # - google/flan-t5-small (~300MB) - Question answering from archive content
 # - Text-to-text generation for Q&A interface
 # - Chat-like interface for knowledge base queries
 # 
-# Total additional Docker size: ~1.1GB
-# Usage: pip install torch transformers[torch]
-# Then modify ai_service.py to include T5 Q&A functionality
+# Total additional Docker size: ~1.2GB
+# Usage: pip install torch sentence-transformers transformers[torch]
+# Then modify ai_service.py to include semantic similarity and T5 Q&A functionality
 
 # --- Utilities ---
 python-dateutil>=2.8.2      # 📅 Date/time parsing
@@ -93,26 +94,25 @@ redis==5.0.1                # 🚀 Redis client (optional, for caching/sessions)
 aiocache==0.12.2            # ⚡ Async caching (multi-backend)
 
 # --- Smart Tagging Impact ---
-# 🧠 With Transformers: ~1.2GB total Docker image (up from 525MB)
+# 🧠 With Transformers: ~700MB total Docker image (up from 525MB)
 # ├── 🧠 Transformers: ~200MB       ✅ INSTALLED - Smart tagging models
-# ├── 🎯 Sentence-transformers: ~150MB ✅ INSTALLED - Semantic analysis
 # ├── 🤗 HuggingFace Hub: ~10MB     ✅ INSTALLED - Model management
 # └── 📦 Dependencies: ~300MB       ✅ INSTALLED - Supporting libraries
 #
-# 🔮 FUTURE EXPANSION (optional):
-# ├── 🧠 PyTorch: ~800MB           ⏸️ OPTIONAL - T5 Q&A model support
+# 🔮 FUTURE EXPANSION (optional - requires PyTorch):
+# ├── 🧠 PyTorch: ~800MB           ⏸️ OPTIONAL - Required for below features
+# ├── 🎯 Sentence-transformers: ~150MB ⏸️ OPTIONAL - Semantic analysis
 # └── 📚 google/flan-t5-small: ~300MB ⏸️ OPTIONAL - Question answering
 #
 # 📊 Smart Features (CURRENTLY ACTIVE):
 # ✅ Automatic content tagging based on text analysis
 # ✅ Smart document categorization (work, personal, research, etc.)
 # ✅ Diary entry sentiment and topic analysis
-# ✅ Related content suggestions across modules
-# ✅ Improved search with semantic similarity
-# ✅ Auto-linking between related notes/documents
 # ✅ Content summarization capabilities
+# ✅ Keyword-based content linking (basic)
 #
-# 🔮 OPTIONAL FEATURES (if PyTorch + T5 added):
+# 🔮 OPTIONAL FEATURES (if PyTorch + sentence-transformers + T5 added):
+# ⏸️ Advanced semantic similarity and content linking
 # ⏸️ Question answering from archive content (via T5)
 # ⏸️ Chat-like interface for knowledge base queries
 
