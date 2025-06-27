@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, Link } from 'react-router-dom';
 import {
   AppShell,
   ScrollArea,
@@ -12,23 +12,21 @@ import {
   Menu,
   Avatar,
   Divider,
-  Switch,
-  useMantineColorScheme
+  useMantineColorScheme,
+  Box
 } from '@mantine/core';
 import {
-  IconNotes,
+  IconHome,
+  IconNote,
   IconFiles,
-  IconChecklist,
+  IconCalendarCheck,
   IconBook,
   IconArchive,
-  IconSearch,
-  IconSettings,
   IconLogout,
-  IconUser,
-  IconMoon,
-  IconSun,
-  IconDashboard,
-  IconChevronDown
+
+  IconChevronDown,
+  IconSettings,
+  IconSearch
 } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -43,14 +41,14 @@ interface NavigationItem {
 const navigationItems: NavigationItem[] = [
   {
     label: 'Dashboard',
-    icon: IconDashboard,
+    icon: IconHome,
     path: '/dashboard',
     color: 'blue',
     description: 'Overview and quick access'
   },
   {
     label: 'Notes',
-    icon: IconNotes,
+    icon: IconNote,
     path: '/notes',
     color: 'green',
     description: 'Markdown notes with linking'
@@ -64,7 +62,7 @@ const navigationItems: NavigationItem[] = [
   },
   {
     label: 'Todos',
-    icon: IconChecklist,
+    icon: IconCalendarCheck,
     path: '/todos',
     color: 'red',
     description: 'Task and project management'
@@ -108,69 +106,60 @@ export function Navigation({ collapsed = false }: NavigationProps) {
   };
 
   const NavigationLink = ({ item }: { item: NavigationItem }) => (
-    <Tooltip
-      label={collapsed ? `${item.label} - ${item.description}` : undefined}
-      position="right"
-      disabled={!collapsed}
-      withArrow
+    <Box
+      component={Link}
+      to={item.path}
+      style={{
+        display: 'block',
+        padding: '10px 14px',
+        borderRadius: '8px',
+        textDecoration: 'none',
+        color: 'inherit',
+        transition: 'all 0.2s ease',
+        backgroundColor: isActive(item.path) ? 'var(--mantine-color-blue-light)' : 'transparent',
+        border: isActive(item.path) ? '1px solid var(--mantine-color-blue-filled)' : '1px solid transparent',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = isActive(item.path) 
+          ? 'var(--mantine-color-blue-light)' 
+          : 'var(--mantine-color-gray-light)';
+        e.currentTarget.style.transform = 'translateY(-1px)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = isActive(item.path) ? 'var(--mantine-color-blue-light)' : 'transparent';
+        e.currentTarget.style.transform = 'translateY(0)';
+      }}
     >
-      <UnstyledButton
-        component={NavLink}
-        to={item.path}
-        w="100%"
-        p="sm"
-        style={{
-          borderRadius: 'var(--mantine-radius-md)',
-          backgroundColor: isActive(item.path) 
-            ? colorScheme === 'dark' 
-              ? 'var(--mantine-color-dark-5)' 
-              : 'var(--mantine-color-gray-1)'
-            : 'transparent',
-          border: isActive(item.path) 
-            ? `1px solid var(--mantine-color-${item.color}-6)`
-            : '1px solid transparent',
-        }}
-        onMouseEnter={(e) => {
-          if (!isActive(item.path)) {
-            e.currentTarget.style.backgroundColor = colorScheme === 'dark' 
-              ? 'var(--mantine-color-dark-6)' 
-              : 'var(--mantine-color-gray-0)';
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!isActive(item.path)) {
-            e.currentTarget.style.backgroundColor = 'transparent';
-          }
-        }}
-      >
-        <Group gap="sm" wrap="nowrap">
-          <ThemeIcon
-            variant={isActive(item.path) ? 'filled' : 'light'}
-            color={item.color}
-            size="md"
-          >
-            <item.icon size={18} />
-          </ThemeIcon>
-          
-          {!collapsed && (
-            <div style={{ flex: 1 }}>
-              <Text size="sm" fw={isActive(item.path) ? 600 : 500}>
-                {item.label}
-              </Text>
-              <Text size="xs" c="dimmed" lineClamp={1}>
-                {item.description}
-              </Text>
-            </div>
-          )}
-        </Group>
-      </UnstyledButton>
-    </Tooltip>
+      <Group gap="md" wrap="nowrap">
+        <ThemeIcon
+          size="md"
+          variant="light"
+          color={item.color}
+          style={{
+            border: isActive(item.path) ? `2px solid ${item.color}` : 'none',
+          }}
+        >
+          <item.icon size={18} />
+        </ThemeIcon>
+        
+        {!collapsed && (
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Text fw={500} size="sm" lineClamp={1}>
+              {item.label}
+            </Text>
+            <Text size="xs" c="dimmed" lineClamp={1}>
+              {item.description}
+            </Text>
+          </div>
+        )}
+      </Group>
+    </Box>
   );
 
   return (
     <AppShell.Navbar
       w={collapsed ? 80 : 280}
-      p="md"
+      p="sm"
       style={{
         borderRight: `1px solid ${
           colorScheme === 'dark' ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'
@@ -179,22 +168,29 @@ export function Navigation({ collapsed = false }: NavigationProps) {
     >
       {/* Header Section */}
       <AppShell.Section>
-        <Group gap="xs" mb="md">
-          <ThemeIcon size="lg" variant="gradient" gradient={{ from: 'blue', to: 'purple' }}>
-            <IconBook size={20} />
+        <Group gap="sm" mb="xs" wrap="nowrap">
+          <ThemeIcon size="xl" variant="gradient" gradient={{ from: 'blue', to: 'purple' }}>
+            <IconBook size={28} />
           </ThemeIcon>
           {!collapsed && (
-            <div>
-              <Text size="lg" fw={700} variant="gradient" gradient={{ from: 'blue', to: 'purple' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Text size="xl" fw={700} variant="gradient" gradient={{ from: 'blue', to: 'purple' }}>
                 PKMS
               </Text>
-              <Text size="xs" c="dimmed">
-                Personal Knowledge Management
-              </Text>
+              <div>
+                <Text size="10px" c="dimmed" lh={1.1}>
+                  Personal Knowledge
+                </Text>
+                <Text size="10px" c="dimmed" lh={1.1}>
+                  Management System
+                </Text>
+              </div>
             </div>
           )}
         </Group>
       </AppShell.Section>
+
+
 
       {/* Navigation Links */}
       <AppShell.Section grow component={ScrollArea}>
@@ -207,13 +203,13 @@ export function Navigation({ collapsed = false }: NavigationProps) {
 
       {/* Footer Section */}
       <AppShell.Section>
-        <Divider mb="md" />
+        <Divider mb="sm" />
         
         {/* Global Search */}
         <Tooltip label={collapsed ? "Global Search" : undefined} position="right" disabled={!collapsed}>
           <UnstyledButton
             w="100%"
-            p="sm"
+            p="xs"
             mb="xs"
             style={{
               borderRadius: 'var(--mantine-radius-md)',
@@ -240,22 +236,7 @@ export function Navigation({ collapsed = false }: NavigationProps) {
           </UnstyledButton>
         </Tooltip>
 
-        {/* Theme Toggle */}
-        {!collapsed && (
-          <Group justify="space-between" mb="sm">
-            <Group gap="xs">
-              <ThemeIcon variant="light" color="yellow" size="sm">
-                {colorScheme === 'dark' ? <IconMoon size={14} /> : <IconSun size={14} />}
-              </ThemeIcon>
-              <Text size="sm">Dark mode</Text>
-            </Group>
-            <Switch
-              checked={colorScheme === 'dark'}
-              onChange={() => toggleColorScheme()}
-              size="sm"
-            />
-          </Group>
-        )}
+
 
         {/* User Menu */}
         <Menu
@@ -267,7 +248,7 @@ export function Navigation({ collapsed = false }: NavigationProps) {
           <Menu.Target>
             <UnstyledButton
               w="100%"
-              p="sm"
+              p="xs"
               style={{
                 borderRadius: 'var(--mantine-radius-md)',
                 border: `1px solid ${
@@ -285,7 +266,7 @@ export function Navigation({ collapsed = false }: NavigationProps) {
             >
               <Group gap="sm" wrap="nowrap">
                 <Avatar size="sm" color="blue">
-                  {user?.username?.charAt(0).toUpperCase() || 'U'}
+                  {user?.username ? user.username.charAt(0).toUpperCase() : 'A'}
                 </Avatar>
                 {!collapsed && (
                   <>
@@ -305,20 +286,13 @@ export function Navigation({ collapsed = false }: NavigationProps) {
           </Menu.Target>
 
           <Menu.Dropdown>
-            <Menu.Item leftSection={<IconUser size={14} />}>
+            <Menu.Item leftSection={<IconHome size={14} />}>
               Profile Settings
             </Menu.Item>
             <Menu.Item leftSection={<IconSettings size={14} />}>
               Preferences
             </Menu.Item>
-            {collapsed && (
-              <Menu.Item 
-                leftSection={colorScheme === 'dark' ? <IconSun size={14} /> : <IconMoon size={14} />}
-                onClick={() => toggleColorScheme()}
-              >
-                Toggle Theme
-              </Menu.Item>
-            )}
+
             <Menu.Divider />
             <Menu.Item 
               leftSection={<IconLogout size={14} />} 

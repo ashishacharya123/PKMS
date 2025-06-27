@@ -202,6 +202,9 @@ Design complete schema for:
 - [ ] Desktop app launches and manages backend automatically
 - [ ] **Security Features**: Strong password validation, secure session handling, encrypted storage
 
+## **UI Design Notes**
+- **Header Layout**: Blue theme (#1976d2) background with white text, increased spacing (gap="lg"), Devanagari text set to xl size for better readability. Live indicator and dark mode toggle integrated in header for easy access.
+
 ## **Specific Technical Requirements**
 - **Authentication**: PBKDF2 password hashing with salt, session-based auth
 - **Encryption**: AES-256-GCM for diary content, ChaCha20-Poly1305 for media files

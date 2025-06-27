@@ -620,4 +620,57 @@ All requested functionality implemented and tested:
 - Added runtime alias for backward compatibility; backend `/health` endpoint operational.
 
 ### 2025-06-26
-- Fixed front-end crash: replaced deprecated `IconMood` with `IconMoodSmile` and updated Mantine `Calendar` usage in `DiaryPage.tsx`. 
+- Fixed front-end crash: replaced deprecated `IconMood` with `IconMoodSmile` and updated Mantine `Calendar` usage in `DiaryPage.tsx`.
+
+### 2025-01-10 18:00:00 +05:45 - Log Entry #20
+**Navigation UI Enhancement & Nepali Date Integration** ✅ **COMPLETED**
+- **Nepali Date Support**: Integrated `nepali-date-converter` for real-time English to Bikram Sambat conversion
+- **Live Date/Time Widget**: Added beautiful gradient-styled date/time section in navigation with:
+  - Live time display with "LIVE" badge
+  - English date (e.g., "Jan 10, 2025") 
+  - Nepali date (e.g., "2081/09/26 BS") with Bikram Sambat label
+  - Color-coded icons (blue for time, green for English date, orange for Nepali date)
+- **Avatar Fix**: Improved avatar capitalization and changed default fallback from 'U' to 'A'
+- **Cultural Relevance**: Nepali users can now see dates in familiar Bikram Sambat format
+- **Better Space Utilization**: Effectively utilized empty navigation space with useful information
+- **Technical Features**: 60-second interval updates, error handling, responsive design, theme-aware styling 
+
+### 2025-01-23 14:45:00 +05:45 - Log Entry #29
+**Header UI Enhancement & Auto-Updating Time** ✅ **COMPLETED**
+- **Visual Design Improvements**: Enhanced header with color-coded background boxes for better organization
+  - Date Box: Blue theme with proper contrast and spacing
+  - Day Box: Emerald theme for day information
+  - Time Box: Orange theme with LIVE indicator
+  - Dark Mode Box: Gray theme for theme toggle
+- **Auto-Updating Time Feature**: Modified useDateTime hook to update every 10 seconds (improved from 60 seconds)
+- **Professional Layout**: Individual Box components with consistent padding, rounded corners, and subtle borders
+- **Enhanced User Experience**: Real-time time updates with live progression and better visual hierarchy
+- **Cultural Integration**: Maintained Devanagari script support with enhanced visibility and color contrast
+- **Performance Optimized**: Proper interval cleanup to prevent memory leaks while providing live updates 
+
+### 2025-01-23 15:00:00 +05:45 - Log Entry #30
+**Header Box Size Reduction & Text Clipping Fix** ✅ **COMPLETED**
+- **Text Clipping Resolution**: Fixed header boxes that were too large (40px height) and causing text to be cut off upward
+- **Compact Design Implementation**: Reduced AppShell header height from 40px to 32px for better proportion with content area
+- **Box Optimization**: Reduced padding from 6px 12px to 4px 8px, border radius from 8px to 6px, and minimum width from 120px to 100px
+- **Text Size Refinement**: Adjusted all text sizes (English date: sm→xs, Nepali date: md→sm, time: sm→xs) while maintaining readability
+- **LIVE Indicator Enhancement**: Optimized button padding (2px 6px→1px 4px), border radius (6px→4px), and dot size (4px→3px)
+- **Professional Appearance**: Achieved clean, proportional header design without text clipping or visual overflow
+- **Cultural Preservation**: Maintained all Devanagari script support and cultural authenticity within compact design
+- **Enhanced UX**: Header no longer interferes with content visibility while preserving all functionality 
+
+### 2025-01-23 16:00:00 +05:45 - Log Entry #33
+**Header Theme Consistency & Enhanced Layout** ✅ **COMPLETED**
+- **Theme Consistency Achievement**: Updated header styling to match the modern sidebar theme, replacing solid blue background with component-based layout
+- **Layout System Transformation**: Changed from single-color background to individual rounded boxes for each element (date, time, Nepali elements)
+- **Header Height Enhancement**: Increased from 32px to 48px for better visual proportion and breathing room
+- **Component-Based Design**: Each date/time element now has its own styled box with theme-aware colors:
+  - English elements: Gray theme boxes adapting to light/dark mode
+  - Nepali elements: Blue-themed boxes highlighting cultural content  
+  - LIVE indicator: Enhanced green themed box with improved styling
+  - Dark mode toggle: Professional theme-aware box design
+- **Design Language Consistency**: Perfect visual harmony between header and sidebar using same design patterns
+- **Professional Appearance**: Modern card-like appearance with consistent rounded corners, shadows, and borders
+- **Theme Integration**: Dynamic color adaptation for light/dark mode with Mantine CSS variables
+- **Cultural Prominence**: Nepali elements prominently displayed while maintaining overall design consistency
+- **Enhanced UX**: Better visual organization, improved readability, and cleaner information hierarchy throughout the application interface 

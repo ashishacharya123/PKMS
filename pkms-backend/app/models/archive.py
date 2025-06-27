@@ -114,17 +114,14 @@ class ArchiveItem(Base):
         return f"<ArchiveItem(uuid='{self.uuid}', name='{self.name}', folder='{self.folder.name if self.folder else 'None'}')>"
 
 
-# Runtime alias: allow `item.metadata` to continue working without conflicting with SQLAlchemy
-# This alias is attached AFTER class definition, so it does not interfere with the declarative
-# class construction (when SQLAlchemy inspects attributes).
+# Note: We previously added a dynamic `metadata` property on `ArchiveItem` to expose the parsed
+# metadata dictionary. Unfortunately, defining an attribute named `metadata` conflicts with
+# SQLAlchemy's internal use of that name during table construction, causing the application to
+# crash at startup (`AttributeError: 'property' object has no attribute 'schema'`).
+#
+# To avoid this name collision, we will no longer inject a `metadata` property here.  Consumers
+# should use the existing `metadata_dict` helper or access `metadata_json` directly and parse it
+# themselves.
 
-def _add_metadata_alias():
-    if not hasattr(ArchiveItem, "metadata"):
-        setattr(
-            ArchiveItem,
-            "metadata",
-            property(lambda self: self.metadata_dict, lambda self, v: setattr(self, "metadata_dict", v)),
-        )
-
-
-_add_metadata_alias() 
+# IMPORTANT: If any external code relied on `item.metadata`, update it to use
+# `item.metadata_dict` instead. 

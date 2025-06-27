@@ -16,7 +16,8 @@ import {
   Alert,
   Paper,
   ActionIcon,
-  Tooltip
+  Tooltip,
+  Divider
 } from '@mantine/core';
 import {
   IconNotes,
@@ -28,15 +29,19 @@ import {
   IconClock,
   IconTrendingUp,
   IconAlertTriangle,
-  IconRefresh
+  IconRefresh,
+  IconCalendar,
+  IconArchive
 } from '@tabler/icons-react';
 import { useAuthStore } from '../stores/authStore';
+import { Link } from 'react-router-dom';
 
 interface ModuleStats {
   notes: { total: number; recent: number };
   documents: { total: number; recent: number };
   todos: { total: number; completed: number; overdue: number };
   diary: { entries: number; streak: number };
+  archive: { folders: number; items: number };
 }
 
 interface QuickAction {
@@ -102,7 +107,8 @@ export function DashboardPage() {
         notes: { total: 42, recent: 5 },
         documents: { total: 18, recent: 3 },
         todos: { total: 24, completed: 16, overdue: 2 },
-        diary: { entries: 15, streak: 7 }
+        diary: { entries: 15, streak: 7 },
+        archive: { folders: 8, items: 127 }
       });
     } catch (err) {
       setError('Failed to load dashboard data');
@@ -113,7 +119,8 @@ export function DashboardPage() {
         notes: { total: 0, recent: 0 },
         documents: { total: 0, recent: 0 },
         todos: { total: 0, completed: 0, overdue: 0 },
-        diary: { entries: 0, streak: 0 }
+        diary: { entries: 0, streak: 0 },
+        archive: { folders: 0, items: 0 }
       });
     } finally {
       setIsLoading(false);
@@ -142,47 +149,114 @@ export function DashboardPage() {
     path: string;
     description: string;
   }) => (
-    <Card 
-      shadow="sm" 
-      padding="lg" 
-      radius="md" 
+    <Card
+      component={Link}
+      to={path}
+      padding="lg"
+      radius="md"
       withBorder
-      style={{ cursor: 'pointer', transition: 'transform 0.2s ease' }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'translateY(-2px)';
+      style={{ 
+        textDecoration: 'none',
+        transition: 'all 0.2s ease',
+        height: '100%',
+        cursor: 'pointer',
       }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = 'translateY(0)';
-      }}
-      onClick={() => navigate(path)}
     >
-      <Group justify="space-between" mb="xs">
-        <Group gap="sm">
-          <ThemeIcon size="lg" variant="light" color={color}>
-            <Icon size={24} />
-          </ThemeIcon>
-          <div>
-            <Text fw={600} size="lg">{title}</Text>
-            <Text size="sm" c="dimmed">{description}</Text>
-          </div>
-        </Group>
-        <ActionIcon variant="light" color={color} onClick={(e) => {
-          e.stopPropagation();
-          navigate(path);
-        }}>
-          <IconPlus size={16} />
-        </ActionIcon>
+      <Group justify="space-between" mb="md">
+        <ThemeIcon size="xl" variant="light" color={color} radius="md">
+          <Icon size={24} />
+        </ThemeIcon>
+        
+        <Badge variant="light" color={color} size="lg">
+          {title === 'Notes' && moduleStats?.total || 0}
+          {title === 'Documents' && moduleStats?.total || 0}
+          {title === 'Todos' && `${moduleStats?.pending || 0}/${moduleStats?.total || 0}`}
+          {title === 'Diary' && moduleStats?.entries || 0}
+          {title === 'Archive' && moduleStats?.items || 0}
+        </Badge>
       </Group>
 
+      <Text fw={600} size="lg" mb="xs">
+        {title}
+      </Text>
+      
+      <Text size="sm" c="dimmed" mb="md" lineClamp={2}>
+        {description}
+      </Text>
+
       <Stack gap="xs">
-        {moduleStats && typeof moduleStats === 'object' && Object.entries(moduleStats).map(([key, value]) => (
-          <Group justify="space-between" key={key}>
-            <Text size="sm" tt="capitalize" c="dimmed">{key.replace(/([A-Z])/g, ' $1').trim()}</Text>
-            <Badge variant="light" color={color} size="sm">
-              {String(value)}
-            </Badge>
-          </Group>
-        ))}
+        {title === 'Notes' && (
+          <>
+            <Group justify="space-between">
+              <Text size="sm">Total notes</Text>
+              <Text size="sm" fw={500}>{moduleStats?.total || 0}</Text>
+            </Group>
+            <Group justify="space-between">
+              <Text size="sm">Recent</Text>
+              <Text size="sm" fw={500}>{moduleStats?.recent || 0}</Text>
+            </Group>
+          </>
+        )}
+
+        {title === 'Documents' && (
+          <>
+            <Group justify="space-between">
+              <Text size="sm">Total files</Text>
+              <Text size="sm" fw={500}>{moduleStats?.total || 0}</Text>
+            </Group>
+            <Group justify="space-between">
+              <Text size="sm">Recent uploads</Text>
+              <Text size="sm" fw={500}>{moduleStats?.recent || 0}</Text>
+            </Group>
+          </>
+        )}
+
+        {title === 'Todos' && (
+          <>
+            <Group justify="space-between">
+              <Text size="sm">Pending</Text>
+              <Text size="sm" fw={500} c={moduleStats?.overdue > 0 ? 'red' : undefined}>
+                {moduleStats?.pending || 0}
+              </Text>
+            </Group>
+            <Group justify="space-between">
+              <Text size="sm">Completed</Text>
+              <Text size="sm" fw={500} c="green">{moduleStats?.completed || 0}</Text>
+            </Group>
+            {moduleStats?.overdue > 0 && (
+              <Group justify="space-between">
+                <Text size="sm" c="red">Overdue</Text>
+                <Text size="sm" fw={500} c="red">{moduleStats?.overdue}</Text>
+              </Group>
+            )}
+          </>
+        )}
+
+                    {title === 'Diary' && (
+              <>
+                <Group justify="space-between">
+                  <Text size="sm">Entries</Text>
+                  <Text size="sm" fw={500}>{moduleStats?.entries || 0}</Text>
+                </Group>
+                <Group justify="space-between">
+                  <Text size="sm">Current streak</Text>
+                  <Text size="sm" fw={500}>{moduleStats?.streak || 0} days</Text>
+                </Group>
+              </>
+            )}
+
+            {title === 'Archive' && (
+              <>
+                <Group justify="space-between">
+                  <Text size="sm">Folders</Text>
+                  <Text size="sm" fw={500}>{moduleStats?.folders || 0}</Text>
+                </Group>
+                <Group justify="space-between">
+                  <Text size="sm">Total items</Text>
+                  <Text size="sm" fw={500}>{moduleStats?.items || 0}</Text>
+                </Group>
+              </>
+            )}
       </Stack>
     </Card>
   );
@@ -251,10 +325,10 @@ export function DashboardPage() {
 
         {/* Welcome Header */}
         <Paper p="xl" radius="md" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-          <Group justify="space-between" align="flex-start">
+          <Group justify="space-between" align="center">
             <div>
               <Text size="xl" fw={700} c="white">
-                {getGreeting()}, {user?.username || 'User'}!
+                {getGreeting()}, {user?.username ? user.username.charAt(0).toUpperCase() + user.username.slice(1) : 'User'}!
               </Text>
               <Text size="sm" c="rgba(255,255,255,0.8)" mt="xs">
                 Welcome to your Personal Knowledge Management System
@@ -265,6 +339,7 @@ export function DashboardPage() {
                 </Badge>
               )}
             </div>
+            
             <Group gap="xs">
               <Tooltip label="Global Search">
                 <ActionIcon size="lg" variant="white" color="gray">
@@ -290,7 +365,7 @@ export function DashboardPage() {
           </Group>
           
           <Grid>
-            <Grid.Col span={{ base: 12, sm: 6, lg: 3 }}>
+            <Grid.Col span={{ base: 12, sm: 6, lg: 2.4 }}>
               <ModuleCard
                 title="Notes"
                 icon={IconNotes}
@@ -301,7 +376,7 @@ export function DashboardPage() {
               />
             </Grid.Col>
             
-            <Grid.Col span={{ base: 12, sm: 6, lg: 3 }}>
+            <Grid.Col span={{ base: 12, sm: 6, lg: 2.4 }}>
               <ModuleCard
                 title="Documents"
                 icon={IconFiles}
@@ -312,7 +387,7 @@ export function DashboardPage() {
               />
             </Grid.Col>
             
-            <Grid.Col span={{ base: 12, sm: 6, lg: 3 }}>
+            <Grid.Col span={{ base: 12, sm: 6, lg: 2.4 }}>
               <ModuleCard
                 title="Todos"
                 icon={IconChecklist}
@@ -323,7 +398,7 @@ export function DashboardPage() {
               />
             </Grid.Col>
             
-            <Grid.Col span={{ base: 12, sm: 6, lg: 3 }}>
+            <Grid.Col span={{ base: 12, sm: 6, lg: 2.4 }}>
               <ModuleCard
                 title="Diary"
                 icon={IconBook}
@@ -331,6 +406,17 @@ export function DashboardPage() {
                 stats={stats?.diary}
                 path="/diary"
                 description="Encrypted personal journal"
+              />
+            </Grid.Col>
+
+            <Grid.Col span={{ base: 12, sm: 6, lg: 2.4 }}>
+              <ModuleCard
+                title="Archive"
+                icon={IconArchive}
+                color="blue"
+                stats={stats?.archive}
+                path="/archive"
+                description="Hierarchical file organization"
               />
             </Grid.Col>
           </Grid>

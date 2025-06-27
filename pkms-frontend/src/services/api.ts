@@ -75,11 +75,24 @@ class ApiService {
   }
 
   private getErrorMessage(error: AxiosError): string {
-    if (error.response?.data) {
-      const data = error.response.data as any;
-      return data.detail || data.message || 'An error occurred';
+    const status = error.response?.status;
+    if (status === 401) {
+      return 'Authentication failed. Please log in again.';
+    } else if (status === 403) {
+      return 'You do not have permission to perform this action.';
+    } else if (status === 404) {
+      return 'The requested resource was not found.';
+    } else if (status === 422) {
+      return 'Invalid data provided. Please check your input.';
+    } else if (status === 429) {
+      return 'Too many requests. Please wait a moment and try again.';
+    } else if (status && status >= 500) {
+      return 'Server error. Please try again later.';
+    } else if (error.code === 'NETWORK_ERROR' || !error.response) {
+      return 'Network error. Please check your connection and try again.';
     }
-    return error.message || 'Network error';
+    const responseData = error.response?.data as { detail?: string } | undefined;
+    return responseData?.detail || error.message || 'An unexpected error occurred';
   }
 
   // Check if token is close to expiry (within 5 minutes)

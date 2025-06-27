@@ -120,7 +120,7 @@ export function ArchivePage() {
   // Load initial data
   useEffect(() => {
     loadFolders();
-  }, []);
+  }, [loadFolders]);
 
   // Update search when debounced value changes
   useEffect(() => {
@@ -506,7 +506,37 @@ export function ArchivePage() {
             )}
 
             {/* Folders */}
-            {!isLoading && sortedFolders.length > 0 && (
+            {!isLoading && folders.length === 0 && items.length === 0 && !currentFolder && (
+              <Paper p="xl" ta="center">
+                <ThemeIcon size={60} radius="md" variant="light" color="gray" mx="auto" mb="md">
+                  <IconFolder size={30} />
+                </ThemeIcon>
+                <Title order={3} mb="xs">No folders or files yet</Title>
+                <Text c="dimmed" mb="md">
+                  Create your first folder to start organizing your files
+                </Text>
+                <Group justify="center" gap="md">
+                  <Button
+                    leftSection={<IconFolderPlus size={16} />}
+                    onClick={() => setFolderModalOpen(true)}
+                  >
+                    Create Folder
+                  </Button>
+                  {currentFolder && (
+                    <Button
+                      leftSection={<IconUpload size={16} />}
+                      variant="light"
+                      onClick={() => setUploadModalOpen(true)}
+                    >
+                      Upload Files
+                    </Button>
+                  )}
+                </Group>
+              </Paper>
+            )}
+
+            {/* Render Folders */}
+            {!isLoading && folders.length > 0 && (
               <div>
                 <Text fw={600} mb="md">Folders</Text>
                 <Grid>
@@ -527,33 +557,30 @@ export function ArchivePage() {
                             </ThemeIcon>
                             
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <Text fw={600} size="sm" truncate>{folder.name}</Text>
+                              <Text fw={500} truncate>
+                                {folder.name}
+                              </Text>
                               {folder.description && (
-                                <Text size="xs" c="dimmed" lineClamp={2}>
+                                <Text size="sm" c="dimmed" lineClamp={2}>
                                   {folder.description}
                                 </Text>
                               )}
                               <Group gap="xs" mt="xs">
-                                <Badge variant="light" size="sm">
+                                <Badge size="xs" variant="light">
                                   {folder.item_count} files
                                 </Badge>
-                                <Badge variant="light" size="sm">
+                                <Badge size="xs" variant="light" color="green">
                                   {folder.subfolder_count} folders
                                 </Badge>
                                 {folder.total_size > 0 && (
-                                  <Badge variant="light" size="sm">
+                                  <Badge size="xs" variant="light" color="orange">
                                     {formatFileSize(folder.total_size)}
-                                  </Badge>
-                                )}
-                                {folder.is_archived && (
-                                  <Badge variant="light" color="gray" size="sm">
-                                    Archived
                                   </Badge>
                                 )}
                               </Group>
                             </div>
                           </Group>
-                          
+
                           <Menu withinPortal position="bottom-end">
                             <Menu.Target>
                               <ActionIcon 
@@ -590,7 +617,7 @@ export function ArchivePage() {
                                 {folder.is_archived ? 'Unarchive' : 'Archive'}
                               </Menu.Item>
                               <Menu.Divider />
-                              <Menu.Item 
+                              <Menu.Item
                                 leftSection={<IconTrash size={14} />}
                                 color="red"
                                 onClick={(e) => {
@@ -610,76 +637,89 @@ export function ArchivePage() {
               </div>
             )}
 
-            {/* Files */}
-            {!isLoading && currentFolder && sortedItems.length > 0 && (
+            {/* Files/Items */}
+            {!isLoading && currentFolder && (
               <div>
                 <Group justify="space-between" align="center" mb="md">
                   <Text fw={600}>Files</Text>
                   <Group gap="xs">
-                    <Button
-                      size="xs"
-                      variant="subtle"
-                      onClick={selectAllItems}
+                    <ActionIcon
+                      variant={viewMode === 'list' ? 'filled' : 'light'}
+                      onClick={() => setViewMode('list')}
+                      aria-label="List view"
                     >
-                      Select All
-                    </Button>
+                      <IconList size={16} />
+                    </ActionIcon>
+                    <ActionIcon
+                      variant={viewMode === 'grid' ? 'filled' : 'light'}
+                      onClick={() => setViewMode('grid')}
+                      aria-label="Grid view"
+                    >
+                      <IconGrid3x3 size={16} />
+                    </ActionIcon>
                   </Group>
                 </Group>
-                
-                {viewMode === 'grid' ? (
+
+                {sortedItems.length === 0 ? (
+                  <Paper p="xl" ta="center">
+                    <ThemeIcon size={60} radius="md" variant="light" color="gray" mx="auto" mb="md">
+                      <IconFile size={30} />
+                    </ThemeIcon>
+                    <Title order={4} mb="xs">No files in this folder</Title>
+                    <Text c="dimmed" mb="md">
+                      Upload files to start organizing your content
+                    </Text>
+                    <Button
+                      leftSection={<IconUpload size={16} />}
+                      onClick={() => setUploadModalOpen(true)}
+                    >
+                      Upload Files
+                    </Button>
+                  </Paper>
+                ) : (
                   <Grid>
-                    {sortedItems.map((item) => (
-                      <Grid.Col span={{ base: 12, sm: 6, lg: 4 }} key={item.uuid}>
+                    {sortedItems.map((item: ArchiveItemSummary) => (
+                      <Grid.Col span={{ base: 12, sm: 6, lg: viewMode === 'grid' ? 4 : 12 }} key={item.uuid}>
                         <Card 
                           shadow="sm" 
                           padding="md" 
                           radius="md" 
                           withBorder
+                          style={{ 
+                            height: viewMode === 'grid' ? '200px' : 'auto',
+                            display: 'flex',
+                            flexDirection: 'column'
+                          }}
                         >
-                          <Group justify="space-between" align="flex-start">
-                            <Group align="flex-start" gap="md" style={{ flex: 1 }}>
-                              <Checkbox
-                                checked={selectedItems.has(item.uuid)}
-                                onChange={() => toggleItemSelection(item.uuid)}
-                              />
+                          <Group justify="space-between" align="flex-start" mb="xs">
+                            <Group gap="md" style={{ flex: 1, minWidth: 0 }}>
+                              <ThemeIcon size="md" variant="light">
+                                {getFileIcon(item.mime_type)}
+                              </ThemeIcon>
                               
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <Group gap="xs" mb="xs">
-                                  {getFileIcon(item.mime_type)}
-                                  <Text fw={600} size="sm" truncate>{item.name}</Text>
+                                <Group gap="xs" mb={4}>
+                                  <Text fw={500} truncate style={{ flex: 1 }}>
+                                    {item.name}
+                                  </Text>
+                                  {item.is_favorite && (
+                                    <IconStarFilled size={14} color="gold" />
+                                  )}
                                 </Group>
-                                
-                                <Text size="xs" c="dimmed" mb="xs">{item.original_filename}</Text>
-                                
-                                <Group gap="xs">
-                                  <Badge variant="light" size="sm">
+                                <Text size="sm" c="dimmed" truncate>
+                                  {item.original_filename}
+                                </Text>
+                                <Group gap="xs" mt="xs">
+                                  <Badge size="xs" variant="light">
                                     {formatFileSize(item.file_size)}
                                   </Badge>
-                                  {item.is_favorite && (
-                                    <Badge variant="light" color="yellow" size="sm">
-                                      ⭐ Favorite
-                                    </Badge>
-                                  )}
-                                  {item.is_archived && (
-                                    <Badge variant="light" color="gray" size="sm">
-                                      Archived
-                                    </Badge>
-                                  )}
+                                  <Badge size="xs" variant="light" color="green">
+                                    {formatDate(item.updated_at)}
+                                  </Badge>
                                 </Group>
-                                
-                                {item.tags.slice(0, 3).map((tag: string) => (
-                                  <Badge key={tag} variant="dot" size="sm">
-                                    {tag}
-                                  </Badge>
-                                ))}
-                                {item.tags.length > 3 && (
-                                  <Badge variant="dot" size="sm" color="gray">
-                                    +{item.tags.length - 3}
-                                  </Badge>
-                                )}
                               </div>
                             </Group>
-                            
+
                             <Menu withinPortal position="bottom-end">
                               <Menu.Target>
                                 <ActionIcon variant="subtle" color="gray">
@@ -698,7 +738,7 @@ export function ArchivePage() {
                                   leftSection={item.is_favorite ? <IconStar size={14} /> : <IconStarFilled size={14} />}
                                   onClick={() => updateItem(item.uuid, { is_favorite: !item.is_favorite })}
                                 >
-                                  {item.is_favorite ? 'Remove from Favorites' : 'Add to Favorites'}
+                                  {item.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
                                 </Menu.Item>
                                 <Menu.Item 
                                   leftSection={item.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
@@ -707,7 +747,7 @@ export function ArchivePage() {
                                   {item.is_archived ? 'Unarchive' : 'Archive'}
                                 </Menu.Item>
                                 <Menu.Divider />
-                                <Menu.Item 
+                                <Menu.Item
                                   leftSection={<IconTrash size={14} />}
                                   color="red"
                                   onClick={() => handleDeleteItem(item)}
@@ -717,135 +757,35 @@ export function ArchivePage() {
                               </Menu.Dropdown>
                             </Menu>
                           </Group>
-                          
-                          {item.preview && (
-                            <Text size="sm" c="dimmed" lineClamp={3} mt="md">
+
+                          {/* Tags */}
+                          {item.tags.length > 0 && (
+                            <Group gap="xs" mt="auto">
+                              {item.tags.slice(0, 3).map((tag) => (
+                                <Badge key={tag} size="xs" variant="dot">
+                                  {tag}
+                                </Badge>
+                              ))}
+                              {item.tags.length > 3 && (
+                                <Badge size="xs" variant="dot" color="gray">
+                                  +{item.tags.length - 3}
+                                </Badge>
+                              )}
+                            </Group>
+                          )}
+
+                          {/* Preview text for list view */}
+                          {viewMode === 'list' && item.preview && (
+                            <Text size="sm" c="dimmed" mt="xs" lineClamp={2}>
                               {item.preview}
                             </Text>
                           )}
-                          
-                          <Text size="xs" c="dimmed" mt="md">
-                            {formatDate(item.updated_at)}
-                          </Text>
                         </Card>
                       </Grid.Col>
                     ))}
                   </Grid>
-                ) : (
-                  <Stack gap="sm">
-                    {sortedItems.map((item) => (
-                      <Card key={item.uuid} padding="md" withBorder>
-                        <Group justify="space-between">
-                          <Group gap="md" style={{ flex: 1 }}>
-                            <Checkbox
-                              checked={selectedItems.has(item.uuid)}
-                              onChange={() => toggleItemSelection(item.uuid)}
-                            />
-                            
-                            {getFileIcon(item.mime_type)}
-                            
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <Group gap="xs" mb="xs">
-                                <Text fw={600} size="sm" truncate>{item.name}</Text>
-                                <Text size="xs" c="dimmed">({item.original_filename})</Text>
-                              </Group>
-                              
-                              <Group gap="xs">
-                                <Text size="sm" c="dimmed">{formatFileSize(item.file_size)}</Text>
-                                <Text size="sm" c="dimmed">•</Text>
-                                <Text size="sm" c="dimmed">{formatDate(item.updated_at)}</Text>
-                                
-                                {item.tags.slice(0, 3).map((tag: string) => (
-                                  <Badge key={tag} variant="dot" size="sm">
-                                    {tag}
-                                  </Badge>
-                                ))}
-                                {item.tags.length > 3 && (
-                                  <Badge variant="dot" size="sm" color="gray">
-                                    +{item.tags.length - 3}
-                                  </Badge>
-                                )}
-                              </Group>
-                            </div>
-                          </Group>
-                          
-                          <Menu withinPortal position="bottom-end">
-                            <Menu.Target>
-                              <ActionIcon variant="subtle" color="gray">
-                                <IconDots size={16} />
-                              </ActionIcon>
-                            </Menu.Target>
-                            
-                            <Menu.Dropdown>
-                              <Menu.Item 
-                                leftSection={<IconDownload size={14} />}
-                                onClick={() => handleDownloadItem(item)}
-                              >
-                                Download
-                              </Menu.Item>
-                              <Menu.Item 
-                                leftSection={item.is_favorite ? <IconStar size={14} /> : <IconStarFilled size={14} />}
-                                onClick={() => updateItem(item.uuid, { is_favorite: !item.is_favorite })}
-                              >
-                                {item.is_favorite ? 'Remove from Favorites' : 'Add to Favorites'}
-                              </Menu.Item>
-                              <Menu.Item 
-                                leftSection={item.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
-                                onClick={() => updateItem(item.uuid, { is_archived: !item.is_archived })}
-                              >
-                                {item.is_archived ? 'Unarchive' : 'Archive'}
-                              </Menu.Item>
-                              <Menu.Divider />
-                              <Menu.Item 
-                                leftSection={<IconTrash size={14} />}
-                                color="red"
-                                onClick={() => handleDeleteItem(item)}
-                              >
-                                Delete
-                              </Menu.Item>
-                            </Menu.Dropdown>
-                          </Menu>
-                        </Group>
-                      </Card>
-                    ))}
-                  </Stack>
                 )}
               </div>
-            )}
-
-            {/* Empty State */}
-            {!isLoading && sortedFolders.length === 0 && (!currentFolder || sortedItems.length === 0) && (
-              <Paper p="xl" radius="md" style={{ textAlign: 'center' }}>
-                <ThemeIcon size="xl" variant="light" color="blue" mx="auto" mb="md">
-                  <IconFolder size={32} />
-                </ThemeIcon>
-                <Title order={3} mb="xs">
-                  {currentFolder ? 'Empty folder' : 'Archive is empty'}
-                </Title>
-                <Text c="dimmed" mb="lg">
-                  {currentFolder 
-                    ? 'Upload files or create subfolders to get started'
-                    : 'Create your first folder to organize your files'
-                  }
-                </Text>
-                <Group justify="center" gap="md">
-                  <Button
-                    leftSection={<IconFolderPlus size={16} />}
-                    onClick={() => setFolderModalOpen(true)}
-                  >
-                    Create Folder
-                  </Button>
-                  {currentFolder && (
-                    <Button
-                      leftSection={<IconUpload size={16} />}
-                      variant="light"
-                      onClick={() => setUploadModalOpen(true)}
-                    >
-                      Upload Files
-                    </Button>
-                  )}
-                </Group>
-              </Paper>
             )}
           </Stack>
         </Grid.Col>

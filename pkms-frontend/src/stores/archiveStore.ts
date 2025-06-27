@@ -250,25 +250,31 @@ export const useArchiveStore = create<ArchiveState>((set, get) => ({
       const newItems: ArchiveItem[] = [];
       
       for (const file of files) {
-        // Check file type support
-        if (!archiveService.isFileTypeSupported(file.name)) {
-          console.warn(`Skipping unsupported file type: ${file.name}`);
+        try {
+          // Check file type support
+          if (!archiveService.isFileTypeSupported(file.name)) {
+            console.warn(`Skipping unsupported file type: ${file.name}`);
+            completed++;
+            continue;
+          }
+          
+          const uploadData = {
+            file,
+            name: file.name.split('.')[0], // Remove extension for default name
+            tags
+          };
+          
+          const newItem = await archiveService.uploadItem(folderUuid, uploadData);
+          newItems.push(newItem);
+          
           completed++;
-          continue;
+          const progress = Math.round((completed / files.length) * 100);
+          set({ uploadProgress: progress });
+        } catch (fileError) {
+          console.error(`Failed to upload ${file.name}:`, fileError);
+          completed++;
+          // Continue with other files
         }
-        
-        const uploadData = {
-          file,
-          name: file.name.split('.')[0], // Remove extension for default name
-          tags
-        };
-        
-        const newItem = await archiveService.uploadItem(folderUuid, uploadData);
-        newItems.push(newItem);
-        
-        completed++;
-        const progress = Math.round((completed / files.length) * 100);
-        set({ uploadProgress: progress });
       }
       
       // Convert to summaries and add to items list

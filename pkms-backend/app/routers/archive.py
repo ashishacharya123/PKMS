@@ -884,7 +884,7 @@ async def _get_item_with_relations(db: AsyncSession, item_uuid: str, user_id: in
         mime_type=item.mime_type,
         file_size=item.file_size,
         extracted_text=item.extracted_text,
-        metadata=item.metadata,
+        metadata=item.metadata_dict,
         thumbnail_path=item.thumbnail_path,
         is_archived=item.is_archived,
         is_favorite=item.is_favorite,
