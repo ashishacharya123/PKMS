@@ -527,4 +527,83 @@ src/
 - [ ] Responsive design for different screen sizes
 - [ ] Clear visual indicators for encrypted content
 
+## 📝 Diary Module Implementation Details
+
+### 1. **Encryption System**
+- **Client-Side Encryption**:
+  - AES-256-GCM encryption for all sensitive content
+  - Unique IV (Initialization Vector) per entry
+  - Authentication tag stored for integrity verification
+  - Key verification against existing entries
+  - No plaintext data stored in database
+
+### 2. **Date Handling**
+- **Frontend Date Formatting**:
+  - Consistent use of `format(date, 'yyyy-MM-dd')` for API calls
+  - Local date handling to avoid timezone issues
+  - Proper date string splitting for ISO format handling
+
+### 3. **Backend Date Processing**:
+- **SQL Date Comparison**:
+  - Using `func.date(DiaryEntry.date)` for proper date-only comparison
+  - Comprehensive logging of date handling
+  - Proper error handling for date mismatches
+
+### 4. **Data Models**:
+```python
+class DiaryEntry(Base):
+    id: int
+    date: datetime
+    title_encrypted: Optional[str]
+    content_encrypted: str
+    mood: Optional[int]
+    weather: Optional[str]
+    encryption_iv: str
+    encryption_tag: str
+    is_template: bool
+    created_at: datetime
+    updated_at: datetime
+
+class DiaryEntrySummary(BaseModel):
+    id: int
+    date: date
+    mood: Optional[int]
+    weather: Optional[str]
+    is_template: bool
+    created_at: datetime
+    content_encrypted: str  # Added for key verification
+    encryption_iv: str      # Added for key verification
+    encryption_tag: str     # Added for key verification
+```
+
+### 5. **Security Flow**:
+1. **Key Generation**:
+   - Derive encryption key from master password
+   - Verify key against existing entries if available
+   - Store key only in memory during session
+
+2. **Entry Creation**:
+   - Generate unique IV for each entry
+   - Encrypt content with AES-256-GCM
+   - Store IV and auth tag with entry
+   - Send only encrypted data to server
+
+3. **Entry Retrieval**:
+   - Fetch encrypted entry from server
+   - Decrypt locally using session key
+   - Verify integrity using auth tag
+   - Handle decryption failures gracefully
+
+### 6. **Error Handling**:
+- Invalid date format validation
+- Decryption failure handling
+- Missing entry 404 responses
+- Proper error messages for users
+
+### 7. **Performance Optimization**:
+- Date indexing in database
+- Efficient date range queries
+- Proper SQL query optimization
+- Client-side caching where appropriate
+
 This comprehensive plan addresses all requirements from the instructions while ensuring security, performance, and user experience standards. The phased approach allows for iterative development and testing of each module before moving to the next. 

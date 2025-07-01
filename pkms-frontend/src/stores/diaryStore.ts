@@ -13,6 +13,8 @@ import {
   type EncryptedContent 
 } from '../services/diaryService';
 
+const ENCRYPTION_CHECK_STRING = 'pkms-encryption-check';
+
 interface DiaryState {
   // Data
   entries: DiaryEntrySummary[];
@@ -25,6 +27,8 @@ interface DiaryState {
   // Encryption
   encryptionKey: CryptoKey | null;
   isEncryptionSetup: boolean;
+  isUnlocked: boolean;
+  passwordHint: string | null;
   
   // UI State
   isLoading: boolean;
@@ -35,8 +39,8 @@ interface DiaryState {
   error: string | null;
   
   // Filters
-  currentYear: number | null;
-  currentMonth: number | null;
+  currentYear: number;
+  currentMonth: number;
   currentMood: number | null;
   showTemplates: boolean;
   
@@ -46,13 +50,15 @@ interface DiaryState {
   hasMore: boolean;
   
   // Actions - Encryption
-  setupEncryption: (password: string) => Promise<boolean>;
+  init: () => Promise<void>;
+  setupEncryption: (password: string, hint?: string) => Promise<boolean>;
+  unlockSession: (password: string) => Promise<boolean>;
   clearEncryption: () => void;
   
   // Actions - Entries
   loadEntries: () => Promise<void>;
   loadMore: () => Promise<void>;
-  loadEntryByDate: (date: string) => Promise<void>;
+  loadEntryByDate: (date: string) => Promise<DiaryEntry | null>;
   loadEntryById: (id: number) => Promise<void>;
   createEntry: (data: DiaryEntryCreate) => Promise<DiaryEntry | null>;
   updateEntry: (date: string, data: DiaryEntryUpdate) => Promise<DiaryEntry | null>;
@@ -65,7 +71,7 @@ interface DiaryState {
   deleteMedia: (mediaUuid: string) => Promise<boolean>;
   
   // Actions - Calendar & Stats
-  loadCalendarData: (year: number, month: number) => Promise<void>;
+  loadCalendarData: () => Promise<void>;
   loadMoodStats: (startDate?: string, endDate?: string) => Promise<void>;
   loadTemplates: () => Promise<void>;
   
@@ -74,17 +80,23 @@ interface DiaryState {
   decryptContent: (encryptedContent: EncryptedContent) => Promise<string | null>;
   
   // Filters
-  setYear: (year: number | null) => void;
-  setMonth: (month: number | null) => void;
+  setYear: (year: number) => void;
+  setMonth: (month: number) => void;
   setMood: (mood: number | null) => void;
   setShowTemplates: (show: boolean) => void;
   
   // UI Actions
   clearError: () => void;
+  setError: (error: string | null) => void;
   clearCurrentEntry: () => void;
   setMediaUploadProgress: (progress: number) => void;
   reset: () => void;
 }
+
+// Utility function to format dates for API calls
+const formatDateForApi = (date: string) => {
+  return date.split('T')[0]; // Extract YYYY-MM-DD from ISO string
+};
 
 export const useDiaryStore = create<DiaryState>((set, get) => ({
   // Initial state
@@ -96,14 +108,16 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   moodStats: null,
   encryptionKey: null,
   isEncryptionSetup: false,
+  isUnlocked: false,
+  passwordHint: null,
   isLoading: false,
   isCreating: false,
   isUpdating: false,
   isUploadingMedia: false,
   mediaUploadProgress: 0,
   error: null,
-  currentYear: null,
-  currentMonth: null,
+  currentYear: new Date().getFullYear(),
+  currentMonth: new Date().getMonth() + 1,
   currentMood: null,
   showTemplates: false,
   limit: 20,
@@ -111,28 +125,138 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   hasMore: true,
   
   // Encryption Actions
-  setupEncryption: async (password: string) => {
+  init: async () => {
     try {
+      const checkValue = localStorage.getItem('pkms-diary-check');
+      const hint = localStorage.getItem('pkms-diary-hint');
+      set({ 
+        isEncryptionSetup: !!checkValue,
+        passwordHint: hint
+      });
+    } catch (e) {
+      console.error('Error checking encryption setup:', e);
+    }
+  },
+
+  setupEncryption: async (password: string, hint?: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      console.log('Setting up encryption...');
+      // Generate encryption key
       const key = await diaryService.generateEncryptionKey(password);
+      
+      // Create and encrypt check string
+      const encryptedCheck = await diaryService.encryptContent(ENCRYPTION_CHECK_STRING, key);
+      console.log('Check string encrypted successfully');
+      
+      // Store check value and hint
+      localStorage.setItem('pkms-diary-check', JSON.stringify(encryptedCheck));
+      if (hint) {
+        localStorage.setItem('pkms-diary-hint', hint);
+      } else {
+        localStorage.removeItem('pkms-diary-hint');
+      }
+      
+      // Update state
       set({ 
         encryptionKey: key, 
         isEncryptionSetup: true,
+        isUnlocked: true,
+        passwordHint: hint || null,
+        isLoading: false,
         error: null 
       });
+      
+      // Load initial data
+      get().loadCalendarData();
+      get().loadEntries();
+      
+      console.log('Encryption setup completed successfully');
       return true;
     } catch (error) {
+      console.error('Error in setupEncryption:', error);
       set({ 
         error: error instanceof Error ? error.message : 'Failed to setup encryption',
-        isEncryptionSetup: false
+        isEncryptionSetup: false,
+        isUnlocked: false,
+        encryptionKey: null,
+        isLoading: false
+      });
+      return false;
+    }
+  },
+
+  unlockSession: async (password: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      console.log('Unlocking session...');
+      // Generate key from password
+      const key = await diaryService.generateEncryptionKey(password);
+      
+      // Get stored check value
+      const storedCheck = localStorage.getItem('pkms-diary-check');
+      if (!storedCheck) {
+        throw new Error('Encryption setup not found');
+      }
+
+      // Verify password by decrypting check string
+      try {
+        console.log('Verifying password...');
+        const encryptedCheck = JSON.parse(storedCheck);
+        const decryptedCheck = await diaryService.decryptContent({
+          content: encryptedCheck.content,
+          iv: encryptedCheck.iv,
+          tag: encryptedCheck.tag
+        }, key);
+
+        if (decryptedCheck !== ENCRYPTION_CHECK_STRING) {
+          console.error('Password verification failed - check string mismatch');
+          throw new Error('Invalid password');
+        }
+        console.log('Password verified successfully');
+      } catch (e) {
+        console.error('Password verification failed:', e);
+        throw new Error('Invalid password');
+      }
+      
+      // Update state on successful unlock
+      set({
+        encryptionKey: key,
+        isUnlocked: true,
+        isLoading: false,
+        error: null
+      });
+      
+      // Load initial data
+      get().loadCalendarData();
+      get().loadEntries();
+      
+      console.log('Session unlocked successfully');
+      return true;
+    } catch (error) {
+      console.error('Error in unlockSession:', error);
+      set({
+        error: error instanceof Error ? error.message : 'Failed to unlock diary',
+        isUnlocked: false,
+        encryptionKey: null,
+        isLoading: false
       });
       return false;
     }
   },
   
   clearEncryption: () => {
+    try {
+        localStorage.removeItem('pkms-diary-check');
+        localStorage.removeItem('pkms-diary-hint');
+    } catch (e) {
+        console.error("Could not access localStorage", e);
+    }
     set({ 
       encryptionKey: null, 
       isEncryptionSetup: false,
+      isUnlocked: false,
+      passwordHint: null,
       currentEntry: null,
       entries: [],
       templates: []
@@ -142,17 +266,14 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   // Entry Actions
   loadEntries: async () => {
     const state = get();
-    if (!state.encryptionKey) {
-      set({ error: 'Encryption not setup. Please provide your master password.' });
-      return;
-    }
+    if (!state.isUnlocked || !state.encryptionKey) return;
     
     set({ isLoading: true, error: null, offset: 0 });
     
     try {
       const params: DiaryListParams = {
-        year: state.currentYear || undefined,
-        month: state.currentMonth || undefined,
+        year: state.currentYear,
+        month: state.currentMonth,
         mood: state.currentMood || undefined,
         templates: state.showTemplates,
         limit: state.limit,
@@ -177,14 +298,14 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   
   loadMore: async () => {
     const state = get();
-    if (state.isLoading || !state.hasMore || !state.encryptionKey) return;
+    if (state.isLoading || !state.hasMore || !state.isUnlocked) return;
     
     set({ isLoading: true, error: null });
     
     try {
       const params: DiaryListParams = {
-        year: state.currentYear || undefined,
-        month: state.currentMonth || undefined,
+        year: state.currentYear,
+        month: state.currentMonth,
         mood: state.currentMood || undefined,
         templates: state.showTemplates,
         limit: state.limit,
@@ -207,43 +328,37 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
     }
   },
   
-  loadEntryByDate: async (date: string) => {
+  loadEntryByDate: async (date: string): Promise<DiaryEntry | null> => {
     const state = get();
-    if (!state.encryptionKey) {
-      set({ error: 'Encryption not setup. Please provide your master password.' });
-      return;
-    }
+    if (!state.isUnlocked) return null;
     
     set({ isLoading: true, error: null });
     
     try {
-      const entry = await diaryService.getEntryByDate(date);
+      // Format date to YYYY-MM-DD before sending to backend
+      const formattedDate = date.split('T')[0];
+      const entry = await diaryService.getEntryByDate(formattedDate);
       set({ currentEntry: entry, isLoading: false });
-      
-      // Load media for this entry
       get().loadEntryMedia(entry.id);
+      return entry;
     } catch (error) {
       set({ 
         error: error instanceof Error ? error.message : 'Failed to load diary entry', 
         isLoading: false 
       });
+      return null;
     }
   },
   
   loadEntryById: async (id: number) => {
     const state = get();
-    if (!state.encryptionKey) {
-      set({ error: 'Encryption not setup. Please provide your master password.' });
-      return;
-    }
+    if (!state.isUnlocked) return;
     
     set({ isLoading: true, error: null });
     
     try {
       const entry = await diaryService.getEntryById(id);
       set({ currentEntry: entry, isLoading: false });
-      
-      // Load media for this entry
       get().loadEntryMedia(entry.id);
     } catch (error) {
       set({ 
@@ -255,40 +370,15 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   
   createEntry: async (data: DiaryEntryCreate) => {
     const state = get();
-    if (!state.encryptionKey) {
-      set({ error: 'Encryption not setup. Please provide your master password.' });
-      return null;
-    }
+    if (!state.isUnlocked) return null;
     
     set({ isCreating: true, error: null });
     
     try {
       const entry = await diaryService.createEntry(data);
-      
-      // Convert DiaryEntry to DiaryEntrySummary for the list
-      const entrySummary: DiaryEntrySummary = {
-        id: entry.id,
-        date: entry.date,
-        mood: entry.mood,
-        weather: entry.weather,
-        is_template: entry.is_template,
-        created_at: entry.created_at,
-        media_count: entry.media_count
-      };
-      
-      // Add to entries list if it matches current filters
-      const shouldAdd = (!state.currentMood || entry.mood === state.currentMood) &&
-                       (state.showTemplates === entry.is_template);
-      
-      if (shouldAdd) {
-        set({ 
-          entries: [entrySummary, ...state.entries],
-          isCreating: false 
-        });
-      } else {
-        set({ isCreating: false });
-      }
-      
+      get().loadEntries(); // Refresh entries
+      get().loadCalendarData(); // Refresh calendar
+      set({ isCreating: false });
       return entry;
     } catch (error) {
       set({ 
@@ -301,36 +391,18 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   
   updateEntry: async (date: string, data: DiaryEntryUpdate) => {
     const state = get();
-    if (!state.encryptionKey) {
-      set({ error: 'Encryption not setup. Please provide your master password.' });
-      return null;
-    }
+    if (!state.isUnlocked) return null;
     
     set({ isUpdating: true, error: null });
     
     try {
-      const updatedEntry = await diaryService.updateEntry(date, data);
-      
-      // Convert DiaryEntry to DiaryEntrySummary for the list
-      const entrySummary: DiaryEntrySummary = {
-        id: updatedEntry.id,
-        date: updatedEntry.date,
-        mood: updatedEntry.mood,
-        weather: updatedEntry.weather,
-        is_template: updatedEntry.is_template,
-        created_at: updatedEntry.created_at,
-        media_count: updatedEntry.media_count
-      };
-      
-      // Update in entries list
-      set(state => ({
-        entries: state.entries.map(entry => 
-          entry.id === updatedEntry.id ? entrySummary : entry
-        ),
-        currentEntry: state.currentEntry?.id === updatedEntry.id ? updatedEntry : state.currentEntry,
+      const updatedEntry = await diaryService.updateEntry(formatDateForApi(date), data);
+      get().loadEntries(); // Refresh entries
+      get().loadCalendarData(); // Refresh calendar
+      set({ 
+        currentEntry: updatedEntry,
         isUpdating: false
-      }));
-      
+      });
       return updatedEntry;
     } catch (error) {
       set({ 
@@ -343,22 +415,15 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   
   deleteEntry: async (date: string) => {
     const state = get();
-    if (!state.encryptionKey) {
-      set({ error: 'Encryption not setup. Please provide your master password.' });
-      return false;
-    }
+    if (!state.isUnlocked) return false;
     
     set({ error: null });
     
     try {
-      await diaryService.deleteEntry(date);
-      
-      // Remove from entries list (find by date)
-      set(state => ({
-        entries: state.entries.filter(entry => entry.date !== date),
-        currentEntry: state.currentEntry?.date === date ? null : state.currentEntry
-      }));
-      
+      await diaryService.deleteEntry(formatDateForApi(date));
+      get().loadEntries(); // Refresh entries
+      get().loadCalendarData(); // Refresh calendar
+      set({ currentEntry: null });
       return true;
     } catch (error) {
       set({ 
@@ -370,6 +435,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   
   // Media Actions
   loadEntryMedia: async (entryId: number) => {
+    if (!get().isUnlocked) return;
     try {
       const media = await diaryService.getEntryMedia(entryId);
       set({ currentEntryMedia: media });
@@ -381,30 +447,25 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   },
   
   uploadMedia: async (entryId: number, mediaData: MediaUploadData) => {
+    if (!get().isUnlocked) return null;
     set({ isUploadingMedia: true, error: null, mediaUploadProgress: 0 });
     
     try {
       const media = await diaryService.uploadMedia(entryId, mediaData);
-      
-      // Add to current entry media
-      set(state => ({ 
-        currentEntryMedia: [media, ...state.currentEntryMedia],
-        isUploadingMedia: false,
-        mediaUploadProgress: 0
-      }));
-      
+      get().loadEntryMedia(entryId); // Refresh media
+      set({ isUploadingMedia: false });
       return media;
     } catch (error) {
       set({ 
         error: error instanceof Error ? error.message : 'Failed to upload media', 
-        isUploadingMedia: false,
-        mediaUploadProgress: 0
+        isUploadingMedia: false
       });
       return null;
     }
   },
   
   downloadMedia: async (mediaUuid: string) => {
+    if (!get().isUnlocked) return null;
     try {
       const blob = await diaryService.downloadMedia(mediaUuid);
       return blob;
@@ -417,14 +478,10 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   },
   
   deleteMedia: async (mediaUuid: string) => {
+    if (!get().isUnlocked) return false;
     try {
       await diaryService.deleteMedia(mediaUuid);
-      
-      // Remove from current entry media
-      set(state => ({
-        currentEntryMedia: state.currentEntryMedia.filter(media => media.uuid !== mediaUuid)
-      }));
-      
+      get().loadEntryMedia(get().currentEntry!.id); // Refresh media
       return true;
     } catch (error) {
       set({ 
@@ -435,18 +492,24 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   },
   
   // Calendar & Stats Actions
-  loadCalendarData: async (year: number, month: number) => {
+  loadCalendarData: async () => {
+    const state = get();
+    if (!state.isUnlocked) return;
+
     try {
-      const calendarData = await diaryService.getCalendarData(year, month);
-      set({ calendarData });
+      const data = await diaryService.getCalendarData(
+        state.currentYear,
+        state.currentMonth
+      );
+      set({ calendarData: data || [] });
     } catch (error) {
-      set({ 
-        error: error instanceof Error ? error.message : 'Failed to load calendar data'
-      });
+      console.error('Error loading calendar data:', error);
+      set({ error: error instanceof Error ? error.message : 'Failed to load calendar data' });
     }
   },
   
   loadMoodStats: async (startDate?: string, endDate?: string) => {
+    if (!get().isUnlocked) return;
     try {
       const moodStats = await diaryService.getMoodStats(startDate, endDate);
       set({ moodStats });
@@ -459,10 +522,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   
   loadTemplates: async () => {
     const state = get();
-    if (!state.encryptionKey) {
-      set({ error: 'Encryption not setup. Please provide your master password.' });
-      return;
-    }
+    if (!state.isUnlocked) return;
     
     try {
       const templates = await diaryService.getTemplates();
@@ -477,48 +537,38 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   // Content Encryption/Decryption
   encryptContent: async (content: string) => {
     const state = get();
-    if (!state.encryptionKey) {
-      set({ error: 'Encryption not setup. Please provide your master password.' });
-      return null;
-    }
+    if (!state.encryptionKey) return null;
     
     try {
-      const encryptedContent = await diaryService.encryptContent(content, state.encryptionKey);
-      return encryptedContent;
+      return await diaryService.encryptContent(content, state.encryptionKey);
     } catch (error) {
-      set({ 
-        error: error instanceof Error ? error.message : 'Failed to encrypt content'
-      });
+      set({ error: error instanceof Error ? error.message : 'Failed to encrypt content' });
       return null;
     }
   },
   
   decryptContent: async (encryptedContent: EncryptedContent) => {
     const state = get();
-    if (!state.encryptionKey) {
-      set({ error: 'Encryption not setup. Please provide your master password.' });
-      return null;
-    }
+    if (!state.encryptionKey) return null;
     
     try {
-      const content = await diaryService.decryptContent(encryptedContent, state.encryptionKey);
-      return content;
+      return await diaryService.decryptContent(encryptedContent, state.encryptionKey);
     } catch (error) {
-      set({ 
-        error: error instanceof Error ? error.message : 'Failed to decrypt content'
-      });
+      set({ error: error instanceof Error ? error.message : 'Failed to decrypt content' });
       return null;
     }
   },
   
   // Filter actions
-  setYear: (year: number | null) => {
+  setYear: (year: number) => {
     set({ currentYear: year });
+    get().loadCalendarData();
     get().loadEntries();
   },
   
-  setMonth: (month: number | null) => {
+  setMonth: (month: number) => {
     set({ currentMonth: month });
+    get().loadCalendarData();
     get().loadEntries();
   },
   
@@ -534,34 +584,33 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   
   // UI actions
   clearError: () => set({ error: null }),
-  
+  setError: (error: string | null) => set({ error }),
   clearCurrentEntry: () => set({ 
     currentEntry: null, 
     currentEntryMedia: [] 
   }),
-  
   setMediaUploadProgress: (progress: number) => set({ mediaUploadProgress: progress }),
-  
-  reset: () => set({
-    entries: [],
-    currentEntry: null,
-    currentEntryMedia: [],
-    calendarData: [],
-    templates: [],
-    moodStats: null,
-    encryptionKey: null,
-    isEncryptionSetup: false,
-    isLoading: false,
-    isCreating: false,
-    isUpdating: false,
-    isUploadingMedia: false,
-    mediaUploadProgress: 0,
-    error: null,
-    currentYear: null,
-    currentMonth: null,
-    currentMood: null,
-    showTemplates: false,
-    offset: 0,
-    hasMore: true
-  })
+  reset: () => {
+    get().clearEncryption();
+    set({
+        entries: [],
+        currentEntry: null,
+        currentEntryMedia: [],
+        calendarData: [],
+        templates: [],
+        moodStats: null,
+        isLoading: false,
+        isCreating: false,
+        isUpdating: false,
+        isUploadingMedia: false,
+        mediaUploadProgress: 0,
+        error: null,
+        currentYear: new Date().getFullYear(),
+        currentMonth: new Date().getMonth() + 1,
+        currentMood: null,
+        showTemplates: false,
+        offset: 0,
+        hasMore: true
+    });
+  }
 }));

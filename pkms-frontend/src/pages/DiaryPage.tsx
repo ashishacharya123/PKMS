@@ -19,7 +19,8 @@ import {
   Modal,
   Textarea,
   Rating,
-  Select
+  Select,
+  Center
 } from '@mantine/core';
 import { Calendar } from '@mantine/dates';
 import {
@@ -37,64 +38,89 @@ import {
 import { useDebouncedValue } from '@mantine/hooks';
 import { useDiaryStore } from '../stores/diaryStore';
 import { diaryService } from '../services/diaryService';
-import { isSameDay } from 'date-fns';
+import { isSameDay, format, parse } from 'date-fns';
+import { notifications } from '@mantine/notifications';
+import type { NotificationData } from '@mantine/notifications';
+import type { DiaryEntry } from '../services/diaryService';
+import axios from 'axios';
+
+const showNotification = (data: NotificationData) => {
+  notifications.show(data);
+};
 
 export function DiaryPage() {
+  const store = useDiaryStore();
+  
   // Local state
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [entryModalOpen, setEntryModalOpen] = useState(false);
   const [encryptionModalOpen, setEncryptionModalOpen] = useState(false);
+  const [unlockModalOpen, setUnlockModalOpen] = useState(false);
   const [encryptionPassword, setEncryptionPassword] = useState('');
+  const [passwordHint, setPasswordHint] = useState('');
+  const [showPasswordHint, setShowPasswordHint] = useState(false);
   const [isEditingEntry, setIsEditingEntry] = useState(false);
-
-  // Entry form state
-  const [entryForm, setEntryForm] = useState({
+  const [viewingEntry, setViewingEntry] = useState<{
+    date: string;
+    title: string;
+    content: string;
+    mood?: number;
+    weather?: string;
+  } | null>(null);
+  const [entryForm, setEntryForm] = useState<{
+    title: string;
+    content: string;
+    mood: number;
+    weather: string;
+  }>({
     title: '',
     content: '',
     mood: 3,
     weather: ''
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'view' | 'edit'>('view');
 
-  // Store state
-  const {
-    entries,
-    currentEntry,
-    calendarData,
-    moodStats,
-    isLoading,
-    isCreating,
-    isEncryptionSetup,
-    error,
-    currentYear,
-    currentMonth,
-    currentMood,
-    loadEntries,
-    loadEntryByDate,
-    createEntry,
-    updateEntry,
-    deleteEntry,
-    loadCalendarData,
-    loadMoodStats,
-    setupEncryption,
-    encryptContent,
-    decryptContent,
-    setYear,
-    setMonth,
-    setMood,
-    clearError,
-    clearCurrentEntry
-  } = useDiaryStore();
+  // Initialize and handle unlock status
+  useEffect(() => {
+    store.init();
+    // Try to get password hint from localStorage
+    try {
+      const hint = localStorage.getItem('pkms-diary-hint');
+      setPasswordHint(hint || '');
+    } catch (e) {
+      console.error("Could not access localStorage", e);
+      setPasswordHint('');
+    }
+  }, [store.init]);
+
+  useEffect(() => {
+    if (store.isEncryptionSetup && !store.isUnlocked) {
+      setUnlockModalOpen(true);
+    } else {
+      setUnlockModalOpen(false);
+      setEncryptionPassword('');
+      setShowPasswordHint(false);
+    }
+  }, [store.isEncryptionSetup, store.isUnlocked]);
 
   // Load data on mount
   useEffect(() => {
-    if (isEncryptionSetup) {
-      loadEntries();
-      loadCalendarData(new Date().getFullYear(), new Date().getMonth() + 1);
-      loadMoodStats();
+    if (store.isUnlocked) {
+      store.loadEntries();
+      store.loadCalendarData();
+      store.loadMoodStats();
     }
-  }, [isEncryptionSetup]);
+  }, [store.isUnlocked]);
+
+  useEffect(() => {
+    if (store.isEncryptionSetup && store.isUnlocked) {
+      store.loadCalendarData();
+    }
+  }, [store.isEncryptionSetup, store.isUnlocked, store.currentYear, store.currentMonth]);
 
   const resetEntryForm = () => {
     setEntryForm({
@@ -109,77 +135,195 @@ export function DiaryPage() {
   const handleSetupEncryption = async () => {
     if (!encryptionPassword.trim()) return;
     
-    const success = await setupEncryption(encryptionPassword);
-    if (success) {
-      setEncryptionModalOpen(false);
-      setEncryptionPassword('');
+    try {
+      console.log('Setting up encryption...');
+      // Only pass hint if it's not empty
+      const success = await store.setupEncryption(
+        encryptionPassword, 
+        passwordHint.trim() || undefined
+      );
+      console.log('Encryption setup result:', success);
+      
+      if (success) {
+        showNotification({
+          title: 'Success',
+          message: 'Diary encryption has been set up successfully.',
+          color: 'green'
+        });
+        setEncryptionModalOpen(false);
+        setEncryptionPassword('');
+        setPasswordHint('');
+        // Force reload entries after setup
+        await store.loadEntries();
+      }
+    } catch (error) {
+      console.error('Error setting up encryption:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to setup encryption';
+      showNotification({
+        title: 'Error',
+        message: errorMessage,
+        color: 'red'
+      });
+    }
+  };
+
+  const handleUnlockSession = async () => {
+    if (!encryptionPassword.trim()) return;
+
+    try {
+      console.log('Attempting to unlock session...');
+      const success = await store.unlockSession(encryptionPassword);
+      console.log('Unlock session result:', success);
+      
+      if (success) {
+        showNotification({
+          title: 'Success',
+          message: 'Diary unlocked successfully.',
+          color: 'green'
+        });
+        setUnlockModalOpen(false);
+        setEncryptionPassword('');
+        setShowPasswordHint(false);
+      }
+    } catch (error) {
+      console.error('Error unlocking session:', error);
+      showNotification({
+        title: 'Error',
+        message: 'Failed to unlock diary. Please check your password.',
+        color: 'red'
+      });
+    }
+  };
+
+  const handleViewEntry = async (dateStr: string) => {
+    try {
+        setLoading(true);
+        setError(null);
+        
+        // Parse the date string into a Date object
+        const selectedDate = parse(dateStr, 'yyyy-MM-dd', new Date());
+        console.log('[DEBUG] Viewing entry for date:', format(selectedDate, 'yyyy-MM-dd'));
+        
+        const entry = await diaryService.getEntryByDate(selectedDate);
+        console.log('[DEBUG] Retrieved entry:', entry);
+        
+        if (entry) {
+            // Decrypt unified entry blob (JSON with title + content)
+            const decryptedJson = await store.decryptContent({
+              content: entry.content_encrypted,
+              iv: entry.encryption_iv,
+              tag: entry.encryption_tag
+            });
+
+            if (!decryptedJson) {
+              throw new Error('Failed to decrypt diary entry');
+            }
+
+            let parsed: { title?: string; content: string };
+            try {
+              parsed = JSON.parse(decryptedJson);
+            } catch (jsonErr) {
+              // Fallback for *very* old entries that stored raw content only
+              parsed = { title: '', content: decryptedJson } as any;
+            }
+
+            setViewingEntry({
+              ...entry,
+              title: parsed.title || '',
+              content: parsed.content
+            });
+            
+            // Open the entry modal in read-only "view" mode so the user can read
+            // the decrypted entry.  They can switch to "edit" inside the modal.
+            setIsEditingEntry(false);
+            setViewMode('view');
+            setEntryModalOpen(true);
+        }
+    } catch (error) {
+        console.error('[DEBUG] Error in handleViewEntry:', error);
+        if (axios.isAxiosError(error) && error.response?.status === 404) {
+            setError('No entry found for this date. Would you like to create one?');
+            resetEntryForm();
+            setViewMode('edit');
+        } else {
+            setError('Failed to load diary entry. Please try again.');
+        }
+    } finally {
+        setLoading(false);
     }
   };
 
   const handleCreateEntry = async () => {
-    if (!entryForm.content.trim()) return;
+    if (!entryForm.content.trim()) {
+      showNotification({
+        title: 'Error',
+        message: 'Entry content cannot be empty',
+        color: 'red'
+      });
+      return;
+    }
     
-    const dateStr = selectedDate.toISOString().split('T')[0];
-    
-    // Encrypt content
-    const encryptedTitle = entryForm.title ? await encryptContent(entryForm.title) : null;
-    const encryptedContent = await encryptContent(entryForm.content);
-    
-    if (!encryptedContent) return;
-    
-    const entryData = {
-      date: dateStr,
-      title_encrypted: encryptedTitle?.content,
-      content_encrypted: encryptedContent.content,
-      mood: entryForm.mood,
-      weather: entryForm.weather || undefined,
-      encryption_iv: encryptedContent.iv,
-      encryption_tag: encryptedContent.tag
-    };
-    
-    const success = await createEntry(entryData);
-    if (success) {
-      setEntryModalOpen(false);
-      resetEntryForm();
+    try {
+      // Use local calendar date (yyyy-MM-dd) instead of UTC ISO string to avoid timezone shift
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
+      
+      /*
+       * 🔐 NEW SIMPLIFIED ENCRYPTION PIPELINE (#56)
+       * -----------------------------------------------------------
+       * We now encrypt the *entire* entry (title + content) in a single
+       * AES-GCM operation.  The plaintext is a tiny JSON blob so even long
+       * entries remain small after encryption.
+       */
+
+      const plaintext = JSON.stringify({
+        title: entryForm.title.trim(),
+        content: entryForm.content
+      });
+
+      const encryptedEntry = await store.encryptContent(plaintext);
+
+      if (!encryptedEntry) {
+        showNotification({
+          title: 'Error',
+          message: 'Failed to encrypt diary entry',
+          color: 'red'
+        });
+        return;
+      }
+
+      const entryData = {
+        date: dateStr,
+        content_encrypted: encryptedEntry.content,
+        mood: entryForm.mood,
+        weather: entryForm.weather.trim() || undefined,
+        encryption_iv: encryptedEntry.iv,
+        encryption_tag: encryptedEntry.tag
+      };
+      
+      const success = await store.createEntry(entryData);
+      if (success) {
+        showNotification({
+          title: 'Success',
+          message: 'Entry created successfully',
+          color: 'green'
+        });
+        setEntryModalOpen(false);
+        resetEntryForm();
+      }
+    } catch (error) {
+      console.error('Error creating entry:', error);
+      showNotification({
+        title: 'Error',
+        message: 'Failed to create entry. Please try again.',
+        color: 'red'
+      });
     }
   };
 
   const handleDeleteEntry = async (date: string, title?: string) => {
     const displayTitle = title || `Entry for ${new Date(date).toLocaleDateString()}`;
     if (window.confirm(`Are you sure you want to delete "${displayTitle}"?`)) {
-      await deleteEntry(date);
-    }
-  };
-
-  const handleViewEntry = async (date: string) => {
-    await loadEntryByDate(date);
-    if (currentEntry) {
-      // Decrypt content for viewing
-      const decryptedContent = await decryptContent({
-        content: currentEntry.content_encrypted,
-        iv: currentEntry.encryption_iv,
-        tag: currentEntry.encryption_tag
-      });
-      
-      let decryptedTitle = '';
-      if (currentEntry.title_encrypted) {
-        decryptedTitle = await decryptContent({
-          content: currentEntry.title_encrypted,
-          iv: currentEntry.encryption_iv,
-          tag: currentEntry.encryption_tag
-        }) || '';
-      }
-      
-      if (decryptedContent) {
-        setEntryForm({
-          title: decryptedTitle,
-          content: decryptedContent,
-          mood: currentEntry.mood || 3,
-          weather: currentEntry.weather || ''
-        });
-        setIsEditingEntry(true);
-        setEntryModalOpen(true);
-      }
+      await store.deleteEntry(date);
     }
   };
 
@@ -204,8 +348,54 @@ export function DiaryPage() {
     return new Date(dateString).toLocaleDateString();
   };
 
+  const handleMonthChange = (date: Date) => {
+    store.setYear(date.getFullYear());
+    store.setMonth(date.getMonth() + 1);
+  };
+
+  const renderDay = (date: Date) => {
+    if (!store.calendarData) return (
+      <Center style={{ height: '100%' }}>
+        <Text size="sm" c="dimmed">
+          {format(date, 'd')}
+        </Text>
+      </Center>
+    );
+
+    const formattedDate = format(date, 'yyyy-MM-dd');
+    const dayData = store.calendarData.find(item => item.date === formattedDate);
+    
+    if (!dayData) {
+      return (
+        <Center style={{ height: '100%' }}>
+          <Text size="sm" c="dimmed">
+            {format(date, 'd')}
+          </Text>
+        </Center>
+      );
+    }
+
+    return (
+      <Center style={{ height: '100%', position: 'relative' }}>
+        <Stack gap={0} align="center">
+          <Text size="sm" fw={dayData.has_entry ? 700 : 400}>
+            {format(date, 'd')}
+          </Text>
+          {dayData.mood && (
+            <Text size="xs">{getMoodEmoji(dayData.mood)}</Text>
+          )}
+          {dayData.media_count > 0 && (
+            <Badge size="xs" variant="light">
+              {dayData.media_count} 📎
+            </Badge>
+          )}
+        </Stack>
+      </Center>
+    );
+  };
+
   // Show encryption setup if not configured
-  if (!isEncryptionSetup) {
+  if (!store.isEncryptionSetup) {
     return (
       <Container size="md">
         <Paper p="xl" radius="md" style={{ textAlign: 'center' }}>
@@ -240,6 +430,12 @@ export function DiaryPage() {
               </Text>
             </Alert>
             
+            {store.error && (
+              <Alert color="red" variant="light" title="Error">
+                {store.error}
+              </Alert>
+            )}
+            
             <TextInput
               label="Encryption Password"
               type="password"
@@ -248,11 +444,22 @@ export function DiaryPage() {
               onChange={(e) => setEncryptionPassword(e.currentTarget.value)}
               required
             />
+
+            <TextInput
+              label="Password Hint (Optional)"
+              placeholder="Enter a hint to help you remember your password"
+              value={passwordHint || ''}
+              onChange={(e) => setPasswordHint(e.currentTarget.value)}
+            />
             
             <Group justify="flex-end">
               <Button
                 variant="subtle"
-                onClick={() => setEncryptionModalOpen(false)}
+                onClick={() => {
+                  setEncryptionModalOpen(false);
+                  setEncryptionPassword('');
+                  setPasswordHint('');
+                }}
               >
                 Cancel
               </Button>
@@ -266,6 +473,82 @@ export function DiaryPage() {
           </Stack>
         </Modal>
       </Container>
+    );
+  }
+
+  if (!store.isUnlocked) {
+    return (
+        <Container size="md">
+            {/* Unlock Session Modal */}
+            <Modal
+              opened={unlockModalOpen}
+              onClose={() => { /* Disallow closing */ }}
+              title="Unlock Diary"
+              size="md"
+              withCloseButton={false}
+              centered
+            >
+              <Stack gap="md">
+                <Alert color="blue" variant="light">
+                  <Text size="sm">
+                    Your diary is locked. Please enter your password to unlock it for this session.
+                  </Text>
+                </Alert>
+
+                {store.error && (
+                  <Alert color="red" variant="light" title="Error">
+                    {store.error}
+                  </Alert>
+                )}
+                
+                {passwordHint && (
+                  <Alert color="yellow" variant="light" title="Password Hint">
+                    <Group justify="space-between" align="center">
+                      <Text size="sm" style={{ flex: 1 }}>
+                        {showPasswordHint ? passwordHint : "Click to show your password hint"}
+                      </Text>
+                      <Button 
+                        variant="subtle" 
+                        size="xs"
+                        onClick={() => setShowPasswordHint(!showPasswordHint)}
+                      >
+                        {showPasswordHint ? "Hide" : "Show"}
+                      </Button>
+                    </Group>
+                  </Alert>
+                )}
+                
+                <TextInput
+                  label="Encryption Password"
+                  type="password"
+                  placeholder="Enter your password"
+                  value={encryptionPassword}
+                  onChange={(e) => setEncryptionPassword(e.currentTarget.value)}
+                  required
+                />
+                
+                <Group justify="space-between">
+                  <Button
+                    variant="subtle"
+                    color="red"
+                    onClick={() => {
+                      if (window.confirm("Are you sure you want to clear encryption? This will reset your diary and you'll need to set up encryption again.")) {
+                        store.clearEncryption();
+                      }
+                    }}
+                  >
+                    Reset Encryption
+                  </Button>
+                  <Button
+                    onClick={handleUnlockSession}
+                    disabled={!encryptionPassword.trim()}
+                  >
+                    Unlock
+                  </Button>
+                </Group>
+              </Stack>
+            </Modal>
+        </Container>
     );
   }
 
@@ -295,36 +578,27 @@ export function DiaryPage() {
                 <IconCalendar size={16} />
               </Group>
               
-              <Calendar
-                getDayProps={(date) => ({
-                  selected: isSameDay(date, selectedDate),
-                  onClick: () => setSelectedDate(date),
-                })}
-                size="sm"
-                renderDay={(date) => {
-                  const dateStr = date.toISOString().split('T')[0];
-                  const dayData = calendarData.find(d => d.date === dateStr);
-                  
-                  return (
-                    <div style={{ position: 'relative' }}>
-                      <span>{date.getDate()}</span>
-                      {dayData?.has_entry && (
-                        <div
-                          style={{
-                            position: 'absolute',
-                            top: 2,
-                            right: 2,
-                            width: 6,
-                            height: 6,
-                            borderRadius: '50%',
-                            backgroundColor: dayData.mood ? getMoodColor(dayData.mood) : 'gray'
-                          }}
-                        />
-                      )}
-                    </div>
-                  );
-                }}
-              />
+              <Paper shadow="sm" p="md">
+                <TextInput
+                  type="date"
+                  value={format(selectedDate, 'yyyy-MM-dd')}
+                  onChange={(e) => {
+                    const newDate = new Date(e.currentTarget.value);
+                    setSelectedDate(newDate);
+                  }}
+                  label="Select Date"
+                  size="sm"
+                />
+                <Button
+                  variant="light"
+                  size="sm"
+                  mt="md"
+                  fullWidth
+                  onClick={() => handleViewEntry(format(selectedDate, 'yyyy-MM-dd'))}
+                >
+                  View Entry for {format(selectedDate, 'MMM dd, yyyy')}
+                </Button>
+              </Paper>
             </Paper>
 
             {/* Mood Filter */}
@@ -336,31 +610,31 @@ export function DiaryPage() {
               
               <Stack gap="xs">
                 <Button
-                  variant={!currentMood ? 'filled' : 'subtle'}
+                  variant={!store.currentMood ? 'filled' : 'subtle'}
                   size="xs"
                   justify="space-between"
                   fullWidth
-                  onClick={() => setMood(null)}
+                  onClick={() => store.setMood(null)}
                 >
                   <span>All Moods</span>
-                  <Badge size="xs" variant="light">{entries.length}</Badge>
+                  <Badge size="xs" variant="light">{store.entries.length}</Badge>
                 </Button>
                 
                 {[1, 2, 3, 4, 5].map((mood) => (
                   <Button
                     key={mood}
-                    variant={currentMood === mood ? 'filled' : 'subtle'}
+                    variant={store.currentMood === mood ? 'filled' : 'subtle'}
                     size="xs"
                     justify="space-between"
                     fullWidth
-                    onClick={() => setMood(mood)}
+                    onClick={() => store.setMood(mood)}
                   >
                     <Group gap="xs">
                       <span>{getMoodEmoji(mood)}</span>
                       <span>{mood === 1 ? 'Very Bad' : mood === 2 ? 'Bad' : mood === 3 ? 'Neutral' : mood === 4 ? 'Good' : 'Excellent'}</span>
                     </Group>
                     <Badge size="xs" variant="light">
-                      {entries.filter(e => e.mood === mood).length}
+                      {store.entries.filter(e => e.mood === mood).length}
                     </Badge>
                   </Button>
                 ))}
@@ -368,19 +642,19 @@ export function DiaryPage() {
             </Paper>
 
             {/* Stats */}
-            {moodStats && (
+            {store.moodStats && (
               <Paper p="md" withBorder>
                 <Text fw={600} size="sm" mb="xs">Mood Statistics</Text>
                 <Stack gap="xs">
                   <Group justify="space-between">
                     <Text size="sm">Total Entries</Text>
-                    <Badge variant="light">{moodStats.total_entries}</Badge>
+                    <Badge variant="light">{store.moodStats.total_entries}</Badge>
                   </Group>
-                  {moodStats.average_mood && (
+                  {store.moodStats.average_mood && (
                     <Group justify="space-between">
                       <Text size="sm">Average Mood</Text>
-                      <Badge variant="light" color={getMoodColor(Math.round(moodStats.average_mood))}>
-                        {moodStats.average_mood.toFixed(1)}
+                      <Badge variant="light" color={getMoodColor(Math.round(store.moodStats.average_mood))}>
+                        {store.moodStats.average_mood.toFixed(1)}
                       </Badge>
                     </Group>
                   )}
@@ -404,21 +678,21 @@ export function DiaryPage() {
             </Group>
 
             {/* Error Alert */}
-            {error && (
+            {store.error && (
               <Alert
                 icon={<IconAlertTriangle size={16} />}
                 title="Error"
                 color="red"
                 variant="light"
                 withCloseButton
-                onClose={clearError}
+                onClose={store.clearError}
               >
-                {error}
+                {store.error}
               </Alert>
             )}
 
             {/* Loading State */}
-            {isLoading && (
+            {store.isLoading && (
               <Stack gap="md">
                 {Array.from({ length: 4 }).map((_, index) => (
                   <Skeleton key={index} height={150} radius="md" />
@@ -427,9 +701,9 @@ export function DiaryPage() {
             )}
 
             {/* Entries List */}
-            {!isLoading && entries.length > 0 && (
+            {!store.isLoading && store.entries.length > 0 && (
               <Stack gap="md">
-                {entries.map((entry) => (
+                {store.entries.map((entry) => (
                   <Card 
                     key={entry.id}
                     shadow="sm" 
@@ -506,7 +780,7 @@ export function DiaryPage() {
             )}
 
             {/* Empty State */}
-            {!isLoading && entries.length === 0 && (
+            {!store.isLoading && store.entries.length === 0 && (
               <Paper p="xl" radius="md" style={{ textAlign: 'center' }}>
                 <ThemeIcon size="xl" variant="light" color="purple" mx="auto" mb="md">
                   <IconBook size={32} />
@@ -533,81 +807,129 @@ export function DiaryPage() {
         onClose={() => {
           setEntryModalOpen(false);
           resetEntryForm();
-          clearCurrentEntry();
+          setViewingEntry(null);
+          store.clearCurrentEntry();
         }}
-        title={isEditingEntry ? 'Edit Diary Entry' : 'New Diary Entry'}
+        title={viewMode === 'view' ? 'View Diary Entry' : isEditingEntry ? 'Edit Diary Entry' : 'New Diary Entry'}
         size="lg"
       >
-        <Stack gap="md">
-          <Group>
-            <Text fw={500}>Date: {selectedDate.toLocaleDateString()}</Text>
-          </Group>
-          
-          <TextInput
-            label="Title (optional)"
-            placeholder="Entry title"
-            value={entryForm.title}
-            onChange={(e) => setEntryForm({ ...entryForm, title: e.currentTarget.value })}
-          />
-          
-          <Textarea
-            label="Content"
-            placeholder="Write your thoughts..."
-            value={entryForm.content}
-            onChange={(e) => setEntryForm({ ...entryForm, content: e.currentTarget.value })}
-            minRows={8}
-            required
-          />
-          
-          <Group grow>
-            <div>
-              <Text size="sm" mb="xs" fw={500}>Mood</Text>
-              <Rating
-                value={entryForm.mood}
-                onChange={(value) => setEntryForm({ ...entryForm, mood: value })}
-                emptySymbol="😐"
-                fullSymbol={getMoodEmoji(entryForm.mood)}
-                count={5}
-              />
-            </div>
+        {viewMode === 'view' && viewingEntry && (
+          <Stack gap="md">
+            <Group>
+              <Text fw={500}>Date: {formatDate(viewingEntry.date)}</Text>
+            </Group>
+
+            {viewingEntry.title && (
+              <Title order={4}>{viewingEntry.title}</Title>
+            )}
+
+            <Text style={{ whiteSpace: 'pre-wrap' }}>{viewingEntry.content}</Text>
+
+            <Group gap="xs">
+              {viewingEntry.mood && (
+                <Badge variant="light" color={getMoodColor(viewingEntry.mood)}>
+                  Mood: {getMoodEmoji(viewingEntry.mood)} {viewingEntry.mood}/5
+                </Badge>
+              )}
+              {viewingEntry.weather && (
+                <Badge variant="outline">
+                  Weather: {getWeatherEmoji(viewingEntry.weather)} {viewingEntry.weather}
+                </Badge>
+              )}
+            </Group>
+
+            <Group justify="flex-end">
+              <Button
+                leftSection={<IconEdit size={16} />}
+                variant="light"
+                onClick={() => {
+                  // Switch to edit mode with current entry pre-filled
+                  setEntryForm({
+                    title: viewingEntry.title,
+                    content: viewingEntry.content,
+                    mood: viewingEntry.mood ?? 3,
+                    weather: viewingEntry.weather ?? ''
+                  });
+                  setIsEditingEntry(true);
+                  setViewMode('edit');
+                }}
+              >
+                Edit Entry
+              </Button>
+            </Group>
+          </Stack>
+        )}
+
+        {viewMode === 'edit' && (
+          <Stack gap="md">
+            <Group>
+              <Text fw={500}>Date: {selectedDate.toLocaleDateString()}</Text>
+            </Group>
             
-            <Select
-              label="Weather"
-              placeholder="Select weather"
-              data={[
-                { value: 'sunny', label: '☀️ Sunny' },
-                { value: 'cloudy', label: '☁️ Cloudy' },
-                { value: 'rainy', label: '🌧️ Rainy' },
-                { value: 'snowy', label: '❄️ Snowy' },
-                { value: 'stormy', label: '⛈️ Stormy' },
-                { value: 'windy', label: '💨 Windy' }
-              ]}
-              value={entryForm.weather}
-              onChange={(value) => setEntryForm({ ...entryForm, weather: value || '' })}
+            <TextInput
+              label="Title (optional)"
+              placeholder="Entry title"
+              value={entryForm.title}
+              onChange={(e) => setEntryForm({ ...entryForm, title: e.currentTarget.value })}
             />
-          </Group>
-          
-          <Group justify="flex-end">
-            <Button
-              variant="subtle"
-              onClick={() => {
-                setEntryModalOpen(false);
-                resetEntryForm();
-                clearCurrentEntry();
-              }}
-              disabled={isCreating}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCreateEntry}
-              loading={isCreating}
-              disabled={!entryForm.content.trim()}
-            >
-              {isEditingEntry ? 'Update' : 'Save'} Entry
-            </Button>
-          </Group>
-        </Stack>
+            
+            <Textarea
+              label="Content"
+              placeholder="Write your thoughts..."
+              value={entryForm.content}
+              onChange={(e) => setEntryForm({ ...entryForm, content: e.currentTarget.value })}
+              minRows={8}
+              required
+            />
+            
+            <Group grow>
+              <div>
+                <Text size="sm" mb="xs" fw={500}>Mood</Text>
+                <Rating
+                  value={entryForm.mood}
+                  onChange={(value) => setEntryForm({ ...entryForm, mood: value })}
+                  emptySymbol="😐"
+                  fullSymbol={getMoodEmoji(entryForm.mood)}
+                  count={5}
+                />
+              </div>
+              
+              <Select
+                label="Weather"
+                placeholder="Select weather"
+                data={[
+                  { value: 'sunny', label: '☀️ Sunny' },
+                  { value: 'cloudy', label: '☁️ Cloudy' },
+                  { value: 'rainy', label: '🌧️ Rainy' },
+                  { value: 'snowy', label: '❄️ Snowy' },
+                  { value: 'stormy', label: '⛈️ Stormy' }
+                ]}
+                value={entryForm.weather}
+                onChange={(value) => setEntryForm({ ...entryForm, weather: value || '' })}
+              />
+            </Group>
+
+            {/* Action buttons */}
+            <Group justify="flex-end">
+              <Button
+                variant="subtle"
+                onClick={() => {
+                  setEntryModalOpen(false);
+                  resetEntryForm();
+                  setViewingEntry(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreateEntry}
+                disabled={!entryForm.content.trim()}
+              >
+                Save Entry
+              </Button>
+            </Group>
+          </Stack>
+        )}
       </Modal>
     </Container>
   );

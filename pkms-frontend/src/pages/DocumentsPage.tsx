@@ -88,6 +88,18 @@ export function DocumentsPage() {
     loadDocuments();
   }, []);
 
+  // Handle action query parameter
+  useEffect(() => {
+    const action = searchParams.get('action');
+    if (action === 'upload') {
+      setUploadModalOpen(true);
+      // Clear the action from URL
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('action');
+      setSearchParams(newParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   // Update search in store when debounced value changes
   useEffect(() => {
     setSearch(debouncedSearch);

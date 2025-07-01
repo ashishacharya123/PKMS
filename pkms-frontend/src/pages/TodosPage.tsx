@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Container,
   Grid,
@@ -50,6 +50,7 @@ type SortOrder = 'asc' | 'desc';
 
 export function TodosPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   
   // Local state
   const [searchQuery, setSearchQuery] = useState('');
@@ -112,6 +113,18 @@ export function TodosPage() {
     loadProjects();
     loadStats();
   }, []);
+
+  // Handle action query parameter
+  useEffect(() => {
+    const action = searchParams.get('action');
+    if (action === 'new') {
+      setTodoModalOpen(true);
+      // Clear the action from URL
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('action');
+      setSearchParams(newParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // Update search in store when debounced value changes
   useEffect(() => {

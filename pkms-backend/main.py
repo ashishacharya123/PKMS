@@ -17,7 +17,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 # Import routers
-from app.routers import auth, notes, documents, todos, diary, archive
+from app.routers import auth, notes, documents, todos, diary, archive, dashboard, search
 
 # Import database initialization
 from app.database import init_db, close_db, get_db_session
@@ -196,11 +196,13 @@ async def health_check():
 
 # API Routes
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["authentication"])
+app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
 app.include_router(notes.router, prefix="/api/v1/notes", tags=["notes"])
 app.include_router(documents.router, prefix="/api/v1/documents", tags=["documents"])
 app.include_router(todos.router, prefix="/api/v1/todos", tags=["todos"])
 app.include_router(diary.router, prefix="/api/v1/diary", tags=["diary"])
-app.include_router(archive.router, prefix="/api/v1/archive", tags=["archive"])
+app.include_router(archive.router, prefix="/api/v1", tags=["archive"])
+app.include_router(search.router, prefix="/api/v1", tags=["search"])
 
 if __name__ == "__main__":
     print(f"🌐 Starting server on {settings.host}:{settings.port}")

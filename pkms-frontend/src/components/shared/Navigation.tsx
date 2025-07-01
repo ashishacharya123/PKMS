@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { NavLink, useLocation, Link } from 'react-router-dom';
+import { useState, KeyboardEvent } from 'react';
+import { NavLink, useLocation, Link, useNavigate } from 'react-router-dom';
 import {
   AppShell,
   ScrollArea,
@@ -13,7 +13,8 @@ import {
   Avatar,
   Divider,
   useMantineColorScheme,
-  Box
+  Box,
+  TextInput
 } from '@mantine/core';
 import {
   IconHome,
@@ -93,16 +94,31 @@ export function Navigation({ collapsed = false }: NavigationProps) {
   const { user, logout } = useAuthStore();
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
   const [userMenuOpened, setUserMenuOpened] = useState(false);
+  const navigate = useNavigate();
 
   const handleLogout = async () => {
     await logout();
   };
 
   const isActive = (path: string) => {
-    if (path === '/dashboard') {
-      return location.pathname === '/dashboard' || location.pathname === '/';
-    }
+    if (path === '/') return location.pathname === '/';
     return location.pathname.startsWith(path);
+  };
+
+  const handleSearch = (query: string) => {
+    if (query.trim()) {
+      navigate(`/search?q=${encodeURIComponent(query.trim())}`);
+    }
+  };
+
+  const handleSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      const query = e.currentTarget.value.trim();
+      if (query) {
+        handleSearch(query);
+        e.currentTarget.value = ''; // Clear input after search
+      }
+    }
   };
 
   const NavigationLink = ({ item }: { item: NavigationItem }) => (
@@ -190,8 +206,6 @@ export function Navigation({ collapsed = false }: NavigationProps) {
         </Group>
       </AppShell.Section>
 
-
-
       {/* Navigation Links */}
       <AppShell.Section grow component={ScrollArea}>
         <Stack gap="xs">
@@ -206,37 +220,53 @@ export function Navigation({ collapsed = false }: NavigationProps) {
         <Divider mb="sm" />
         
         {/* Global Search */}
-        <Tooltip label={collapsed ? "Global Search" : undefined} position="right" disabled={!collapsed}>
-          <UnstyledButton
-            w="100%"
-            p="xs"
+        {!collapsed ? (
+          <TextInput
+            placeholder="Search everywhere..."
+            leftSection={<IconSearch size={16} />}
+            size="sm"
             mb="xs"
-            style={{
-              borderRadius: 'var(--mantine-radius-md)',
+            onKeyDown={handleSearchKeyDown}
+            styles={{
+              input: {
+                backgroundColor: colorScheme === 'dark' 
+                  ? 'var(--mantine-color-dark-6)' 
+                  : 'var(--mantine-color-gray-0)',
+                border: `1px solid ${
+                  colorScheme === 'dark' ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'
+                }`,
+              }
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = colorScheme === 'dark' 
-                ? 'var(--mantine-color-dark-6)' 
-                : 'var(--mantine-color-gray-0)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent';
-            }}
-          >
-            <Group gap="sm" wrap="nowrap">
-              <ThemeIcon variant="light" color="gray" size="md">
-                <IconSearch size={18} />
-              </ThemeIcon>
-              {!collapsed && (
-                <Text size="sm" c="dimmed">
-                  Search everywhere...
-                </Text>
-              )}
-            </Group>
-          </UnstyledButton>
-        </Tooltip>
-
-
+          />
+        ) : (
+          <Tooltip label="Global Search" position="right">
+            <UnstyledButton
+              w="100%"
+              p="xs"
+              mb="xs"
+              style={{
+                borderRadius: 'var(--mantine-radius-md)',
+              }}
+              onClick={() => {
+                navigate('/search');
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = colorScheme === 'dark' 
+                  ? 'var(--mantine-color-dark-6)' 
+                  : 'var(--mantine-color-gray-0)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <Group justify="center">
+                <ThemeIcon variant="light" color="gray" size="md">
+                  <IconSearch size={18} />
+                </ThemeIcon>
+              </Group>
+            </UnstyledButton>
+          </Tooltip>
+        )}
 
         {/* User Menu */}
         <Menu

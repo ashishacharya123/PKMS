@@ -43,9 +43,7 @@ class AIService:
             'hobby': ['hobby', 'interest', 'fun', 'entertainment', 'leisure', 'passion']
         }
         
-        if self.enabled:
-            # Load models in background
-            asyncio.create_task(self._load_models())
+        # Don't load models at initialization - they will be loaded lazily when needed
     
     async def _load_models(self):
         """Load AI models asynchronously"""
@@ -96,7 +94,14 @@ class AIService:
         Returns:
             Analysis results including tags, sentiment, summary, etc.
         """
-        if not self.enabled or not self.models_loaded:
+        if not self.enabled:
+            return self._fallback_analysis(text, content_type)
+            
+        # Lazy load models if needed
+        if not self.models_loaded:
+            await self._load_models()
+            
+        if not self.models_loaded:
             return self._fallback_analysis(text, content_type)
         
         try:

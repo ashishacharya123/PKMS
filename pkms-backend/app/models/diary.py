@@ -21,6 +21,11 @@ class DiaryEntry(Base):
     content_encrypted = Column(Text, nullable=False)  # Encrypted content
     mood = Column(Integer, nullable=True)  # 1-5 scale
     weather = Column(String(50), nullable=True)
+    # Separate AES-GCM parameters for the encrypted title.  These remain optional so that
+    # older entries created before this change continue to work.  When null the
+    # application will fall back to ``encryption_iv`` / ``encryption_tag``.
+    title_encryption_iv = Column(String(255), nullable=True)
+    title_encryption_tag = Column(String(255), nullable=True)
     encryption_iv = Column(String(255), nullable=False)  # Initialization vector
     encryption_tag = Column(String(255), nullable=False)  # Authentication tag
     is_template = Column(Boolean, default=False)  # For reusable templates

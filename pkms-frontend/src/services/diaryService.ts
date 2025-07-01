@@ -1,4 +1,5 @@
 import { apiService } from './api';
+import { format } from 'date-fns';
 
 // Types for diary
 export interface DiaryEntry {
@@ -10,6 +11,8 @@ export interface DiaryEntry {
   weather?: string;
   encryption_iv: string;
   encryption_tag: string;
+  title_encryption_iv?: string;
+  title_encryption_tag?: string;
   is_template: boolean;
   created_at: string;
   updated_at: string;
@@ -24,6 +27,8 @@ export interface DiaryEntryCreate {
   weather?: string;
   encryption_iv: string;
   encryption_tag: string;
+  title_encryption_iv?: string;
+  title_encryption_tag?: string;
   is_template?: boolean;
 }
 
@@ -34,6 +39,8 @@ export interface DiaryEntryUpdate {
   weather?: string;
   encryption_iv?: string;
   encryption_tag?: string;
+  title_encryption_iv?: string;
+  title_encryption_tag?: string;
   is_template?: boolean;
 }
 
@@ -45,6 +52,9 @@ export interface DiaryEntrySummary {
   is_template: boolean;
   created_at: string;
   media_count: number;
+  content_encrypted: string;
+  encryption_iv: string;
+  encryption_tag: string;
 }
 
 export interface DiaryMedia {
@@ -103,11 +113,26 @@ class DiaryService {
 
   // Entry methods
   async createEntry(entryData: DiaryEntryCreate): Promise<DiaryEntry> {
-    return await apiService.post<DiaryEntry>(`${this.baseUrl}/entries`, entryData);
+    // Format the date to YYYY-MM-DD
+    const formattedData = {
+      ...entryData,
+      date: entryData.date.split('T')[0]
+    };
+    return await apiService.post<DiaryEntry>(`${this.baseUrl}/entries`, formattedData);
   }
 
-  async getEntryByDate(date: string): Promise<DiaryEntry> {
-    return await apiService.get<DiaryEntry>(`${this.baseUrl}/entries/${date}`);
+  async getEntryByDate(date: Date): Promise<DiaryEntry> {
+    try {
+      // Format date as YYYY-MM-DD using date-fns
+      const formattedDate = format(date, 'yyyy-MM-dd');
+      console.log('[DEBUG] Fetching entry for date:', formattedDate);
+      
+      const response = await apiService.get<DiaryEntry>(`${this.baseUrl}/entries/${formattedDate}`);
+      return response;
+    } catch (error) {
+      console.error('[DEBUG] Error fetching diary entry:', error);
+      throw error;
+    }
   }
 
   async getEntryById(entryId: number): Promise<DiaryEntry> {
@@ -137,7 +162,14 @@ class DiaryService {
 
   // Calendar methods
   async getCalendarData(year: number, month: number): Promise<DiaryCalendarData[]> {
-    return await apiService.get<DiaryCalendarData[]>(`${this.baseUrl}/calendar/${year}/${month}`);
+    try {
+      // Backend returns an object { calendar_data: DiaryCalendarData[] }
+      const response = await apiService.get<{ calendar_data: DiaryCalendarData[] }>(`${this.baseUrl}/calendar/${year}/${month}`);
+      return response.calendar_data || [];
+    } catch (error) {
+      console.error('Error fetching calendar data:', error);
+      throw error;
+    }
   }
 
   // Media methods
@@ -200,73 +232,126 @@ class DiaryService {
 
   // Utility methods for encryption
   async generateEncryptionKey(password: string): Promise<CryptoKey> {
-    const encoder = new TextEncoder();
-    const passwordBuffer = encoder.encode(password);
-    
-    // Import password as key material
-    const keyMaterial = await crypto.subtle.importKey(
-      'raw',
-      passwordBuffer,
-      { name: 'PBKDF2' },
-      false,
-      ['deriveKey']
-    );
-
-    // Derive a key using PBKDF2
-    return await crypto.subtle.deriveKey(
-      {
-        name: 'PBKDF2',
-        salt: encoder.encode('pkms-diary-salt'), // In production, use a proper random salt
-        iterations: 100000,
-        hash: 'SHA-256'
-      },
-      keyMaterial,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['encrypt', 'decrypt']
-    );
+    try {
+      console.log('Starting key generation...');
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      
+      // Generate a key from the password
+      const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        data,
+        { name: 'PBKDF2' },
+        false,
+        ['deriveBits', 'deriveKey']
+      );
+      
+      // Use PBKDF2 to derive a key
+      const salt = encoder.encode('PKMS-Diary-Salt');  // Fixed salt for now
+      const key = await crypto.subtle.deriveKey(
+        {
+          name: 'PBKDF2',
+          salt: salt,
+          iterations: 100000,
+          hash: 'SHA-256'
+        },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        true,
+        ['encrypt', 'decrypt']
+      );
+      
+      console.log('Key generation successful');
+      return key;
+    } catch (error) {
+      console.error('Error generating encryption key:', error);
+      throw new Error('Failed to generate encryption key. Please try again.');
+    }
   }
 
   async encryptContent(content: string, key: CryptoKey): Promise<EncryptedContent> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(content);
-    
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encrypted = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      key,
-      data
-    );
+    try {
+      console.log('Starting content encryption...');
+      const encoder = new TextEncoder();
+      const data = encoder.encode(content);
+      
+      // Generate random IV
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      
+      // Encrypt the content
+      const encrypted = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv },
+        key,
+        data
+      );
 
-    const encryptedArray = new Uint8Array(encrypted);
-    const tag = encryptedArray.slice(-16); // Last 16 bytes are the auth tag
-    const ciphertext = encryptedArray.slice(0, -16);
+      // Split into ciphertext and auth tag
+      const encryptedArray = new Uint8Array(encrypted);
+      const tag = encryptedArray.slice(-16); // Last 16 bytes are the auth tag
+      const ciphertext = encryptedArray.slice(0, -16);
 
-    return {
-      content: this.arrayBufferToBase64(ciphertext),
-      iv: this.arrayBufferToBase64(iv),
-      tag: this.arrayBufferToBase64(tag)
-    };
+      // Convert to base64 for storage
+      const result = {
+        content: this.arrayBufferToBase64(ciphertext),
+        iv: this.arrayBufferToBase64(iv),
+        tag: this.arrayBufferToBase64(tag)
+      };
+      console.log('Content encryption successful');
+      return result;
+    } catch (error) {
+      console.error('Error encrypting content:', error);
+      throw new Error('Failed to encrypt content. Please try again.');
+    }
   }
 
   async decryptContent(encryptedContent: EncryptedContent, key: CryptoKey): Promise<string> {
-    const iv = this.base64ToArrayBuffer(encryptedContent.iv);
-    const ciphertext = this.base64ToArrayBuffer(encryptedContent.content);
-    const tag = this.base64ToArrayBuffer(encryptedContent.tag);
+    try {
+      console.log('Starting content decryption...');
+      // Convert from base64
+      const iv = this.base64ToArrayBuffer(encryptedContent.iv);
+      const ciphertext = this.base64ToArrayBuffer(encryptedContent.content);
+      const tag = this.base64ToArrayBuffer(encryptedContent.tag);
 
-    // Combine ciphertext and tag for AES-GCM
-    const encrypted = new Uint8Array(ciphertext.byteLength + tag.byteLength);
-    encrypted.set(new Uint8Array(ciphertext));
-    encrypted.set(new Uint8Array(tag), ciphertext.byteLength);
+      // Combine ciphertext and tag for AES-GCM
+      const encryptedData = new Uint8Array(ciphertext.byteLength + tag.byteLength);
+      encryptedData.set(new Uint8Array(ciphertext));
+      encryptedData.set(new Uint8Array(tag), ciphertext.byteLength);
 
-    const decrypted = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: new Uint8Array(iv) },
-      key,
-      encrypted
-    );
+      // Decrypt the content
+      const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: new Uint8Array(iv) },
+        key,
+        encryptedData.buffer
+      );
 
-    const decoder = new TextDecoder();
-    return decoder.decode(decrypted);
+      // Convert back to string
+      const decoder = new TextDecoder();
+      const result = decoder.decode(decrypted);
+      console.log('Content decryption successful');
+      return result;
+    } catch (error) {
+      console.error('Error decrypting content:', error);
+      throw new Error('Failed to decrypt content. Please check your password.');
+    }
+  }
+
+  // Helper methods for base64 conversion
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  private base64ToArrayBuffer(base64: string): ArrayBuffer {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
   }
 
   // Utility methods
@@ -329,22 +414,16 @@ class DiaryService {
     return weatherEmojis[weather.toLowerCase()] || '🌤️';
   }
 
-  private arrayBufferToBase64(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-  }
-
-  private base64ToArrayBuffer(base64: string): ArrayBuffer {
-    const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
+  async listEntries(params: DiaryListParams): Promise<DiaryEntrySummary[]> {
+    const queryParams = new URLSearchParams();
+    if (params.year) queryParams.append('year', params.year.toString());
+    if (params.month) queryParams.append('month', params.month.toString());
+    if (params.mood) queryParams.append('mood', params.mood.toString());
+    if (params.limit) queryParams.append('limit', params.limit.toString());
+    if (params.offset) queryParams.append('offset', params.offset.toString());
+    
+    const url = `${this.baseUrl}/entries?${queryParams.toString()}`;
+    return await apiService.get<DiaryEntrySummary[]>(url);
   }
 }
 

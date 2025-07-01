@@ -13,6 +13,7 @@ import { DocumentsPage } from './pages/DocumentsPage';
 import { TodosPage } from './pages/TodosPage';
 import { DiaryPage } from './pages/DiaryPage';
 import { ArchivePage } from './pages/ArchivePage';
+import { SearchResultsPage } from './pages/SearchResultsPage';
 
 // Auth Guard Component
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -146,6 +147,15 @@ function App() {
             element={
               <AuthGuard>
                 <ArchivePage />
+              </AuthGuard>
+            } 
+          />
+          
+          <Route 
+            path="/search" 
+            element={
+              <AuthGuard>
+                <SearchResultsPage />
               </AuthGuard>
             } 
           />

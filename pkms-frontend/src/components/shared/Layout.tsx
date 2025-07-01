@@ -45,15 +45,11 @@ export function Layout({ children }: LayoutProps) {
                 style={{
                   padding: '6px 12px',
                   borderRadius: 'var(--mantine-radius-md)',
-                  backgroundColor: colorScheme === 'dark' 
-                    ? 'var(--mantine-color-dark-6)' 
-                    : 'var(--mantine-color-gray-0)',
-                  border: `1px solid ${
-                    colorScheme === 'dark' ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'
-                  }`,
+                  backgroundColor: 'var(--mantine-color-grape-light)',
+                  border: '1px solid var(--mantine-color-grape-filled)',
                 }}
               >
-                <Text size="sm" fw={500}>
+                <Text size="sm" fw={500} c="grape">
                   {formattedDate}
                 </Text>
               </Box>
@@ -85,15 +81,11 @@ export function Layout({ children }: LayoutProps) {
                 style={{
                   padding: '6px 12px',
                   borderRadius: 'var(--mantine-radius-md)',
-                  backgroundColor: colorScheme === 'dark' 
-                    ? 'var(--mantine-color-dark-6)' 
-                    : 'var(--mantine-color-gray-0)',
-                  border: `1px solid ${
-                    colorScheme === 'dark' ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'
-                  }`,
+                  backgroundColor: 'var(--mantine-color-grape-light)',
+                  border: '1px solid var(--mantine-color-grape-filled)',
                 }}
               >
-                <Text size="sm" fw={500}>
+                <Text size="sm" fw={500} c="grape">
                   {new Date().toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase()}
                 </Text>
               </Box>
@@ -125,15 +117,11 @@ export function Layout({ children }: LayoutProps) {
                 style={{
                   padding: '6px 12px',
                   borderRadius: 'var(--mantine-radius-md)',
-                  backgroundColor: colorScheme === 'dark' 
-                    ? 'var(--mantine-color-dark-6)' 
-                    : 'var(--mantine-color-gray-0)',
-                  border: `1px solid ${
-                    colorScheme === 'dark' ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'
-                  }`,
+                  backgroundColor: 'var(--mantine-color-grape-light)',
+                  border: '1px solid var(--mantine-color-grape-filled)',
                 }}
               >
-                <Text size="sm" fw={600}>
+                <Text size="sm" fw={600} c="grape">
                   {formattedTime}
                 </Text>
               </Box>

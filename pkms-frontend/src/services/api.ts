@@ -145,7 +145,9 @@ class ApiService {
 
   // Generic API methods
   async get<T = any>(url: string): Promise<T> {
-    const response = await this.api.get(url);
+    // Remove any trailing :1 that might be added by the browser
+    const cleanUrl = url.replace(/:1$/, '');
+    const response = await this.api.get(cleanUrl);
     return response.data;
   }
 

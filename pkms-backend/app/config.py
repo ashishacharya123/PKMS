@@ -49,9 +49,12 @@ class Settings(BaseSettings):
     cors_origins: list = [
         "http://localhost:3000",
         "http://localhost:5173", 
-        "tauri://localhost",
+        "http://localhost:8000",
         "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8000",
+        "http://localhost",
+        "http://127.0.0.1"
     ]
     
     def __init__(self, **kwargs):
