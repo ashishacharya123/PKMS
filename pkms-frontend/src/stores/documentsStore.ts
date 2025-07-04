@@ -64,8 +64,7 @@ interface DocumentsState {
   reset: () => void;
 }
 
-export const useDocumentsStore = create<DocumentsState>((set, get) => ({
-  // Initial state
+const initialState: Omit<DocumentsState, 'reset' | 'setUploadProgress' | 'clearCurrentDocument' | 'clearError' | 'setShowArchived' | 'setSearch' | 'setTag' | 'setMimeType' | 'getPreviewUrl' | 'getDownloadUrl' | 'downloadDocument' | 'clearSearch' | 'searchDocuments' | 'toggleArchive' | 'deleteDocument' | 'updateDocument' | 'uploadDocument' | 'loadDocument' | 'loadMore' | 'loadDocuments'> = {
   documents: [],
   currentDocument: null,
   searchResults: [],
@@ -82,8 +81,11 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
   limit: 20,
   offset: 0,
   hasMore: true,
+};
+
+export const useDocumentsStore = create<DocumentsState>((set, get) => ({
+  ...initialState,
   
-  // Document Actions
   loadDocuments: async () => {
     const state = get();
     set({ isLoading: true, error: null, offset: 0 });
@@ -384,21 +386,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
   
   setUploadProgress: (progress: number) => set({ uploadProgress: progress }),
   
-  reset: () => set({
-    documents: [],
-    currentDocument: null,
-    searchResults: [],
-    isLoading: false,
-    isUploading: false,
-    isUpdating: false,
-    isSearching: false,
-    uploadProgress: 0,
-    error: null,
-    currentMimeType: null,
-    currentTag: null,
-    searchQuery: '',
-    showArchived: false,
-    offset: 0,
-    hasMore: true
-  })
+  reset: () => {
+    set(initialState);
+  }
 })); 

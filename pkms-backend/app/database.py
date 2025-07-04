@@ -8,11 +8,15 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.pool import StaticPool
 from contextlib import asynccontextmanager
 import logging
+from sqlalchemy import text, inspect
+import os
+from pathlib import Path
 
 from app.config import get_database_url, settings
 
 # Configure logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 # Create async engine
 engine = create_async_engine(
@@ -63,19 +67,80 @@ async def get_db_session() -> AsyncSession:
             await session.close()
 
 
-async def init_db():
-    """Initialize database tables"""
+async def verify_table_schema(table_name: str) -> None:
+    """Verify the schema of a specific table"""
     try:
         async with engine.begin() as conn:
-            # Import all models to ensure they're registered
-            from app.models import user, note, document, todo, diary, tag, link, archive
+            # Get table info
+            result = await conn.execute(text(f"PRAGMA table_info({table_name})"))
+            columns = result.fetchall()
             
-            # Create all tables
-            await conn.run_sync(Base.metadata.create_all)
-            logger.info("✅ Database tables created successfully")
+            logger.info(f"\n=== Table Schema for {table_name} ===")
+            for col in columns:
+                logger.info(f"Column: {col[1]}, Type: {col[2]}, Nullable: {not col[3]}, Default: {col[4]}")
+            logger.info("=" * 40)
             
     except Exception as e:
-        logger.error(f"❌ Database initialization failed: {e}")
+        logger.error(f"Error verifying table schema: {e}")
+        raise
+
+
+async def init_db():
+    """Initialize database and create tables"""
+    
+    try:
+        # Create tables
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            
+            # Create indexes for better search performance
+            await conn.execute(text('''
+                -- Archive module indexes
+                CREATE INDEX IF NOT EXISTS idx_archive_items_name ON archive_items(name);
+                CREATE INDEX IF NOT EXISTS idx_archive_items_description ON archive_items(description);
+                CREATE INDEX IF NOT EXISTS idx_archive_items_mime_type ON archive_items(mime_type);
+                CREATE INDEX IF NOT EXISTS idx_archive_items_created ON archive_items(created_at);
+                CREATE INDEX IF NOT EXISTS idx_archive_items_updated ON archive_items(updated_at);
+                
+                -- Archive folder indexes
+                CREATE INDEX IF NOT EXISTS idx_archive_folders_name ON archive_folders(name);
+                CREATE INDEX IF NOT EXISTS idx_archive_folders_path ON archive_folders(path);
+                
+                -- Enable FTS5 extension
+                CREATE VIRTUAL TABLE IF NOT EXISTS archive_items_fts USING fts5(
+                    name, 
+                    description,
+                    extracted_text,
+                    content='archive_items',
+                    content_rowid='uuid',
+                    tokenize='porter unicode61',
+                    prefix='2,3',
+                    columnsize=0
+                );
+                
+                -- Create triggers to keep FTS index up to date
+                CREATE TRIGGER IF NOT EXISTS archive_items_ai AFTER INSERT ON archive_items BEGIN
+                    INSERT INTO archive_items_fts(rowid, name, description, extracted_text)
+                    VALUES (new.uuid, new.name, new.description, new.extracted_text);
+                END;
+                
+                CREATE TRIGGER IF NOT EXISTS archive_items_ad AFTER DELETE ON archive_items BEGIN
+                    INSERT INTO archive_items_fts(archive_items_fts, rowid, name, description, extracted_text)
+                    VALUES('delete', old.uuid, old.name, old.description, old.extracted_text);
+                END;
+                
+                CREATE TRIGGER IF NOT EXISTS archive_items_au AFTER UPDATE ON archive_items BEGIN
+                    INSERT INTO archive_items_fts(archive_items_fts, rowid, name, description, extracted_text)
+                    VALUES('delete', old.uuid, old.name, old.description, old.extracted_text);
+                    INSERT INTO archive_items_fts(rowid, name, description, extracted_text)
+                    VALUES (new.uuid, new.name, new.description, new.extracted_text);
+                END;
+            '''))
+            
+            logger.info("✅ Database initialized successfully")
+            
+    except Exception as e:
+        logger.error(f"❌ Database initialization failed: {str(e)}")
         raise
 
 

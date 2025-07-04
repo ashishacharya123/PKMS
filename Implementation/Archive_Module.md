@@ -16,25 +16,25 @@ Location: `pkms-backend/app/routers/archive.py`
 #### Required Endpoints:
 
 **Folder Management:**
-- `POST /archive/folders` - Create folder
-- `GET /archive/folders` - List folders (tree structure)
-- `GET /archive/folders/{uuid}` - Get folder details
-- `PUT /archive/folders/{uuid}` - Update folder
-- `DELETE /archive/folders/{uuid}` - Delete folder
-- `POST /archive/folders/{uuid}/move` - Move folder
+- `POST /api/v1/archive/folders` - Create folder
+- `GET /api/v1/archive/folders` - List folders (tree structure)
+- `GET /api/v1/archive/folders/{uuid}` - Get folder details
+- `PUT /api/v1/archive/folders/{uuid}` - Update folder
+- `DELETE /api/v1/archive/folders/{uuid}` - Delete folder
+- `POST /api/v1/archive/folders/{uuid}/move` - Move folder
 
 **File Management:**
-- `POST /archive/folders/{folder_uuid}/upload` - Upload file to folder
-- `GET /archive/items/{uuid}` - Get file details
-- `PUT /archive/items/{uuid}` - Update file metadata
-- `DELETE /archive/items/{uuid}` - Delete file
-- `GET /archive/items/{uuid}/download` - Download file
-- `POST /archive/items/{uuid}/move` - Move file between folders
+- `POST /api/v1/archive/folders/{folder_uuid}/upload` - Upload file to folder
+- `GET /api/v1/archive/items/{uuid}` - Get file details
+- `PUT /api/v1/archive/items/{uuid}` - Update file metadata
+- `DELETE /api/v1/archive/items/{uuid}` - Delete file
+- `GET /api/v1/archive/items/{uuid}/download` - Download file
+- `POST /api/v1/archive/items/{uuid}/move` - Move file between folders
 
 **Search & Navigation:**
-- `GET /archive/search` - Search files across all folders
-- `GET /archive/folders/{uuid}/items` - List files in folder
-- `GET /archive/breadcrumb/{uuid}` - Get folder path
+- `GET /api/v1/archive/search` - Search files across all folders
+- `GET /api/v1/archive/folders/{uuid}/items` - List files in folder
+- `GET /api/v1/archive/breadcrumb/{uuid}` - Get folder path
 
 ### AI Integration ✅ COMPLETED
 - Smart tagging for archive content
@@ -46,13 +46,26 @@ Location: `pkms-backend/app/routers/archive.py`
 ### Required Components
 
 **Archive Page Structure:**
+The Archive page has been completely redesigned using Mantine's `<AppShell>` to provide a modern, two-column layout.
+
+- **`AppShell.Navbar` (Left Sidebar):**
+  - Contains a new, persistent `FolderTreeView` component.
+  - This tree view displays the entire folder hierarchy, is expandable, and highlights the currently selected folder. It provides the primary navigation method.
+
+- **`AppShell.Main` (Main Content Area):**
+  - Displays the content of the currently selected folder, including lists of subfolders and items.
+  - Contains the header with breadcrumbs, action buttons (Create Folder, Upload), view/sort controls, and filters.
+  - Also serves as the area where forms for creating/editing folders and uploading files are rendered.
+
 ```
 /archive
-├── FolderTree (sidebar)
-├── FileGrid (main content)
-├── UploadArea
-├── SearchBar
-└── Breadcrumb
+├── AppShell
+│   ├── Navbar (Sidebar)
+│   │   └── FolderTreeView (interactive folder hierarchy)
+│   └── Main (Content Area)
+│       ├── Header (Breadcrumbs, Actions, Filters)
+│       ├── FolderContent (Subfolders & Items Grid/List)
+│       └── Forms (Create/Edit Folder, Upload)
 ```
 
 ### Service Layer

@@ -48,242 +48,177 @@ async def global_search(
     if tags:
         tag_names = [tag.strip() for tag in tags.split(',') if tag.strip()]
     
-    # Search Notes
-    if 'note' in allowed_types:
-        # Build note query with tag filtering
-        note_query = select(Note).options(selectinload(Note.tags)).where(
-            and_(
-                Note.user_id == current_user.id,
-                Note.is_archived == False,
-                or_(
-                    Note.title.ilike(search_pattern),
-                    Note.area.ilike(search_pattern),
-                    Note.content.ilike(search_pattern) if include_content else Note.title.ilike(search_pattern)
-                )
-            )
-        )
-        
-        # Add tag filtering if specified
-        if tag_names:
-            note_query = note_query.join(Note.tags).where(
-                Tag.name.in_(tag_names)
-            )
-        
-        notes_result = await db.execute(note_query.limit(limit))
-        notes = notes_result.scalars().unique().all()
-        
-        for note in notes:
-            score = calculate_relevance_score(q, note.title, note.content if include_content else "")
-            preview = extract_preview(note.content or '', q, 200) if include_content else note.title
-            
-            results.append({
-                'id': str(note.id),
-                'type': 'note',
-                'title': note.title,
-                'preview': preview,
-                'content': note.content if include_content else "",
-                'path': f'/notes/{note.id}',
-                'score': score,
-                'relevance': get_relevance_level(score),
-                'tags': [tag.name for tag in note.tags],
-                'createdAt': note.created_at.isoformat(),
-                'updatedAt': note.updated_at.isoformat(),
-                'metadata': {
-                    'area': note.area,
-                    'year': note.year,
-                    'hasContent': bool(note.content) if not include_content else True
-                }
-            })
-    
-    # Search Documents (including extracted text)
-    if 'document' in allowed_types:
-        # Build document query with tag filtering
-        doc_query = select(Document).options(selectinload(Document.tags)).where(
-            and_(
-                Document.user_id == current_user.id,
-                Document.is_archived == False,
-                or_(
-                    Document.filename.ilike(search_pattern),
-                    Document.original_name.ilike(search_pattern),
-                    Document.extracted_text.ilike(search_pattern) if include_content else or_(
-                        Document.filename.ilike(search_pattern),
-                        Document.original_name.ilike(search_pattern)
-                    )
-                )
-            )
-        )
-        
-        # Add tag filtering if specified
-        if tag_names:
-            doc_query = doc_query.join(Document.tags).where(
-                Tag.name.in_(tag_names)
-            )
-        
-        docs_result = await db.execute(doc_query.limit(limit))
-        documents = docs_result.scalars().unique().all()
-        
-        for doc in documents:
-            score = calculate_relevance_score(q, doc.original_name, doc.extracted_text or '' if include_content else '')
-            preview = extract_preview(doc.extracted_text or doc.original_name, q, 200) if include_content else doc.original_name
-            
-            results.append({
-                'id': str(doc.uuid),
-                'type': 'document',
-                'title': doc.original_name,
-                'preview': preview,
-                'content': doc.extracted_text if include_content else "",
-                'path': f'/documents',
-                'score': score,
-                'relevance': get_relevance_level(score),
-                'tags': [tag.name for tag in doc.tags],
-                'createdAt': doc.created_at.isoformat(),
-                'updatedAt': doc.updated_at.isoformat(),
-                'metadata': {
-                    'size': doc.size_bytes,
-                    'mimeType': doc.mime_type,
-                    'filename': doc.filename,
-                    'hasContent': bool(doc.extracted_text) if not include_content else True
-                }
-            })
-    
-    # Search Todos (including descriptions)
-    if 'todo' in allowed_types:
-        # Build todo query with tag filtering
-        todo_query = select(Todo).options(selectinload(Todo.tags)).where(
-            and_(
-                Todo.user_id == current_user.id,
-                or_(
-                    Todo.title.ilike(search_pattern),
-                    Todo.description.ilike(search_pattern) if include_content else Todo.title.ilike(search_pattern)
-                )
-            )
-        )
-        
-        # Add tag filtering if specified
-        if tag_names:
-            todo_query = todo_query.join(Todo.tags).where(
-                Tag.name.in_(tag_names)
-            )
-        
-        todos_result = await db.execute(todo_query.limit(limit))
-        todos = todos_result.scalars().unique().all()
-        
-        for todo in todos:
-            score = calculate_relevance_score(q, todo.title, todo.description or '' if include_content else '')
-            preview = extract_preview(todo.description or todo.title, q, 200) if include_content else todo.title
-            
-            results.append({
-                'id': str(todo.id),
-                'type': 'todo',
-                'title': todo.title,
-                'preview': preview,
-                'content': todo.description if include_content else "",
-                'path': f'/todos',
-                'score': score,
-                'relevance': get_relevance_level(score),
-                'tags': [tag.name for tag in todo.tags],
-                'createdAt': todo.created_at.isoformat(),
-                'updatedAt': todo.updated_at.isoformat(),
-                'metadata': {
-                    'status': todo.status,
-                    'priority': todo.priority,
-                    'dueDate': todo.due_date.isoformat() if todo.due_date else None,
-                    'projectId': todo.project_id,
-                    'hasContent': bool(todo.description) if not include_content else True
-                }
-            })
-    
-    # Search Archive Items (including extracted text and descriptions)
-    if 'archive' in allowed_types:
-        # First search in archive folders
-        archive_folders_query = select(ArchiveFolder).where(
-            and_(
-                ArchiveFolder.user_id == current_user.id,
-                ArchiveFolder.is_archived == False,
-                or_(
-                    ArchiveFolder.name.ilike(search_pattern),
-                    ArchiveFolder.description.ilike(search_pattern) if include_content else ArchiveFolder.name.ilike(search_pattern)
-                )
-            )
-        )
-        
-        archive_folders_result = await db.execute(archive_folders_query.limit(limit))
-        archive_folders = archive_folders_result.scalars().unique().all()
-        
-        for folder in archive_folders:
-            score = calculate_relevance_score(q, folder.name, folder.description or '' if include_content else '')
-            preview = extract_preview(folder.description or folder.name, q, 200) if include_content and folder.description else folder.name
-            
-            results.append({
-                'id': str(folder.uuid),
-                'type': 'archive-folder',
-                'title': folder.name,
-                'preview': preview,
-                'content': folder.description if include_content else "",
-                'path': f'/archive?folder={folder.uuid}',
-                'score': score,
-                'relevance': get_relevance_level(score),
-                'tags': [],
-                'createdAt': folder.created_at.isoformat(),
-                'updatedAt': folder.updated_at.isoformat(),
-                'metadata': {
-                    'path': folder.path,
-                    'hasContent': bool(folder.description) if not include_content else True
-                }
-            })
+    # Simplified search queries for single-user application
+    # Remove user ownership checks while keeping authentication
 
-        # Then search in archive items
-        # Build archive query with tag filtering
-        archive_query = select(ArchiveItem).options(selectinload(ArchiveItem.tags)).where(
-            and_(
-                ArchiveItem.user_id == current_user.id,
-                ArchiveItem.is_archived == False,
-                or_(
-                    ArchiveItem.name.ilike(search_pattern),
-                    ArchiveItem.description.ilike(search_pattern),
-                    ArchiveItem.original_filename.ilike(search_pattern),
-                    ArchiveItem.extracted_text.ilike(search_pattern) if include_content else or_(
-                        ArchiveItem.name.ilike(search_pattern),
-                        ArchiveItem.description.ilike(search_pattern),
-                        ArchiveItem.original_filename.ilike(search_pattern)
+        # Search notes (simplified for single user)
+        if 'note' in search_types:
+            note_query = (
+                select(Note)
+                .where(
+                    and_(
+                        Note.is_archived == False,
+                        search_condition_func('Note', Note.title, Note.content)
                     )
                 )
+                .order_by(Note.updated_at.desc())
+                .limit(limit_per_type)
             )
-        )
-        
-        # Add tag filtering if specified
-        if tag_names:
-            archive_query = archive_query.join(ArchiveItem.tags).where(
-                Tag.name.in_(tag_names)
-            )
-        
-        archive_result = await db.execute(archive_query.limit(limit))
-        archive_items = archive_result.scalars().unique().all()
-        
-        for item in archive_items:
-            score = calculate_relevance_score(q, item.name, item.extracted_text or item.description or '' if include_content else '')
-            preview = extract_preview(item.extracted_text or item.description or item.name, q, 200) if include_content else item.name
             
-            results.append({
-                'id': str(item.uuid),
-                'type': 'archive',
-                'title': item.name,
-                'preview': preview,
-                'content': item.extracted_text if include_content else "",
-                'path': f'/archive',
-                'score': score,
-                'relevance': get_relevance_level(score),
-                'tags': [tag.name for tag in item.tags],
-                'createdAt': item.created_at.isoformat(),
-                'updatedAt': item.updated_at.isoformat(),
-                'metadata': {
-                    'originalFilename': item.original_filename,
-                    'mimeType': item.mime_type,
-                    'size': item.file_size,
-                    'folderUuid': item.folder_uuid,
-                    'hasContent': bool(item.extracted_text) if not include_content else True
-                }
-            })
+            note_result = await db.execute(note_query)
+            notes = note_result.scalars().all()
+            
+            for note in notes:
+                results.append(SearchResult(
+                    type='note',
+                    id=str(note.id),
+                    title=note.title,
+                    content=note.content if include_content else None,
+                    preview=note.content[:200] + "..." if note.content and len(note.content) > 200 else note.content,
+                    created_at=note.created_at,
+                    updated_at=note.updated_at,
+                    tags=[],
+                    metadata={}
+                ))
+                stats['note'] += 1
+
+        # Search documents (simplified for single user)
+        if 'document' in search_types:
+            document_fields = [Document.filename, Document.original_name]
+            if include_content:
+                document_fields.append(Document.extracted_text)
+                
+            document_query = (
+                select(Document)
+                .where(
+                    and_(
+                        Document.is_archived == False,
+                        search_condition_func('Document', *document_fields)
+                    )
+                )
+                .order_by(Document.updated_at.desc())
+                .limit(limit_per_type)
+            )
+            
+            document_result = await db.execute(document_query)
+            documents = document_result.scalars().all()
+            
+            for doc in documents:
+                results.append(SearchResult(
+                    type='document',
+                    id=doc.uuid,
+                    title=doc.filename,
+                    content=doc.extracted_text if include_content else None,
+                    preview=doc.extracted_text[:200] + "..." if doc.extracted_text and len(doc.extracted_text) > 200 else doc.extracted_text or doc.filename,
+                    created_at=doc.created_at,
+                    updated_at=doc.updated_at,
+                    tags=[],
+                    metadata={'mime_type': doc.mime_type, 'size': doc.size_bytes}
+                ))
+                stats['document'] += 1
+
+        # Search todos (simplified for single user)
+        if 'todo' in search_types:
+            todo_fields = [Todo.task, Todo.description]
+            
+            todo_query = (
+                select(Todo)
+                .where(
+                    and_(
+                        Todo.is_archived == False,
+                        search_condition_func('Todo', *todo_fields)
+                    )
+                )
+                .order_by(Todo.updated_at.desc())
+                .limit(limit_per_type)
+            )
+            
+            todo_result = await db.execute(todo_query)
+            todos = todo_result.scalars().all()
+            
+            for todo in todos:
+                results.append(SearchResult(
+                    type='todo',
+                    id=str(todo.id),
+                    title=todo.task,
+                    content=todo.description if include_content else None,
+                    preview=todo.description[:200] + "..." if todo.description and len(todo.description) > 200 else todo.description or todo.task,
+                    created_at=todo.created_at,
+                    updated_at=todo.updated_at,
+                    tags=[],
+                    metadata={'status': todo.status, 'priority': todo.priority}
+                ))
+                stats['todo'] += 1
+
+        # Search archive folders (simplified for single user)
+        if 'archive-folder' in search_types:
+            folder_fields = [ArchiveFolder.name]
+            if include_content:
+                folder_fields.append(ArchiveFolder.description)
+                
+            folder_query = (
+                select(ArchiveFolder)
+                .where(
+                    and_(
+                        ArchiveFolder.is_archived == False,
+                        search_condition_func('ArchiveFolder', *folder_fields)
+                    )
+                )
+                .order_by(ArchiveFolder.updated_at.desc())
+                .limit(limit_per_type)
+            )
+            
+            folder_result = await db.execute(folder_query)
+            folders = folder_result.scalars().all()
+            
+            for folder in folders:
+                results.append(SearchResult(
+                    type='archive-folder',
+                    id=folder.uuid,
+                    title=folder.name,
+                    content=folder.description if include_content else None,
+                    preview=folder.description[:100] + "..." if folder.description and len(folder.description) > 100 else folder.description or folder.name,
+                    created_at=folder.created_at,
+                    updated_at=folder.updated_at,
+                    tags=[],
+                    metadata={'path': folder.path}
+                ))
+                stats['archive-folder'] += 1
+
+        # Search archive items (simplified for single user)
+        if 'archive-item' in search_types:
+            item_fields = [ArchiveItem.name]
+            if include_content:
+                item_fields.extend([ArchiveItem.extracted_text, ArchiveItem.description])
+                
+            item_query = (
+                select(ArchiveItem)
+                .where(
+                    and_(
+                        ArchiveItem.is_archived == False,
+                        search_condition_func('ArchiveItem', *item_fields)
+                    )
+                )
+                .order_by(ArchiveItem.updated_at.desc())
+                .limit(limit_per_type)
+            )
+            
+            item_result = await db.execute(item_query)
+            items = item_result.scalars().all()
+            
+            for item in items:
+                results.append(SearchResult(
+                    type='archive-item',
+                    id=item.uuid,
+                    title=item.name,
+                    content=item.extracted_text if include_content else None,
+                    preview=item.extracted_text[:200] + "..." if item.extracted_text and len(item.extracted_text) > 200 else item.extracted_text or item.name,
+                    created_at=item.created_at,
+                    updated_at=item.updated_at,
+                    tags=[],
+                    metadata={'mime_type': item.mime_type, 'file_size': item.file_size, 'folder_uuid': item.folder_uuid}
+                ))
+                stats['archive-item'] += 1
     
     # Sort results
     if sort_by == 'relevance':
@@ -320,6 +255,82 @@ async def global_search(
         'stats': stats,
         'suggestions': [] if not results else await get_search_suggestions_for_query(db, current_user.id, q)
     }
+
+@router.get("/search/fts")
+async def fts_search(
+    query: str = Query(..., description="Search query"),
+    content_types: Optional[str] = Query(None, description="Comma-separated content types"),
+    limit: int = Query(50, le=100),
+    offset: int = Query(0),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Full-text search using FTS5"""
+    
+    try:
+        # Sanitize and prepare search query
+        query = sanitize_search_query(query)
+        search_query = f"{query}*"  # Enable prefix matching
+        
+        # Build FTS query for archive items
+        fts_query = text('''
+            SELECT 
+                ai.*,
+                rank.rank as search_rank
+            FROM archive_items ai
+            JOIN (
+                SELECT rowid, rank
+                FROM archive_items_fts
+                WHERE archive_items_fts MATCH :query
+                ORDER BY rank DESC
+            ) as rank ON ai.uuid = rank.rowid
+            WHERE ai.user_id = :user_id
+            ORDER BY rank.rank DESC
+            LIMIT :limit OFFSET :offset
+        ''')
+        
+        # Execute FTS query
+        result = await db.execute(
+            fts_query,
+            {
+                "query": search_query,
+                "user_id": current_user.id,
+                "limit": limit,
+                "offset": offset
+            }
+        )
+        
+        items = result.fetchall()
+        
+        # Format results
+        search_results = []
+        for item in items:
+            search_results.append({
+                "id": item.uuid,
+                "type": "archive-item",
+                "title": item.name,
+                "preview": item.description or item.extracted_text[:200] if item.extracted_text else None,
+                "rank": item.search_rank,
+                "metadata": {
+                    "mime_type": item.mime_type,
+                    "file_size": item.file_size,
+                    "created_at": item.created_at.isoformat(),
+                    "updated_at": item.updated_at.isoformat()
+                }
+            })
+        
+        return {
+            "results": search_results,
+            "total": len(search_results),
+            "query": query
+        }
+        
+    except Exception as e:
+        logger.error(f"FTS search error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Search failed. Please try again."
+        )
 
 @router.get("/suggestions")
 async def get_search_suggestions(

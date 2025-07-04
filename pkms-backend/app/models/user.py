@@ -34,6 +34,7 @@ class User(Base):
     todos = relationship("Todo", back_populates="user", cascade="all, delete-orphan")
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
     diary_entries = relationship("DiaryEntry", back_populates="user", cascade="all, delete-orphan")
+    diary_media = relationship("DiaryMedia", back_populates="user", cascade="all, delete-orphan")
     archive_folders = relationship("ArchiveFolder", back_populates="user", cascade="all, delete-orphan")
     archive_items = relationship("ArchiveItem", back_populates="user", cascade="all, delete-orphan")
     tags = relationship("Tag", back_populates="user", cascade="all, delete-orphan")
@@ -63,7 +64,7 @@ class Session(Base):
 
 
 class RecoveryKey(Base):
-    """Password recovery system with security questions"""
+    """Password recovery system with security questions and master recovery password"""
     
     __tablename__ = "recovery_keys"
     
@@ -73,6 +74,7 @@ class RecoveryKey(Base):
     questions_json = Column(Text, nullable=False)  # Security questions as JSON
     answers_hash = Column(String(255), nullable=False)  # Hashed answers
     salt = Column(String(255), nullable=False)  # Salt for answers (still needed for security questions)
+    master_password_hash = Column(String(255), nullable=True)  # Master recovery password hash
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     last_used = Column(DateTime(timezone=True), nullable=True)
     

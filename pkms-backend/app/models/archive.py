@@ -7,6 +7,10 @@ import uuid as uuid_lib
 from typing import Dict, List, Optional
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, BigInteger, func
 from sqlalchemy.orm import relationship
+from sqlalchemy.ext.hybrid import hybrid_property
+import json
+import os
+from pathlib import Path
 
 from app.database import Base
 from app.models.tag import archive_tags
@@ -21,7 +25,7 @@ class ArchiveFolder(Base):
     name = Column(String(255), nullable=False, index=True)  # Folder name
     description = Column(Text, nullable=True)  # Optional description
     parent_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
-    path = Column(String(1000), nullable=False, index=True)  # Full path for easy queries
+    path = Column(String(4096), nullable=False, index=True)  # Increased from 1000 to 4096 for deep hierarchies
     is_archived = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -33,18 +37,27 @@ class ArchiveFolder(Base):
     children = relationship("ArchiveFolder", back_populates="parent", cascade="all, delete-orphan")
     items = relationship("ArchiveItem", back_populates="folder", cascade="all, delete-orphan")
     
-    @property
+    @hybrid_property
     def full_path(self) -> str:
-        """Get the full folder path"""
-        return self.path
+        """Return normalized full path to folder"""
+        if not self.path:
+            return "/"
+        # Normalize path separators and remove any double slashes
+        normalized = os.path.normpath(self.path).replace("\\", "/")
+        # Ensure path starts with / and doesn't end with /
+        if not normalized.startswith("/"):
+            normalized = "/" + normalized
+        if normalized != "/" and normalized.endswith("/"):
+            normalized = normalized[:-1]
+        return normalized
     
-    @property
+    @hybrid_property
     def depth(self) -> int:
-        """Get folder depth (root = 0)"""
-        return len([p for p in self.path.split('/') if p]) - 1 if self.path != '/' else 0
+        """Return folder depth in hierarchy"""
+        return len([p for p in self.full_path.split("/") if p])
     
     def __repr__(self):
-        return f"<ArchiveFolder(uuid='{self.uuid}', name='{self.name}', path='{self.path}')>"
+        return f"<ArchiveFolder {self.name} ({self.uuid})>"
 
 
 class ArchiveItem(Base):
@@ -60,7 +73,7 @@ class ArchiveItem(Base):
     # File information
     original_filename = Column(String(255), nullable=False)  # Original file name
     stored_filename = Column(String(255), nullable=False)  # Stored file name on disk
-    file_path = Column(String(500), nullable=False)  # Full path to stored file
+    file_path = Column(String(4096), nullable=False)  # Full path to stored file, increased for consistency
     mime_type = Column(String(100), nullable=False)
     file_size = Column(BigInteger, nullable=False)  # Size in bytes
     file_hash = Column(String(64), nullable=True)  # SHA-256 hash for deduplication
@@ -87,31 +100,62 @@ class ArchiveItem(Base):
     
     @property
     def metadata_dict(self) -> Dict:
-        """Return the parsed metadata JSON as a python dict."""
-        import json
+        """Return metadata as dictionary"""
         try:
-            return json.loads(self.metadata_json) if self.metadata_json else {}
-        except json.JSONDecodeError:
+            return json.loads(self.metadata_json)
+        except (json.JSONDecodeError, TypeError):
             return {}
     
     @metadata_dict.setter
     def metadata_dict(self, value: Dict):
-        """Store a python dict into the metadata_json column."""
-        import json
+        """Set metadata from dictionary"""
         self.metadata_json = json.dumps(value)
     
-    @property
+    @hybrid_property
     def full_path(self) -> str:
-        """Get the full path including folder path and filename"""
-        return f"{self.folder.path.rstrip('/')}/{self.name}" if self.folder else f"/{self.name}"
+        """Return normalized full path to file"""
+        if not self.file_path:
+            return ""
+        # Normalize path separators and remove any double slashes
+        normalized = os.path.normpath(self.file_path).replace("\\", "/")
+        # Ensure path starts with / but doesn't end with /
+        if not normalized.startswith("/"):
+            normalized = "/" + normalized
+        if normalized != "/" and normalized.endswith("/"):
+            normalized = normalized[:-1]
+        return normalized
     
     @property
     def file_extension(self) -> str:
-        """Get file extension from original filename"""
-        return self.original_filename.split('.')[-1].lower() if '.' in self.original_filename else ''
+        """Return file extension"""
+        return os.path.splitext(self.original_filename)[1].lower()
     
     def __repr__(self):
-        return f"<ArchiveItem(uuid='{self.uuid}', name='{self.name}', folder='{self.folder.name if self.folder else 'None'}')>"
+        return f"<ArchiveItem {self.name} ({self.uuid})>"
+
+
+# FTS5 virtual table for archive items search
+class ArchiveItemsFTS(Base):
+    """Full-text search virtual table for archive items"""
+    
+    __tablename__ = "archive_items_fts"
+    __table_args__ = {"sqlite_fts5": True}
+    
+    rowid = Column(Integer, primary_key=True)
+    name = Column(String)
+    description = Column(String)
+    extracted_text = Column(String)
+    
+    # Define tokenizer and other FTS5 options
+    __table_args__ = {
+        "sqlite_fts5": {
+            "content": "archive_items",  # Content table
+            "content_rowid": "uuid",     # Primary key of content table
+            "tokenize": "porter unicode61",  # Use Porter stemming
+            "prefix": [2, 3],            # Enable prefix searches of length 2 and 3
+            "columnsize": 0              # Disable column size optimization
+        }
+    }
 
 
 # Note: We previously added a dynamic `metadata` property on `ArchiveItem` to expose the parsed
@@ -121,7 +165,4 @@ class ArchiveItem(Base):
 #
 # To avoid this name collision, we will no longer inject a `metadata` property here.  Consumers
 # should use the existing `metadata_dict` helper or access `metadata_json` directly and parse it
-# themselves.
-
-# IMPORTANT: If any external code relied on `item.metadata`, update it to use
-# `item.metadata_dict` instead. 
+# themselves. 

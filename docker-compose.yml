@@ -19,10 +19,12 @@ services:
       - /app/__pycache__
       - /app/.pytest_cache
     environment:
-      - DATABASE_URL=sqlite:///app/data/pkm_metadata.db
+      - DATABASE_URL=sqlite+aiosqlite:///app/data/pkm_metadata.db
       - AUTH_DB_PATH=/app/data/auth.db
-      - LOG_LEVEL=info
+      - LOG_LEVEL=debug
       - ENVIRONMENT=development
+      - DEBUG=true
+      - REDIS_URL=redis://redis:6379/0
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -30,10 +32,13 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - pkms-network
 
-  # Optional: Redis for caching and session storage
+  # Redis for caching, rate limiting, and session storage
   redis:
     image: redis:7-alpine
     container_name: pkms-redis
@@ -42,7 +47,12 @@ services:
     volumes:
       - redis_data:/data
     restart: unless-stopped
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     networks:
       - pkms-network
 

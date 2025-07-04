@@ -73,8 +73,7 @@ interface TodosState {
   reset: () => void;
 }
 
-export const useTodosStore = create<TodosState>((set, get) => ({
-  // Initial state
+const initialState: Omit<TodosState, 'reset' | 'clearCurrentProject' | 'clearCurrentTodo' | 'clearError' | 'setShowOverdue' | 'setSearch' | 'setTag' | 'setProjectFilter' | 'setPriority' | 'setStatus' | 'loadStats' | 'deleteProject' | 'updateProject' | 'createProject' | 'loadProject' | 'loadProjects' | 'deleteTodo' | 'completeTodo' | 'updateTodo' | 'createTodo' | 'loadTodo' | 'loadMore' | 'loadTodos'> = {
   todos: [],
   currentTodo: null,
   projects: [],
@@ -93,8 +92,11 @@ export const useTodosStore = create<TodosState>((set, get) => ({
   limit: 20,
   offset: 0,
   hasMore: true,
-  
-  // Todo Actions
+};
+
+export const useTodosStore = create<TodosState>((set, get) => ({
+  ...initialState,
+
   loadTodos: async () => {
     const state = get();
     set({ isLoading: true, error: null, offset: 0 });
@@ -484,23 +486,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
   
   clearCurrentProject: () => set({ currentProject: null }),
   
-  reset: () => set({
-    todos: [],
-    currentTodo: null,
-    projects: [],
-    currentProject: null,
-    stats: null,
-    isLoading: false,
-    isCreating: false,
-    isUpdating: false,
-    error: null,
-    currentStatus: null,
-    currentPriority: null,
-    currentProjectId: null,
-    currentTag: null,
-    searchQuery: '',
-    showOverdue: false,
-    offset: 0,
-    hasMore: true
-  })
+  reset: () => {
+    set(initialState);
+  }
 })); 

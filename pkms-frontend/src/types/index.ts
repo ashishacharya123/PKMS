@@ -18,14 +18,12 @@ export interface DiaryCalendarData {
 export interface DiaryEntry {
   id: number;
   date: string;
-  title_encrypted?: string;
+  title?: string;
   content_encrypted: string;
   mood?: number;
-  weather?: string;
+  metadata?: Record<string, any>;
   encryption_iv: string;
   encryption_tag: string;
-  title_encryption_iv?: string;
-  title_encryption_tag?: string;
   is_template: boolean;
   created_at: string;
   updated_at: string;
@@ -35,12 +33,13 @@ export interface DiaryEntry {
 export interface DiaryEntrySummary {
   id: number;
   date: string;
+  title?: string;
   mood?: number;
-  weather?: string;
+  metadata?: Record<string, any>;
   is_template: boolean;
   created_at: string;
   media_count: number;
-  content_encrypted: string;
+  encrypted_blob: string;
   encryption_iv: string;
   encryption_tag: string;
 }
@@ -51,4 +50,7 @@ export interface DiaryListParams {
   mood?: number;
   limit?: number;
   offset?: number;
+  search_title?: string;
+  day_of_week?: number;
+  has_media?: boolean;
 }

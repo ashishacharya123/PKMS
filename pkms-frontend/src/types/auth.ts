@@ -58,4 +58,20 @@ export interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
+  sessionTimer: number | null;
+}
+
+export interface MasterRecoverySetup {
+  master_recovery_password: string;
+}
+
+export interface MasterRecoveryReset {
+  master_recovery_password: string;
+  new_password: string;
+}
+
+export interface MasterRecoveryCheckResponse {
+  has_master_recovery: boolean;
+  has_security_questions: boolean;
+  recommended_method: string;
 } 

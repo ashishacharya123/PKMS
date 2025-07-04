@@ -2,66 +2,78 @@
 Diary Models for Encrypted Journal Entries
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, BigInteger, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, BigInteger
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-import uuid
+import uuid as uuid_lib
 
 from app.database import Base
 
 
 class DiaryEntry(Base):
-    """Encrypted diary entry model"""
+    """
+    Encrypted diary entry model.
+    The entire diary entry content is stored as a single encrypted blob.
+    """
     
     __tablename__ = "diary_entries"
     
     id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=True, index=True) # Unencrypted for searchability
     date = Column(DateTime(timezone=True), nullable=False, index=True)
-    title_encrypted = Column(Text, nullable=True)  # Encrypted title
-    content_encrypted = Column(Text, nullable=False)  # Encrypted content
-    mood = Column(Integer, nullable=True)  # 1-5 scale
-    weather = Column(String(50), nullable=True)
-    # Separate AES-GCM parameters for the encrypted title.  These remain optional so that
-    # older entries created before this change continue to work.  When null the
-    # application will fall back to ``encryption_iv`` / ``encryption_tag``.
-    title_encryption_iv = Column(String(255), nullable=True)
-    title_encryption_tag = Column(String(255), nullable=True)
-    encryption_iv = Column(String(255), nullable=False)  # Initialization vector
-    encryption_tag = Column(String(255), nullable=False)  # Authentication tag
-    is_template = Column(Boolean, default=False)  # For reusable templates
+    
+    # Encrypted data as a single blob (now only contains the content)
+    encrypted_blob = Column(Text, nullable=False)
+    
+    # AES-GCM parameters are stored alongside the blob
+    encryption_iv = Column(String(255), nullable=False)
+    encryption_tag = Column(String(255), nullable=False)
+    
+    # Unencrypted metadata for filtering and display
+    mood = Column(Integer, nullable=True, index=True)
+    metadata_json = Column(Text, default='{}') # For optional fields like sleep, exercise, etc.
+    is_template = Column(Boolean, default=False, index=True)
+    
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Relationships
     user = relationship("User", back_populates="diary_entries")
-    media = relationship("DiaryMedia", back_populates="entry", cascade="all, delete-orphan")
+    media = relationship("DiaryMedia", back_populates="entry", cascade="all, delete-orphan", lazy="selectin")
     
     def __repr__(self):
         return f"<DiaryEntry(id={self.id}, date='{self.date}')>"
 
-
 class DiaryMedia(Base):
-    """Encrypted media files for diary entries"""
+    """Encrypted media associated with a diary entry."""
     
     __tablename__ = "diary_media"
     
-    uuid = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    uuid = Column(String(36), primary_key=True, default=lambda: str(uuid_lib.uuid4()))
     entry_id = Column(Integer, ForeignKey("diary_entries.id", ondelete="CASCADE"), nullable=False, index=True)
-    filename_encrypted = Column(String(255), nullable=False)  # Encrypted filename
-    filepath_encrypted = Column(String(500), nullable=False)  # Encrypted file path
+    
+    # Encrypted file details
+    filename_encrypted = Column(Text, nullable=False)
+    filepath_encrypted = Column(Text, nullable=False)
+    encryption_iv = Column(String(255), nullable=False)
+    encryption_tag = Column(String(255), nullable=False)
+    
+    # Unencrypted metadata
     mime_type = Column(String(100), nullable=False)
     size_bytes = Column(BigInteger, nullable=False)
-    encryption_iv = Column(String(255), nullable=False)  # Initialization vector
-    encryption_tag = Column(String(255), nullable=False)  # Authentication tag
-    media_type = Column(String(20), nullable=False)  # voice, photo, video
-    duration_seconds = Column(Integer, nullable=True)  # For audio/video
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    media_type = Column(String(20), nullable=False, index=True) # E.g., 'voice', 'photo', 'video'
+    duration_seconds = Column(Integer, nullable=True) # For audio/video
+    
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
+    user = relationship("User", back_populates="diary_media")
     entry = relationship("DiaryEntry", back_populates="media")
-    user = relationship("User")
     
     def __repr__(self):
-        return f"<DiaryMedia(uuid='{self.uuid}', media_type='{self.media_type}')>" 
+        return f"<DiaryMedia(uuid={self.uuid}, entry_id={self.entry_id}, type='{self.media_type}')>"
+
+# The DiaryMedia model has been removed to align with the new single-blob
+# encryption strategy. Media handling will be redesigned separately if needed. 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
   Container,
   Grid,
@@ -20,7 +20,19 @@ import {
   Textarea,
   Rating,
   Select,
-  Center
+  Center,
+  Pagination,
+  Tooltip,
+  Box,
+  Indicator,
+  PasswordInput,
+  Popover,
+  Switch,
+  SimpleGrid,
+  Divider,
+  Loader,
+  SegmentedControl,
+  NumberInput,
 } from '@mantine/core';
 import { Calendar } from '@mantine/dates';
 import {
@@ -33,68 +45,120 @@ import {
   IconDots,
   IconAlertTriangle,
   IconLock,
-  IconDownload
+  IconDownload,
+  IconSortAscending,
+  IconSortDescending,
+  IconSearch,
+  IconFilter,
+  IconEye,
+  IconX,
+  IconLockOpen,
+  IconPencil,
+  IconChevronLeft,
+  IconChevronRight,
+  IconPhoto,
+  IconMicrophone,
+  IconVideo,
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useDiaryStore } from '../stores/diaryStore';
-import { diaryService } from '../services/diaryService';
-import { isSameDay, format, parse } from 'date-fns';
+import { diaryService, DiaryEntrySummary } from '../services/diaryService';
+import { isSameDay, format, parse, parseISO } from 'date-fns';
 import { notifications } from '@mantine/notifications';
 import type { NotificationData } from '@mantine/notifications';
-import type { DiaryEntry } from '../services/diaryService';
+import type { DiaryEntry, DiaryEntryCreatePayload } from '../services/diaryService';
 import axios from 'axios';
+import { useForm } from '@mantine/form';
+import { shallow } from 'zustand/shallow';
 
 const showNotification = (data: NotificationData) => {
   notifications.show(data);
 };
 
+type SortField = 'date' | 'created_at' | 'mood' | 'weather';
+type SortOrder = 'asc' | 'desc';
+
 export function DiaryPage() {
-  const store = useDiaryStore();
-  
-  // Local state
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [entryModalOpen, setEntryModalOpen] = useState(false);
+  const store = useDiaryStore(
+    (state) => ({
+      entries: state.entries,
+      isUnlocked: state.isUnlocked,
+      isEncryptionSetup: state.isEncryptionSetup,
+      isLoading: state.isLoading,
+      error: state.error,
+      currentYear: state.currentYear,
+      currentMonth: state.currentMonth,
+      calendarData: state.calendarData,
+      encryptionKey: state.encryptionKey,
+      titleSearch: state.searchQuery,
+      dayOfWeek: state.currentDayOfWeek,
+      hasMedia: state.currentHasMedia,
+      init: state.init,
+      setupEncryption: state.setupEncryption,
+      unlockSession: state.unlockSession,
+      lockSession: state.lockSession,
+      loadEntries: state.loadEntries,
+      loadCalendarData: state.loadCalendarData,
+      createEntry: state.createEntry,
+      updateEntry: state.updateEntry,
+      deleteEntry: state.deleteEntry,
+      setError: state.setError,
+      setYear: state.setYear,
+      setMonth: state.setMonth,
+      setSearchQuery: state.setSearchQuery,
+      setDayOfWeek: state.setDayOfWeek,
+      setHasMedia: state.setHasMedia,
+    }),
+    shallow
+  );
+
+  const [modalOpen, setModalOpen] = useState(false);
   const [encryptionModalOpen, setEncryptionModalOpen] = useState(false);
   const [unlockModalOpen, setUnlockModalOpen] = useState(false);
   const [encryptionPassword, setEncryptionPassword] = useState('');
   const [passwordHint, setPasswordHint] = useState('');
   const [showPasswordHint, setShowPasswordHint] = useState(false);
-  const [isEditingEntry, setIsEditingEntry] = useState(false);
-  const [viewingEntry, setViewingEntry] = useState<{
+  const [viewingEntry, setViewingEntry] = useState<({
+    id: number;
     date: string;
     title: string;
     content: string;
     mood?: number;
     weather?: string;
-  } | null>(null);
-  const [entryForm, setEntryForm] = useState<{
-    title: string;
-    content: string;
-    mood: number;
-    weather: string;
-  }>({
-    title: '',
-    content: '',
-    mood: 3,
-    weather: ''
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  }) | null>(null);
   const [viewMode, setViewMode] = useState<'view' | 'edit'>('view');
+  
+  const [currentPage, setCurrentPage] = useState(1);
+  const [sortField, setSortField] = useState<SortField>('date');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const itemsPerPage = 12;
 
-  // Initialize and handle unlock status
+  const [activeFiltersCount, setActiveFiltersCount] = useState(0);
+
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+
+  const form = useForm({
+    initialValues: {
+      id: null as number | null,
+      date: new Date(),
+      title: '',
+      content: '',
+      mood: 3,
+      metadata: {
+        activity: '',
+        sleep_hours: '',
+      }
+    },
+    validate: {
+      title: (value) => (value.trim().length > 0 ? null : 'Title is required'),
+      content: (value) => (value.trim().length > 0 ? null : 'Content cannot be empty'),
+    },
+  });
+
+  const [debouncedTitleSearch, setDebouncedTitleSearch] = useDebouncedValue(store.titleSearch, 500);
+
   useEffect(() => {
     store.init();
-    // Try to get password hint from localStorage
-    try {
-      const hint = localStorage.getItem('pkms-diary-hint');
-      setPasswordHint(hint || '');
-    } catch (e) {
-      console.error("Could not access localStorage", e);
-      setPasswordHint('');
-    }
   }, [store.init]);
 
   useEffect(() => {
@@ -102,234 +166,122 @@ export function DiaryPage() {
       setUnlockModalOpen(true);
     } else {
       setUnlockModalOpen(false);
-      setEncryptionPassword('');
-      setShowPasswordHint(false);
     }
   }, [store.isEncryptionSetup, store.isUnlocked]);
 
-  // Load data on mount
   useEffect(() => {
     if (store.isUnlocked) {
       store.loadEntries();
-      store.loadCalendarData();
-      store.loadMoodStats();
     }
-  }, [store.isUnlocked]);
+  }, [store.isUnlocked, store.loadEntries, store.titleSearch, store.dayOfWeek, store.hasMedia, store.currentYear, store.currentMonth]);
 
   useEffect(() => {
-    if (store.isEncryptionSetup && store.isUnlocked) {
+    if (store.isUnlocked) {
       store.loadCalendarData();
     }
-  }, [store.isEncryptionSetup, store.isUnlocked, store.currentYear, store.currentMonth]);
+  }, [store.isUnlocked, store.loadCalendarData, store.currentYear, store.currentMonth]);
+
+  const sortedEntries = useMemo(() => {
+    return [...store.entries].sort((a, b) => {
+      let aVal = a[sortField];
+      let bVal = b[sortField];
+      if(sortOrder === 'asc') return aVal < bVal ? -1 : 1;
+      return aVal > bVal ? -1 : 1;
+    });
+  }, [store.entries, sortField, sortOrder]);
+
+  const paginatedEntries = sortedEntries.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const totalPages = Math.ceil(sortedEntries.length / itemsPerPage);
 
   const resetEntryForm = () => {
-    setEntryForm({
-      title: '',
-      content: '',
-      mood: 3,
-      weather: ''
-    });
-    setIsEditingEntry(false);
+    form.reset();
+  };
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('desc');
+    }
   };
 
   const handleSetupEncryption = async () => {
-    if (!encryptionPassword.trim()) return;
-    
-    try {
-      console.log('Setting up encryption...');
-      // Only pass hint if it's not empty
-      const success = await store.setupEncryption(
-        encryptionPassword, 
-        passwordHint.trim() || undefined
-      );
-      console.log('Encryption setup result:', success);
-      
-      if (success) {
-        showNotification({
-          title: 'Success',
-          message: 'Diary encryption has been set up successfully.',
-          color: 'green'
-        });
-        setEncryptionModalOpen(false);
-        setEncryptionPassword('');
-        setPasswordHint('');
-        // Force reload entries after setup
-        await store.loadEntries();
-      }
-    } catch (error) {
-      console.error('Error setting up encryption:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to setup encryption';
+    const success = await store.setupEncryption(encryptionPassword, passwordHint);
+    if (success) {
       showNotification({
-        title: 'Error',
-        message: errorMessage,
-        color: 'red'
+        title: 'Success',
+        message: 'Diary encryption enabled.',
+        color: 'green'
       });
+      setEncryptionModalOpen(false);
     }
   };
 
   const handleUnlockSession = async () => {
-    if (!encryptionPassword.trim()) return;
-
-    try {
-      console.log('Attempting to unlock session...');
-      const success = await store.unlockSession(encryptionPassword);
-      console.log('Unlock session result:', success);
-      
-      if (success) {
-        showNotification({
-          title: 'Success',
-          message: 'Diary unlocked successfully.',
-          color: 'green'
-        });
-        setUnlockModalOpen(false);
-        setEncryptionPassword('');
-        setShowPasswordHint(false);
-      }
-    } catch (error) {
-      console.error('Error unlocking session:', error);
+    const success = await store.unlockSession(encryptionPassword);
+    if (success) {
       showNotification({
-        title: 'Error',
-        message: 'Failed to unlock diary. Please check your password.',
-        color: 'red'
+        title: 'Success',
+        message: 'Diary unlocked.',
+        color: 'green'
       });
+      setUnlockModalOpen(false);
     }
   };
 
-  const handleViewEntry = async (dateStr: string) => {
-    try {
-        setLoading(true);
-        setError(null);
-        
-        // Parse the date string into a Date object
-        const selectedDate = parse(dateStr, 'yyyy-MM-dd', new Date());
-        console.log('[DEBUG] Viewing entry for date:', format(selectedDate, 'yyyy-MM-dd'));
-        
-        const entry = await diaryService.getEntryByDate(selectedDate);
-        console.log('[DEBUG] Retrieved entry:', entry);
-        
-        if (entry) {
-            // Decrypt unified entry blob (JSON with title + content)
-            const decryptedJson = await store.decryptContent({
-              content: entry.content_encrypted,
-              iv: entry.encryption_iv,
-              tag: entry.encryption_tag
-            });
-
-            if (!decryptedJson) {
-              throw new Error('Failed to decrypt diary entry');
-            }
-
-            let parsed: { title?: string; content: string };
-            try {
-              parsed = JSON.parse(decryptedJson);
-            } catch (jsonErr) {
-              // Fallback for *very* old entries that stored raw content only
-              parsed = { title: '', content: decryptedJson } as any;
-            }
-
-            setViewingEntry({
-              ...entry,
-              title: parsed.title || '',
-              content: parsed.content
-            });
-            
-            // Open the entry modal in read-only "view" mode so the user can read
-            // the decrypted entry.  They can switch to "edit" inside the modal.
-            setIsEditingEntry(false);
-            setViewMode('view');
-            setEntryModalOpen(true);
-        }
-    } catch (error) {
-        console.error('[DEBUG] Error in handleViewEntry:', error);
-        if (axios.isAxiosError(error) && error.response?.status === 404) {
-            setError('No entry found for this date. Would you like to create one?');
-            resetEntryForm();
-            setViewMode('edit');
-        } else {
-            setError('Failed to load diary entry. Please try again.');
-        }
-    } finally {
-        setLoading(false);
-    }
-  };
-
-  const handleCreateEntry = async () => {
-    if (!entryForm.content.trim()) {
-      showNotification({
-        title: 'Error',
-        message: 'Entry content cannot be empty',
-        color: 'red'
-      });
+  const handleViewEntry = async (entry: DiaryEntrySummary) => {
+    if (!store.encryptionKey) {
+      store.setError('Cannot view entry: encryption key not available.');
       return;
     }
-    
     try {
-      // Use local calendar date (yyyy-MM-dd) instead of UTC ISO string to avoid timezone shift
-      const dateStr = format(selectedDate, 'yyyy-MM-dd');
-      
-      /*
-       * 🔐 NEW SIMPLIFIED ENCRYPTION PIPELINE (#56)
-       * -----------------------------------------------------------
-       * We now encrypt the *entire* entry (title + content) in a single
-       * AES-GCM operation.  The plaintext is a tiny JSON blob so even long
-       * entries remain small after encryption.
-       */
-
-      const plaintext = JSON.stringify({
-        title: entryForm.title.trim(),
-        content: entryForm.content
+      const decryptedContent = await diaryService.decryptContent(entry.encrypted_blob, entry.encryption_iv, entry.encryption_tag, store.encryptionKey);
+      form.setValues({
+        id: entry.id,
+        date: new Date(entry.date),
+        title: entry.title || '',
+        content: decryptedContent,
+        mood: entry.mood || 3,
+        metadata: entry.metadata || { activity: '', sleep_hours: '' },
       });
+      setModalOpen(true);
+    } catch (e) {
+      store.setError('Failed to decrypt and view entry.');
+    }
+  };
 
-      const encryptedEntry = await store.encryptContent(plaintext);
-
-      if (!encryptedEntry) {
-        showNotification({
-          title: 'Error',
-          message: 'Failed to encrypt diary entry',
-          color: 'red'
-        });
-        return;
-      }
-
-      const entryData = {
-        date: dateStr,
-        content_encrypted: encryptedEntry.content,
-        mood: entryForm.mood,
-        weather: entryForm.weather.trim() || undefined,
-        encryption_iv: encryptedEntry.iv,
-        encryption_tag: encryptedEntry.tag
-      };
-      
-      const success = await store.createEntry(entryData);
-      if (success) {
-        showNotification({
-          title: 'Success',
-          message: 'Entry created successfully',
-          color: 'green'
-        });
-        setEntryModalOpen(false);
+  const handleCreateOrUpdateEntry = async () => {
+    if (!form.validate().hasErrors) {
+      const { id, ...values } = form.values;
+      const result = id ? await store.updateEntry(id, values) : await store.createEntry(values);
+      if (result) {
+        setModalOpen(false);
         resetEntryForm();
       }
-    } catch (error) {
-      console.error('Error creating entry:', error);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    const success = await store.deleteEntry(id);
+    if (success) {
       showNotification({
-        title: 'Error',
-        message: 'Failed to create entry. Please try again.',
-        color: 'red'
+        title: 'Success',
+        message: 'Entry deleted.',
+        color: 'green'
       });
     }
   };
 
-  const handleDeleteEntry = async (date: string, title?: string) => {
-    const displayTitle = title || `Entry for ${new Date(date).toLocaleDateString()}`;
-    if (window.confirm(`Are you sure you want to delete "${displayTitle}"?`)) {
-      await store.deleteEntry(date);
-    }
+  const getMoodLabel = (mood: number) => {
+    const labels: { [key: number]: string } = { 1: 'Very Bad', 2: 'Bad', 3: 'Neutral', 4: 'Good', 5: 'Excellent' };
+    return labels[mood] || 'Unknown';
   };
 
   const getMoodEmoji = (mood: number) => {
-    const emojis = { 1: '😢', 2: '😞', 3: '😐', 4: '😊', 5: '😄' };
-    return emojis[mood as keyof typeof emojis] || '😐';
+    const emojis: { [key: number]: string } = { 1: '😢', 2: '😞', 3: '😐', 4: '😊', 5: '😄' };
+    return emojis[mood] || '😐';
   };
 
   const getMoodColor = (mood: number) => {
@@ -346,6 +298,25 @@ export function DiaryPage() {
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString();
+  };
+
+  const formatDateForCard = (dateString: string) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (date.toDateString() === today.toDateString()) {
+      return 'Today';
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return 'Yesterday';
+    } else {
+      return date.toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric',
+        year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined
+      });
+    }
   };
 
   const handleMonthChange = (date: Date) => {
@@ -394,7 +365,18 @@ export function DiaryPage() {
     );
   };
 
-  // Show encryption setup if not configured
+  useEffect(() => {
+    store.setSearchQuery(debouncedTitleSearch);
+  }, [debouncedTitleSearch, store.setSearchQuery]);
+
+  useEffect(() => {
+    setActiveFiltersCount(
+      (store.titleSearch ? 1 : 0) +
+      (store.dayOfWeek !== null ? 1 : 0) +
+      (store.hasMedia !== null ? 1 : 0)
+    );
+  }, [store.titleSearch, store.dayOfWeek, store.hasMedia]);
+
   if (!store.isEncryptionSetup) {
     return (
       <Container size="md">
@@ -415,7 +397,6 @@ export function DiaryPage() {
           </Button>
         </Paper>
 
-        {/* Encryption Setup Modal */}
         <Modal
           opened={encryptionModalOpen}
           onClose={() => setEncryptionModalOpen(false)}
@@ -479,7 +460,6 @@ export function DiaryPage() {
   if (!store.isUnlocked) {
     return (
         <Container size="md">
-            {/* Unlock Session Modal */}
             <Modal
               opened={unlockModalOpen}
               onClose={() => { /* Disallow closing */ }}
@@ -533,7 +513,7 @@ export function DiaryPage() {
                     color="red"
                     onClick={() => {
                       if (window.confirm("Are you sure you want to clear encryption? This will reset your diary and you'll need to set up encryption again.")) {
-                        store.clearEncryption();
+                        store.init();
                       }
                     }}
                   >
@@ -555,23 +535,64 @@ export function DiaryPage() {
   return (
     <Container size="xl">
       <Grid>
-        {/* Sidebar */}
         <Grid.Col span={{ base: 12, md: 3 }}>
           <Stack gap="md">
-            {/* New Entry Button */}
             <Button
               leftSection={<IconPlus size={16} />}
               size="md"
               onClick={() => {
                 resetEntryForm();
-                setEntryModalOpen(true);
+                setViewMode('edit');
+                setModalOpen(true);
               }}
               fullWidth
             >
               New Entry
             </Button>
 
-            {/* Calendar */}
+            <Popover position="bottom-start">
+              <Popover.Target>
+                <TextInput
+                  placeholder="Search diary entries..."
+                  leftSection={<IconSearch size={16} />}
+                  value={store.titleSearch || ''}
+                  onChange={(e) => setDebouncedTitleSearch(e.currentTarget.value)}
+                />
+              </Popover.Target>
+              <Popover.Dropdown>
+                <Stack>
+                  <TextInput
+                    label="Search by title"
+                    placeholder="My awesome day"
+                    leftSection={<IconSearch size={14} />}
+                    defaultValue={store.titleSearch || ''}
+                    onChange={(event) => setDebouncedTitleSearch(event.currentTarget.value)}
+                  />
+                  <Select
+                    label="Day of the week"
+                    value={store.dayOfWeek !== null ? String(store.dayOfWeek) : null}
+                    onChange={(value) => store.setDayOfWeek(value ? Number(value) : null)}
+                    data={[
+                      { value: '0', label: 'Sunday' },
+                      { value: '1', label: 'Monday' },
+                      { value: '2', label: 'Tuesday' },
+                      { value: '3', label: 'Wednesday' },
+                      { value: '4', label: 'Thursday' },
+                      { value: '5', label: 'Friday' },
+                      { value: '6', label: 'Saturday' },
+                    ]}
+                  />
+                  <Switch
+                    label="Has Media"
+                    checked={store.hasMedia === true}
+                    onChange={(event) => store.setHasMedia(event.currentTarget.checked ? true : null)}
+                    onDoubleClick={() => store.setHasMedia(null)}
+                    styles={{ label: { cursor: 'pointer' } }}
+                  />
+                </Stack>
+              </Popover.Dropdown>
+            </Popover>
+
             <Paper p="md" withBorder>
               <Group justify="space-between" mb="xs">
                 <Text fw={600} size="sm">Calendar</Text>
@@ -584,7 +605,8 @@ export function DiaryPage() {
                   value={format(selectedDate, 'yyyy-MM-dd')}
                   onChange={(e) => {
                     const newDate = new Date(e.currentTarget.value);
-                    setSelectedDate(newDate);
+                    store.setYear(newDate.getFullYear());
+                    store.setMonth(newDate.getMonth() + 1);
                   }}
                   label="Select Date"
                   size="sm"
@@ -594,14 +616,25 @@ export function DiaryPage() {
                   size="sm"
                   mt="md"
                   fullWidth
-                  onClick={() => handleViewEntry(format(selectedDate, 'yyyy-MM-dd'))}
+                  onClick={() => {
+                    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+                    const entryForDate = store.entries.find(e => format(parseISO(e.date), 'yyyy-MM-dd') === dateStr);
+                    if (entryForDate) {
+                        handleViewEntry(entryForDate);
+                    } else {
+                        showNotification({
+                            title: 'No Entry',
+                            message: `No diary entry found for this date.`,
+                            color: 'blue'
+                        });
+                    }
+                  }}
                 >
                   View Entry for {format(selectedDate, 'MMM dd, yyyy')}
                 </Button>
               </Paper>
             </Paper>
 
-            {/* Mood Filter */}
             <Paper p="md" withBorder>
               <Group justify="space-between" mb="xs">
                 <Text fw={600} size="sm">Mood Filter</Text>
@@ -610,11 +643,11 @@ export function DiaryPage() {
               
               <Stack gap="xs">
                 <Button
-                  variant={!store.currentMood ? 'filled' : 'subtle'}
+                  variant={!store.dayOfWeek ? 'filled' : 'subtle'}
                   size="xs"
                   justify="space-between"
                   fullWidth
-                  onClick={() => store.setMood(null)}
+                  onClick={() => store.setDayOfWeek(null)}
                 >
                   <span>All Moods</span>
                   <Badge size="xs" variant="light">{store.entries.length}</Badge>
@@ -623,15 +656,15 @@ export function DiaryPage() {
                 {[1, 2, 3, 4, 5].map((mood) => (
                   <Button
                     key={mood}
-                    variant={store.currentMood === mood ? 'filled' : 'subtle'}
+                    variant={store.dayOfWeek === mood ? 'filled' : 'subtle'}
                     size="xs"
                     justify="space-between"
                     fullWidth
-                    onClick={() => store.setMood(mood)}
+                    onClick={() => store.setDayOfWeek(mood)}
                   >
                     <Group gap="xs">
                       <span>{getMoodEmoji(mood)}</span>
-                      <span>{mood === 1 ? 'Very Bad' : mood === 2 ? 'Bad' : mood === 3 ? 'Neutral' : mood === 4 ? 'Good' : 'Excellent'}</span>
+                      <span>{getMoodLabel(mood)}</span>
                     </Group>
                     <Badge size="xs" variant="light">
                       {store.entries.filter(e => e.mood === mood).length}
@@ -641,7 +674,6 @@ export function DiaryPage() {
               </Stack>
             </Paper>
 
-            {/* Stats */}
             {store.moodStats && (
               <Paper p="md" withBorder>
                 <Text fw={600} size="sm" mb="xs">Mood Statistics</Text>
@@ -664,20 +696,54 @@ export function DiaryPage() {
           </Stack>
         </Grid.Col>
 
-        {/* Main Content */}
         <Grid.Col span={{ base: 12, md: 9 }}>
           <Stack gap="md">
-            {/* Header */}
             <Group justify="space-between" align="center">
               <div>
                 <Title order={2}>Diary</Title>
                 <Text c="dimmed">
-                  Your private encrypted journal
+                  {sortedEntries.length} {sortedEntries.length === 1 ? 'entry' : 'entries'} • Your private encrypted journal
                 </Text>
               </div>
+              
+              <Group gap="xs">
+                <Button
+                  variant={sortField === 'date' ? 'filled' : 'subtle'}
+                  size="xs"
+                  leftSection={sortField === 'date' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
+                  onClick={() => handleSort('date')}
+                >
+                  Date
+                </Button>
+                <Button
+                  variant={sortField === 'mood' ? 'filled' : 'subtle'}
+                  size="xs"
+                  leftSection={sortField === 'mood' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
+                  onClick={() => handleSort('mood')}
+                >
+                  Mood
+                </Button>
+                <Button
+                  variant={sortField === 'created_at' ? 'filled' : 'subtle'}
+                  size="xs"
+                  leftSection={sortField === 'created_at' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
+                  onClick={() => handleSort('created_at')}
+                >
+                  Created
+                </Button>
+                {store.isUnlocked && (
+                  <Button
+                    leftSection={<IconLock size={16} />}
+                    onClick={store.lockSession}
+                    variant="light"
+                    color="orange"
+                  >
+                    Lock Diary
+                  </Button>
+                )}
+              </Group>
             </Group>
 
-            {/* Error Alert */}
             {store.error && (
               <Alert
                 icon={<IconAlertTriangle size={16} />}
@@ -685,113 +751,190 @@ export function DiaryPage() {
                 color="red"
                 variant="light"
                 withCloseButton
-                onClose={store.clearError}
+                onClose={() => store.setError(null)}
               >
                 {store.error}
               </Alert>
             )}
 
-            {/* Loading State */}
             {store.isLoading && (
-              <Stack gap="md">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <Skeleton key={index} height={150} radius="md" />
+              <Grid>
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <Grid.Col span={{ base: 12, sm: 6, lg: 4 }} key={index}>
+                    <Skeleton height={200} radius="md" />
+                  </Grid.Col>
                 ))}
-              </Stack>
+              </Grid>
             )}
 
-            {/* Entries List */}
-            {!store.isLoading && store.entries.length > 0 && (
-              <Stack gap="md">
-                {store.entries.map((entry) => (
-                  <Card 
-                    key={entry.id}
-                    shadow="sm" 
-                    padding="md" 
-                    radius="md" 
-                    withBorder
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => handleViewEntry(entry.date)}
-                  >
-                    <Group justify="space-between" align="flex-start">
-                      <div style={{ flex: 1 }}>
-                        <Group gap="xs" mb="xs">
-                          <Text fw={600}>{formatDate(entry.date)}</Text>
-                          {entry.mood && (
-                            <Badge variant="light" color={getMoodColor(entry.mood)} size="sm">
-                              {getMoodEmoji(entry.mood)} {entry.mood}/5
-                            </Badge>
-                          )}
-                          {entry.weather && (
-                            <Badge variant="outline" size="sm">
-                              {getWeatherEmoji(entry.weather)} {entry.weather}
-                            </Badge>
-                          )}
-                          {entry.media_count > 0 && (
-                            <Badge variant="dot" size="sm">
-                              {entry.media_count} media
-                            </Badge>
-                          )}
+            {!store.isLoading && paginatedEntries.length > 0 && (
+              <>
+                <Grid>
+                  {paginatedEntries.map((entry) => (
+                    <Grid.Col span={{ base: 12, sm: 6, lg: 4 }} key={entry.id}>
+                      <Card 
+                        shadow="sm" 
+                        padding="md" 
+                        radius="md" 
+                        withBorder
+                        style={{ 
+                          cursor: 'pointer', 
+                          transition: 'transform 0.2s ease',
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = 'translateY(0)';
+                        }}
+                        onClick={() => handleViewEntry(entry)}
+                      >
+                        <Group justify="space-between" align="flex-start" mb="xs">
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <Text fw={600} size="lg" truncate>
+                              {formatDateForCard(entry.date)}
+                            </Text>
+                            <Group gap="xs" mt="xs">
+                              {entry.mood && (
+                                <Badge variant="light" color={getMoodColor(entry.mood)} size="sm">
+                                  {getMoodEmoji(entry.mood)} {getMoodLabel(entry.mood)}
+                                </Badge>
+                              )}
+                              {entry.weather && (
+                                <Badge variant="outline" size="sm">
+                                  {getWeatherEmoji(entry.weather)} {entry.weather}
+                                </Badge>
+                              )}
+                              {entry.media_count > 0 && (
+                                <Badge variant="dot" size="sm">
+                                  {entry.media_count} 📎
+                                </Badge>
+                              )}
+                            </Group>
+                          </div>
+                          
+                          <Menu withinPortal position="bottom-end">
+                            <Menu.Target>
+                              <ActionIcon 
+                                variant="subtle" 
+                                color="gray"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <IconDots size={16} />
+                              </ActionIcon>
+                            </Menu.Target>
+                            
+                            <Menu.Dropdown>
+                              <Menu.Item 
+                                leftSection={<IconEye size={14} />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleViewEntry(entry);
+                                }}
+                              >
+                                View Entry
+                              </Menu.Item>
+                              <Menu.Item 
+                                leftSection={<IconEdit size={14} />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleViewEntry(entry);
+                                }}
+                              >
+                                Edit Entry
+                              </Menu.Item>
+                              <Menu.Divider />
+                              <Menu.Item 
+                                leftSection={<IconTrash size={14} />}
+                                color="red"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(entry.id);
+                                }}
+                              >
+                                Delete
+                              </Menu.Item>
+                            </Menu.Dropdown>
+                          </Menu>
                         </Group>
                         
-                        <Text size="sm" c="dimmed">
-                          Encrypted entry • Click to view
+                        <Text size="sm" c="dimmed" lineClamp={3} style={{ flex: 1 }}>
+                          🔐 Encrypted diary entry • Click to view and edit
                         </Text>
-                      </div>
-                      
-                      <Menu withinPortal position="bottom-end">
-                        <Menu.Target>
-                          <ActionIcon 
-                            variant="subtle" 
-                            color="gray"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <IconDots size={16} />
-                          </ActionIcon>
-                        </Menu.Target>
                         
-                        <Menu.Dropdown>
-                          <Menu.Item 
-                            leftSection={<IconEdit size={14} />}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleViewEntry(entry.date);
-                            }}
-                          >
-                            View/Edit
-                          </Menu.Item>
-                          <Menu.Divider />
-                          <Menu.Item 
-                            leftSection={<IconTrash size={14} />}
-                            color="red"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteEntry(entry.date);
-                            }}
-                          >
-                            Delete
-                          </Menu.Item>
-                        </Menu.Dropdown>
-                      </Menu>
-                    </Group>
-                  </Card>
-                ))}
-              </Stack>
+                        <Paper 
+                          p="xs" 
+                          mt="xs" 
+                          style={{ 
+                            backgroundColor: 'var(--mantine-color-gray-0)',
+                            border: '1px dashed var(--mantine-color-gray-3)'
+                          }}
+                        >
+                          <Text size="xs" c="dimmed" ta="center">
+                            {entry.mood ? `${getMoodEmoji(entry.mood)} Diary Entry` : '📝 Diary Entry'}
+                          </Text>
+                        </Paper>
+                        
+                        <Group justify="space-between" mt="md">
+                          <Text size="xs" c="dimmed">
+                            {formatDate(entry.created_at)}
+                          </Text>
+                          <Tooltip label="View entry">
+                            <ActionIcon 
+                              variant="light" 
+                              color="blue" 
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewEntry(entry);
+                              }}
+                            >
+                              <IconEye size={14} />
+                            </ActionIcon>
+                          </Tooltip>
+                        </Group>
+                      </Card>
+                    </Grid.Col>
+                  ))}
+                </Grid>
+
+                {totalPages > 1 && (
+                  <Group justify="center">
+                    <Pagination
+                      value={currentPage}
+                      onChange={setCurrentPage}
+                      total={totalPages}
+                      size="sm"
+                    />
+                  </Group>
+                )}
+              </>
             )}
 
-            {/* Empty State */}
-            {!store.isLoading && store.entries.length === 0 && (
+            {!store.isLoading && paginatedEntries.length === 0 && (
               <Paper p="xl" radius="md" style={{ textAlign: 'center' }}>
                 <ThemeIcon size="xl" variant="light" color="purple" mx="auto" mb="md">
                   <IconBook size={32} />
                 </ThemeIcon>
-                <Title order={3} mb="xs">No diary entries yet</Title>
+                <Title order={3} mb="xs">
+                  {store.titleSearch || store.dayOfWeek ? 'No diary entries found' : 'No diary entries yet'}
+                </Title>
                 <Text c="dimmed" mb="lg">
-                  Start writing your first encrypted diary entry
+                  {store.titleSearch || store.dayOfWeek 
+                    ? 'Try adjusting your search or filters'
+                    : 'Start writing your first encrypted diary entry'
+                  }
                 </Text>
                 <Button
                   leftSection={<IconPlus size={16} />}
-                  onClick={() => setEntryModalOpen(true)}
+                  onClick={() => {
+                    resetEntryForm();
+                    setViewMode('edit');
+                    setModalOpen(true);
+                  }}
                 >
                   Write First Entry
                 </Button>
@@ -801,19 +944,17 @@ export function DiaryPage() {
         </Grid.Col>
       </Grid>
 
-      {/* Entry Modal */}
       <Modal
-        opened={entryModalOpen}
+        opened={modalOpen}
         onClose={() => {
-          setEntryModalOpen(false);
+          setModalOpen(false);
           resetEntryForm();
           setViewingEntry(null);
-          store.clearCurrentEntry();
         }}
-        title={viewMode === 'view' ? 'View Diary Entry' : isEditingEntry ? 'Edit Diary Entry' : 'New Diary Entry'}
+        title={viewingEntry && viewMode === 'view' ? `View Entry: ${formatDate(viewingEntry.date)}` : 'Edit Diary Entry'}
         size="lg"
       >
-        {viewMode === 'view' && viewingEntry && (
+        {viewingEntry && viewMode === 'view' ? (
           <Stack gap="md">
             <Group>
               <Text fw={500}>Date: {formatDate(viewingEntry.date)}</Text>
@@ -828,7 +969,7 @@ export function DiaryPage() {
             <Group gap="xs">
               {viewingEntry.mood && (
                 <Badge variant="light" color={getMoodColor(viewingEntry.mood)}>
-                  Mood: {getMoodEmoji(viewingEntry.mood)} {viewingEntry.mood}/5
+                  Mood: {getMoodEmoji(viewingEntry.mood)} {getMoodLabel(viewingEntry.mood)}
                 </Badge>
               )}
               {viewingEntry.weather && (
@@ -843,14 +984,14 @@ export function DiaryPage() {
                 leftSection={<IconEdit size={16} />}
                 variant="light"
                 onClick={() => {
-                  // Switch to edit mode with current entry pre-filled
-                  setEntryForm({
+                  form.setValues({
+                    id: viewingEntry.id,
+                    date: new Date(viewingEntry.date),
                     title: viewingEntry.title,
                     content: viewingEntry.content,
                     mood: viewingEntry.mood ?? 3,
                     weather: viewingEntry.weather ?? ''
                   });
-                  setIsEditingEntry(true);
                   setViewMode('edit');
                 }}
               >
@@ -858,63 +999,52 @@ export function DiaryPage() {
               </Button>
             </Group>
           </Stack>
-        )}
-
-        {viewMode === 'edit' && (
+        ) : (
           <Stack gap="md">
             <Group>
               <Text fw={500}>Date: {selectedDate.toLocaleDateString()}</Text>
             </Group>
             
             <TextInput
-              label="Title (optional)"
-              placeholder="Entry title"
-              value={entryForm.title}
-              onChange={(e) => setEntryForm({ ...entryForm, title: e.currentTarget.value })}
+              label="Title"
+              placeholder="A descriptive title for your entry"
+              {...form.getInputProps('title')}
+              required
             />
             
             <Textarea
               label="Content"
-              placeholder="Write your thoughts..."
-              value={entryForm.content}
-              onChange={(e) => setEntryForm({ ...entryForm, content: e.currentTarget.value })}
-              minRows={8}
+              placeholder="Write your heart out..."
+              {...form.getInputProps('content')}
               required
+              autosize
+              minRows={6}
             />
             
-            <Group grow>
-              <div>
-                <Text size="sm" mb="xs" fw={500}>Mood</Text>
-                <Rating
-                  value={entryForm.mood}
-                  onChange={(value) => setEntryForm({ ...entryForm, mood: value })}
-                  emptySymbol="😐"
-                  fullSymbol={getMoodEmoji(entryForm.mood)}
-                  count={5}
-                />
-              </div>
-              
+            <SimpleGrid cols={3}>
               <Select
-                label="Weather"
-                placeholder="Select weather"
-                data={[
-                  { value: 'sunny', label: '☀️ Sunny' },
-                  { value: 'cloudy', label: '☁️ Cloudy' },
-                  { value: 'rainy', label: '🌧️ Rainy' },
-                  { value: 'snowy', label: '❄️ Snowy' },
-                  { value: 'stormy', label: '⛈️ Stormy' }
-                ]}
-                value={entryForm.weather}
-                onChange={(value) => setEntryForm({ ...entryForm, weather: value || '' })}
+                label="Mood"
+                data={['1', '2', '3', '4', '5'].map(m => ({ value: m, label: getMoodLabel(Number(m)) }))}
+                value={String(form.values.mood)}
+                onChange={(val) => form.setFieldValue('mood', Number(val))}
               />
-            </Group>
+              <TextInput
+                label="Activity"
+                placeholder="e.g., Reading, Running"
+                {...form.getInputProps('metadata.activity')}
+              />
+              <TextInput
+                label="Sleep (hours)"
+                placeholder="e.g., 8"
+                {...form.getInputProps('metadata.sleep_hours')}
+              />
+            </SimpleGrid>
 
-            {/* Action buttons */}
             <Group justify="flex-end">
               <Button
                 variant="subtle"
                 onClick={() => {
-                  setEntryModalOpen(false);
+                  setModalOpen(false);
                   resetEntryForm();
                   setViewingEntry(null);
                 }}
@@ -922,8 +1052,8 @@ export function DiaryPage() {
                 Cancel
               </Button>
               <Button
-                onClick={handleCreateEntry}
-                disabled={!entryForm.content.trim()}
+                onClick={handleCreateOrUpdateEntry}
+                disabled={!form.isValid()}
               >
                 Save Entry
               </Button>

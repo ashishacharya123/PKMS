@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./data/pkm_metadata.db"
     auth_db_path: str = "./data/auth.db"
     
+    # Redis Configuration
+    redis_url: str = "redis://localhost:6379/0"
+    redis_max_connections: int = 10
+    redis_timeout: int = 5
+    redis_cache_ttl: int = 300  # 5 minutes default cache TTL
+    redis_rate_limit_window: int = 60  # 1 minute window for rate limiting
+    redis_rate_limit_max_requests: int = 100  # Max requests per window
+    
     # Security - MUST be provided via environment variables in production
     secret_key: Optional[str] = None  # Will be generated if not provided
     algorithm: str = "HS256"
@@ -106,4 +114,12 @@ def get_database_url() -> str:
 
 def get_auth_db_path() -> Path:
     """Get the authentication database path"""
-    return get_data_dir() / "auth.db" 
+    return get_data_dir() / "auth.db"
+
+
+def get_redis_url() -> str:
+    """Get the Redis URL with proper error handling"""
+    redis_url = os.getenv("REDIS_URL", settings.redis_url)
+    if not redis_url.startswith("redis://"):
+        raise ValueError("Invalid Redis URL format. Must start with 'redis://'")
+    return redis_url 

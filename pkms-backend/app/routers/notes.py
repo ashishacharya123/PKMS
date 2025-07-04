@@ -113,103 +113,82 @@ async def create_note(
     # Return with related data
     return await _get_note_with_relations(db, note.id, current_user.id)
 
-@router.get("/{note_id}", response_model=NoteResponse)
+# Simplified queries for single-user application
+# Remove unnecessary user ownership checks while keeping authentication
+
+@router.get("/notes/{note_id}", response_model=NoteResponse)
 async def get_note(
     note_id: int,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get a specific note with backlinks and tags"""
-    
+    """Get note by ID (simplified for single user)"""
     result = await db.execute(
-        select(Note).where(
-            and_(Note.id == note_id, Note.user_id == current_user.id)
-        )
+        select(Note).where(Note.id == note_id)
     )
     note = result.scalar_one_or_none()
     
     if not note:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Note not found"
-        )
+        raise HTTPException(status_code=404, detail="Note not found")
     
-    return await _get_note_with_relations(db, note_id, current_user.id)
+    return note
 
-@router.put("/{note_id}", response_model=NoteResponse)
+@router.put("/notes/{note_id}", response_model=NoteResponse)
 async def update_note(
     note_id: int,
     note_data: NoteUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Update a note with automatic link processing"""
-    
+    """Update note (simplified for single user)"""
     result = await db.execute(
-        select(Note).where(
-            and_(Note.id == note_id, Note.user_id == current_user.id)
-        )
+        select(Note).where(Note.id == note_id)
     )
     note = result.scalar_one_or_none()
     
     if not note:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Note not found"
-        )
+        raise HTTPException(status_code=404, detail="Note not found")
     
     # Update fields
-    update_data = note_data.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        if field == "tags":
-            continue  # Handle separately
-        setattr(note, field, value)
-    
-    # Handle tags if provided
-    if note_data.tags is not None:
-        await _handle_note_tags(db, note, note_data.tags, current_user.id)
-    
-    # Process links if content changed
+    if note_data.title is not None:
+        note.title = note_data.title
     if note_data.content is not None:
-        await _process_note_links(db, note, note_data.content, current_user.id)
+        note.content = note_data.content
+    if note_data.area is not None:
+        note.area = note_data.area
+    if note_data.year is not None:
+        note.year = note_data.year
+    if note_data.is_archived is not None:
+        note.is_archived = note_data.is_archived
     
-    note.updated_at = datetime.utcnow()
     await db.commit()
+    await db.refresh(note)
     
-    return await _get_note_with_relations(db, note_id, current_user.id)
+    return note
 
-@router.delete("/{note_id}")
+@router.delete("/notes/{note_id}")
 async def delete_note(
     note_id: int,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete a note and clean up its links"""
-    
+    """Delete note (simplified for single user)"""
     result = await db.execute(
-        select(Note).where(
-            and_(Note.id == note_id, Note.user_id == current_user.id)
-        )
+        select(Note).where(Note.id == note_id)
     )
     note = result.scalar_one_or_none()
     
     if not note:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Note not found"
-        )
+        raise HTTPException(status_code=404, detail="Note not found")
     
     # Delete associated links
     await db.execute(
-        select(Link).where(
-            and_(
-                or_(
-                    and_(Link.from_type == "note", Link.from_id == str(note_id)),
-                    and_(Link.to_type == "note", Link.to_id == str(note_id))
-                ),
-                Link.user_id == current_user.id
+        delete(Link).where(
+            or_(
+                and_(Link.from_type == "note", Link.from_id == str(note_id)),
+                and_(Link.to_type == "note", Link.to_id == str(note_id))
             )
-        ).delete()
+        )
     )
     
     await db.delete(note)
@@ -217,72 +196,43 @@ async def delete_note(
     
     return {"message": "Note deleted successfully"}
 
-@router.get("/", response_model=List[NoteSummary])
+@router.get("/notes", response_model=List[NoteResponse])
 async def list_notes(
     area: Optional[str] = Query(None),
     year: Optional[int] = Query(None),
-    archived: Optional[bool] = Query(False),
-    tag: Optional[str] = Query(None),
+    archived: bool = Query(False),
     search: Optional[str] = Query(None),
     limit: int = Query(50, le=100),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List notes with filtering and search"""
-    
-    query = select(Note).where(Note.user_id == current_user.id)
+    """List notes with filtering (simplified for single user)"""
+    query = select(Note)
     
     # Apply filters
     if area:
         query = query.where(Note.area == area)
     if year:
         query = query.where(Note.year == year)
-    if archived is not None:
-        query = query.where(Note.is_archived == archived)
-    
-    # Tag filter
-    if tag:
-        query = query.join(note_tags).join(Tag).where(Tag.name == tag)
-    
-    # Search filter
+    if not archived:
+        query = query.where(Note.is_archived == False)
     if search:
-        search_term = f"%{search}%"
+        search_pattern = f"%{search}%"
         query = query.where(
             or_(
-                Note.title.ilike(search_term),
-                Note.content.ilike(search_term)
+                Note.title.ilike(search_pattern),
+                Note.content.ilike(search_pattern)
             )
         )
     
-    # Order and pagination
+    # Add ordering and pagination
     query = query.order_by(Note.updated_at.desc()).offset(offset).limit(limit)
     
     result = await db.execute(query)
     notes = result.scalars().all()
     
-    # Convert to summaries with tags
-    summaries = []
-    for note in notes:
-        # Get tags
-        tag_result = await db.execute(
-            select(Tag.name).join(note_tags).where(note_tags.c.note_id == note.id)
-        )
-        note_tags_list = [row[0] for row in tag_result.fetchall()]
-        
-        summaries.append(NoteSummary(
-            id=note.id,
-            title=note.title,
-            area=note.area,
-            year=note.year,
-            is_archived=note.is_archived,
-            created_at=note.created_at,
-            updated_at=note.updated_at,
-            tags=note_tags_list,
-            preview=note.content[:200] + "..." if len(note.content) > 200 else note.content
-        ))
-    
-    return summaries
+    return notes
 
 @router.get("/areas/list")
 async def list_areas(

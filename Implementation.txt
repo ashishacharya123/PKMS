@@ -16,13 +16,117 @@
 - **API Endpoints**: All authentication endpoints implemented and tested
 - **Configuration**: Centralized settings with environment variable support
 
-### 🔄 **Phase 3: Frontend Authentication & Core Modules (IN PROGRESS)**
-- **Next Priority**: Frontend authentication components and API integration
-- **Current Status**: Backend ready, frontend authentication needed
+### ✅ **Phase 3: Frontend Authentication & Core Modules (COMPLETED)**
+- **Auth UI**: Login, registration, and password recovery flows
+- **Layout System**: Responsive layout with navigation and user menu
+- **Dashboard**: Overview page with system statistics
+- **Search**: Global search functionality across all modules
+- **Settings**: User preferences and system configuration
 
-### ⏳ **Remaining Phases**: Notes → Documents → Todos → Diary → Polish
+### ✅ **Phase 4: Notes Module (COMPLETED)**
+- **Note Management**: Create, edit, view, and delete notes
+- **Rich Text**: Markdown editor with preview and formatting
+- **Categories**: Organize notes by categories and tags
+- **Search**: Full-text search within notes
+- **Sharing**: Options for sharing notes with other users
+- **Database Schema**: Added proper indexes for performance
 
----
+### ✅ **Phase 5: Todo Module (COMPLETED)**
+- **Task Management**: Create, edit, complete, and delete tasks
+- **Due Dates**: Calendar integration with reminders
+- **Categories**: Organize tasks by projects and tags
+- **Priority**: Set and filter tasks by priority levels
+- **Progress Tracking**: Monitor completion rates and statistics
+- **Drag-and-Drop**: Intuitive task reordering
+
+### ✅ **Phase 6: Diary Module (COMPLETED)**
+- **Encrypted Diary**: End-to-end encrypted journal entries with enhanced security
+  - Single-blob encryption for better security
+  - Improved IV and tag management
+  - "Lock Diary" button for quick security
+  - Password recovery system
+- **Media Attachments**: Support for images and files
+  - Media count tracking
+  - Improved file handling
+  - Better media type organization
+- **Calendar View**: Enhanced date-based navigation
+  - Multiple entries per day support
+  - Better date filtering options
+  - Day of week filtering
+- **Metadata Tracking**:
+  - Sleep hours (optional)
+  - Exercise duration (optional)
+  - Phone usage hours (optional)
+  - Activity level tracking (optional)
+  - Removed weather tracking
+- **Search & Filtering**:
+  - Title-based search (decoupled from encryption)
+  - Enhanced filtering system
+  - Media presence filtering
+  - Improved performance
+- **UI/UX Improvements**:
+  - Comprehensive notification system
+  - Better loading states
+  - Enhanced error handling
+  - Improved TypeScript types
+- **Templates**: Reusable templates for common entry types
+- **Schema Compatibility**: Support for both old and new database schemas
+- **Bug Fixes**: Resolved critical routing, date handling, and database schema errors.
+
+### ✅ **Phase 7: Document Management (COMPLETED)**
+- **File Upload**: Secure document uploading and storage
+- **Categorization**: Organize documents by type and tags
+- **Preview**: Built-in viewer for common document formats
+- **Version Control**: Track document revisions and changes
+- **Search**: Full-text search within document contents
+
+### ✅ **Phase 8: Archive Module (COMPLETED)**
+- **Archive System**: Long-term storage for infrequently used items
+- **Folder Structure**: Hierarchical organization of archived content
+- **Import/Export**: Tools for bulk operations and data migration
+- **Search Integration**: Full-text search within archived items
+- **UI Components**: Archive browser and management interface
+
+### ✅ **Phase 9: AI Integration (COMPLETED)**
+- **AI Assistant**: Context-aware helper for content creation
+- **Smart Tagging**: Automated tag suggestions based on content
+- **Content Analysis**: Insights and patterns from user data
+- **Summarization**: Automatic summary generation for long content
+- **API Integration**: Backend services for AI functionality
+
+### ✅ **Phase 10: Mobile Responsiveness (COMPLETED)**
+- **Responsive Design**: Full mobile compatibility across all modules
+- **Touch Optimization**: Improved UX for touch devices
+- **Offline Support**: Basic functionality without internet connection
+- **PWA Features**: Progressive Web App capabilities
+- **Performance**: Optimized loading and rendering for mobile devices
+
+### ✅ **Phase 11: Bug Fixes & Optimizations (IN PROGRESS)**
+- **Performance Tuning**: Database query optimization and caching
+- **Bug Resolution**: Fixing reported issues across all modules
+- **Security Hardening**: Additional security measures and testing
+- **UI/UX Improvements**: Refinements based on user feedback
+- **Documentation Updates**: Keeping documentation in sync with changes
+- **Database Compatibility**: Ensuring backward compatibility with schema changes
+
+### ✅ **Phase 12: Search Performance Optimization (COMPLETED)**
+- **Full-Text Search (FTS5)**:
+  - SQLite FTS5 virtual table for archive items
+  - Porter stemming for word normalization
+  - Prefix indexing for partial matches (2-3 characters)
+  - Automatic index synchronization via triggers
+  - Result ranking and sorting
+  - Enhanced result previews
+- **B-Tree Indexes**:
+  - Archive items: name, description, mime_type, created_at, updated_at
+  - Archive folders: name, path
+  - Optimized query performance for sorting and filtering
+- **Search API**:
+  - New FTS-based search endpoint
+  - Proper result ranking
+  - Prefix matching support
+  - Improved search performance
+  - Better scalability for large datasets
 
 ## 🏗️ Architecture Overview
 
@@ -212,15 +316,9 @@ CREATE TABLE todos (
 CREATE TABLE diary_entries (
     id INTEGER PRIMARY KEY,
     date TIMESTAMP NOT NULL,
-    title_encrypted TEXT,
-    content_encrypted TEXT NOT NULL,
-    mood INTEGER, -- 1-5 scale
-    weather TEXT,
+    encrypted_blob TEXT NOT NULL,
     encryption_iv TEXT NOT NULL,
     encryption_tag TEXT NOT NULL,
-    is_template BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     user_id INTEGER NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
@@ -293,6 +391,48 @@ CREATE TABLE links (
     user_id INTEGER NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
+```
+
+### Search Indexes
+```sql
+-- Full-Text Search Virtual Table
+CREATE VIRTUAL TABLE archive_items_fts USING fts5(
+    name,
+    description,
+    extracted_text,
+    content='archive_items',
+    content_rowid='uuid',
+    tokenize='porter unicode61',
+    prefix='2,3',
+    columnsize=0
+);
+
+-- B-Tree Indexes
+CREATE INDEX idx_archive_items_name ON archive_items(name);
+CREATE INDEX idx_archive_items_description ON archive_items(description);
+CREATE INDEX idx_archive_items_mime_type ON archive_items(mime_type);
+CREATE INDEX idx_archive_items_created ON archive_items(created_at);
+CREATE INDEX idx_archive_items_updated ON archive_items(updated_at);
+CREATE INDEX idx_archive_folders_name ON archive_folders(name);
+CREATE INDEX idx_archive_folders_path ON archive_folders(path);
+
+-- FTS Triggers
+CREATE TRIGGER archive_items_ai AFTER INSERT ON archive_items BEGIN
+    INSERT INTO archive_items_fts(rowid, name, description, extracted_text)
+    VALUES (new.uuid, new.name, new.description, new.extracted_text);
+END;
+
+CREATE TRIGGER archive_items_ad AFTER DELETE ON archive_items BEGIN
+    INSERT INTO archive_items_fts(archive_items_fts, rowid, name, description, extracted_text)
+    VALUES('delete', old.uuid, old.name, old.description, old.extracted_text);
+END;
+
+CREATE TRIGGER archive_items_au AFTER UPDATE ON archive_items BEGIN
+    INSERT INTO archive_items_fts(archive_items_fts, rowid, name, description, extracted_text)
+    VALUES('delete', old.uuid, old.name, old.description, old.extracted_text);
+    INSERT INTO archive_items_fts(rowid, name, description, extracted_text)
+    VALUES (new.uuid, new.name, new.description, new.extracted_text);
+END;
 ```
 
 ## 🔐 Security Implementation (COMPLETED)
@@ -554,24 +694,15 @@ src/
 class DiaryEntry(Base):
     id: int
     date: datetime
-    title_encrypted: Optional[str]
-    content_encrypted: str
-    mood: Optional[int]
-    weather: Optional[str]
+    encrypted_blob: str
     encryption_iv: str
     encryption_tag: str
-    is_template: bool
-    created_at: datetime
-    updated_at: datetime
+    user_id: int
 
 class DiaryEntrySummary(BaseModel):
     id: int
     date: date
-    mood: Optional[int]
-    weather: Optional[str]
-    is_template: bool
-    created_at: datetime
-    content_encrypted: str  # Added for key verification
+    encrypted_blob: str  # Added for key verification
     encryption_iv: str      # Added for key verification
     encryption_tag: str     # Added for key verification
 ```
@@ -607,3 +738,57 @@ class DiaryEntrySummary(BaseModel):
 - Client-side caching where appropriate
 
 This comprehensive plan addresses all requirements from the instructions while ensuring security, performance, and user experience standards. The phased approach allows for iterative development and testing of each module before moving to the next. 
+
+# PKMS Implementation Details
+
+## Backend
+
+The backend is built with Python using the FastAPI framework, providing a high-performance asynchronous API.
+
+- **Database**: Uses SQLAlchemy with an async driver for SQLite, designed for a local-first environment.
+- **Authentication**: JWT-based with a secure refresh token system managed via HttpOnly cookies. Passwords are hashed with bcrypt.
+- **API Design**: Follows RESTful principles, with a versioned API (`/api/v1`).
+- **Error Handling**: Centralized error handling and rate limiting for security.
+- **Deployment**: Dockerized for consistent and easy setup.
+
+## Frontend
+
+The frontend is a single-page application (SPA) built with React and TypeScript.
+
+- **Framework**: React with Vite for a fast development experience.
+- **State Management**: Zustand is used for efficient and scalable global state management.
+- **Styling**: Uses modern CSS practices, likely with a framework like Mantine or a utility-first library.
+- **API Communication**: Axios is used for all API requests, with a centralized service layer for each module.
+
+## Core Modules
+
+### Diary Module Implementation
+
+The Diary module is designed for maximum security and flexibility using a single-blob encryption strategy.
+
+1.  **Data Structure**: Instead of encrypting each field separately, the entire content of a diary entry (title, content, mood, tags, etc.) is structured as a JSON object.
+2.  **Encryption**: This JSON object is stringified and then encrypted using `AES-GCM`. The resulting encrypted blob, along with its unique IV (Initialization Vector) and authentication tag, is stored in the database.
+3.  **Database Schema**: The `diary_entries` table is very simple, containing:
+    -   `id`: A unique integer primary key for each entry.
+    -   `date`: The date of the entry for easy querying.
+    -   `encrypted_blob`: A text field to hold the main encrypted data.
+    -   `encryption_iv`: The Base64-encoded IV.
+    -   `encryption_tag`: The Base64-encoded authentication tag.
+    -   `user_id`: Foreign key to the user.
+4.  **Benefits of this approach**:
+    -   **Flexibility**: New fields (e.g., location, attachments metadata) can be added to the JSON object without requiring any database schema changes.
+    -   **Security**: Encrypting the entire object at once is cryptographically simpler and less prone to implementation errors.
+    -   **Performance**: Reduces the number of encryption/decryption operations per entry.
+5.  **Multi-Entry Support**: Because each entry has a unique `id`, the system fully supports creating multiple distinct diary entries for the same date.
+
+### Other Modules
+
+- **Notes**: A standard PARA-based note-taking system with markdown support, tagging, and bidirectional linking.
+- **Documents**: Manages file uploads with metadata extraction and full-text search.
+- **Todos**: A task management system with projects, priorities, and due dates.
+- **Archive**: A hierarchical folder-based system for long-term storage of files.
+- **Search**: A global search system that queries across all relevant modules. 
+
+### 2025-07-04 – Minor Cleanup (Phase 11)
+* **Standardised 429 Responses**: `main.py` now returns `{detail, retry_after}` JSON, enabling frontend countdown UI.
+* **API Client Export Standardisation**: Removed default export from `api.ts`; all services should use named export `{ apiService }`. 

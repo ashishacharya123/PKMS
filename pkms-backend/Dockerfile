@@ -5,43 +5,38 @@ FROM python:3.11-slim as builder
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
-    libffi-dev \
-    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python packages to /opt/venv
+# Create virtual environment
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy requirements and install packages
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Production stage
+# Final stage
 FROM python:3.11-slim
 
-# Install only runtime dependencies
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy the virtual environment from builder stage
+# Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
-
-# Create user and set up environment in one layer
-RUN useradd --create-home --shell /bin/bash --uid 1000 pkms && \
-    mkdir -p /app/data && \
-    chown -R pkms:pkms /app
-
-# Set environment variables
 ENV PATH="/opt/venv/bin:$PATH"
-ENV PYTHONPATH="/app"
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash --uid 1000 pkms
+
+# Create data directory and set permissions
+RUN mkdir -p /app/data && chown -R pkms:pkms /app/data
 
 # Set working directory
 WORKDIR /app
 
-# Copy application code with correct ownership
+# Copy application code
 COPY --chown=pkms:pkms . .
 
 # Switch to non-root user
@@ -55,4 +50,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 EXPOSE 8000
 
 # Set default command
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"] 
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"] 

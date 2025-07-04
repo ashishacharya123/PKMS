@@ -1,34 +1,57 @@
 import { apiService } from './api';
 import { format } from 'date-fns';
 
-// Types for diary
-export interface DiaryEntry {
-  id: number;
-  date: string;
-  title_encrypted?: string;
-  content_encrypted: string;
+// --- NEW Data Structures ---
+
+// Represents the raw, unencrypted data for a diary entry
+export interface DiaryMetadata {
+  sleep_hours?: number;
+  exercise_minutes?: number;
+  phone_hours?: number;
+  activity_level?: number;
+  custom_fields?: Record<string, any>;
+}
+
+export interface DiaryData {
+  title?: string;
+  content: string;
   mood?: number;
   weather?: string;
+  tags?: string[];
+  metadata?: DiaryMetadata;
+}
+
+// Represents the diary entry object stored in and retrieved from the backend
+export interface DiaryEntry {
+  id: number;
+  date: string; // YYYY-MM-DD
+  title?: string;
+  encrypted_blob: string;
   encryption_iv: string;
   encryption_tag: string;
-  title_encryption_iv?: string;
-  title_encryption_tag?: string;
+  mood?: number;
+  metadata: DiaryMetadata;
   is_template: boolean;
   created_at: string;
   updated_at: string;
   media_count: number;
 }
 
-export interface DiaryEntryCreate {
-  date: string;
-  title_encrypted?: string;
-  content_encrypted: string;
-  mood?: number;
-  weather?: string;
+// Helper interface for encrypted content
+export interface EncryptedContent {
+  content: string; // The encrypted blob
+  iv: string;
+  tag: string;
+}
+
+export interface DiaryEntryCreatePayload {
+  date: string; // YYYY-MM-DD
+  title?: string;
+  encrypted_blob: string;
   encryption_iv: string;
   encryption_tag: string;
-  title_encryption_iv?: string;
-  title_encryption_tag?: string;
+  mood?: number;
+  metadata?: DiaryMetadata;
   is_template?: boolean;
 }
 
@@ -47,12 +70,13 @@ export interface DiaryEntryUpdate {
 export interface DiaryEntrySummary {
   id: number;
   date: string;
+  title?: string;
   mood?: number;
-  weather?: string;
+  metadata: DiaryMetadata;
   is_template: boolean;
   created_at: string;
   media_count: number;
-  content_encrypted: string;
+  encrypted_blob: string;
   encryption_iv: string;
   encryption_tag: string;
 }
@@ -90,14 +114,11 @@ export interface DiaryListParams {
   month?: number;
   mood?: number;
   templates?: boolean;
+  search_title?: string;
+  day_of_week?: number;
+  has_media?: boolean;
   limit?: number;
   offset?: number;
-}
-
-export interface EncryptedContent {
-  content: string;
-  iv: string;
-  tag: string;
 }
 
 export interface MediaUploadData {
@@ -111,42 +132,129 @@ export interface MediaUploadData {
 class DiaryService {
   private baseUrl = '/diary';
 
-  // Entry methods
-  async createEntry(entryData: DiaryEntryCreate): Promise<DiaryEntry> {
-    // Format the date to YYYY-MM-DD
-    const formattedData = {
-      ...entryData,
-      date: entryData.date.split('T')[0]
-    };
-    return await apiService.post<DiaryEntry>(`${this.baseUrl}/entries`, formattedData);
+  // --- Core Entry Methods ---
+
+  async createEntry(payload: DiaryEntryCreatePayload): Promise<DiaryEntry> {
+    const response = await apiService.post<DiaryEntry>(`${this.baseUrl}/entries`, payload);
+    return response.data;
   }
 
-  async getEntryByDate(date: Date): Promise<DiaryEntry> {
-    try {
-      // Format date as YYYY-MM-DD using date-fns
-      const formattedDate = format(date, 'yyyy-MM-dd');
-      console.log('[DEBUG] Fetching entry for date:', formattedDate);
-      
-      const response = await apiService.get<DiaryEntry>(`${this.baseUrl}/entries/${formattedDate}`);
-      return response;
-    } catch (error) {
-      console.error('[DEBUG] Error fetching diary entry:', error);
-      throw error;
-    }
+  async getEntriesByDate(date: Date): Promise<DiaryEntry[]> {
+    const formattedDate = date.toISOString().split('T')[0];
+    const response = await apiService.get<DiaryEntry[]>(`${this.baseUrl}/entries/date/${formattedDate}`);
+    return response.data;
   }
 
   async getEntryById(entryId: number): Promise<DiaryEntry> {
-    return await apiService.get<DiaryEntry>(`${this.baseUrl}/entries/id/${entryId}`);
+    const response = await apiService.get<DiaryEntry>(`${this.baseUrl}/entries/${entryId}`);
+    return response.data;
   }
 
-  async updateEntry(date: string, entryData: DiaryEntryUpdate): Promise<DiaryEntry> {
-    return await apiService.put<DiaryEntry>(`${this.baseUrl}/entries/${date}`, entryData);
+  async updateEntry(entryId: number, payload: DiaryEntryCreatePayload): Promise<DiaryEntry> {
+    const response = await apiService.put<DiaryEntry>(`${this.baseUrl}/entries/${entryId}`, payload);
+    return response.data;
   }
 
-  async deleteEntry(date: string): Promise<void> {
-    await apiService.delete(`${this.baseUrl}/entries/${date}`);
+  async deleteEntry(entryId: number): Promise<void> {
+    await apiService.delete(`${this.baseUrl}/entries/${entryId}`);
   }
 
+  // --- Encryption/Decryption Helpers ---
+
+  async generateEncryptionKey(password: string): Promise<CryptoKey> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    
+    return crypto.subtle.importKey(
+      'raw',
+      hash,
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  }
+
+  async encryptContent(content: string, key: CryptoKey): Promise<{ encrypted_blob: string; iv: string; tag: string }> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(content);
+    
+    // Generate a random IV
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    
+    const encryptedData = await crypto.subtle.encrypt(
+      {
+        name: 'AES-GCM',
+        iv: iv,
+        tagLength: 128
+      },
+      key,
+      data
+    );
+
+    // Split the encrypted data and authentication tag
+    const encryptedArray = new Uint8Array(encryptedData);
+    const encryptedContent = encryptedArray.slice(0, encryptedArray.length - 16);
+    const tag = encryptedArray.slice(encryptedArray.length - 16);
+
+    return {
+      encrypted_blob: this.arrayBufferToBase64(encryptedContent),
+      iv: this.arrayBufferToBase64(iv),
+      tag: this.arrayBufferToBase64(tag)
+    };
+  }
+
+  async decryptContent(encryptedBlob: string, iv: string, tag: string, key: CryptoKey): Promise<string> {
+    const encryptedData = this.base64ToArrayBuffer(encryptedBlob);
+    const ivArray = this.base64ToArrayBuffer(iv);
+    const tagArray = this.base64ToArrayBuffer(tag);
+
+    // Combine encrypted content and tag
+    const combined = new Uint8Array(encryptedData.byteLength + tagArray.byteLength);
+    combined.set(new Uint8Array(encryptedData), 0);
+    combined.set(new Uint8Array(tagArray), encryptedData.byteLength);
+
+    const decryptedData = await crypto.subtle.decrypt(
+      {
+        name: 'AES-GCM',
+        iv: ivArray,
+        tagLength: 128
+      },
+      key,
+      combined
+    );
+
+    const decoder = new TextDecoder();
+    return decoder.decode(decryptedData);
+  }
+
+  async decryptRawContent(encryptedBlob: string, iv: string, tag: string, key: CryptoKey): Promise<string> {
+    // This function is now identical to decryptContent, kept for any specific raw handling later
+    return this.decryptContent(encryptedBlob, iv, tag, key);
+  }
+  
+  // --- Base64 Helpers ---
+
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  private base64ToArrayBuffer(base64: string): ArrayBuffer {
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+
+  // Entry methods
   async getEntries(params: DiaryListParams = {}): Promise<DiaryEntrySummary[]> {
     const queryParams = new URLSearchParams();
     
@@ -157,19 +265,14 @@ class DiaryService {
     });
 
     const url = `${this.baseUrl}/entries${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    return await apiService.get<DiaryEntrySummary[]>(url);
+    const response = await apiService.get<DiaryEntrySummary[]>(url);
+    return response.data;
   }
 
   // Calendar methods
   async getCalendarData(year: number, month: number): Promise<DiaryCalendarData[]> {
-    try {
-      // Backend returns an object { calendar_data: DiaryCalendarData[] }
-      const response = await apiService.get<{ calendar_data: DiaryCalendarData[] }>(`${this.baseUrl}/calendar/${year}/${month}`);
-      return response.calendar_data || [];
-    } catch (error) {
-      console.error('Error fetching calendar data:', error);
-      throw error;
-    }
+    const response = await apiService.get<{ calendar_data: DiaryCalendarData[] }>(`${this.baseUrl}/calendar/${year}/${month}`);
+    return response.data.calendar_data || [];
   }
 
   // Media methods
@@ -177,14 +280,12 @@ class DiaryService {
     const formData = new FormData();
     formData.append('file', mediaData.file);
     formData.append('media_type', mediaData.media_type);
-    formData.append('encryption_iv', mediaData.encryption_iv);
-    formData.append('encryption_tag', mediaData.encryption_tag);
-    
     if (mediaData.duration_seconds) {
       formData.append('duration_seconds', mediaData.duration_seconds.toString());
     }
+    formData.append('encryption_iv', mediaData.encryption_iv);
+    formData.append('encryption_tag', mediaData.encryption_tag);
 
-    // Use the axios instance directly for form data upload
     const axios = apiService.getAxiosInstance();
     const response = await axios.post(`${this.baseUrl}/entries/${entryId}/media`, formData, {
       headers: {
@@ -200,7 +301,8 @@ class DiaryService {
       ? `${this.baseUrl}/entries/${entryId}/media?media_type=${mediaType}`
       : `${this.baseUrl}/entries/${entryId}/media`;
     
-    return await apiService.get<DiaryMedia[]>(url);
+    const response = await apiService.get<DiaryMedia[]>(url);
+    return response.data;
   }
 
   async downloadMedia(mediaUuid: string): Promise<Blob> {
@@ -222,139 +324,17 @@ class DiaryService {
     if (endDate) queryParams.append('end_date', endDate);
     
     const url = `${this.baseUrl}/stats/mood${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    return await apiService.get<MoodStats>(url);
+    const response = await apiService.get<MoodStats>(url);
+    return response.data;
   }
 
   // Template methods
   async getTemplates(): Promise<DiaryEntry[]> {
-    return await apiService.get<DiaryEntry[]>(`${this.baseUrl}/templates`);
+    const response = await apiService.get<DiaryEntry[]>(`${this.baseUrl}/templates`);
+    return response.data;
   }
 
   // Utility methods for encryption
-  async generateEncryptionKey(password: string): Promise<CryptoKey> {
-    try {
-      console.log('Starting key generation...');
-      const encoder = new TextEncoder();
-      const data = encoder.encode(password);
-      
-      // Generate a key from the password
-      const keyMaterial = await crypto.subtle.importKey(
-        'raw',
-        data,
-        { name: 'PBKDF2' },
-        false,
-        ['deriveBits', 'deriveKey']
-      );
-      
-      // Use PBKDF2 to derive a key
-      const salt = encoder.encode('PKMS-Diary-Salt');  // Fixed salt for now
-      const key = await crypto.subtle.deriveKey(
-        {
-          name: 'PBKDF2',
-          salt: salt,
-          iterations: 100000,
-          hash: 'SHA-256'
-        },
-        keyMaterial,
-        { name: 'AES-GCM', length: 256 },
-        true,
-        ['encrypt', 'decrypt']
-      );
-      
-      console.log('Key generation successful');
-      return key;
-    } catch (error) {
-      console.error('Error generating encryption key:', error);
-      throw new Error('Failed to generate encryption key. Please try again.');
-    }
-  }
-
-  async encryptContent(content: string, key: CryptoKey): Promise<EncryptedContent> {
-    try {
-      console.log('Starting content encryption...');
-      const encoder = new TextEncoder();
-      const data = encoder.encode(content);
-      
-      // Generate random IV
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      
-      // Encrypt the content
-      const encrypted = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv },
-        key,
-        data
-      );
-
-      // Split into ciphertext and auth tag
-      const encryptedArray = new Uint8Array(encrypted);
-      const tag = encryptedArray.slice(-16); // Last 16 bytes are the auth tag
-      const ciphertext = encryptedArray.slice(0, -16);
-
-      // Convert to base64 for storage
-      const result = {
-        content: this.arrayBufferToBase64(ciphertext),
-        iv: this.arrayBufferToBase64(iv),
-        tag: this.arrayBufferToBase64(tag)
-      };
-      console.log('Content encryption successful');
-      return result;
-    } catch (error) {
-      console.error('Error encrypting content:', error);
-      throw new Error('Failed to encrypt content. Please try again.');
-    }
-  }
-
-  async decryptContent(encryptedContent: EncryptedContent, key: CryptoKey): Promise<string> {
-    try {
-      console.log('Starting content decryption...');
-      // Convert from base64
-      const iv = this.base64ToArrayBuffer(encryptedContent.iv);
-      const ciphertext = this.base64ToArrayBuffer(encryptedContent.content);
-      const tag = this.base64ToArrayBuffer(encryptedContent.tag);
-
-      // Combine ciphertext and tag for AES-GCM
-      const encryptedData = new Uint8Array(ciphertext.byteLength + tag.byteLength);
-      encryptedData.set(new Uint8Array(ciphertext));
-      encryptedData.set(new Uint8Array(tag), ciphertext.byteLength);
-
-      // Decrypt the content
-      const decrypted = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: new Uint8Array(iv) },
-        key,
-        encryptedData.buffer
-      );
-
-      // Convert back to string
-      const decoder = new TextDecoder();
-      const result = decoder.decode(decrypted);
-      console.log('Content decryption successful');
-      return result;
-    } catch (error) {
-      console.error('Error decrypting content:', error);
-      throw new Error('Failed to decrypt content. Please check your password.');
-    }
-  }
-
-  // Helper methods for base64 conversion
-  private arrayBufferToBase64(buffer: ArrayBuffer): string {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    return btoa(binary);
-  }
-
-  private base64ToArrayBuffer(base64: string): ArrayBuffer {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return bytes.buffer;
-  }
-
-  // Utility methods
   getMoodLabel(mood: number): string {
     const labels = {
       1: 'Very Bad',
@@ -423,7 +403,8 @@ class DiaryService {
     if (params.offset) queryParams.append('offset', params.offset.toString());
     
     const url = `${this.baseUrl}/entries?${queryParams.toString()}`;
-    return await apiService.get<DiaryEntrySummary[]>(url);
+    const response = await apiService.get<DiaryEntrySummary[]>(url);
+    return response.data;
   }
 }
 

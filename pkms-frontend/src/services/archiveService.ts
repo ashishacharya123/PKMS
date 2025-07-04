@@ -134,6 +134,10 @@ class ArchiveService {
     return await apiService.get<FolderTree[]>(url);
   }
 
+  async getBreadcrumb(uuid: string): Promise<ArchiveFolder[]> {
+    return await apiService.get<ArchiveFolder[]>(`${this.baseUrl}/folders/${uuid}/breadcrumb`);
+  }
+
   async getFolder(uuid: string): Promise<ArchiveFolder> {
     return await apiService.get<ArchiveFolder>(`${this.baseUrl}/folders/${uuid}`);
   }

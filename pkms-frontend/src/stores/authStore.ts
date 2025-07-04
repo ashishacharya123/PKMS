@@ -10,8 +10,15 @@ import {
   PasswordChange,
   RecoverySetup,
   RecoveryReset,
+  MasterRecoverySetup,
+  MasterRecoveryReset,
   User
 } from '../types/auth';
+import { useNotesStore } from './notesStore';
+import { useDocumentsStore } from './documentsStore';
+import { useTodosStore } from './todosStore';
+import { useDiaryStore } from './diaryStore';
+import { useArchiveStore } from './archiveStore';
 
 interface AuthActions {
   // Authentication actions
@@ -22,6 +29,13 @@ interface AuthActions {
   setupRecovery: (recoveryData: RecoverySetup) => Promise<string | null>;
   resetPassword: (resetData: RecoveryReset) => Promise<boolean>;
   completeSetup: () => Promise<boolean>;
+  
+  // Master Recovery Password actions (New)
+  setupMasterRecovery: (masterData: MasterRecoverySetup) => Promise<boolean>;
+  resetPasswordWithMaster: (resetData: MasterRecoveryReset) => Promise<boolean>;
+  checkMasterRecoveryAvailable: () => Promise<{ has_master_recovery: boolean; has_security_questions: boolean; recommended_method: string }>;
+  unlockDiaryWithMaster: (masterPassword: string) => Promise<boolean>;
+  getDiaryRecoveryOptions: () => Promise<{ has_master_recovery: boolean; recovery_message: string; recommended_action: string }>;
   
   // State management
   checkAuth: () => Promise<void>;
@@ -44,22 +58,26 @@ export const useAuthStore = create<AuthState & AuthActions>()(
       isAuthenticated: false,
       isLoading: false,
       error: null,
+      sessionTimer: null,
 
-      // Actions
+      // Authentication actions
       login: async (credentials: LoginCredentials) => {
         set({ isLoading: true, error: null });
         
         try {
           const response = await authService.login(credentials);
-          authService.saveAuthData(response);
+          
+          // Store token and user data
+          localStorage.setItem('pkms_token', response.access_token);
+          apiService.setAuthToken(response.access_token);
           
           set({
             user: {
               id: response.user_id,
               username: response.username,
+              email: '', // Will be filled by getUserInfo if needed
               is_first_login: response.is_first_login,
-              email: '',
-              created_at: ''
+              created_at: new Date().toISOString()
             },
             token: response.access_token,
             isAuthenticated: true,
@@ -72,7 +90,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
 
           notifications.show({
             title: 'Success',
-            message: 'Login successful!',
+            message: 'Welcome back!',
             color: 'green',
           });
 
@@ -91,15 +109,18 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         
         try {
           const response = await authService.setupUser(userData);
-          authService.saveAuthData(response);
+          
+          // Store token and user data
+          localStorage.setItem('pkms_token', response.access_token);
+          apiService.setAuthToken(response.access_token);
           
           set({
             user: {
               id: response.user_id,
               username: response.username,
-              is_first_login: response.is_first_login,
               email: userData.email || '',
-              created_at: ''
+              is_first_login: response.is_first_login,
+              created_at: new Date().toISOString()
             },
             token: response.access_token,
             isAuthenticated: true,
@@ -127,32 +148,33 @@ export const useAuthStore = create<AuthState & AuthActions>()(
       },
 
       logout: async () => {
-        set({ isLoading: true });
-        
-        // Stop session monitoring
-        get().stopSessionMonitoring();
-        
         try {
           await authService.logout();
         } catch (error) {
-          // Continue with logout even if API call fails
-          console.error('Logout API call failed:', error);
-        }
-        
-        authService.clearAuthData();
-        set({
-          user: null,
-          token: null,
-          isAuthenticated: false,
-          isLoading: false,
-          error: null
-        });
+          console.error('Logout error:', error);
+        } finally {
+          // Clear auth data
+          localStorage.removeItem('pkms_token');
+          apiService.clearAuthToken();
+          
+          // Stop session monitoring
+          get().stopSessionMonitoring();
+          
+          set({
+            user: null,
+            token: null,
+            isAuthenticated: false,
+            isLoading: false,
+            error: null,
+            sessionTimer: null
+          });
 
-        notifications.show({
-          title: 'Success',
-          message: 'Logged out successfully',
-          color: 'blue',
-        });
+          notifications.show({
+            title: 'Logged out',
+            message: 'You have been successfully logged out',
+            color: 'blue',
+          });
+        }
       },
 
       changePassword: async (passwordData: PasswordChange) => {
@@ -224,13 +246,112 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         }
       },
 
+      // Master Recovery Password actions (New)
+      setupMasterRecovery: async (masterData: MasterRecoverySetup) => {
+        set({ isLoading: true, error: null });
+        
+        try {
+          const response = await authService.setupMasterRecovery(masterData);
+          set({ isLoading: false });
+
+          notifications.show({
+            title: 'Success',
+            message: 'Master recovery password set successfully! This can be used to recover your account and unlock your diary.',
+            color: 'green',
+            autoClose: 8000,
+          });
+
+          return true;
+        } catch (error: any) {
+          set({
+            isLoading: false,
+            error: error.response?.data?.detail || 'Master recovery setup failed'
+          });
+          return false;
+        }
+      },
+
+      resetPasswordWithMaster: async (resetData: MasterRecoveryReset) => {
+        set({ isLoading: true, error: null });
+        
+        try {
+          await authService.resetPasswordWithMaster(resetData);
+          set({ isLoading: false });
+
+          notifications.show({
+            title: 'Success',
+            message: 'Password reset successfully using master recovery password!',
+            color: 'green',
+          });
+
+          return true;
+        } catch (error: any) {
+          set({
+            isLoading: false,
+            error: error.response?.data?.detail || 'Master password reset failed'
+          });
+          return false;
+        }
+      },
+
+      checkMasterRecoveryAvailable: async () => {
+        try {
+          const response = await authService.checkMasterRecoveryAvailable();
+          return response;
+        } catch (error: any) {
+          console.error('Failed to check master recovery availability:', error);
+          return { 
+            has_master_recovery: false, 
+            has_security_questions: false, 
+            recommended_method: 'security_questions' 
+          };
+        }
+      },
+
+      unlockDiaryWithMaster: async (masterPassword: string) => {
+        set({ isLoading: true, error: null });
+        
+        try {
+          const response = await authService.unlockDiaryWithMaster(masterPassword);
+          set({ isLoading: false });
+
+          notifications.show({
+            title: 'Success',
+            message: response.message,
+            color: 'green',
+          });
+
+          return true;
+        } catch (error: any) {
+          set({
+            isLoading: false,
+            error: error.response?.data?.detail || 'Failed to unlock diary with master password'
+          });
+          return false;
+        }
+      },
+
+      getDiaryRecoveryOptions: async () => {
+        try {
+          const response = await authService.getDiaryRecoveryOptions();
+          return response;
+        } catch (error: any) {
+          console.error('Failed to get diary recovery options:', error);
+          return {
+            has_master_recovery: false,
+            recovery_message: 'Unable to check recovery options',
+            recommended_action: 'Try again later'
+          };
+        }
+      },
+
       completeSetup: async () => {
         set({ isLoading: true, error: null });
         
         try {
           await authService.completeSetup();
           
-          // Update user to mark setup as complete
+          // Update user state
           const currentUser = get().user;
           if (currentUser) {
             set({
@@ -240,8 +361,8 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           }
 
           notifications.show({
-            title: 'Success',
-            message: 'Setup completed successfully!',
+            title: 'Setup Complete',
+            message: 'Welcome to PKMS!',
             color: 'green',
           });
 
@@ -255,101 +376,62 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         }
       },
 
+      // State management
       checkAuth: async () => {
-        const token = authService.getStoredToken();
-        const storedUser = authService.getStoredUser();
+        const token = localStorage.getItem('pkms_token');
         
-        if (!token || !storedUser) {
-          set({
-            user: null,
-            token: null,
-            isAuthenticated: false,
-            isLoading: false
-          });
+        if (!token) {
+          set({ isAuthenticated: false, user: null, token: null });
           return;
         }
 
-        // If we already have user data and are authenticated, skip the API call
-        const currentState = get();
-        if (currentState.isAuthenticated && currentState.user && !currentState.isLoading) {
-          // Start session monitoring for existing auth
-          get().startSessionMonitoring();
-          return;
-        }
-
-        set({ isLoading: true });
-        
         try {
-          // Verify token is still valid by fetching current user
+          apiService.setAuthToken(token);
           const user = await authService.getCurrentUser();
+          
           set({
             user,
             token,
             isAuthenticated: true,
-            isLoading: false,
             error: null
           });
-          
+
           // Start session monitoring
           get().startSessionMonitoring();
         } catch (error) {
-          // Token is invalid, clear auth data
-          authService.clearAuthData();
+          // Token is invalid
+          localStorage.removeItem('pkms_token');
+          apiService.clearAuthToken();
           set({
             user: null,
             token: null,
             isAuthenticated: false,
-            isLoading: false,
             error: null
           });
         }
       },
 
+      clearError: () => set({ error: null }),
+      
+      setLoading: (loading: boolean) => set({ isLoading: loading }),
+
       startSessionMonitoring: () => {
-        // Clear any existing interval
-        if (sessionInterval) {
-          clearInterval(sessionInterval);
-        }
-        
-        warningShown = false;
-        
-        // Check every minute for token expiry
-        sessionInterval = setInterval(() => {
-          const isAuthenticated = get().isAuthenticated;
-          
-          if (!isAuthenticated) {
-            get().stopSessionMonitoring();
-            return;
+        const timer = setInterval(() => {
+          if (apiService.isTokenExpiringSoon()) {
+            apiService.showExpiryWarning();
           }
-          
-          if (apiService.isTokenExpiringSoon() && !warningShown) {
-            // Try to extend session automatically first
-            apiService.extendSession().then(extended => {
-              if (extended) {
-                warningShown = false; // Reset so we can warn again if needed
-              } else {
-                apiService.showExpiryWarning();
-                warningShown = true;
-              }
-            }).catch(() => {
-              apiService.showExpiryWarning();
-              warningShown = true;
-            });
-          }
-        }, 60000); // Check every minute
+        }, 30000); // Check every 30 seconds
+
+        set({ sessionTimer: timer });
       },
 
       stopSessionMonitoring: () => {
-        if (sessionInterval) {
-          clearInterval(sessionInterval);
-          sessionInterval = null;
+        const { sessionTimer } = get();
+        if (sessionTimer) {
+          clearInterval(sessionTimer);
+          set({ sessionTimer: null });
         }
-        warningShown = false;
-      },
-
-      clearError: () => set({ error: null }),
-      
-      setLoading: (loading: boolean) => set({ isLoading: loading })
+      }
     }),
     {
       name: 'auth-store',

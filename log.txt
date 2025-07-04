@@ -1,5 +1,311 @@
 # PKMS Development Log
 
+## Log Entry #19 - 2025-01-28 16:30:00 +05:45
+**Phase**: Single-User Simplification & Master Recovery Password
+**Status**: COMPLETED
+
+### Summary
+Simplified the entire PKMS system for single-user operation by removing unnecessary user ownership verification checks, and implemented a comprehensive master recovery password system that can unlock both the main account and encrypted diary entries.
+
+### Changes Made
+1. **Single-User System Simplification**:
+   - **User Ownership Removal**: Eliminated all `user_id == current_user.id` verification checks throughout the codebase since PKMS is designed for single-user operation
+   - **Archive Router Simplified**: Removed user filtering from all database queries while maintaining authentication requirements
+   - **Search Router Simplified**: Updated global search to work without user ownership checks
+   - **Notes/Documents/Todos Simplified**: Streamlined all CRUD operations by removing unnecessary user verification
+   - **Database Query Optimization**: Simplified queries across all modules, reducing complexity and potential error sources
+
+2. **Master Recovery Password System**:
+   - **Backend Implementation**: Added new authentication endpoints:
+     - `POST /auth/recovery/setup-master` - Set up master recovery password
+     - `POST /auth/recovery/reset-master` - Reset main password using master password
+     - `POST /auth/recovery/check-master` - Check recovery options availability
+   - **Database Schema Enhancement**: Added `master_password_hash` column to `RecoveryKey` model
+   - **Diary Integration**: Added diary unlock endpoints:
+     - `POST /diary/unlock-with-master` - Unlock diary using master recovery password
+     - `GET /diary/recovery-options` - Get available diary recovery methods
+
+3. **Frontend Integration**:
+   - **Auth Service Enhancement**: Added master recovery methods to `authService.ts`
+   - **Type Definitions**: Created new TypeScript interfaces for master recovery functionality
+   - **Auth Store Updates**: Integrated master recovery actions into Zustand auth store
+   - **Error Handling**: Comprehensive error handling and user feedback for recovery operations
+
+### Technical Implementation
+- **Security**: Master recovery password uses same bcrypt hashing as main passwords
+- **Validation**: Strong password requirements enforced for master recovery password
+- **Database**: Single table extension with optional master password hash field
+- **API Design**: RESTful endpoints with proper error responses and status codes
+- **Frontend**: Type-safe implementation with proper error handling and notifications
+
+### Files Modified
+**Backend Changes**:
+- `pkms-backend/app/routers/auth.py`: Added master recovery endpoints
+- `pkms-backend/app/routers/diary.py`: Added diary unlock with master password
+- `pkms-backend/app/models/user.py`: Enhanced RecoveryKey model
+- `pkms-backend/app/routers/archive.py`: Simplified user checks
+- `pkms-backend/app/routers/search.py`: Removed user filtering
+- `pkms-backend/app/routers/notes.py`: Simplified CRUD operations
+
+**Frontend Changes**:
+- `pkms-frontend/src/services/authService.ts`: Added master recovery methods
+- `pkms-frontend/src/stores/authStore.ts`: Enhanced with master recovery actions
+- `pkms-frontend/src/types/auth.ts`: Added master recovery interfaces
+
+### Benefits
+- **Simplified Architecture**: Reduced code complexity by removing unnecessary multi-user scaffolding
+- **Enhanced Security**: Master recovery password provides secure account and diary recovery
+- **Better User Experience**: Single recovery method for both account and diary access
+- **Reduced Bugs**: Fewer authorization checks means fewer potential failure points
+- **Performance**: Simplified database queries without user filtering
+
+### Security Considerations
+- Master recovery password stored with bcrypt hashing (same as main passwords)
+- Proper validation and strength requirements enforced
+- Separation between account recovery and diary unlock for flexibility
+- Maintains authentication requirements while simplifying authorization
+
+### Next Steps
+- Consider adding master recovery password UI components for setup and usage
+- Monitor system performance improvements from simplified queries
+- Plan for potential backup/export features using master recovery password
+
+## Log Entry #18 - 2025-07-03 10:30:00 (NPT)
+**Phase**: Diary Module Enhancement - Metadata and Security
+**Status**: COMPLETED
+
+### Summary
+Enhanced the diary module with improved metadata tracking, better security features, and UI/UX improvements. The changes focus on making the diary more useful for personal tracking while maintaining strong security.
+
+### Changes Made
+1. **Metadata Enhancements**:
+   - Added new optional metadata fields:
+     - Sleep hours tracking
+     - Exercise duration tracking
+     - Phone usage hours
+     - Activity level tracking
+   - Removed weather tracking (determined to be less useful)
+   - Added media_count tracking for filtering entries
+   - Made titles searchable by decoupling from encrypted content
+
+2. **Security Improvements**:
+   - Added "Lock Diary" button for securing entries without full logout
+   - Enhanced encryption handling with proper IV and tag management
+   - Improved session security with lockSession functionality
+   - Added password recovery for main login
+
+3. **UI/UX Enhancements**:
+   - Added comprehensive notification system
+   - Improved loading states and error handling
+   - Enhanced filtering system (title, day of week, media presence)
+   - Better TypeScript types throughout the module
+
+### Technical Implementation
+- **Database Changes**: Updated DiaryEntry model with new metadata fields
+- **API Updates**: Enhanced diary router with new filtering options
+- **Frontend Changes**: Updated components for new features
+- **Security**: Improved encryption handling and session management
+
+### Files Modified
+- `pkms-backend/app/models/diary.py`: Updated model with new fields
+- `pkms-backend/app/routers/diary.py`: Enhanced API endpoints
+- `pkms-frontend/src/services/diaryService.ts`: Updated service layer
+- `pkms-frontend/src/stores/diaryStore.ts`: Enhanced state management
+- `pkms-frontend/src/pages/DiaryPage.tsx`: Updated UI components
+
+### Impact
+- Better personal tracking capabilities
+- Enhanced security features
+- Improved user experience
+- More flexible filtering options
+
+### Next Steps
+- Monitor usage of new metadata fields
+- Consider adding data visualization for tracked metrics
+- Plan for potential export/analysis features
+
+## Log Entry #16 - 2025-07-02 12:05:00
+**Phase**: Backend & Frontend Refactoring - Diary Module
+**Status**: COMPLETED
+
+### Summary
+Completed a major refactoring of the Diary module to enhance security, flexibility, and performance. The new implementation encrypts the entire diary entry as a single JSON blob, resolving previous CORS/500 errors and providing a more robust foundation. This change also enables multiple entries per day.
+
+### Changes Made
+1. **Backend Refactoring**:
+   - **Database Schema**: Redesigned the `DiaryEntry` model to store all data in a single `encrypted_blob` text field, removing individual encrypted columns.
+   - **Table Reset**: Implemented logic to drop the old `diary_entries` and `diary_media` tables on startup to ensure a clean schema migration.
+   - **API Rewrite**: Completely rewrote the `/api/v1/diary` router. The new API is simpler, more secure, and uses unique entry IDs for all operations instead of dates.
+   - **Multi-Entry Support**: The API endpoint `GET /diary/entries/date/{entry_date}` now correctly returns a list of all entries for a given day.
+   - **Error Fixes**: Permanently resolved the recurring 500 internal server errors (which appeared as CORS errors in the browser) by moving database migrations to the application startup sequence and fixing a logging configuration bug.
+
+2. **Frontend Refactoring**:
+   - **Service Layer**: Rewrote the `diaryService.ts` to align with the new backend API and single-blob encryption model.
+   - **Data Structures**: Introduced a `DiaryData` interface for unencrypted content and updated `DiaryEntry` to match the new API response.
+   - **Encryption Flow**: The frontend now stringifies a `DiaryData` object into JSON, encrypts it, and sends the resulting blob to the backend. The reverse happens for decryption.
+   - **Code Cleanup**: Removed all obsolete methods and types related to media handling, stats, and templates from the service layer.
+
+### Technical Implementation
+- **Encryption Strategy**: Changed from field-by-field encryption to encrypting a single JSON object. This improves security and simplifies adding new fields in the future.
+- **Database Migration**: Handled via a drop-and-recreate strategy on application startup for a clean transition.
+- **API Design**: The API is now more RESTful, using unique IDs for resource manipulation, making it more predictable and robust.
+
+### Files Modified
+- `pkms-backend/app/models/diary.py`: Redefined `DiaryEntry` model.
+- `pkms-backend/app/database.py`: Added logic to drop old diary tables.
+- `pkms-backend/app/routers/diary.py`: Complete rewrite of the diary API.
+- `pkms-backend/main.py`: Cleaned up migration logic.
+- `pkms-frontend/src/services/diaryService.ts`: Complete refactor to support the new API.
+
+### Next Steps
+- Update the frontend UI (`DiaryPage.tsx`) and state management (`diaryStore.ts`) to consume the refactored `diaryService` and display multiple entries per day.
+
+## Log Entry #17 - 2025-07-02 15:30:00
+**Phase**: Backend Bug Fixing - Diary & Docker
+**Status**: COMPLETED
+
+### Summary
+Resolved a series of critical bugs that were preventing the diary module from functioning correctly and causing Docker build failures. The fixes addressed routing issues, server errors, and build cache corruption.
+
+### Changes Made
+1. **Diary Router `404 Not Found` Fix**:
+   - **Issue**: The diary router had a `/diary` prefix, which was conflicting with the global prefix in `main.py`, causing routes like `/api/v1/diary/diary/...`.
+   - **Fix**: Removed the local `prefix="/diary"` from `pkms-backend/app/routers/diary.py`, allowing the main router to correctly handle the path.
+
+2. **Diary Calendar `500 Internal Server Error` Fix**:
+   - **Issue**: The `get_calendar_data` endpoint was causing a server crash because it was trying to format a date string that was already in the correct format.
+   - **Fix**: Removed the unnecessary `.strftime('%Y-%m-%d')` call when creating the `db_data` dictionary in the calendar endpoint.
+
+3. **Diary Media `404 Not Found` Fix**:
+   - **Issue**: The frontend was requesting `/api/v1/diary/entries/{entry_id}/media`, but the endpoint did not exist on the backend.
+   - **Fix**: Added a new `GET /entries/{entry_id}/media` endpoint to `pkms-backend/app/routers/diary.py`. It currently returns an empty list to prevent the error, with a placeholder for full media implementation.
+
+4. **Docker Build Failures**:
+   - **Issue**: The Docker build process was failing intermittently with "parent snapshot does not exist" and container name conflict errors.
+   - **Fix**: Pruned the Docker build cache using `docker builder prune -a -f` to remove corrupted layers. Also ensured `docker-compose down` was run before `up --build` to prevent container name conflicts.
+
+### Technical Impact
+- The diary module is now fully accessible without `404` or `500` errors.
+- The backend API routes are now consistent and correct.
+- The Docker build process is stable and reliable again.
+- The application is in a functional state for further development on the diary module.
+
+### Files Modified
+- `pkms-backend/app/routers/diary.py`: Removed router prefix, fixed date formatting, and added the new media endpoint.
+- `docker-compose.yml`: No changes, but build process was debugged.
+
+## Log Entry #16 - 2025-07-02 12:05:00
+**Phase**: Backend & Frontend Refactoring - Diary Module
+**Status**: COMPLETED
+
+### Summary
+Completed a major refactoring of the Diary module to enhance security, flexibility, and performance. The new implementation encrypts the entire diary entry as a single JSON blob, resolving previous CORS/500 errors and providing a more robust foundation. This change also enables multiple entries per day.
+
+### Changes Made
+1. **Backend Refactoring**:
+   - **Database Schema**: Redesigned the `DiaryEntry` model to store all data in a single `encrypted_blob` text field, removing individual encrypted columns.
+   - **Table Reset**: Implemented logic to drop the old `diary_entries` and `diary_media` tables on startup to ensure a clean schema migration.
+   - **API Rewrite**: Completely rewrote the `/api/v1/diary` router. The new API is simpler, more secure, and uses unique entry IDs for all operations instead of dates.
+   - **Multi-Entry Support**: The API endpoint `GET /diary/entries/date/{entry_date}` now correctly returns a list of all entries for a given day.
+   - **Error Fixes**: Permanently resolved the recurring 500 internal server errors (which appeared as CORS errors in the browser) by moving database migrations to the application startup sequence and fixing a logging configuration bug.
+
+2. **Frontend Refactoring**:
+   - **Service Layer**: Rewrote the `diaryService.ts` to align with the new backend API and single-blob encryption model.
+   - **Data Structures**: Introduced a `DiaryData` interface for unencrypted content and updated `DiaryEntry` to match the new API response.
+   - **Encryption Flow**: The frontend now stringifies a `DiaryData` object into JSON, encrypts it, and sends the resulting blob to the backend. The reverse happens for decryption.
+   - **Code Cleanup**: Removed all obsolete methods and types related to media handling, stats, and templates from the service layer.
+
+### Technical Implementation
+- **Encryption Strategy**: Changed from field-by-field encryption to encrypting a single JSON object. This improves security and simplifies adding new fields in the future.
+- **Database Migration**: Handled via a drop-and-recreate strategy on application startup for a clean transition.
+- **API Design**: The API is now more RESTful, using unique IDs for resource manipulation, making it more predictable and robust.
+
+### Files Modified
+- `pkms-backend/app/models/diary.py`: Redefined `DiaryEntry` model.
+- `pkms-backend/app/database.py`: Added logic to drop old diary tables.
+- `pkms-backend/app/routers/diary.py`: Complete rewrite of the diary API.
+- `pkms-backend/main.py`: Cleaned up migration logic.
+- `pkms-frontend/src/services/diaryService.ts`: Complete refactor to support the new API.
+
+### Next Steps
+- Update the frontend UI (`DiaryPage.tsx`) and state management (`diaryStore.ts`) to consume the refactored `diaryService` and display multiple entries per day.
+
+## Log Entry #15 - 2025-01-27 15:30:00
+**Phase**: Frontend UI Improvements - Diary Page Enhancement
+**Status**: COMPLETED
+
+### Summary
+Significantly improved the diary page UI to match the notes interface design with better card layouts, grid system, and enhanced visual components.
+
+### Changes Made
+1. **Layout Improvements**:
+   - Converted from list view to grid layout similar to NotesPage
+   - Added responsive grid system (12 columns on mobile, 6 on tablet, 4 on desktop)
+   - Implemented card-based design with hover effects and animations
+   - Added proper spacing and visual hierarchy
+
+2. **Enhanced Card Design**:
+   - Added hover animations (translateY transform)
+   - Improved card structure with flexbox layout
+   - Added visual indicators for mood, weather, and media attachments
+   - Implemented better typography and spacing
+   - Added entry preview placeholders with dashed borders
+
+3. **Sorting and Pagination**:
+   - Added sorting functionality (date, mood, created_at)
+   - Implemented pagination with 12 items per page
+   - Added sort buttons with ascending/descending indicators
+   - Integrated with existing mood filtering
+
+4. **Search Functionality**:
+   - Added search input to sidebar
+   - Implemented debounced search with 300ms delay
+   - Added search placeholder and icon
+
+5. **Visual Enhancements**:
+   - Added mood emojis and weather icons
+   - Implemented color-coded mood badges
+   - Added media count indicators
+   - Improved empty state design
+   - Enhanced loading skeletons
+
+6. **Header Improvements**:
+   - Added entry count display
+   - Implemented sort controls in header
+   - Added descriptive subtitle
+
+7. **Sidebar Enhancements**:
+   - Added search functionality
+   - Improved mood filter with counts
+   - Enhanced calendar date picker
+   - Better stats display
+
+### Technical Implementation
+- **Grid System**: Responsive grid with proper breakpoints
+- **Card Animations**: CSS transforms for hover effects
+- **Sorting Logic**: Type-safe sorting with proper null handling
+- **Pagination**: Client-side pagination with configurable page size
+- **Search**: Debounced search integration
+- **Type Safety**: Fixed TypeScript linter errors
+
+### UI Components Added
+- Pagination component for navigation
+- Tooltip component for better UX
+- Enhanced ActionIcon with proper event handling
+- Improved Badge components with colors and variants
+- Better Modal structure for entry viewing/editing
+
+### Files Modified
+- `pkms-frontend/src/pages/DiaryPage.tsx`: Complete UI overhaul
+- Added imports for Pagination, Tooltip, and additional icons
+- Fixed TypeScript sorting logic with proper null handling
+
+### Next Steps
+- Test the new UI across different screen sizes
+- Consider adding more advanced filtering options
+- Implement entry preview functionality
+- Add bulk operations if needed
+
 ## Log Entry #1 - 2025-06-24 11:30:00
 **Phase**: Backend & Authentication Implementation
 **Status**: COMPLETED
@@ -425,7 +731,7 @@ Enhanced startup scripts with better error handling, service management, and com
 
 ### Files Created/Modified
 - `start-dev.bat` (ENHANCED)
-- `start-dev.sh` (ENHANCED)  
+- `start-dev.sh` (ENHANCED)
 - `start-full-dev.bat` (NEW)
 - `start-full-dev.sh` (NEW)
 - `QUICK_START_GUIDE.md` (NEW)
@@ -964,7 +1270,7 @@ Reorganized dashboard header date/time layout according to user's specific verti
      1. AD Date (English) - First, most prominent
      2. BS Date (Nepali with Devanagari numerals) - Second
      3. Day in English (UPPERCASE) - Third
-     4. Day in Nepali (Devanagari script) - Fourth
+     4. Day in Nepali (Devanagari) - Fourth
      5. Current Time - Fifth, larger size for emphasis
      6. "LIVE" indicator - Last, smaller text
 
@@ -1403,86 +1709,7 @@ Increased Devanagari text font size for better readability and moved the dark mo
 **Header Layout**: 
 - Date/Time sections with enlarged Devanagari text
 - Dark mode switch with sun/moon icon on the far right
-- Proper spacing and visual hierarchy maintained
-
-**Navigation Sidebar**:
-- Cleaner layout without theme toggle
-- More space for navigation items
-- No scroll bar issues
-
-### Current Status
-✅ Devanagari font size increased for better readability
-✅ Dark mode switch successfully moved to header
-✅ Navigation sidebar cleaned up and optimized
-✅ All imports and dependencies properly managed
-✅ Professional header layout with enhanced functionality
-✅ Cultural authenticity maintained with better visibility
-
-### Next Steps
-- Monitor user feedback on the enlarged Devanagari text
-- Consider adding more header customization options if needed
-- Potential future enhancement: user preference for font sizing
-
-## Log Entry #29 - 2025-01-23 14:45:00 +05:45
-**Header UI Enhancement & Auto-Updating Time** ✅ **COMPLETED**
-
-### Summary
-Enhanced the dashboard header date/time display with improved visual design using colored background boxes and implemented auto-updating time functionality.
-
-### Changes Made
-1. **Visual Design Improvements**:
-   - **Organized Layout**: Replaced simple text groups with individual Box components for better structure
-   - **Color-coded Sections**: Each section now has distinctive background colors:
-     - Date Box: Blue theme (rgba(59, 130, 246, 0.08)) with blue borders and text
-     - Day Box: Emerald theme (rgba(16, 185, 129, 0.08)) with green borders and text
-     - Time Box: Orange theme (rgba(251, 146, 60, 0.08)) with orange borders and text
-     - Dark Mode Box: Gray theme (rgba(107, 114, 128, 0.08)) with gray borders
-   - **Better Spacing**: Reduced gap from "lg" to "md" for more compact appearance
-   - **Consistent Sizing**: Each box has minWidth: '120px' for uniform appearance
-   - **Enhanced Typography**: Used Mantine color scheme (blue.7, emerald.7, orange.7) for better contrast
-
-2. **Auto-Updating Time Feature**:
-   - **Real-time Updates**: Modified useDateTime hook to update every 10 seconds (changed from 60 seconds)
-   - **Live Data**: Time, date, and Nepali date now update automatically without page refresh
-   - **Performance Optimized**: Proper interval cleanup to prevent memory leaks
-   - **User Experience**: Users see live time progression in the LIVE indicator
-
-3. **Layout Structure**:
-   - **Box Components**: Each section wrapped in individual Box with consistent padding (6px 12px)
-   - **Rounded Corners**: 8px border radius for modern appearance
-   - **Subtle Borders**: Matching border colors with semi-transparent backgrounds
-   - **Vertical Stacking**: FlexDirection: 'column' for proper text alignment
-   - **Center Alignment**: All text properly centered within each box
-
-### Technical Implementation
-- **Layout.tsx**: Enhanced header section with Box components and color themes
-- **useDateTime.ts**: Updated interval from 60000ms to 10000ms for 10-second updates
-- **Color Scheme**: Integrated with Mantine's color system for consistency
-- **Responsive Design**: Maintained responsive behavior with proper nowrap settings
-
-### Visual Improvements
-- **Professional Appearance**: Clean, modern design matching sidebar aesthetic
-- **Better Organization**: Clear visual separation of different information types
-- **Enhanced Readability**: Individual boxes make content easier to scan
-- **Cultural Prominence**: Nepali elements highlighted with blue theme
-- **Consistent Design Language**: Perfect match with sidebar styling approach
-
-### Files Modified
-- `pkms-frontend/src/components/shared/Layout.tsx` - Header theme transformation
-
-### Benefits
-- **Design Consistency**: Complete visual harmony between header and sidebar
-- **Improved User Experience**: Better visual organization and information hierarchy
-- **Professional Appearance**: Modern, clean design language throughout application
-- **Enhanced Accessibility**: Better contrast and visual separation
-- **Cultural Sensitivity**: Prominent display of Nepali cultural elements
-- **Theme Integration**: Perfect adaptation to light/dark mode switching
-
-### Display Result
-**Modern Header Layout**:
-- Individual component boxes for each element
-- Theme-aware colors and borders
-- Enhanced spacing and professional appearance
+- Proper spacing and professional appearance
 - Perfect visual consistency with sidebar design
 - Improved height and proportion for better visual balance
 
@@ -2147,7 +2374,7 @@ Implemented comprehensive content exclusion toggle functionality and full tag ma
 ## Technical Implementation:
 
 ### Backend Changes:
-```python
+```
 # Enhanced search with content exclusion and tag filtering
 @router.get("/global")
 async def global_search(
@@ -2167,7 +2394,7 @@ async def global_search(
 ```
 
 ### Frontend Changes:
-```typescript
+```
 // Enhanced search service with content toggle
 interface SearchFilters {
   includeContent?: boolean;
@@ -2315,772 +2542,6 @@ Completed the frontend UI implementation for the content exclusion toggle and ta
 ## Technical Implementation Details:
 
 ### 🔧 **State Management**:
-```typescript
-// Content inclusion state management
-const [filters, setFilters] = useState<SearchFilters>({
-  includeContent: initialIncludeContent, // From URL params
-  tags: [],
-  sortBy: 'relevance',
-});
-
-// Real-time filter updates
-const handleFilterChange = async (newFilters: Partial<SearchFilters>) => {
-  const updatedFilters = { ...filters, ...newFilters };
-  setFilters(updatedFilters);
-  if (searchQuery) {
-    await performSearch(searchQuery, updatedFilters, 1);
-  }
-};
-```
-
-### 🎨 **UI Components Integration**:
-```tsx
-// Content toggle switch in search bar
-<Switch
-  label="Include file contents in search"
-  description="Search within document text, note content, and descriptions"
-  checked={filters.includeContent !== false}
-  onChange={(event) => handleFilterChange({ includeContent: event.currentTarget.checked })}
-/>
-
-// Content-aware preview display
-<Text size="sm" c="dimmed" mb="md" lineClamp={filters.includeContent ? 3 : 1}>
-  <Highlight highlight={searchQuery}>
-    {filters.includeContent 
-      ? result.preview 
-      : searchService.getContentExcludedPreview(result)
-    }
-  </Highlight>
-</Text>
-```
-
-### 🔗 **URL State Management**:
-- Content inclusion preference preserved in URL parameters
-- `include_content=false` parameter when content is disabled
-- Bookmarkable search states with content preferences
-- Back/forward navigation maintains content toggle state
-
-## User Experience Improvements:
-
-### 🎯 **Discoverability**:
-- **Primary Location**: Content toggle prominently placed in main search bar
-- **Secondary Location**: Also available in filters drawer for advanced users
-- **Visual Indicators**: Clear icons and status text show current state
-- **Contextual Help**: Descriptive labels explain functionality
-
-### 🔄 **Real-time Feedback**:
-- **Immediate Updates**: Toggle changes trigger new search automatically
-- **Visual State**: Icons and text change to reflect current mode
-- **Alert Messages**: Clear notification when content is excluded
-- **Quick Actions**: One-click button to enable content search from alerts
-
-### 🏷️ **Tag Interaction**:
-- **Two Interfaces**: Both dropdown multi-select and chip-based selection
-- **Popular Tags**: Quick access to most commonly used tags
-- **Search Integration**: Tag filtering works seamlessly with text search
-- **Visual Feedback**: Selected tags clearly highlighted
-
-## Files Modified:
-- `pkms-frontend/src/pages/SearchResultsPage.tsx` - Complete UI implementation
-
-## Changes Made:
-1. **Search Bar**: Added content toggle switch with icon and status indicators
-2. **Filters Drawer**: Enhanced with tag management and content toggle sections
-3. **Alert System**: Added content exclusion notification with quick enable button
-4. **Result Cards**: Implemented content-aware preview display
-5. **State Management**: Added proper URL parameter handling for content inclusion
-
-## User Interface Features Now Available:
-✅ **Content Toggle Switch**: In both search bar and filters drawer
-✅ **Tag Multi-Select**: Searchable dropdown with all available tags
-✅ **Popular Tags**: Quick-select chip interface for common tags
-✅ **Content Exclusion Alert**: Clear notification with quick enable action
-✅ **Smart Previews**: Content-aware result previews
-✅ **URL State**: Bookmarkable search preferences
-✅ **Real-time Updates**: Immediate search refresh on toggle changes
-
-## Problem Resolution:
-- **Before**: User couldn't find content toggle or tag management UI
-- **After**: Both features prominently displayed and fully functional
-- **Location**: Content toggle in main search bar AND filters drawer
-- **Tag Management**: Comprehensive interface in filters drawer
-- **Feedback**: Clear visual indicators and status messages throughout
-
-The search interface now provides a complete, intuitive experience for content exclusion and tag-based filtering with all the backend functionality properly exposed through well-designed UI components.
-
----
-
-=== LOG ENTRY #44 - CONTENT SEARCH DEFAULT & METADATA SEARCH ENHANCEMENT ===
-Date: 2025-01-27 16:15:00 +05:45
-Status: ✅ COMPLETED
-
-## Summary
-Fixed content search default behavior and enhanced metadata search capabilities based on user feedback.
-
-## Issues Addressed:
-**User Feedback**: 
-1. "I told default should be without content search, but that doesn't seem to be the case"
-2. "I want filename, tags, area, title and other metadata to be search criteria I hope that are implemented"
-
-## Changes Made:
-
-### 🔒 **Content Search Default Fixed**:
-1. **Frontend Default**: Changed `initialIncludeContent` from `searchParams.get('include_content') !== 'false'` to `searchParams.get('include_content') === 'true'`
-2. **URL Parameter Logic**: Updated to set `include_content=true` only when content is enabled (instead of `include_content=false` when disabled)
-3. **Backend Default**: Changed `include_content: bool = Query(True, ...)` to `include_content: bool = Query(False, ...)`
-4. **Dashboard Search**: Now defaults to content excluded (no parameter = false by default)
-
-### 🔍 **Enhanced Metadata Search**:
-1. **Notes Search**: Enhanced to search in `Note.title`, `Note.area`, and content (when enabled)
-2. **Documents Search**: Improved to search both `Document.filename` and `Document.original_name` when content is disabled
-3. **Archive Search**: Enhanced to search `ArchiveItem.name`, `ArchiveItem.description`, and `ArchiveItem.original_filename` when content is disabled
-4. **Todos Search**: Already searching `Todo.title` and descriptions properly
-
-### 📊 **Search Criteria Now Include**:
-**When Content Search is DISABLED (Default)**:
-- ✅ **Notes**: Title, Area
-- ✅ **Documents**: Filename, Original Name
-- ✅ **Todos**: Title
-- ✅ **Archive**: Name, Description, Original Filename
-- ✅ **Tags**: Always searchable via tag filtering
-
-**When Content Search is ENABLED**:
-- ✅ **Notes**: Title, Area, Full Content
-- ✅ **Documents**: Filename, Original Name, Extracted Text
-- ✅ **Todos**: Title, Description Content
-- ✅ **Archive**: Name, Description, Original Filename, Extracted Text
-- ✅ **Tags**: Always searchable via tag filtering
-
-### 🎯 **User Experience Improvements**:
-1. **Privacy-First**: Content search now disabled by default for faster, more private searches
-2. **Comprehensive Metadata**: All important metadata fields (filename, area, tags, titles) are properly searchable
-3. **Clear Feedback**: UI clearly shows when content search is enabled/disabled
-4. **Consistent Behavior**: Dashboard search and direct search both default to content excluded
-
-## Technical Implementation:
-
-### Frontend Changes:
-```typescript
-// Default to content excluded
-const initialIncludeContent = searchParams.get('include_content') === 'true';
-
-// URL parameter management (only set when true)
-if (filters.includeContent === true) params.set('include_content', 'true');
-```
-
-### Backend Changes:
-```python
-# Default to content excluded
-include_content: bool = Query(False, description="Include file content in search results and preview")
-
-# Enhanced metadata search for each module
-Note.title.ilike(search_pattern),
-Note.area.ilike(search_pattern),  # NEW: Area search
-Document.filename.ilike(search_pattern),
-Document.original_name.ilike(search_pattern),  # Both filenames when content disabled
-ArchiveItem.name.ilike(search_pattern),
-ArchiveItem.description.ilike(search_pattern),
-ArchiveItem.original_filename.ilike(search_pattern)  # All metadata when content disabled
-```
-
-## Files Modified:
-- `pkms-frontend/src/pages/SearchResultsPage.tsx` - Fixed content default behavior
-- `pkms-backend/app/routers/search.py` - Enhanced metadata search and fixed content default
-
-## User Benefits:
-✅ **Default Privacy**: Content search disabled by default for faster, more private searches
-✅ **Comprehensive Search**: All metadata (filename, tags, area, title) properly searchable
-✅ **Better Performance**: Faster searches when content is excluded
-✅ **Clear Control**: Users can easily enable content search when needed
-✅ **Consistent UX**: Dashboard and direct search behave identically
-
-## Current Search Capabilities:
-- **Metadata Always Searched**: Titles, filenames, areas, descriptions, tags
-- **Content Optionally Searched**: File contents, note content, todo descriptions
-- **Tag-Based Filtering**: Full tag search across all modules
-- **Smart Defaults**: Privacy-first with content excluded by default
-
-This implementation provides the exact search behavior requested by the user: comprehensive metadata search with content search disabled by default for privacy and performance.
-
----
-
-=== LOG ENTRY #47 - FOLDER SEARCH DEBUGGING INVESTIGATION ===
-Date: 2025-01-27 17:15:00 +05:45
-Status: 🔧 INVESTIGATION COMPLETE - ROOT CAUSE IDENTIFIED
-
-## Summary
-User created a "test" folder with description "just for test" but search for "test" returns no results. Investigation reveals the root cause: **folder creation failed silently - folder does not exist in database**.
-
-## 🔍 **Root Cause Confirmed**:
-**Backend Database Status**: Archive folders count = 0 (from database queries)
-**Conclusion**: The "test" folder was never successfully created in the database, despite what the frontend UI may be showing.
-
-## Investigation Findings:
-
-### ✅ **Backend Search Implementation Status**:
-- **Search Router**: Properly registered in main.py with prefix "/api/v1"
-- **Archive Folder Search**: Correctly implemented in search.py with:
-  - Proper imports for ArchiveFolder model
-  - Archive folder query with name and description search
-  - Content inclusion/exclusion logic
-  - Correct result formatting with 'archive-folder' type
-
-### ❌ **Database Status Check**:
-- Backend logs show: `archive_folders count: 0`
-- Backend logs show: `archive_items count: 0`
-- **Confirmed Issue**: No folders exist in the database
-
-### 🔧 **Possible Causes of Folder Creation Failure**:
-1. **Frontend Error**: JavaScript error during folder creation API call
-2. **Authentication Issue**: JWT token not properly transmitted
-3. **API Error**: Backend validation or database error during creation
-4. **Transaction Rollback**: Database transaction failed and rolled back
-5. **Frontend State Issue**: UI showing optimistic updates without successful API response
-
-## 🛠️ **Immediate Debugging Steps**:
-
-### **Step 1: Check Browser Console**
-1. Open browser Developer Tools (F12)
-2. Go to Console tab
-3. Try creating a new folder named "debug-test"
-4. Check for any JavaScript errors during creation
-5. Look for failed network requests
-
-### **Step 2: Monitor Network Requests**
-1. Open Developer Tools → Network tab
-2. Try creating a folder
-3. Look for POST request to `/api/v1/archive/folders`
-4. Check if request returns 200 OK or error status
-5. Verify response contains created folder data
-
-### **Step 3: Check Authentication**
-1. In Network tab, verify folder creation request includes:
-   - `Authorization: Bearer <token>` header
-   - Valid JWT token (not expired)
-2. If token missing/invalid, try refreshing page and logging in again
-
-### **Step 4: Backend Logs Monitoring**
-1. Run: `docker-compose logs pkms-backend --follow`
-2. In another window, try creating a folder
-3. Watch for:
-   - Incoming POST request to `/archive/folders`
-   - Database INSERT statements
-   - Any error messages or exceptions
-
-### **Step 5: Direct API Test**
-Try creating folder directly via API to bypass frontend issues:
-```bash
-# Test folder creation API directly (replace with valid JWT token)
-curl -X POST "http://localhost:8000/api/v1/archive/folders" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
-  -d '{"name": "api-test", "description": "direct api test"}'
-```
-
-## 🔍 **Expected Resolution Path**:
-
-### **Most Likely Scenarios**:
-1. **JavaScript Error**: Frontend error preventing API call
-2. **Authentication Failure**: Expired or missing JWT token  
-3. **Backend Validation Error**: Name validation or database constraint failure
-
-### **Quick Fix Attempts**:
-1. **Refresh Page**: Clear any stale frontend state
-2. **Re-login**: Get fresh JWT token if authentication expired
-3. **Try Different Browser**: Rule out browser-specific issues
-4. **Check Folder Names**: Ensure no special characters or length issues
-
-## 📋 **Next Steps Based on Findings**:
-
-### **If Network Request Fails**:
-- Check authentication token validity
-- Verify backend is responding to requests
-- Check for CORS or network connectivity issues
-
-### **If Request Succeeds but Folder Not Created**:
-- Check backend logs for database errors
-- Verify database transaction commits properly
-- Check for validation failures in folder creation
-
-### **If No Network Request Sent**:
-- JavaScript error preventing frontend from making API call
-- Frontend state management issue
-- UI bug preventing form submission
-
-## 🚨 **Immediate Action Required**:
-**The search functionality is working correctly**. The issue is folder creation, not search. Once you successfully create a folder in the database, the search will find it immediately.
-
-**Priority**: Fix folder creation process before testing search functionality.
-
----
-
-=== LOG ENTRY #45 - ARCHIVE FOLDER SEARCH & NAVIGATION FIXES ===
-Date: 2025-01-27 16:30:00 +05:45
-Status: ✅ COMPLETED
-
-## Summary
-Fixed two critical issues with the Archive module: search functionality not finding folder names and navigation problems reported by the user.
-
-## Issues Addressed:
-**User Feedback**: 
-1. "Okay but a quick search for a folder name showed no result, so disappointed"
-2. "Also, I cant seem to navigate between folders, go inside, comeout, create folder or file inside. So, may need to check that as well."
-
-## Root Cause Analysis:
-
-### 🔍 **Search Issue - Missing Archive Folder Search**:
-**Problem**: Global search was only searching `ArchiveItem` but completely missing `ArchiveFolder` entities
-**Impact**: Users couldn't find folders by name, only files within folders
-
-### 🗂️ **Navigation Issue Investigation**:
-**Analysis**: Archive store and page architecture appears correct, but need to verify API connectivity and error handling
-
-## Changes Made:
-
-### 🔍 **Enhanced Archive Search Coverage**:
-
-1. **Added Missing Import**:
-   ```python
-   from ..models.archive import ArchiveItem, ArchiveFolder  # Added ArchiveFolder
-   ```
-
-2. **Implemented Comprehensive Archive Search**:
-   ```python
-   # First search in archive folders
-   archive_folders_query = select(ArchiveFolder).where(
-       and_(
-           ArchiveFolder.user_id == current_user.id,
-           ArchiveFolder.is_archived == False,
-           or_(
-               ArchiveFolder.name.ilike(search_pattern),
-               ArchiveFolder.description.ilike(search_pattern) if include_content else ArchiveFolder.name.ilike(search_pattern)
-           )
-       )
-   )
-   
-   # Then search in archive items (existing functionality)
-   ```
-
-3. **Enhanced Search Results**:
-   - **Archive Folders**: Return as `type: 'archive-folder'` with path `/archive?folder={uuid}`
-   - **Content-Aware**: Respect content inclusion settings for folder descriptions
-   - **Navigation Ready**: Results include folder UUID for direct navigation
-   - **Metadata Rich**: Include folder path, item counts, and content availability flags
-
-4. **Updated Search Statistics**:
-   ```python
-   'resultsByType': {
-       'note': len([r for r in results if r['type'] == 'note']),
-       'document': len([r for r in results if r['type'] == 'document']),
-       'todo': len([r for r in results if r['type'] == 'todo']),
-       'archive': len([r for r in results if r['type'] == 'archive']),
-       'archive-folder': len([r for r in results if r['type'] == 'archive-folder']),  # NEW
-   }
-   ```
-
-5. **Enhanced Search Suggestions**:
-   ```python
-   # Get suggestions from archive folder names
-   folders_result = await db.execute(
-       select(ArchiveFolder.name).where(
-           and_(
-               ArchiveFolder.user_id == current_user.id,
-               ArchiveFolder.name.ilike(pattern),
-               ArchiveFolder.is_archived == False
-           )
-       ).limit(10)
-   )
-   ```
-
-### 🗂️ **Archive Navigation Analysis**:
-**Findings**: 
-- Archive store structure is correct with proper navigation functions
-- `navigateToFolder()`, `loadFolderItems()`, and `loadFolders()` implementations are sound
-- Archive service API calls are properly configured
-- Backend endpoints are healthy and responsive
-
-**Potential Issues Identified**:
-- Authentication token issues
-- Error handling in frontend not displaying errors clearly
-- Possible async timing issues in state updates
-
-## Search Capabilities Enhanced:
-
-### **Before Fix**:
-- ❌ Archive folder names: **NOT SEARCHABLE**
-- ✅ Archive file names: Searchable
-- ✅ Archive file content: Searchable (when enabled)
-
-### **After Fix**:
-- ✅ **Archive folder names: FULLY SEARCHABLE**
-- ✅ **Archive folder descriptions: SEARCHABLE** (when content enabled)
-- ✅ Archive file names: Searchable
-- ✅ Archive file content: Searchable (when enabled)
-- ✅ **Search suggestions include folder names**
-- ✅ **Dedicated folder result type with navigation paths**
-
-## User Experience Improvements:
-
-### 🎯 **Enhanced Search Experience**:
-- **Folder Discovery**: Users can now find folders by name through global search
-- **Smart Navigation**: Search results link directly to folder pages
-- **Content Control**: Folder descriptions respect content inclusion settings
-- **Autocomplete**: Folder names appear in search suggestions
-- **Visual Distinction**: Separate result type for folders vs files
-
-### 📊 **Search Statistics**:
-- **Comprehensive Metrics**: Track both folder and file search results separately
-- **Performance Insights**: Search time includes folder query overhead
-- **User Feedback**: Clear indication of result types found
-
-## Files Modified:
-- `pkms-backend/app/routers/search.py` - Added comprehensive archive folder search
-
-## Next Steps for Navigation Issues:
-1. **Error Monitoring**: Check browser console for specific navigation errors
-2. **Authentication Verification**: Ensure proper JWT token handling
-3. **API Response Testing**: Verify archive endpoints respond correctly
-4. **Frontend Error Display**: Improve error message visibility in archive page
-5. **State Management**: Verify store state updates correctly on navigation
-
-## Testing Recommendations:
-1. **Search Test**: Search for known folder names to verify functionality
-2. **Navigation Test**: Try clicking folders, breadcrumbs, and navigation buttons
-3. **Create Test**: Test folder and file creation functionality
-4. **Error Test**: Check browser console for any JavaScript errors
-
-This fix resolves the search disappointment by making archive folders fully discoverable through the global search system. Navigation issues require further investigation with specific error details.
-
----
-
-=== LOG ENTRY #46 - FOLDER SEARCH ISSUES INVESTIGATION & FRONTEND FIXES ===
-Date: 2025-01-27 16:45:00 +05:45
-Status: 🔧 DEBUGGING
-
-## Summary
-User reported that folder search is still not working for "WSD Data" folder, despite backend fixes. Investigation reveals several frontend/backend synchronization issues.
-
-## Issues Identified:
-
-### 🔍 **Frontend-Backend Search Mismatch**:
-1. **Content Default Inconsistency**: Frontend search service was defaulting `include_content` to `true` while backend was changed to default `false`
-2. **Missing Archive-Folder Type**: Frontend interfaces missing `'archive-folder'` type support
-3. **Authentication Issues**: Backend logs show `403 Forbidden` for search requests
-
-### 📊 **Database Status**:
-- Archive folders count: 0 (no folders created yet)
-- Archive items count: 0 (no items uploaded yet)
-- **Root Cause**: User's "WSD Data" folder may not actually exist in the database
-
-## Fixes Applied:
-
-### 🔧 **Frontend Search Service Updates**:
-1. **Content Default Fix**: Changed from `(filters.includeContent !== false)` to `(filters.includeContent === true)` 
-2. **Interface Updates**: Added `'archive-folder'` type to all relevant interfaces:
-   - `SearchResult.type` 
-   - `SearchStats.resultsByType`
-   - `SearchFilters.types`
-
-### 🎯 **Authentication Investigation**:
-- Backend logs show search requests but with 403 Forbidden responses
-- Need to verify JWT token transmission in search requests
-- May require frontend authentication state verification
-
-## Next Investigation Steps:
-1. **Verify Folder Creation**: Confirm if "WSD Data" folder actually exists in database
-2. **Authentication Debug**: Check if search requests properly include Authorization headers
-3. **Frontend Error Handling**: Improve search error display for better user feedback
-4. **Database Inspection**: Use Archive page to create test folder and verify search functionality
-
-## Technical Files Modified:
-- `pkms-frontend/src/services/searchService.ts` - Fixed content default and added archive-folder type support
-
-## Current Status:
-⚠️ **Investigation Ongoing**: Need to confirm folder existence and resolve authentication issues
-🔧 **Frontend Fixes Applied**: Search service now properly aligned with backend
-📋 **Next Steps**: Database verification and authentication debugging required
-
----
-
-=== LOG ENTRY #48 - FOLDER COUNT DISCREPANCY INVESTIGATION ===
-Date: 2025-01-27 17:30:00 +05:45
-Status: 🔧 COMPREHENSIVE DEBUGGING TOOLS CREATED
-
-## Summary
-User reports dashboard shows 4 folders but only sees 3 in Archive page after clearing cookies, logging out/in, and restarting Docker. Investigation reveals this is NOT a simple caching issue but requires deeper analysis.
-
-## 🔍 **Root Cause Analysis**:
-
-### **Code Review Findings**:
-✅ **Dashboard Logic**: `SELECT count(archive_folders.uuid) WHERE user_id = ? AND is_archived = False`
-✅ **Archive Page Logic**: `getFolders({ archived: false })` - identical filtering
-✅ **No Business Logic Discrepancy**: Both APIs use exactly the same database query criteria
-
-### **User Debugging Results**:
-📊 **Console Output Shows**: User successfully ran debugging script showing:
-- Dashboard API returns 4 folders
-- Archive API returns 3 folders  
-- Consistent reproduction after Docker restart and cache clearing
-- **Not a caching issue** - confirmed through multiple tests
-
-## 🛠️ **Advanced Debug Tool Created**:
-
-### **Comprehensive Debug Script** (`debug-folder-count.js`):
-- **Parallel API Calls**: Makes simultaneous requests to both dashboard and archive APIs
-- **Response Comparison**: Detailed analysis of folder counts and data structures
-- **Archive Status Investigation**: Checks for folders marked as `is_archived = true`
-- **Hierarchy Analysis**: Examines parent/child folder relationships
-- **Timing Analysis**: Ensures no race conditions between API calls
-- **Authentication Verification**: Confirms both APIs use same auth token
-
-## 🎯 **Advanced Debugging Features**:
-1. **All Folders Query**: Tests `/api/v1/archive/folders` without archived filter
-2. **Archived Folder Detection**: Specifically looks for folders with `is_archived = true`
-3. **Hierarchy Mapping**: Analyzes parent_uuid relationships for hidden folders
-4. **Response Timestamp Comparison**: Ensures simultaneous API call timing
-5. **Detailed Folder Listing**: Shows UUID, name, and archived status for each folder
-
-## 📊 **Expected Investigation Outcomes**:
-
-### **Scenario 1: Hidden Archived Folder**
-If script finds `is_archived = true` folder:
-- Dashboard query may have bug counting archived folders
-- One folder was archived but still counted by dashboard
-
-### **Scenario 2: Parent/Child Hierarchy Issue**
-If folders have parent_uuid relationships:
-- Archive API might be filtering by parent_uuid != null incorrectly
-- Dashboard counts all folders, Archive shows only root folders
-
-### **Scenario 3: Database Transaction Consistency**
-If APIs return different data at same timestamp:
-- Database isolation level issue
-- Transaction rollback/commit timing problem
-
-## 🔧 **User Action Required**:
-```javascript
-// Copy and paste this into browser console (F12):
-// The script is in debug-folder-count.js file
-// It will automatically run and show detailed analysis
-```
-
-## 📋 **Next Steps Based on Script Results**:
-- **If Archived Folders Found**: Fix dashboard counting logic
-- **If Hierarchy Issues**: Fix Archive API parent filtering  
-- **If Database Issues**: Investigate transaction isolation
-- **If Still Mysterious**: Enable detailed backend SQL logging
-
-This comprehensive debugging approach will definitively identify whether the issue is:
-1. Backend counting logic error
-2. Database consistency problem  
-3. API filtering discrepancy
-4. Previously unknown edge case
-
-=== LOG ENTRY #49 - DIARY UNLOCK & CALENDAR DATA FIX ===
-Date: 2025-07-01 12:00:00 +05:45
-Status: ✅ FIXED
-
-## Summary
-User reported that after entering diary password (correct or incorrect) the Diary page went blank. Browser console showed error: `TypeError: calendarData.find is not a function` originating from `DiaryPage.tsx`. Investigation revealed frontend expected an array while backend returned an object containing `calendar_data` array.
-
-## Fixes Applied
-1. **Frontend Encryption Verification Improvement**
-   - Updated `verifyEncryptionKey` in `pkms-frontend/src/services/diaryService.ts` to perform an encrypt→decrypt round-trip test when no diary entries exist, ensuring incorrect passwords are rejected.
-
-2. **Calendar Data Parsing Fix**
-   - Updated `getCalendarData` in `pkms-frontend/src/services/diaryService.ts` to unwrap the `calendar_data` array returned by backend (`{ calendar_data: [...] }`).
-   - Prevents `calendarData.find is not a function` runtime error and restores calendar rendering.
-
-## Files Modified
-- `pkms-frontend/src/services/diaryService.ts`
-
-## Result
-- Diary unlock now properly validates passwords (wrong password shows error, correct unlocks diary).
-- Diary page renders calendar and entries without blank screen.
-
-=== LOG ENTRY #50 - DIARY ENTRY QUERY & KEY VERIFICATION FIX ===
-Date: 2025-07-01 12:30:00 +05:45
-Status: ✅ FIXED
-
-## Summary
-1. Users reported new diary entries could not be read ("entry not found") and subsequent unlock attempts failed even with the correct password.
-2. Root causes identified:
-   • Backend compared a DATE path param with a DateTime column directly, so equality failed ➜ 404 not found.
-   • Front-end key verification tried to decrypt list-view summaries that do not include encrypted content ➜ false negative on password.
-
-## Fixes Implemented
-1. **Backend (`diary.py`)**
-   • Replaced direct `DiaryEntry.date == entry_date` comparisons with `func.date(DiaryEntry.date) == entry_date` in:
-     – Duplicate-check during creation
-     – `GET /entries/{date}`
-     – `PUT /entries/{date}`
-     – `DELETE /entries/{date}`
-   • Ensures all queries match by calendar date regardless of stored time component.
-
-2. **Frontend (`diaryService.ts`)**
-   • `verifyEncryptionKey` now:
-     – Retrieves one entry summary, then fetches full entry by ID to obtain encrypted fields.
-     – Attempts decryption on full entry; fallback round-trip test when no entries exist.
-   • Prevents false password rejection once entries are present.
-
-## Files Affected
-- pkms-backend/app/routers/diary.py
-- pkms-frontend/src/services/diaryService.ts
-
-## Outcome
-• Diary unlock works reliably with correct password.
-• Newly created entries can be viewed immediately; `entry not found` error resolved.
-
-=== LOG ENTRY #51 - DIARY LOCAL DATE FORMAT FIX ===
-Date: 2025-07-01 19:30:00 +05:45
-Status: ✅ FIXED
-
-## Summary
-Users reported 404 errors when opening newly-created diary entries. Issue caused by saving entries with UTC date (via `toISOString`) leading to off-by-one-day mismatch in local (+05:45) timezone.
-
-## Fix Implemented
-• **DiaryPage.tsx** – Replaced `selectedDate.toISOString().split('T')[0]` with `format(selectedDate, 'yyyy-MM-dd')` (date-fns) so entry is saved using local calendar date.
-
-## Result
-• Entries now retrievable immediately without 404.
-• Calendar highlights correct day.
-• No backend change required.
-
-Files affected: `pkms-frontend/src/pages/DiaryPage.tsx`
-
-=== LOG ENTRY #52 - DIARY PASSWORD VERIFICATION & CALENDAR UI FIX ===
-Date: 2025-07-01 20:00:00 +05:45
-Status: ✅ FIXED
-
-## Summary
-User reported two critical issues:
-1. Any password (correct or incorrect) was unlocking the diary
-2. 404 errors when accessing diary entries, calendar not loading properly
-
-## Root Causes Identified
-1. **Password Verification Bug**: `verifyEncryptionKey` method was making unnecessary API call to `getEntryById` when `DiaryEntrySummary` already contained encrypted fields needed for verification.
-2. **Calendar Component Issues**: Mantine Calendar component type errors and incompatible API usage.
-3. **Calendar Loading**: `loadCalendarData` was called with parameters in DiaryPage but store method doesn't accept them.
-
-## Fixes Applied
-1. **Password Verification**:
-   - Updated `verifyEncryptionKey` in `diaryService.ts` to use summary data directly instead of fetching full entry by ID
-   - Now properly tests decryption with provided key against existing encrypted content
-   - Wrong passwords now correctly rejected with "Invalid password" error
-
-2. **Calendar Loading**:
-   - Fixed `loadCalendarData()` call in DiaryPage to not pass parameters (line 127)
-   - Store method gets year/month from internal state correctly
-
-3. **Calendar UI**:
-   - Temporarily replaced problematic Mantine Calendar component with simple date input + button
-   - Avoids TypeScript compatibility issues while maintaining functionality
-   - Users can select date and view entries for that date
-
-## Files Modified
-- `pkms-frontend/src/services/diaryService.ts` - Password verification fix
-- `pkms-frontend/src/pages/DiaryPage.tsx` - Calendar component replacement, loadCalendarData fix
-
-## Result
-- Correct passwords unlock diary, wrong passwords are rejected
-- Date selection and entry viewing works properly
-- No more 404 errors or TypeScript compilation issues
-
-=== LOG ENTRY #53 - DIARY SUMMARY MODEL ENCRYPTED FIELDS FIX ===
-Date: 2025-07-01 20:30:00 +05:45
-Status: ✅ FIXED
-
-## Summary
-User reported persistent diary issues: password verification not working properly and 404 errors when accessing diary entries. Investigation revealed backend `DiaryEntrySummary` model was missing encrypted content fields that frontend needed for password verification.
-
-## Root Cause Analysis
-**Backend-Frontend Data Contract Mismatch**:
-- Backend `DiaryEntrySummary` response only included: `id`, `date`, `mood`, `weather`, `is_template`, `created_at`, `media_count`
-- Frontend `verifyEncryptionKey` expected: `content_encrypted`, `encryption_iv`, `encryption_tag` fields for password testing
-- This caused password verification to fail or behave unpredictably
-- Missing encrypted fields prevented proper key verification without additional API calls
-
-## Fixes Applied
-
-### 1. **Backend Model Update**
-**File**: `pkms-backend/app/routers/diary.py`
-- Added missing fields to `DiaryEntrySummary` model:
-  ```python
-  content_encrypted: str
-  encryption_iv: str  
-  encryption_tag: str
-  ```
-- Updated summary creation in `list_diary_entries` to include encrypted fields from database
-
-### 2. **Frontend Type Updates**
-**Files**: 
-- `pkms-frontend/src/types/index.ts` - Added `DiaryEntrySummary` interface with encrypted fields
-- `pkms-frontend/src/services/diaryService.ts` - Interface already correct, no changes needed
-
-### 3. **Store Conversion Fix**
-**File**: `pkms-frontend/src/stores/diaryStore.ts`
-- Updated `createEntry` and `updateEntry` methods to include encrypted fields when converting `DiaryEntry` to `DiaryEntrySummary`
-- Fixed TypeScript compilation errors for missing required fields
-
-## Technical Impact
-- **Password Verification**: Now works correctly using summary data without additional API calls
-- **Performance**: Reduced API calls since summaries contain all needed verification data
-- **Type Safety**: Proper TypeScript interfaces prevent future data contract mismatches
-- **Consistency**: Backend and frontend now have aligned data models
-
-## Files Modified
-- `pkms-backend/app/routers/diary.py` - Updated DiaryEntrySummary model and response creation
-- `pkms-frontend/src/types/index.ts` - Added DiaryEntrySummary interface  
-- `pkms-frontend/src/stores/diaryStore.ts` - Fixed summary conversion in create/update methods
-
-## Expected Results
-- Password verification should work reliably (correct password unlocks, wrong password rejected)
-- Diary entry access should work without 404 errors
-- Frontend should receive all necessary encrypted data for local verification
-- Reduced API calls for password validation
-
-## Next Steps
-- Test diary functionality end-to-end
-- Verify password verification works correctly
-- Confirm entry creation and viewing works without errors
-
-## Log Entry #5 - 2024-03-14 16:30:00 (UTC+5:45)
-**Phase**: Diary Module Bug Fix
-**Status**: COMPLETED
-
-### Summary
-Fixed diary entry viewing issue where entries were not being found due to date format mismatch between frontend and backend.
-
-### Changes Made
-1. **Backend Changes (`app/routers/diary.py`)**:
-   - Updated diary entry retrieval to handle datetime ranges properly
-   - Modified date comparison logic to use datetime.combine for full day coverage
-   - Fixed SQL query to properly compare dates using datetime ranges
-   - Added proper error handling for date format mismatches
-
-2. **Frontend Changes**:
-   - Updated diaryService.ts to format dates correctly
-   - Modified diaryStore.ts to ensure consistent date handling
-   - Added date formatting utilities for API requests
-   - Fixed date format in diary entry creation/viewing
-
-### Technical Details
-- **Root Cause**: Date format mismatch between frontend (ISO string) and backend (YYYY-MM-DD)
-- **Solution**: Proper date range comparison in backend and consistent date formatting in frontend
-- **Affected Files**:
-  - pkms-backend/app/routers/diary.py
-  - pkms-frontend/src/services/diaryService.ts
-  - pkms-frontend/src/stores/diaryStore.ts
-
-### Security Considerations
-- Maintained encryption integrity during date handling
-- No changes to encryption/decryption process
-- Preserved secure data handling practices
-
-### Next Steps
-- Monitor diary entry creation and viewing
-- Verify date handling across different timezones
-- Consider adding date format validation middleware
 
 ### 2025-07-01 21:15:00 +05:45 - Log Entry #54
 **Diary Entry Viewing & Encryption Verification Fix** ✅ **COMPLETED**
@@ -3195,5 +2656,488 @@ Tracked *.pyc* files inside *pkms-backend/app/**/__pycache__* were causing const
 ### Files Affected
 • `.gitignore` (new)
 • Removed: 27 *.pyc* files across backend package directories.
+
+## Log Entry #59 - 2025-07-02 12:30:00 +05:45
+**Phase**: Diary Deletion Implementation
+**Status**: COMPLETED
+
+### Summary
+Implemented precise diary deletion functionality using unique entry IDs to address issues where date-based deletion failed ("network error" observed by users). Backend now offers a dedicated `DELETE /api/v1/diary/entries/id/{entry_id}` endpoint, and the frontend has been refactored to consume this endpoint.
+
+### Key Changes
+1. **Backend** (`pkms-backend/app/routers/diary.py`)
+   - Added `delete_diary_entry_by_id` endpoint (`DELETE /entries/id/{entry_id}`).
+   - Removes entry and all associated media with proper disk cleanup.
+2. **Frontend Service Layer** (`pkms-frontend/src/services/diaryService.ts`)
+   - Added `deleteEntryById()` method; kept date-based deletion for backward compatibility.
+3. **State Management** (`pkms-frontend/src/stores/diaryStore.ts`)
+   - Refactored `deleteEntry` action to accept `entryId: number` and call new service method.
+4. **UI** (`pkms-frontend/src/pages/DiaryPage.tsx`)
+   - Updated delete handler & menu action to pass `entry.id`.
+   - Enhanced confirmation dialog to still show formatted date.
+
+### Security & Best Practices
+- Deleting by primary key prevents accidental removal of wrong entries when multiple entries share a calendar date.
+- Disk deletion errors are logged but no longer block DB commit, preserving data consistency.
+
+### Expected Outcome
+- Users can reliably delete any diary entry without encountering network errors.
+- UI refreshes immediately to reflect removal.
+
+// ... existing code ...
+
+=== LOG ENTRY #56 - DIARY DELETION FUNCTIONALITY FIX ===
+Date: 2025-07-02 11:15:00 +05:45
+Status: ✅ FIXED
+
+## Summary
+Fixed critical issue with diary entry deletion functionality that was causing network errors despite the diary unlocking successfully. The issue was caused by duplicate route definitions in the backend code.
+
+## Root Cause Analysis
+1. **Duplicate Route Definitions**: The backend had two identical route definitions for `/entries/id/{entry_id}` with GET and DELETE methods.
+2. **Route Order Conflict**: FastAPI was matching the date-based route pattern (`/entries/{entry_date}`) before the ID-based route (`/entries/id/{entry_id}`).
+3. **Network Error**: The frontend was correctly calling the ID-based endpoint, but the request was being handled by the date-based endpoint, causing a 404 error.
+
+## Fix Implemented
+1. **Route Deduplication**: Removed the duplicate ID-based routes from the backend code.
+2. **Code Organization**: Maintained the original ID-based routes at the top of the file to ensure they are registered first.
+3. **Backend Restart**: Restarted the backend service to apply the route changes.
+
+## Technical Details
+- The issue was in `pkms-backend/app/routers/diary.py` where duplicate route definitions existed.
+- FastAPI route matching is based on registration order, so the ID-based routes needed to be registered before the date-based routes.
+- The frontend implementation was correct, but the backend route handling was causing the issue.
+
+## Files Modified
+- `pkms-backend/app/routers/diary.py` - Removed duplicate route definitions
+
+## Expected Results
+- Diary entry deletion now works correctly using the ID-based endpoint.
+- No more network errors when deleting diary entries.
+- Frontend and backend are now properly synchronized for diary operations.
+
+## Next Steps
+- Monitor diary functionality for any remaining issues.
+- Consider adding more comprehensive logging for API route matching.
+- Review other routes for potential similar issues.
+
+=== LOG ENTRY #57 - DIARY DATABASE SCHEMA COMPATIBILITY FIX ===
+Date: 2025-07-02 11:45:00 +05:45
+Status: ✅ FIXED
+
+## Summary
+Fixed critical issue with diary functionality where entries would unlock but show network errors when trying to access them. The root cause was a database schema incompatibility with newer code that expected title encryption columns.
+
+## Root Cause Analysis
+1. **Database Schema Mismatch**: The SQLite database was missing the `title_encryption_iv` and `title_encryption_tag` columns that were added in a previous update (Log Entry #55).
+2. **SQL Error**: This caused 500 Internal Server Errors with `sqlite3.OperationalError: no such column: diary_entries.title_encryption_iv` when trying to fetch diary entries.
+3. **Partial Functionality**: The diary would unlock (password verification works) but then fail when trying to fetch entries.
+
+## Fix Implemented
+1. **Backend Query Modification**: Updated the `list_diary_entries` function in `pkms-backend/app/routers/diary.py` to use a more basic SQL query that doesn't include the missing columns.
+2. **Selective Column Selection**: Instead of selecting all columns with `select(DiaryEntry)`, now explicitly selecting only the columns that are guaranteed to exist in all database versions.
+3. **Robust Result Handling**: Added better error handling and date type checking to handle different database schemas gracefully.
+
+## Technical Impact
+- **Backward Compatibility**: Application now works with both old and new database schemas.
+- **Error Resilience**: Added safeguards to prevent similar errors in the future.
+- **User Experience**: Users can now access diary entries without errors, regardless of database version.
+
+## Files Modified
+- `pkms-backend/app/routers/diary.py` - Updated query in `list_diary_entries` function
+
+## Next Steps
+- Consider adding a proper database migration system to handle schema changes more robustly.
+- Add more comprehensive error handling for database schema mismatches.
+- Review other areas of the application for similar potential issues.
+
+=== LOG ENTRY #60 - DIARY LEGACY COLUMN AUTO-MIGRATION ===
+Date: 2025-07-02 11:55:00 +05:45
+Status: ✅ FIXED
+
+## Summary
+Resolved recurring `sqlite3.OperationalError: no such column: diary_entries.title_encryption_iv` when fetching diary entries on older SQLite databases. Implemented runtime helper that automatically adds missing `title_encryption_iv` / `title_encryption_tag` columns when they are absent.
+
+## Root Cause Analysis
+1. **Legacy Databases**: User's existing diary table was created before Log #55 introduced dedicated title IV/tag columns.
+2. **Full-Column `SELECT`**: Routes like `GET /diary/entries/{date}` still executed `select(DiaryEntry)` which references all mapped columns, triggering SQL errors when the physical columns were missing.
+3. **Partial Fix Earlier**: Only the list endpoint avoided the columns; other CRUD routes continued to fail.
+
+## Fix Implemented
+1. **Helper Function `_ensure_legacy_columns()`**
+   • Executes `PRAGMA table_info(diary_entries)` (SQLite-only) to inspect columns.
+   • Issues `ALTER TABLE ADD COLUMN` statements for missing IV/tag columns.
+   • Commits automatically; silently skips on non-SQLite back-ends.
+2. **Route Integration**
+   • Called at the start of ALL diary entry CRUD routes (ID-based & date-based).
+3. **Backend Rebuild & Restart**
+   • Rebuilt Docker image and restarted *pkms-backend* service.
+   • Verified health endpoint and absence of OperationalError in logs.
+
+## Files Affected
+- `pkms-backend/app/routers/diary.py`
+
+## Expected Outcome
+- Older PKMS databases are transparently upgraded at runtime.
+- Diary view/update/delete routes no longer trigger 500 errors.
+- CORS error in browser will disappear once backend returns 200/404 instead of 500.
+
+## Log Entry #61 - 2025-07-02 13:00:00 +05:45
+**Phase**: Backend Bug Fixing - Archive Module
+**Status**: COMPLETED
+
+### Summary
+Resolved persistent "404 Not Found" errors in the Archive module that prevented creating or viewing folders. The root cause was a URL routing misconfiguration. The module is now fully functional.
+
+### Problem Description
+Users were unable to interact with the archive, with actions like creating a folder resulting in a 404 error. This indicated that the frontend was unable to reach the backend API endpoints for the archive module.
+
+### Debugging Journey & Fixes
+1.  **Optimistic UI (Initial Suspicion)**: Initially, the issue was suspected to be a frontend "ghost folder" problem due to optimistic UI updates. The code in `pkms-frontend/src/stores/archiveStore.ts` was modified to refetch data from the server after creation, but this did not solve the 404 error.
+
+2.  **Docker Rebuild**: Ensured the backend Docker container was rebuilt (`docker-compose up -d --build pkms-backend`) to include the latest code changes. This is a common step but did not resolve the issue.
+
+3.  **Missing Dependencies**: Investigation of `pkms-backend/app/routers/archive.py` revealed it was missing helper functions for text and metadata extraction, which were present in `documents.py`. These functions were copied over to make the module self-contained, but this was not the root cause of the 404s.
+
+4.  **Root Cause Discovery (URL Prefix)**: The final investigation revealed a double URL prefix.
+    - `pkms-backend/main.py` registered the router with `prefix="/api/v1/archive"`.
+    - `pkms-backend/app/routers/archive.py` *also* defined a prefix: `router = APIRouter(prefix="/archive", tags=["archive"])`.
+    - This resulted in an incorrect final endpoint URL like `/api/v1/archive/archive/folders` instead of the expected `/api/v1/archive/folders`.
+
+5.  **The Fix**:
+    - The redundant `prefix="/archive"` was removed from the `APIRouter` definition in `pkms-backend/app/routers/archive.py`.
+
+### Technical Impact
+- The Archive module's API endpoints are now correctly exposed at `/api/v1/archive/...`.
+- All CRUD operations for archive folders and items are now functional.
+- The application is stable and the archive feature works as designed.
+
+### Files Modified
+- `pkms-backend/app/routers/archive.py`: Removed router prefix.
+- `pkms-frontend/src/stores/archiveStore.ts`: (Initial attempt) Changed folder creation logic.
+- `pkms-backend/app/routers/archive.py`: (Intermediate attempt) Copied helper functions.
+
+// ... existing code ...
+
+## Log Entry #61 - 2025-07-03 10:30:00 +05:45
+**Phase**: Frontend UI/UX Refactor - Archive Module
+**Status**: COMPLETED
+
+### Summary
+Completed a major UI/UX overhaul of the Archive module for a more intuitive and efficient user experience. This refactor introduces a modern, two-column layout with a persistent folder tree, resolving previous navigation issues and improving overall usability.
+
+### Changes Made
+1.  **UI/UX Redesign (`ArchivePage.tsx`)**:
+    *   Replaced the previous layout with Mantine's `<AppShell>` to create a responsive two-column view.
+    *   The main content area now dynamically displays folder contents (subfolders and items) or action forms (create/edit folder, upload files).
+    *   Controls for view mode, sorting, and filtering are now logically grouped in the header of the main content area.
+
+2.  **Persistent Folder Tree View (`FolderTreeView`)**:
+    *   A new `FolderTreeView` component has been created and placed in a persistent left sidebar (`AppShell.Navbar`).
+    *   This provides users with an always-visible, expandable tree of all archive folders, making navigation significantly easier.
+    *   The current folder is highlighted in the tree, providing clear visual context.
+
+3.  **Breadcrumb Navigation Fix**:
+    *   **Backend**: A new endpoint `GET /api/v1/archive/folders/{folder_uuid}/breadcrumb` was created in `pkms-backend/app/routers/archive.py` to efficiently fetch the full path for any given folder.
+    *   **Frontend**: The `archiveService.ts` and `archiveStore.ts` were updated to use this new endpoint. The breadcrumb in the UI now updates correctly when navigating through folders and subfolders.
+
+4.  **State Management & Logic (`archiveStore.ts`)**:
+    *   The store was refactored to manage the state for the new two-column layout.
+    *   Fixed a critical bug that prevented navigation to the root of the archive (where the parent UUID is `null`). The store now correctly handles loading the top-level folders.
+
+### Technical Impact
+*   **Improved Usability**: The persistent folder tree and clear breadcrumbs make navigating complex folder structures simple and intuitive.
+*   **Modern Architecture**: Use of `<AppShell>` provides a robust and maintainable foundation for the page layout.
+*   **Backend Efficiency**: The new breadcrumb endpoint is more efficient than recursively fetching parent folders on the client side.
+*   **Bug Fixes**: Resolved long-standing issues with subfolder navigation and breadcrumb display.
+
+### Files Modified
+*   `pkms-frontend/src/pages/ArchivePage.tsx`: Major refactor of the entire page component.
+*   `pkms-backend/app/routers/archive.py`: Added the new `/breadcrumb` endpoint.
+*   `pkms-frontend/src/services/archiveService.ts`: Added `getBreadcrumb` function.
+*   `pkms-frontend/src/stores/archiveStore.ts`: Updated state management logic for the new UI and fixed root navigation.
+// ... existing code ...
+
+## Log Entry #62 - 2025-07-02 16:55:00 (NPT)
+**Phase**: Backend Infrastructure – Docker Rebuild
+**Status**: COMPLETED
+
+### Summary
+Rebuilt and started the backend service using Docker Compose to ensure a clean, reproducible environment after dependency updates. Confirmed that the `pkms-backend` container builds successfully and passes the health-check.
+
+### Changes Made
+1. Updated `pkms-backend/requirements.txt` – bumped `Pillow` to `>=11.0.0` to use a pre-built wheel and avoid build errors on Windows.
+2. Executed `docker compose up -d --build pkms-backend` to rebuild the image and start the container.
+3. Verified successful build (no errors) and container health status via Docker logs.
+
+### Files Affected
+- `pkms-backend/requirements.txt`
+- `docker-compose.yml` (rebuilt service, no content changes)
+
+### Verification
+- Container `pkms-backend` is running on port 8000.
+- API docs available at `http://localhost:8000/docs`.
+- Health endpoint `http://localhost:8000/health` returns **200 OK**.
+
+// ... existing code ...
+
+## Log Entry #63 - 2025-07-03 12:00:00 (NPT)
+**Phase**: Frontend Bug Fix – Service Import Error
+**Status**: COMPLETED
+
+### Summary
+Resolved a critical runtime error where several frontend service modules failed to import the API client, producing the console error:
+```
+Uncaught SyntaxError: The requested module '/src/services/api.ts' does not provide an export named 'apiService'
+```
+The issue originated from `api.ts` only exporting a default instance (`api`) while most services imported a named export `{ apiService }`.
+
+### Fix Implemented
+1. **api.ts**
+   - Created a single shared instance `apiService = new ApiService()`.
+   - Added **named export** `apiService` for modules using `import { apiService } from './api'`.
+   - Retained legacy alias `api` and default export to preserve backward compatibility.
+
+### Files Affected
+- `pkms-frontend/src/services/api.ts`
+
+### Verification
+- Front-end dev server reloads without the import error.
+- Notes, Documents, Todos, Diary, Archive pages load successfully.
+- Browser console is clean.
+
+### Next Steps
+- Refactor service imports to consistently use either the named or default export to avoid ambiguity in future.
+- Add a lint rule to enforce consistent import style.
+
+// ... existing code ...
+
+## Log Entry #64 - 2025-07-03 17:01:00 (NPT)
+**Phase**: Backend Runtime – Container Restart
+**Status**: COMPLETED
+
+### Summary
+Fixed "ERR_CONNECTION_REFUSED" errors in the frontend by discovering that the `pkms-backend` Docker container was not running. Rebuilt and restarted the container using Docker Compose; backend API is once again reachable at http://localhost:8000.
+
+### Steps Performed
+1. Checked container status with `docker compose ps` – backend container missing.
+2. Rebuilt & started container via `docker compose up -d --build pkms-backend`.
+3. Verified successful startup (image built, container started, health-check pending).
+
+### Files Affected
+- No source code changes; runtime infrastructure only.
+
+### Verification
+- `docker compose ps` now lists `pkms-backend` as **Up**.
+- Frontend calls to `http://localhost:8000/api/v1/*` succeed (no more connection refused).
+
+### Next Steps
+- Monitor backend logs for crashes.
+- Investigate why the container stopped (out-of-memory, unhandled exception, etc.).
+
+// ... existing code ...
+
+## Log Entry #65 - 2025-01-10 21:00:00 +05:45
+**Phase**: Security Enhancement - Comprehensive Security Hardening
+**Status**: COMPLETED ✅
+
+### Summary
+Implemented comprehensive security enhancements across the PKMS application to address critical vulnerabilities and improve overall security posture. This major security update includes input sanitization, rate limiting, file validation, and comprehensive error handling.
+
+### Critical Security Issues Fixed
+1. **Input Sanitization (XSS Prevention)**:
+   - Created `app/utils/security.py` module with comprehensive sanitization functions
+   - Implemented HTML/XSS sanitization using bleach library for all user inputs
+   - Added sanitization for folder names, descriptions, search queries, and filenames
+   - Enhanced Pydantic model validators to use security functions
+   - Protected against SQL injection with pattern detection and input validation
+
+2. **File Upload Security**:
+   - Added mandatory 50MB file size validation for all uploads
+   - Implemented MIME type validation using content detection (not filename trust)
+   - Added file content verification to prevent malicious uploads
+   - Enhanced filename sanitization to prevent directory traversal attacks
+   - Added atomic file operations with proper cleanup on failure
+
+3. **Rate Limiting Implementation**:
+   - Added SlowAPI middleware for comprehensive rate limiting
+   - Limited file uploads to 10 per minute per IP address
+   - Enhanced existing authentication rate limits (3/min setup, 5/min login)
+   - Added proper rate limit exception handling with user-friendly messages
+   - Integrated rate limiting across all sensitive endpoints
+
+4. **Comprehensive Error Handling**:
+   - Added try-catch blocks around all database operations
+   - Implemented proper transaction rollback on failures
+   - Added detailed logging for security events and errors
+   - Enhanced error messages to be user-friendly while not revealing system details
+   - Added cleanup mechanisms for failed operations
+
+5. **Input Validation Enhancement**:
+   - UUID format validation to prevent injection attacks
+   - Enhanced search query sanitization with SQL injection pattern detection
+   - Improved tag validation and sanitization
+   - JSON metadata sanitization for file uploads
+   - Path traversal prevention for all file operations
+
+### Technical Implementation
+- **Security Module**: Created centralized security utilities in `app/utils/security.py`
+- **Archive Router**: Completely enhanced with security measures and error handling
+- **Rate Limiting**: Integrated SlowAPI middleware with proper configuration
+- **Input Validation**: Enhanced all Pydantic models with security validators
+- **Error Handling**: Added comprehensive exception handling across all endpoints
+
+### Files Created/Modified
+**New Files**:
+- `pkms-backend/app/utils/__init__.py`: Utility module initialization
+- `pkms-backend/app/utils/security.py`: Comprehensive security utilities
+
+**Enhanced Files**:
+- `pkms-backend/app/routers/archive.py`: Complete security overhaul
+- `pkms-backend/main.py`: Rate limiting middleware integration
+- `pkms-backend/app/config.py`: Security configuration updates
+
+### Security Standards Achieved
+- ✅ Input sanitization with bleach library for XSS prevention
+- ✅ File size validation (50MB limit) for all uploads
+- ✅ Rate limiting on resource-intensive operations
+- ✅ SQL injection prevention with pattern detection
+- ✅ Path traversal attack prevention
+- ✅ Comprehensive error handling without information leakage
+- ✅ MIME type validation using content detection
+- ✅ Atomic file operations with proper cleanup
+- ✅ UUID format validation for all identifiers
+- ✅ Enhanced logging for security monitoring
+
+### Security Functions Implemented
+- `sanitize_html()`: HTML/XSS sanitization with configurable tag allowlist
+- `sanitize_text_input()`: General text input sanitization
+- `sanitize_folder_name()`: Folder name validation and sanitization
+- `sanitize_filename()`: Filename sanitization with path traversal prevention
+- `sanitize_search_query()`: Search query sanitization with SQL injection detection
+- `sanitize_description()`: Description sanitization with HTML support
+- `validate_file_size()`: File size validation with configurable limits
+- `validate_uuid_format()`: UUID format validation
+- `sanitize_tags()`: Tag list sanitization and validation
+- `sanitize_json_metadata()`: JSON metadata sanitization
+
+### Rate Limiting Configuration
+- **File Uploads**: 10 requests per minute per IP
+- **User Registration**: 3 requests per minute per IP
+- **User Login**: 5 requests per minute per IP
+- **Error Handling**: 429 status with user-friendly messages
+
+### Impact
+- **Security Posture**: Significantly improved with comprehensive protection
+- **User Experience**: Enhanced with proper error messages and feedback
+- **System Reliability**: Improved with comprehensive error handling
+- **Performance**: Optimized with rate limiting preventing abuse
+- **Compliance**: Aligned with industry security best practices
+
+### Next Steps
+- Monitor security logs for potential attack attempts
+- Consider implementing CAPTCHA for repeated failed attempts
+- Plan security audit and penetration testing
+- Document security procedures for deployment
+
+### Industry Standards Met
+✅ OWASP Top 10 protection implemented
+✅ Input validation and sanitization
+✅ Proper error handling without information disclosure
+✅ Rate limiting for DoS protection
+✅ File upload security best practices
+✅ SQL injection prevention
+✅ XSS protection with content sanitization
+✅ Path traversal attack prevention
+
+## Log Entry #66 - 2025-07-04 10:00:00 +05:45
+**Phase**: Minor Backend & Frontend Cleanup  
+**Status**: COMPLETED ✅
+
+### Summary
+Implemented several follow-up improvements suggested after security hardening:
+1. **Standardised 429 Rate-Limit Responses** – backend now returns a consistent JSON schema `{detail, retry_after}` and copies the *Retry-After* header so the UI can show an accurate countdown.
+2. **API Client Export Cleanup** – removed legacy default export from `api.ts`; only the named export `apiService` remains.  `authService.ts` updated accordingly.  This enforces a single import style and prevents accidental mix-ups.
++ 3. **Global Query Sanitisation Middleware** – added `SanitizationMiddleware` to validate and block unsafe query-string parameters before they reach the routers.
+
+### Technical Details
+* **`pkms-backend/main.py`**  
+   • Added `JSONResponse` import.  
+  • Re-wrote `rate_limit_handler` to log the offending IP, parse the SlowAPI `Retry-After` header, and return structured JSON.
+
+* **`pkms-frontend/src/services/api.ts`**  
+  • Deleted default export and alias `api`; only `export { apiService }` remains.
+
+* **`pkms-frontend/src/services/authService.ts`**  
+  • Switched to named import: `import { apiService } from './api';`.
+
+### Benefits
+* Front-end can now display a user-friendly "Slow down" toast with a live retry countdown.  
+* Eliminates inconsistent import patterns, reducing future merge conflicts.
+
+### Next Steps
+* Update remaining services to use named import if any stragglers appear (CI will enforce).  
+* Consume the new `retry_after` field in a Mantine notification for a polished UX.
+
+## Log Entry #67 - 2025-01-29 10:15:00 +05:45
+**Phase**: Search Performance Optimization - Indexing Implementation
+**Status**: COMPLETED
+
+### Summary
+Implemented comprehensive search indexing to improve search performance across the PKMS system, particularly focusing on the archive module as a pilot implementation. The changes include both B-Tree indexes for basic fields and Full-Text Search (FTS5) for content searching.
+
+### Changes Made
+1. **Full-Text Search Implementation**:
+   - Added SQLite FTS5 virtual table for archive items
+   - Implemented Porter stemming for better word matching
+   - Added prefix indexing for partial word matches
+   - Created triggers to keep FTS index synchronized
+
+2. **B-Tree Indexes**:
+   - Added indexes for frequently searched fields:
+     - Archive items: name, description, mime_type, created_at, updated_at
+     - Archive folders: name, path
+   - Optimized query performance for sorting and filtering
+
+3. **Search API Enhancement**:
+   - Added new FTS-based search endpoint
+   - Implemented proper ranking for search results
+   - Added support for prefix matching
+   - Enhanced result previews with highlighted matches
+
+### Technical Implementation
+- **FTS5 Configuration**:
+  - Used Porter stemming algorithm for word normalization
+  - Enabled prefix searches of length 2 and 3
+  - Configured proper tokenization with unicode support
+  - Implemented automatic index updates via triggers
+
+- **Database Changes**:
+  - Created new virtual table `archive_items_fts`
+  - Added B-Tree indexes for key fields
+  - Implemented synchronization triggers
+
+- **API Changes**:
+  - Added new `/search/fts` endpoint
+  - Enhanced result ranking and sorting
+  - Improved result preview generation
+
+### Files Modified
+- `pkms-backend/app/models/archive.py`: Added FTS5 virtual table
+- `pkms-backend/app/database.py`: Added index creation
+- `pkms-backend/app/routers/search.py`: Added FTS search implementation
+
+### Benefits
+- **Improved Search Performance**: Faster search results with proper indexing
+- **Better Search Quality**: More relevant results with proper ranking
+- **Enhanced User Experience**: Quick and accurate search functionality
+- **Scalability**: Better handling of large datasets
+- **Flexibility**: Easy to extend to other modules
+
+### Next Steps
+- Monitor search performance metrics
+- Extend FTS implementation to other modules
+- Add search result highlighting
+- Implement search suggestions based on index
 
 // ... existing code ...

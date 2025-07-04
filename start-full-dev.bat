@@ -4,6 +4,15 @@ REM This script starts both backend and frontend automatically
 
 echo 🚀 Starting PKMS Full Development Environment...
 
+REM Kill any existing processes on ports 3000 and 8000
+echo 🛑 Stopping any existing processes...
+for /f "tokens=5" %%a in ('netstat -aon ^| find ":3000" ^| find "LISTENING"') do (
+    taskkill /F /PID %%a >nul 2>&1
+)
+for /f "tokens=5" %%a in ('netstat -aon ^| find ":8000" ^| find "LISTENING"') do (
+    taskkill /F /PID %%a >nul 2>&1
+)
+
 REM Check if Docker is running
 docker info >nul 2>&1
 if errorlevel 1 (
@@ -20,17 +29,17 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Stop any existing services first
-echo 🛑 Stopping any existing services...
-docker-compose down 2>nul
-echo ✅ Existing services stopped
+REM Stop any existing Docker services
+echo 🛑 Stopping Docker services...
+docker-compose down --remove-orphans 2>nul
+timeout /t 2 /nobreak >nul
 
 REM Create data directory if it doesn't exist
 if not exist "PKMS_Data" mkdir PKMS_Data
 
 REM Start the backend services fresh
 echo 📦 Starting PKMS Backend (fresh start)...
-docker-compose up -d pkms-backend
+docker-compose up -d --force-recreate pkms-backend
 
 REM Wait for backend to be ready
 echo ⏳ Waiting for backend to be ready...
@@ -38,9 +47,11 @@ timeout /t 10 /nobreak >nul
 
 REM Check if backend is healthy
 echo 🔍 Checking backend health...
+set BACKEND_READY=0
 for /l %%x in (1, 1, 5) do (
     curl -f http://localhost:8000/health >nul 2>&1
     if not errorlevel 1 (
+        set BACKEND_READY=1
         echo ✅ Backend is running at http://localhost:8000
         goto backend_ready
     )
@@ -48,8 +59,12 @@ for /l %%x in (1, 1, 5) do (
     timeout /t 3 /nobreak >nul
 )
 
-echo ⚠️  Backend might still be starting up...
-echo 📊 Check logs with: docker-compose logs -f pkms-backend
+if %BACKEND_READY%==0 (
+    echo ❌ Backend failed to start. Please check the logs:
+    docker-compose logs pkms-backend
+    pause
+    exit /b 1
+)
 
 :backend_ready
 REM Check if frontend dependencies are installed
@@ -57,9 +72,10 @@ echo 🔍 Checking frontend dependencies...
 if not exist "pkms-frontend\node_modules" (
     echo 📦 Installing frontend dependencies...
     cd pkms-frontend
-    npm install --legacy-peer-deps
+    call npm install --legacy-peer-deps
     if errorlevel 1 (
         echo ❌ Frontend dependency installation failed.
+        cd ..
         pause
         exit /b 1
     )
@@ -94,5 +110,6 @@ echo 💡 Tips:
 echo - Frontend will open in a new window
 echo - Wait a moment for frontend to compile and start
 echo - Both services will run until you close their windows
+echo - To stop everything, close the frontend window and run 'docker-compose down'
 echo.
 pause 

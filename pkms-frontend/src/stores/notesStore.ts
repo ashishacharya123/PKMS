@@ -45,8 +45,7 @@ interface NotesState {
   reset: () => void;
 }
 
-export const useNotesStore = create<NotesState>((set, get) => ({
-  // Initial state
+const initialState: Omit<NotesState, 'reset' | 'clearCurrentNote' | 'clearError' | 'setShowArchived' | 'setSearch' | 'setTag' | 'setArea' | 'loadAreas' | 'deleteNote' | 'updateNote' | 'createNote' | 'loadNote' | 'loadMore' | 'loadNotes'> = {
   notes: [],
   currentNote: null,
   areas: [],
@@ -61,6 +60,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   limit: 20,
   offset: 0,
   hasMore: true,
+};
+
+export const useNotesStore = create<NotesState>((set, get) => ({
+  ...initialState,
   
   // Actions
   loadNotes: async () => {
@@ -275,19 +278,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   
   clearCurrentNote: () => set({ currentNote: null }),
   
-  reset: () => set({
-    notes: [],
-    currentNote: null,
-    areas: [],
-    isLoading: false,
-    isCreating: false,
-    isUpdating: false,
-    error: null,
-    currentArea: null,
-    currentTag: null,
-    searchQuery: '',
-    showArchived: false,
-    offset: 0,
-    hasMore: true
-  })
+  reset: () => {
+    set(initialState);
+  }
 })); 

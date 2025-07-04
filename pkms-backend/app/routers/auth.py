@@ -139,6 +139,31 @@ class RefreshTokenRequest(BaseModel):
     """Empty body – refresh is cookie-based but keeps model for future extensibility"""
     pass
 
+class MasterRecoverySetup(BaseModel):
+    master_recovery_password: str = Field(..., min_length=8, max_length=128)
+    
+    @validator('master_recovery_password')
+    def validate_master_password(cls, v):
+        if any(char in v for char in ['<', '>', '&', '"', "'"]):
+            raise ValueError('Master recovery password contains unsafe characters')
+        return v
+
+class MasterRecoveryReset(BaseModel):
+    master_recovery_password: str = Field(..., min_length=8, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=128)
+    
+    @validator('master_recovery_password')
+    def validate_master_password(cls, v):
+        if any(char in v for char in ['<', '>', '&', '"', "'"]):
+            raise ValueError('Master recovery password contains unsafe characters')
+        return v
+    
+    @validator('new_password')
+    def validate_new_password(cls, v):
+        if any(char in v for char in ['<', '>', '&', '"', "'"]):
+            raise ValueError('Password contains unsafe characters')
+        return v
+
 @router.post("/setup", response_model=TokenResponse)
 @limiter.limit("3/minute")
 async def setup_user(
@@ -518,3 +543,127 @@ async def refresh_access_token(
         username=user.username,
         is_first_login=user.is_first_login
     ) 
+
+@router.post("/recovery/setup-master", response_model=dict)
+async def setup_master_recovery(
+    recovery_data: MasterRecoverySetup,
+    current_user: User = Depends(require_first_login),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Setup master recovery password (simplified for single user)
+    """
+    # Validate master recovery password strength
+    is_valid, error_message = validate_password_strength(recovery_data.master_recovery_password)
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Master recovery password is too weak: {error_message}"
+        )
+    
+    # Hash the master recovery password
+    master_password_hash = hash_password(recovery_data.master_recovery_password)
+    
+    # Check if recovery record exists and update or create
+    result = await db.execute(select(RecoveryKey))
+    recovery_record = result.scalar_one_or_none()
+    
+    if recovery_record:
+        # Update existing record with master password
+        recovery_record.master_password_hash = master_password_hash
+        recovery_record.last_used = None  # Reset usage
+    else:
+        # Create new recovery record with master password only
+        recovery_record = RecoveryKey(
+            user_id=current_user.id,
+            key_hash="",  # Empty for master password method
+            questions_json="[]",  # Empty for master password method
+            answers_hash="",  # Empty for master password method
+            salt="",  # Empty for master password method
+            master_password_hash=master_password_hash
+        )
+        db.add(recovery_record)
+    
+    await db.commit()
+    
+    return {
+        "message": "Master recovery password set successfully. This password can be used to recover your account and unlock your diary.",
+        "method": "master_password"
+    }
+
+@router.post("/recovery/reset-master")
+async def reset_password_with_master(
+    recovery_data: MasterRecoveryReset,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Reset password using master recovery password (simplified for single user)
+    """
+    # Validate new password
+    is_valid, error_message = validate_password_strength(recovery_data.new_password)
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_message
+        )
+    
+    # Get recovery key record (simplified for single user)
+    result = await db.execute(select(RecoveryKey))
+    recovery_record = result.scalar_one_or_none()
+    
+    if not recovery_record or not hasattr(recovery_record, 'master_password_hash') or not recovery_record.master_password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No master recovery password found. Please use security questions instead."
+        )
+    
+    # Verify master recovery password
+    if not verify_password(recovery_data.master_recovery_password, recovery_record.master_password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect master recovery password"
+        )
+    
+    # Get user (simplified for single user)
+    result = await db.execute(select(User))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Hash new password using bcrypt
+    password_hash = hash_password(recovery_data.new_password)
+    
+    # Update user password
+    user.password_hash = password_hash
+    user.is_first_login = False
+    
+    # Update recovery key last used
+    recovery_record.last_used = datetime.utcnow()
+    
+    await db.commit()
+    
+    return {"message": "Password successfully reset using master recovery password"}
+
+@router.post("/recovery/check-master")
+async def check_master_recovery_available(db: AsyncSession = Depends(get_db)):
+    """
+    Check if master recovery password is available (simplified for single user)
+    """
+    result = await db.execute(select(RecoveryKey))
+    recovery_record = result.scalar_one_or_none()
+    
+    has_master = (recovery_record and 
+                  hasattr(recovery_record, 'master_password_hash') and 
+                  recovery_record.master_password_hash)
+    has_questions = (recovery_record and recovery_record.questions_json and 
+                    recovery_record.questions_json != "[]")
+    
+    return {
+        "has_master_recovery": has_master,
+        "has_security_questions": has_questions,
+        "recommended_method": "master_password" if has_master else "security_questions"
+    } 
