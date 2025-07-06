@@ -93,51 +93,48 @@ async def init_db():
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             
-            # Create indexes for better search performance
-            await conn.execute(text('''
-                -- Archive module indexes
-                CREATE INDEX IF NOT EXISTS idx_archive_items_name ON archive_items(name);
-                CREATE INDEX IF NOT EXISTS idx_archive_items_description ON archive_items(description);
-                CREATE INDEX IF NOT EXISTS idx_archive_items_mime_type ON archive_items(mime_type);
-                CREATE INDEX IF NOT EXISTS idx_archive_items_created ON archive_items(created_at);
-                CREATE INDEX IF NOT EXISTS idx_archive_items_updated ON archive_items(updated_at);
-                
-                -- Archive folder indexes
-                CREATE INDEX IF NOT EXISTS idx_archive_folders_name ON archive_folders(name);
-                CREATE INDEX IF NOT EXISTS idx_archive_folders_path ON archive_folders(path);
-                
-                -- Enable FTS5 extension
-                CREATE VIRTUAL TABLE IF NOT EXISTS archive_items_fts USING fts5(
-                    name, 
-                    description,
-                    extracted_text,
-                    content='archive_items',
-                    content_rowid='uuid',
-                    tokenize='porter unicode61',
-                    prefix='2,3',
-                    columnsize=0
-                );
-                
-                -- Create triggers to keep FTS index up to date
-                CREATE TRIGGER IF NOT EXISTS archive_items_ai AFTER INSERT ON archive_items BEGIN
-                    INSERT INTO archive_items_fts(rowid, name, description, extracted_text)
-                    VALUES (new.uuid, new.name, new.description, new.extracted_text);
-                END;
-                
-                CREATE TRIGGER IF NOT EXISTS archive_items_ad AFTER DELETE ON archive_items BEGIN
-                    INSERT INTO archive_items_fts(archive_items_fts, rowid, name, description, extracted_text)
-                    VALUES('delete', old.uuid, old.name, old.description, old.extracted_text);
-                END;
-                
-                CREATE TRIGGER IF NOT EXISTS archive_items_au AFTER UPDATE ON archive_items BEGIN
-                    INSERT INTO archive_items_fts(archive_items_fts, rowid, name, description, extracted_text)
-                    VALUES('delete', old.uuid, old.name, old.description, old.extracted_text);
-                    INSERT INTO archive_items_fts(rowid, name, description, extracted_text)
-                    VALUES (new.uuid, new.name, new.description, new.extracted_text);
-                END;
-            '''))
+            # Create indexes for better search performance (execute each separately for SQLite)
+            index_statements = [
+                "CREATE INDEX IF NOT EXISTS idx_archive_items_name ON archive_items(name)",
+                "CREATE INDEX IF NOT EXISTS idx_archive_items_description ON archive_items(description)",
+                "CREATE INDEX IF NOT EXISTS idx_archive_items_mime_type ON archive_items(mime_type)",
+                "CREATE INDEX IF NOT EXISTS idx_archive_items_created ON archive_items(created_at)",
+                "CREATE INDEX IF NOT EXISTS idx_archive_items_updated ON archive_items(updated_at)",
+                "CREATE INDEX IF NOT EXISTS idx_archive_folders_name ON archive_folders(name)",
+                "CREATE INDEX IF NOT EXISTS idx_archive_folders_path ON archive_folders(path)"
+            ]
             
-            logger.info("✅ Database initialized successfully")
+            for statement in index_statements:
+                await conn.execute(text(statement))
+            
+            # Temporarily disable FTS5 to test for segfault
+            # -- Enable FTS5 extension (using external content table)
+            # CREATE VIRTUAL TABLE IF NOT EXISTS archive_items_fts USING fts5(
+            #     uuid UNINDEXED,
+            #     name, 
+            #     description,
+            #     extracted_text,
+            #     tokenize='porter unicode61',
+            #     prefix='2,3'
+            # );
+            
+            # -- Create triggers to keep FTS index up to date
+            # CREATE TRIGGER IF NOT EXISTS archive_items_ai AFTER INSERT ON archive_items BEGIN
+            #     INSERT INTO archive_items_fts(uuid, name, description, extracted_text)
+            #     VALUES (new.uuid, new.name, new.description, new.extracted_text);
+            # END;
+            
+            # CREATE TRIGGER IF NOT EXISTS archive_items_ad AFTER DELETE ON archive_items BEGIN
+            #     DELETE FROM archive_items_fts WHERE uuid = old.uuid;
+            # END;
+            
+            # CREATE TRIGGER IF NOT EXISTS archive_items_au AFTER UPDATE ON archive_items BEGIN
+            #     DELETE FROM archive_items_fts WHERE uuid = old.uuid;
+            #     INSERT INTO archive_items_fts(uuid, name, description, extracted_text)
+            #     VALUES (new.uuid, new.name, new.description, new.extracted_text);
+            # END;
+            
+            logger.info("✅ Database initialized successfully (FTS5 disabled for testing)")
             
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {str(e)}")

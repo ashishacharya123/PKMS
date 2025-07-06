@@ -19,7 +19,7 @@ from pathlib import Path
 import uuid as uuid_lib
 import json
 import aiofiles
-import magic
+# import magic  # Temporarily disabled due to Windows segfault
 import logging
 import asyncio
 from functools import lru_cache
@@ -29,7 +29,8 @@ from fastapi_limiter import FastAPILimiter
 
 # Import existing models and dependencies
 from app.database import get_db
-from app.models.archive import ArchiveFolder, ArchiveItem, archive_tags
+from app.models.archive import ArchiveFolder, ArchiveItem
+from app.models.tag import archive_tags
 from app.models.tag import Tag
 from app.models.user import User
 from app.auth.dependencies import get_current_user

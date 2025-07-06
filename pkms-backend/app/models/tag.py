@@ -12,7 +12,7 @@ from app.database import Base
 archive_tags = Table(
     'archive_tags',
     Base.metadata,
-    Column('archive_uuid', String(36), ForeignKey('archive_items.uuid', ondelete='CASCADE'), primary_key=True),
+    Column('item_uuid', String(36), ForeignKey('archive_items.uuid', ondelete='CASCADE'), primary_key=True),
     Column('tag_id', Integer, ForeignKey('tags.id', ondelete='CASCADE'), primary_key=True)
 )
 

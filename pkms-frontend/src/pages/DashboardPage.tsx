@@ -54,49 +54,20 @@ interface QuickAction {
   description: string;
 }
 
-const modules = [
-  {
-    title: 'Notes',
-    icon: IconNotes,
-    color: 'blue',
-    path: '/notes',
-    description: 'Organized knowledge and ideas with bidirectional linking'
-  },
-  {
-    title: 'Documents',
-    icon: IconFiles,
-    color: 'green',
-    path: '/documents',
-    description: 'File management with text extraction and search'
-  },
-  {
-    title: 'Todos',
-    icon: IconChecklist,
-    color: 'orange',
-    path: '/todos',
-    description: 'Task and project management with priorities'
-  },
-  {
-    title: 'Diary',
-    icon: IconBook,
-    color: 'purple',
-    path: '/diary',
-    description: 'Encrypted personal journal with mood tracking'
-  },
-  {
-    title: 'Archive',
-    icon: IconArchive,
-    color: 'indigo',
-    path: '/archive',
-    description: 'Hierarchical file organization and storage'
-  }
-];
+interface ModuleInfo {
+  title: string;
+  icon: React.ComponentType<any>;
+  color: string;
+  path: string;
+  description: string;
+}
 
+// Quick Actions configuration
 const quickActions: QuickAction[] = [
   {
     label: 'New Note',
     icon: IconFileText,
-    path: '/notes/new',
+    path: '/notes?action=new',
     color: 'blue',
     description: 'Create a new note'
   },
@@ -105,21 +76,60 @@ const quickActions: QuickAction[] = [
     icon: IconFiles,
     path: '/documents?action=upload',
     color: 'green',
-    description: 'Upload documents'
+    description: 'Upload a document'
   },
   {
     label: 'Add Todo',
     icon: IconClipboardList,
     path: '/todos?action=new',
     color: 'orange',
-    description: 'Add a new task'
+    description: 'Create a new task'
   },
   {
-    label: 'Archive Files',
+    label: 'Diary Entry',
+    icon: IconCalendarEvent,
+    path: '/diary?action=new',
+    color: 'purple',
+    description: 'Write diary entry'
+  }
+];
+
+// Modules configuration
+const modules: ModuleInfo[] = [
+  {
+    title: 'Notes',
+    icon: IconNotes,
+    color: 'blue',
+    path: '/notes',
+    description: 'Organize your thoughts and ideas'
+  },
+  {
+    title: 'Documents',
+    icon: IconFiles,
+    color: 'green',
+    path: '/documents',
+    description: 'Manage files and documents'
+  },
+  {
+    title: 'Todos',
+    icon: IconChecklist,
+    color: 'orange',
+    path: '/todos',
+    description: 'Track tasks and projects'
+  },
+  {
+    title: 'Diary',
+    icon: IconBook,
+    color: 'purple',
+    path: '/diary',
+    description: 'Private journal entries'
+  },
+  {
+    title: 'Archive',
     icon: IconArchive,
-    path: '/archive',
     color: 'indigo',
-    description: 'Organize files'
+    path: '/archive',
+    description: 'Hierarchical file organization'
   }
 ];
 
@@ -145,11 +155,22 @@ export function DashboardPage() {
     
     try {
       // Use the new dashboard service to get real data
+      console.log('Loading dashboard data...');
       const dashboardStats = await dashboardService.getDashboardStats();
+      console.log('Dashboard stats received:', dashboardStats);
       setStats(dashboardStats);
     } catch (err) {
       setError('Failed to load dashboard data');
       console.error('Dashboard load error:', err);
+      // Set fallback stats on error
+      setStats({
+        notes: { total: 0, recent: 0 },
+        documents: { total: 0, recent: 0 },
+        todos: { total: 0, pending: 0, completed: 0, overdue: 0 },
+        diary: { entries: 0, streak: 0 },
+        archive: { folders: 0, items: 0 },
+        last_updated: new Date().toISOString()
+      });
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -226,7 +247,7 @@ export function DashboardPage() {
             </Group>
             <Group justify="space-between">
               <Text size="sm">Recent (7 days)</Text>
-              <Text size="sm" fw={500} c={moduleStats?.recent > 0 ? 'blue' : undefined}>
+              <Text size="sm" fw={500} c={(moduleStats?.recent || 0) > 0 ? 'blue' : undefined}>
                 {moduleStats?.recent || 0}
               </Text>
             </Group>
@@ -241,7 +262,7 @@ export function DashboardPage() {
             </Group>
             <Group justify="space-between">
               <Text size="sm">Recent uploads</Text>
-              <Text size="sm" fw={500} c={moduleStats?.recent > 0 ? 'green' : undefined}>
+              <Text size="sm" fw={500} c={(moduleStats?.recent || 0) > 0 ? 'green' : undefined}>
                 {moduleStats?.recent || 0}
               </Text>
             </Group>
@@ -266,9 +287,9 @@ export function DashboardPage() {
                 <Text size="sm" fw={500} c="red">{moduleStats?.overdue}</Text>
               </Group>
             )}
-            {moduleStats?.total > 0 && (
+            {(moduleStats?.total || 0) > 0 && (
               <Progress 
-                value={dashboardService.calculateCompletionPercentage(moduleStats?.completed || 0, moduleStats?.total)} 
+                value={dashboardService.calculateCompletionPercentage(moduleStats?.completed || 0, moduleStats?.total || 0)} 
                 size="sm" 
                 color="green" 
                 mt="xs"
@@ -285,7 +306,7 @@ export function DashboardPage() {
             </Group>
             <Group justify="space-between">
               <Text size="sm">Current streak</Text>
-              <Text size="sm" fw={500} c={moduleStats?.streak > 0 ? 'purple' : undefined}>
+              <Text size="sm" fw={500} c={(moduleStats?.streak || 0) > 0 ? 'purple' : undefined}>
                 {dashboardService.getStreakStatus(moduleStats?.streak || 0)}
               </Text>
             </Group>
@@ -417,8 +438,8 @@ export function DashboardPage() {
               <Group gap="xs">
                 <IconTrendingUp size={16} />
                 <Text size="sm" c="dimmed">Total Items: {
-                  (stats.notes.total + stats.documents.total + stats.todos.total + 
-                   stats.diary.entries + stats.archive.items)
+                  ((stats?.notes?.total || 0) + (stats?.documents?.total || 0) + (stats?.todos?.total || 0) + 
+                   (stats?.diary?.entries || 0) + (stats?.archive?.items || 0))
                 }</Text>
               </Group>
             </Group>
@@ -429,14 +450,14 @@ export function DashboardPage() {
               </div>
               <div>
                 <Text size="sm" c="dimmed">Overdue Tasks</Text>
-                <Text fw={600} size="lg" c={stats.todos.overdue > 0 ? 'red' : 'green'}>
-                  {stats.todos.overdue}
+                <Text fw={600} size="lg" c={(stats?.todos?.overdue || 0) > 0 ? 'red' : 'green'}>
+                  {stats?.todos?.overdue || 0}
                 </Text>
               </div>
               <div>
                 <Text size="sm" c="dimmed">Diary Streak</Text>
-                <Text fw={600} size="lg" c={stats.diary.streak > 0 ? 'purple' : undefined}>
-                  {stats.diary.streak} days
+                <Text fw={600} size="lg" c={(stats?.diary?.streak || 0) > 0 ? 'purple' : undefined}>
+                  {stats?.diary?.streak || 0} days
                 </Text>
               </div>
               <div>
@@ -485,7 +506,7 @@ export function DashboardPage() {
             <Stack gap="md">
               {stats && (
                 <>
-                  {stats.notes.recent > 0 && (
+                  {(stats?.notes?.recent || 0) > 0 && (
                     <Group justify="space-between" wrap="nowrap">
                       <Group gap="sm">
                         <ThemeIcon size="sm" variant="light" color="blue">
@@ -494,12 +515,12 @@ export function DashboardPage() {
                         <Text size="sm">Recent notes created</Text>
                       </Group>
                       <Badge variant="light" color="blue" size="sm">
-                        {stats.notes.recent} in last 7 days
+                        {stats?.notes?.recent || 0} in last 7 days
                       </Badge>
                     </Group>
                   )}
                   
-                  {stats.documents.recent > 0 && (
+                  {(stats?.documents?.recent || 0) > 0 && (
                     <Group justify="space-between" wrap="nowrap">
                       <Group gap="sm">
                         <ThemeIcon size="sm" variant="light" color="green">
@@ -508,12 +529,12 @@ export function DashboardPage() {
                         <Text size="sm">Documents uploaded</Text>
                       </Group>
                       <Badge variant="light" color="green" size="sm">
-                        {stats.documents.recent} in last 7 days
+                        {stats?.documents?.recent || 0} in last 7 days
                       </Badge>
                     </Group>
                   )}
                   
-                  {stats.todos.pending > 0 && (
+                  {(stats?.todos?.pending || 0) > 0 && (
                     <Group justify="space-between" wrap="nowrap">
                       <Group gap="sm">
                         <ThemeIcon size="sm" variant="light" color="orange">
@@ -522,12 +543,12 @@ export function DashboardPage() {
                         <Text size="sm">Pending todos</Text>
                       </Group>
                       <Badge variant="light" color="orange" size="sm">
-                        {stats.todos.pending} tasks
+                        {stats?.todos?.pending || 0} tasks
                       </Badge>
                     </Group>
                   )}
                   
-                  {stats.diary.streak > 0 && (
+                  {(stats?.diary?.streak || 0) > 0 && (
                     <Group justify="space-between" wrap="nowrap">
                       <Group gap="sm">
                         <ThemeIcon size="sm" variant="light" color="purple">
@@ -536,12 +557,12 @@ export function DashboardPage() {
                         <Text size="sm">Diary writing streak</Text>
                       </Group>
                       <Badge variant="light" color="purple" size="sm">
-                        {stats.diary.streak} days
+                        {stats?.diary?.streak || 0} days
                       </Badge>
                     </Group>
                   )}
                   
-                  {stats.archive.items > 0 && (
+                  {(stats?.archive?.items || 0) > 0 && (
                     <Group justify="space-between" wrap="nowrap">
                       <Group gap="sm">
                         <ThemeIcon size="sm" variant="light" color="indigo">
@@ -550,14 +571,17 @@ export function DashboardPage() {
                         <Text size="sm">Archive items organized</Text>
                       </Group>
                       <Badge variant="light" color="indigo" size="sm">
-                        {stats.archive.items} items
+                        {stats?.archive?.items || 0} items
                       </Badge>
                     </Group>
                   )}
                   
-                  {stats.notes.recent === 0 && stats.documents.recent === 0 && 
-                   stats.todos.pending === 0 && stats.diary.streak === 0 && 
-                   stats.archive.items === 0 && (
+                  {/* Safe check for empty state */}
+                  {(stats?.notes?.recent || 0) === 0 && 
+                   (stats?.documents?.recent || 0) === 0 && 
+                   (stats?.todos?.pending || 0) === 0 && 
+                   (stats?.diary?.streak || 0) === 0 && 
+                   (stats?.archive?.items || 0) === 0 && (
                     <Group justify="center" py="xl">
                       <Stack align="center" gap="xs">
                         <ThemeIcon size="lg" variant="light" color="gray">

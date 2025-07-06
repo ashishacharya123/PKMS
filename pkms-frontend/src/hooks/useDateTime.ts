@@ -9,6 +9,7 @@ const nepaliMonths = [
 ];
 
 // Nepali day names in Devanagari  
+/*
 const nepaliDays = [
   'आइतबार',    // Sunday
   'सोमबार',     // Monday  
@@ -18,6 +19,7 @@ const nepaliDays = [
   'शुक्रबार',   // Friday
   'शनिबार'     // Saturday
 ];
+*/
 
 // English to Nepali day mapping 
 const englishToNepaliDay = {

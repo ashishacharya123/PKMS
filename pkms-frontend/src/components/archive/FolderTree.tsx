@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Tree, TreeNode } from '@mantine/core';
-import { IconFolder, IconFolderOpen } from '@tabler/icons-react';
+import { Box, Text, Collapse, Loader } from '@mantine/core';
+import { IconFolder, IconFolderOpen, IconChevronRight } from '@tabler/icons-react';
 import { useArchiveStore } from '../../stores/archiveStore';
 import { FolderTree as FolderTreeType } from '../../types/archive';
 
@@ -18,17 +18,13 @@ const FolderNode: React.FC<FolderNodeProps> = ({ node, onSelect, selectedId, lev
   const loadFolders = useArchiveStore(state => state.loadFolders);
 
   const loadChildren = useCallback(async () => {
-    if (!isExpanded && node.has_children && children.length === 0) {
+    if (!isExpanded && children.length === 0) {
       setIsLoading(true);
       try {
-        const folders = await loadFolders(node.uuid);
-        setChildren(folders.map(folder => ({
-          uuid: folder.uuid,
-          name: folder.name,
-          parent_uuid: folder.parent_uuid,
-          has_children: folder.has_children,
-          children: []
-        })));
+        await loadFolders(node.folder.uuid);
+        // The folders will be loaded into the store, we need to get them from there
+        // For now, we'll just set a flag to indicate children exist
+        setChildren([{ folder: node.folder, children: [], items: [] }]);
       } catch (error) {
         console.error('Failed to load folder children:', error);
       } finally {
@@ -46,31 +42,73 @@ const FolderNode: React.FC<FolderNodeProps> = ({ node, onSelect, selectedId, lev
     onSelect(node);
   }, [node, onSelect]);
 
+  const isSelected = selectedId === node.folder.uuid;
+
   return (
-    <TreeNode
-      label={node.name}
-      onClick={handleSelect}
-      onExpand={handleExpand}
-      expanded={isExpanded}
-      loading={isLoading}
-      selected={selectedId === node.uuid}
-      icon={isExpanded ? <IconFolderOpen size={20} /> : <IconFolder size={20} />}
-      style={{
-        paddingLeft: `${level * 20}px`,
-        cursor: 'pointer',
-        backgroundColor: selectedId === node.uuid ? 'var(--mantine-color-blue-1)' : 'transparent'
-      }}
-    >
-      {isExpanded && children.map(child => (
-        <FolderNode
-          key={child.uuid}
-          node={child}
-          onSelect={onSelect}
-          selectedId={selectedId}
-          level={level + 1}
-        />
-      ))}
-    </TreeNode>
+    <Box>
+      <Box
+        onClick={handleSelect}
+        onDoubleClick={handleExpand}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '8px 12px',
+          paddingLeft: `${level * 20 + 12}px`,
+          cursor: 'pointer',
+          backgroundColor: isSelected ? 'var(--mantine-color-blue-1)' : 'transparent',
+          borderRadius: '4px'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = isSelected ? 'var(--mantine-color-blue-2)' : 'var(--mantine-color-gray-1)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = isSelected ? 'var(--mantine-color-blue-1)' : 'transparent';
+        }}
+      >
+        <Box
+          onClick={(e) => {
+            e.stopPropagation();
+            handleExpand();
+          }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            marginRight: '8px',
+            cursor: 'pointer',
+            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+            transition: 'transform 0.2s'
+          }}
+        >
+          {isLoading ? (
+            <Loader size="xs" />
+          ) : (
+            <IconChevronRight size={16} />
+          )}
+        </Box>
+        
+        {isExpanded ? <IconFolderOpen size={20} color="var(--mantine-color-blue-6)" /> : <IconFolder size={20} />}
+        
+        <Text
+          size="sm"
+          ml="xs"
+          style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+        >
+          {node.folder.name}
+        </Text>
+      </Box>
+      
+      <Collapse in={isExpanded}>
+        {children.map(child => (
+          <FolderNode
+            key={child.folder.uuid}
+            node={child}
+            onSelect={onSelect}
+            selectedId={selectedId}
+            level={level + 1}
+          />
+        ))}
+      </Collapse>
+    </Box>
   );
 };
 
@@ -88,16 +126,16 @@ export const FolderTree: React.FC<FolderTreeProps> = ({ onSelect, selectedId }) 
   }, [loadFolderTree]);
 
   return (
-    <Tree>
+    <Box>
       {folderTree.map(node => (
         <FolderNode
-          key={node.uuid}
+          key={node.folder.uuid}
           node={node}
           onSelect={onSelect}
           selectedId={selectedId}
           level={0}
         />
       ))}
-    </Tree>
+    </Box>
   );
 }; 

@@ -276,16 +276,12 @@ async def fts_search(
         fts_query = text('''
             SELECT 
                 ai.*,
-                rank.rank as search_rank
+                bm25(fts) as search_rank
             FROM archive_items ai
-            JOIN (
-                SELECT rowid, rank
-                FROM archive_items_fts
-                WHERE archive_items_fts MATCH :query
-                ORDER BY rank DESC
-            ) as rank ON ai.uuid = rank.rowid
-            WHERE ai.user_id = :user_id
-            ORDER BY rank.rank DESC
+            JOIN archive_items_fts fts ON ai.uuid = fts.uuid
+            WHERE fts MATCH :query
+            AND ai.user_id = :user_id
+            ORDER BY bm25(fts) 
             LIMIT :limit OFFSET :offset
         ''')
         

@@ -129,6 +129,9 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Attach limiter to app state for SlowAPI middleware
+app.state.limiter = limiter
+
 # Add routers
 app.include_router(auth.router, prefix="/api/v1/auth")
 app.include_router(notes.router, prefix="/api/v1/notes")
@@ -272,10 +275,16 @@ if __name__ == "__main__":
     print(f"🔄 Reload mode: {settings.debug}")
     print(f"📝 Log level: {settings.log_level}")
     
-    uvicorn.run(
-        "main:app",
-        host=settings.host,
-        port=settings.port,
-        reload=settings.debug,
-        log_level=settings.log_level
-    )
+    # Temporarily disable reload to debug segfault
+    try:
+        uvicorn.run(
+            "main:app",
+            host=settings.host,
+            port=settings.port,
+            reload=False,  # Disable reload to debug segfault
+            log_level=settings.log_level
+        )
+    except Exception as e:
+        print(f"❌ Failed to start server: {e}")
+        import traceback
+        traceback.print_exc()

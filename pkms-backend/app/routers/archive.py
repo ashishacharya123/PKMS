@@ -15,13 +15,25 @@ from pathlib import Path
 import uuid as uuid_lib
 import json
 import aiofiles
-import magic
+# import magic  # Temporarily disabled due to Windows segfault
 import logging
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+# Optional imports for file processing
+try:
+    import fitz  # PyMuPDF for PDF processing
+except ImportError:
+    fitz = None
+
+try:
+    from docx import Document as DocxDocument  # python-docx for DOCX processing
+except ImportError:
+    DocxDocument = None
+
 from app.database import get_db
-from app.models.archive import ArchiveFolder, ArchiveItem, archive_tags
+from app.models.archive import ArchiveFolder, ArchiveItem
+from app.models.tag import archive_tags
 from app.models.tag import Tag
 from app.models.user import User
 from app.auth.dependencies import get_current_user
@@ -590,7 +602,12 @@ async def upload_item(
         await file.seek(0)
         
         # Detect MIME type from content (more secure than trusting filename)
-        mime_type = magic.from_buffer(file_content[:2048], mime=True)
+        # mime_type = magic.from_buffer(file_content[:2048], mime=True)
+        # Temporarily use file extension-based detection due to magic segfault
+        import mimetypes
+        mime_type, _ = mimetypes.guess_type(file.filename)
+        if not mime_type:
+            mime_type = "application/octet-stream"
         
         # Validate MIME type
         if mime_type not in VALID_MIME_TYPES:

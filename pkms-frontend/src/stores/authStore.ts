@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { notifications } from '@mantine/notifications';
 import authService from '../services/authService';
-import apiService from '../services/api';
+import { apiService } from '../services/api';
 import {
   AuthState,
   LoginCredentials,

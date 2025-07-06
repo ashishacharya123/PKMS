@@ -1,15 +1,24 @@
 import { create } from 'zustand';
 import { notifications } from '@mantine/notifications';
-import { diaryService, DiaryEntry, DiaryEntrySummary, DiaryMetadata, DiaryCalendarData, MoodStats } from '../services/diaryService';
+import { diaryService } from '../services/diaryService';
+import { DiaryEntry, DiaryEntrySummary, DiaryMetadata, DiaryEntryCreatePayload } from '../types/diary';
 
 interface DiaryState {
   entries: DiaryEntrySummary[];
   currentEntry: DiaryEntry | null;
   isLoading: boolean;
   isEncrypted: boolean;
+  isEncryptionSetup: boolean;
+  isUnlocked: boolean;
   encryptionKey: CryptoKey | null;
   calendarData: DiaryCalendarData[];
   moodStats: MoodStats | null;
+  error: string | null;
+  currentYear: number;
+  currentMonth: number;
+  searchQuery: string;
+  currentDayOfWeek: number | null;
+  currentHasMedia: boolean | null;
   filters: {
     year?: number;
     month?: number;
@@ -20,17 +29,27 @@ interface DiaryState {
   };
   
   // Actions
+  init: () => Promise<void>;
+  setupEncryption: (password: string, hint?: string) => Promise<boolean>;
+  unlockSession: (password: string) => Promise<boolean>;
+  lockSession: () => void;
   setEncryptionKey: (key: CryptoKey) => void;
   clearEncryptionKey: () => void;
   loadEntries: () => Promise<void>;
   loadEntry: (id: number) => Promise<void>;
-  createEntry: (date: Date, content: string, title?: string, mood?: number, metadata?: DiaryMetadata) => Promise<boolean>;
-  updateEntry: (id: number, content: string, title?: string, mood?: number, metadata?: DiaryMetadata) => Promise<boolean>;
+  createEntry: (payload: DiaryEntryCreatePayload) => Promise<boolean>;
+  updateEntry: (id: number, payload: DiaryEntryCreatePayload) => Promise<boolean>;
   deleteEntry: (id: number) => Promise<boolean>;
   loadCalendarData: (year: number, month: number) => Promise<void>;
   loadMoodStats: () => Promise<void>;
   setFilter: (filter: Partial<DiaryState['filters']>) => void;
   clearFilters: () => void;
+  setError: (error: string | null) => void;
+  setYear: (year: number) => void;
+  setMonth: (month: number) => void;
+  setSearchQuery: (query: string) => void;
+  setDayOfWeek: (dayOfWeek: number | null) => void;
+  setHasMedia: (hasMedia: boolean | null) => void;
 }
 
 export const useDiaryStore = create<DiaryState>((set, get) => ({
@@ -38,228 +57,178 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   currentEntry: null,
   isLoading: false,
   isEncrypted: true,
+  isEncryptionSetup: false,
+  isUnlocked: false,
   encryptionKey: null,
   calendarData: [],
   moodStats: null,
+  error: null,
+  currentYear: new Date().getFullYear(),
+  currentMonth: new Date().getMonth() + 1,
+  searchQuery: '',
+  currentDayOfWeek: null,
+  currentHasMedia: null,
   filters: {},
 
-  setEncryptionKey: (key: CryptoKey) => set({ encryptionKey: key }),
-  
-  clearEncryptionKey: () => set({ encryptionKey: null }),
+  init: async () => {
+    try {
+      const isSetup = await diaryService.isEncryptionSetup();
+      set({ isEncryptionSetup: isSetup });
+    } catch (error) {
+      console.error('Failed to initialize diary:', error);
+      set({ error: 'Failed to initialize diary' });
+    }
+  },
+
+  setupEncryption: async (password: string, hint?: string) => {
+    try {
+      set({ isLoading: true });
+      const { key, success } = await diaryService.setupEncryption(password, hint);
+      if (success) {
+        set({ encryptionKey: key, isEncryptionSetup: true, isUnlocked: true });
+      }
+      return success;
+    } catch (error) {
+      console.error('Failed to setup encryption:', error);
+      set({ error: 'Failed to setup encryption' });
+      return false;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  unlockSession: async (password: string) => {
+    try {
+      set({ isLoading: true });
+      const { key, success } = await diaryService.unlockSession(password);
+      if (success) {
+        set({ encryptionKey: key, isUnlocked: true });
+      }
+      return success;
+    } catch (error) {
+      console.error('Failed to unlock session:', error);
+      set({ error: 'Failed to unlock session' });
+      return false;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  lockSession: () => {
+    set({ encryptionKey: null, isUnlocked: false });
+  },
+
+  setEncryptionKey: (key: CryptoKey) => {
+    set({ encryptionKey: key });
+  },
+
+  clearEncryptionKey: () => {
+    set({ encryptionKey: null });
+  },
 
   loadEntries: async () => {
-    const { filters } = get();
-    set({ isLoading: true });
     try {
-      const entries = await diaryService.listEntries({
-        year: filters.year,
-        month: filters.month,
-        mood: filters.mood,
-        search_title: filters.searchTitle,
-        day_of_week: filters.dayOfWeek,
-        has_media: filters.hasMedia,
-      });
-      set({ entries, isLoading: false });
+      set({ isLoading: true });
+      const entries = await diaryService.getEntries();
+      set({ entries });
     } catch (error) {
-      console.error('Failed to load diary entries:', error);
+      console.error('Failed to load entries:', error);
+      set({ error: 'Failed to load entries' });
+    } finally {
       set({ isLoading: false });
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to load diary entries',
-        color: 'red',
-      });
     }
   },
 
   loadEntry: async (id: number) => {
-    const { encryptionKey } = get();
-    if (!encryptionKey) {
-      notifications.show({
-        title: 'Error',
-        message: 'Encryption key not available',
-        color: 'red',
-      });
-      return;
-    }
-
-    set({ isLoading: true });
     try {
+      set({ isLoading: true });
       const entry = await diaryService.getEntryById(id);
-      set({ currentEntry: entry, isLoading: false });
+      set({ currentEntry: entry });
     } catch (error) {
-      console.error('Failed to load diary entry:', error);
+      console.error('Failed to load entry:', error);
+      set({ error: 'Failed to load entry' });
+    } finally {
       set({ isLoading: false });
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to load diary entry',
-        color: 'red',
-      });
     }
   },
 
-  createEntry: async (date: Date, content: string, title?: string, mood?: number, metadata?: DiaryMetadata) => {
-    const { encryptionKey } = get();
-    if (!encryptionKey) {
-      notifications.show({
-        title: 'Error',
-        message: 'Encryption key not available',
-        color: 'red',
-      });
-      return false;
-    }
-
-    set({ isLoading: true });
+  createEntry: async (payload: DiaryEntryCreatePayload) => {
     try {
-      const { encrypted_blob, iv, tag } = await diaryService.encryptContent(content, encryptionKey);
-      
-      const entry = await diaryService.createEntry({
-        date: date.toISOString().split('T')[0],
-        title,
-        encrypted_blob,
-        encryption_iv: iv,
-        encryption_tag: tag,
-        mood,
-        metadata,
-      });
-
-      set(state => ({
-        entries: [entry, ...state.entries],
-        isLoading: false,
-      }));
-
-      notifications.show({
-        title: 'Success',
-        message: 'Diary entry created',
-        color: 'green',
-      });
-
+      set({ isLoading: true });
+      const entry = await diaryService.createEntry(payload);
+      set((state) => ({ entries: [...state.entries, entry] }));
       return true;
     } catch (error) {
-      console.error('Failed to create diary entry:', error);
-      set({ isLoading: false });
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to create diary entry',
-        color: 'red',
-      });
+      console.error('Failed to create entry:', error);
+      set({ error: 'Failed to create entry' });
       return false;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
-  updateEntry: async (id: number, content: string, title?: string, mood?: number, metadata?: DiaryMetadata) => {
-    const { encryptionKey } = get();
-    if (!encryptionKey) {
-      notifications.show({
-        title: 'Error',
-        message: 'Encryption key not available',
-        color: 'red',
-      });
-      return false;
-    }
-
-    set({ isLoading: true });
+  updateEntry: async (id: number, payload: DiaryEntryCreatePayload) => {
     try {
-      const { encrypted_blob, iv, tag } = await diaryService.encryptContent(content, encryptionKey);
-      
-      const entry = await diaryService.updateEntry(id, {
-        date: new Date().toISOString().split('T')[0], // Use current date as fallback
-        title,
-        encrypted_blob,
-        encryption_iv: iv,
-        encryption_tag: tag,
-        mood,
-        metadata,
-      });
-
-      set(state => ({
-        entries: state.entries.map(e => e.id === id ? entry : e),
-        currentEntry: entry,
-        isLoading: false,
+      set({ isLoading: true });
+      const entry = await diaryService.updateEntry(id, payload);
+      set((state) => ({
+        entries: state.entries.map((e) => (e.id === id ? entry : e)),
       }));
-
-      notifications.show({
-        title: 'Success',
-        message: 'Diary entry updated',
-        color: 'green',
-      });
-
       return true;
     } catch (error) {
-      console.error('Failed to update diary entry:', error);
-      set({ isLoading: false });
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to update diary entry',
-        color: 'red',
-      });
+      console.error('Failed to update entry:', error);
+      set({ error: 'Failed to update entry' });
       return false;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
   deleteEntry: async (id: number) => {
-    set({ isLoading: true });
     try {
+      set({ isLoading: true });
       await diaryService.deleteEntry(id);
-      
-      set(state => ({
-        entries: state.entries.filter(e => e.id !== id),
-        currentEntry: state.currentEntry?.id === id ? null : state.currentEntry,
-        isLoading: false,
+      set((state) => ({
+        entries: state.entries.filter((e) => e.id !== id),
       }));
-
-      notifications.show({
-        title: 'Success',
-        message: 'Diary entry deleted',
-        color: 'green',
-      });
-
       return true;
     } catch (error) {
-      console.error('Failed to delete diary entry:', error);
-      set({ isLoading: false });
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to delete diary entry',
-        color: 'red',
-      });
+      console.error('Failed to delete entry:', error);
+      set({ error: 'Failed to delete entry' });
       return false;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
   loadCalendarData: async (year: number, month: number) => {
-    set({ isLoading: true });
     try {
-      const calendarData = await diaryService.getCalendarData(year, month);
-      set({ calendarData, isLoading: false });
+      set({ isLoading: true });
+      const data = await diaryService.getCalendarData(year, month);
+      set({ calendarData: data });
     } catch (error) {
       console.error('Failed to load calendar data:', error);
+      set({ error: 'Failed to load calendar data' });
+    } finally {
       set({ isLoading: false });
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to load calendar data',
-        color: 'red',
-      });
     }
   },
 
   loadMoodStats: async () => {
-    set({ isLoading: true });
     try {
-      const moodStats = await diaryService.getMoodStats();
-      set({ moodStats, isLoading: false });
+      set({ isLoading: true });
+      const stats = await diaryService.getMoodStats();
+      set({ moodStats: stats });
     } catch (error) {
       console.error('Failed to load mood stats:', error);
+      set({ error: 'Failed to load mood stats' });
+    } finally {
       set({ isLoading: false });
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to load mood statistics',
-        color: 'red',
-      });
     }
   },
 
   setFilter: (filter: Partial<DiaryState['filters']>) => {
-    set(state => ({
+    set((state) => ({
       filters: { ...state.filters, ...filter },
     }));
   },
@@ -267,6 +236,13 @@ export const useDiaryStore = create<DiaryState>((set, get) => ({
   clearFilters: () => {
     set({ filters: {} });
   },
+
+  setError: (error: string | null) => set({ error }),
+  setYear: (year: number) => set({ currentYear: year }),
+  setMonth: (month: number) => set({ currentMonth: month }),
+  setSearchQuery: (query: string) => set({ searchQuery: query }),
+  setDayOfWeek: (dayOfWeek: number | null) => set({ currentDayOfWeek: dayOfWeek }),
+  setHasMedia: (hasMedia: boolean | null) => set({ currentHasMedia: hasMedia }),
 }));
 
 export default useDiaryStore;

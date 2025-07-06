@@ -1,5 +1,5 @@
 import { useState, KeyboardEvent } from 'react';
-import { NavLink, useLocation, Link, useNavigate } from 'react-router-dom';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import {
   AppShell,
   ScrollArea,
@@ -92,7 +92,7 @@ interface NavigationProps {
 export function Navigation({ collapsed = false }: NavigationProps) {
   const location = useLocation();
   const { user, logout } = useAuthStore();
-  const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const { colorScheme } = useMantineColorScheme();
   const [userMenuOpened, setUserMenuOpened] = useState(false);
   const navigate = useNavigate();
 

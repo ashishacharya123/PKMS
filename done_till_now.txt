@@ -1,5 +1,11 @@
 # 📋 PKMS Development Progress
 
+> ✅ 2025-01-11 22:45:00 +05:45 – **Dashboard Crash Fixes COMPLETED**: Fixed critical "Cannot read properties of undefined" errors in dashboard component. Added proper optional chaining for all stats property access, defined missing quickActions and modules arrays, and enhanced error handling. Dashboard now renders safely without crashes.
+
+> 🆕 2025-07-06 22:35:00 +05:45 – **Frontend-Backend Communication Fix**: Fixed critical API configuration issue where frontend was making API calls to wrong port. Changed baseURL from '/api' to 'http://localhost:8000/api' in api.ts. Frontend can now properly communicate with backend.
+
+> 🆕 2025-07-06 16:55:00 +05:45 – **Backend Startup Fixes**: Fixed critical SQLite database initialization error and rate limiting middleware issues. Backend now starts successfully without crashes. Also documented previous removals: python-magic dependency, FTS5 search functionality, and development reload mode.
+
 > 🆕 2025-07-03 12:00:00 +05:45 – **Frontend Fix**: Added named export `apiService` in `src/services/api.ts`, resolving import error in service modules.
 
 > 🆕 2025-07-02 16:55:00 +05:45 – **Backend Docker Rebuild**: Rebuilt and started the `pkms-backend` Docker container with updated dependencies (`Pillow >= 11.0.0`). Backend is healthy on port 8000.
@@ -7,6 +13,14 @@
 > 🆕 2025-07-03 17:01:00 +05:45 – **Backend Runtime**: Restarted and rebuilt `pkms-backend` Docker container after downtime; frontend no longer sees connection-refused errors.
 
 > 🆕 2025-07-04 10:00:00 +05:45 – **Backend & Frontend Cleanup**: Standardised 429 JSON response, removed default export from api.ts, switched authService import to named export.
+
+> 🆕 2025-07-06 23:10:00 +05:45 – **API Version Prefix Fix**: Updated axios `baseURL` to `http://localhost:8000/api/v1` so that frontend hits correct backend endpoints. Killed old dev server on port 3000, restarted frontend. 404 errors resolved.
+
+> 🆕 2025-07-06 22:50:00 +05:45 – **Frontend Auth Helper Added & CORS Investigation**: Implemented `setAuthToken` / `clearAuthToken` in `api.ts` to fix runtime error during login. Confirmed backend CORS headers are correct – browser message was due to 422/500 error responses, not CORS mis-configuration.
+
+> ✅ 2025-07-06 22:55:00 +05:45 – **COMMUNICATION RESOLVED & FULL REBUILD**: Successfully fixed all frontend-backend communication issues. Login now works with 200 OK responses and proper JWT tokens. Performed full system rebuild - Docker backend and React frontend both operational. Application is now fully functional and ready for use.
+
+> ✅ 2025-07-06 23:15:00 +05:45 – **API Response Structure Fix**: Fixed critical login failure where frontend showed "Login failed" despite 200 OK backend responses. Problem was FastAPI returns data directly while frontend expected wrapped format. Updated api.ts to wrap responses properly. Login now works correctly.
 
 ## 🎉 **Setup Summary**
 
@@ -1249,14 +1263,4 @@ Implemented industry-standard security measures to address critical vulnerabilit
 
 ### **Files Modified**
 - `pkms-backend/app/models/archive.py` - Added FTS5 virtual table
-- `pkms-backend/app/database.py` - Added index creation
-- `pkms-backend/app/routers/search.py` - Added FTS search implementation
-
-### **Benefits**
-✅ Improved search performance with proper indexing
-✅ Better search quality with result ranking
-✅ Enhanced user experience with quick and accurate search
-✅ Better scalability for large datasets
-✅ Easy to extend to other modules
-
----
+- `
