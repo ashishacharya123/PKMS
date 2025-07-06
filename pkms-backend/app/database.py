@@ -12,7 +12,8 @@ from sqlalchemy import text, inspect
 import os
 from pathlib import Path
 
-from app.config import get_database_url, settings
+from app.config import get_database_url, settings, get_data_dir
+from app.services.fts_service import fts_service
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ engine = create_async_engine(
     get_database_url(),
     echo=settings.debug,  # Log SQL queries in debug mode
     poolclass=StaticPool,  # Better for SQLite
-    connect_args={"check_same_thread": False} if "sqlite" in get_database_url() else {}
+    connect_args={"check_same_thread": False, "timeout": 20} if "sqlite" in get_database_url() else {}
 )
 
 # Create async session factory
@@ -70,25 +71,42 @@ async def get_db_session() -> AsyncSession:
 async def verify_table_schema(table_name: str) -> None:
     """Verify the schema of a specific table"""
     try:
-        async with engine.begin() as conn:
-            # Get table info
-            result = await conn.execute(text(f"PRAGMA table_info({table_name})"))
-            columns = result.fetchall()
-            
-            logger.info(f"\n=== Table Schema for {table_name} ===")
-            for col in columns:
-                logger.info(f"Column: {col[1]}, Type: {col[2]}, Nullable: {not col[3]}, Default: {col[4]}")
-            logger.info("=" * 40)
-            
+        async with get_db_session() as session:
+            result = await session.execute(
+                text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+            )
+            if result.fetchone():
+                logger.info(f"✅ Table '{table_name}' exists")
+            else:
+                logger.warning(f"⚠️ Table '{table_name}' not found")
     except Exception as e:
-        logger.error(f"Error verifying table schema: {e}")
-        raise
+        logger.error(f"❌ Error verifying table '{table_name}': {e}")
 
 
 async def init_db():
     """Initialize database and create tables"""
     
     try:
+        # Ensure data directory exists
+        data_dir = get_data_dir()
+        data_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"📁 Data directory: {data_dir}")
+        
+        # Enable foreign keys and other SQLite optimizations
+        async with get_db_session() as session:
+            # Enable foreign keys
+            await session.execute(text("PRAGMA foreign_keys = ON;"))
+            
+            # Performance optimizations
+            await session.execute(text("PRAGMA journal_mode = WAL;"))
+            await session.execute(text("PRAGMA synchronous = NORMAL;"))
+            await session.execute(text("PRAGMA cache_size = -64000;"))  # 64MB cache
+            await session.execute(text("PRAGMA temp_store = memory;"))
+            await session.execute(text("PRAGMA mmap_size = 268435456;"))  # 256MB mmap
+            
+            await session.commit()
+            logger.info("✅ SQLite optimizations applied")
+        
         # Create tables
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -136,6 +154,48 @@ async def init_db():
             
             logger.info("✅ Database initialized successfully (FTS5 disabled for testing)")
             
+        # Initialize FTS5 tables
+        logger.info("🔍 Initializing FTS5 full-text search...")
+        async with get_db_session() as session:
+            fts_success = await fts_service.initialize_fts_tables(session)
+            if fts_success:
+                # Populate FTS tables with existing data
+                populate_success = await fts_service.populate_fts_tables(session)
+                if populate_success:
+                    logger.info("✅ FTS5 initialization completed successfully")
+                else:
+                    logger.warning("⚠️ FTS5 tables created but population failed")
+            else:
+                logger.warning("⚠️ FTS5 initialization failed - search performance will be limited")
+        
+        # Create essential indexes for better performance
+        async with get_db_session() as session:
+            indexes = [
+                "CREATE INDEX IF NOT EXISTS idx_notes_user_area ON notes(user_id, area);",
+                "CREATE INDEX IF NOT EXISTS idx_notes_created_at ON notes(created_at DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_documents_user_mime ON documents(user_id, mime_type);",
+                "CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_archive_items_folder ON archive_items(folder_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_archive_items_user ON archive_items(user_id);",
+                "CREATE INDEX IF NOT EXISTS idx_archive_folders_parent ON archive_folders(parent_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_todos_user_status ON todos(user_id, status);",
+                "CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_date ON diary_entries(user_id, date);",
+                "CREATE INDEX IF NOT EXISTS idx_tags_module_type ON tags(module_type, name);",
+            ]
+            
+            for index_sql in indexes:
+                try:
+                    await session.execute(text(index_sql))
+                    logger.debug(f"✅ Index created: {index_sql.split('idx_')[1].split(' ')[0]}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Index creation failed: {e}")
+            
+            await session.commit()
+            logger.info("✅ Database indexes created/verified")
+        
+        logger.info("🎉 Database initialization completed successfully!")
+        
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {str(e)}")
         raise

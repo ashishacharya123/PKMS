@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_, desc, delete
 from sqlalchemy.orm import selectinload
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, ValidationError
 from typing import List, Optional, Dict, Any, BinaryIO
 from datetime import datetime
 from pathlib import Path
@@ -29,13 +29,14 @@ from fastapi_limiter import FastAPILimiter
 
 # Import existing models and dependencies
 from app.database import get_db
-from app.models.archive import ArchiveFolder, ArchiveItem
+from app.models.archive import ArchiveFolder, ArchiveItem, Archive
 from app.models.tag import archive_tags
 from app.models.tag import Tag
 from app.models.user import User
 from app.auth.dependencies import get_current_user
 from app.config import settings, get_data_dir
 from app.services.ai_service import analyze_content, is_ai_enabled
+from app.services.chunk_service import chunk_manager
 from app.utils.security import (
     sanitize_folder_name,
     sanitize_filename,
@@ -47,8 +48,9 @@ from app.utils.security import (
     validate_uuid_format,
     sanitize_text_input
 )
+from app.services.chunk_assembly import chunk_assembly_service
 
-router = APIRouter()
+router = APIRouter(prefix="/archive", tags=["archive"])
 logger = logging.getLogger(__name__)
 
 # Enhanced Constants
@@ -72,9 +74,16 @@ class FolderOperationError(ArchiveError):
     """Exception for folder operation failures"""
     pass
 
+class ChunkUploadError(Exception):
+    """Custom exception for chunk upload errors"""
+    def __init__(self, message: str, status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR):
+        self.message = message
+        self.status_code = status_code
+        super().__init__(self.message)
+
 # Enhanced Models
-class ChunkUpload(BaseModel):
-    """Model for chunked file upload"""
+class ChunkUploadData(BaseModel):
+    """Data model for chunk upload metadata"""
     chunk_number: int
     total_chunks: int
     chunk_size: int
@@ -82,13 +91,29 @@ class ChunkUpload(BaseModel):
     filename: str
     file_id: str
 
+    @validator('filename')
+    def validate_filename(cls, v):
+        """Validate filename is safe"""
+        if not v or '/' in v or '\\' in v:
+            raise ValueError("Invalid filename")
+        return v
+
+    @validator('total_size')
+    def validate_total_size(cls, v):
+        """Validate file size is within limits"""
+        max_size = 1024 * 1024 * 1024  # 1GB
+        if v <= 0 or v > max_size:
+            raise ValueError(f"File size must be between 1 byte and {max_size} bytes")
+        return v
+
 class UploadProgress(BaseModel):
-    """Model for upload progress tracking"""
-    file_id: str
+    """Data model for upload progress tracking"""
+    fileId: str
     filename: str
-    bytes_uploaded: int
-    total_size: int
+    bytesUploaded: int
+    totalSize: int
     status: str
+    progress: float
     error: Optional[str] = None
 
 # Cache decorator for folder operations
@@ -150,54 +175,241 @@ async def list_folders(
             detail={"message": "Failed to list folders", "error": str(e)}
         )
 
-# Chunked file upload endpoint
-@router.post("/upload/chunk", response_model=UploadProgress)
+# Chunked upload endpoints
+@router.post("/upload/chunk")
 async def upload_chunk(
-    chunk_data: ChunkUpload,
     file: UploadFile = File(...),
+    chunk_data: str = Form(...),
     current_user: User = Depends(get_current_user),
-    background_tasks: BackgroundTasks = None
+    db: AsyncSession = Depends(get_db)
 ):
-    """Handle chunked file upload with progress tracking"""
+    """Handle chunked file upload"""
+    chunk_info = None
     try:
-        # Validate chunk
-        if not file.filename or not chunk_data.file_id:
-            raise FileUploadError("Invalid chunk data")
-            
-        # Get upload directory
-        upload_dir = Path(get_data_dir()) / "temp_uploads" / chunk_data.file_id
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Write chunk
-        chunk_path = upload_dir / f"chunk_{chunk_data.chunk_number}"
-        async with aiofiles.open(chunk_path, 'wb') as f:
-            content = await file.read()
-            await f.write(content)
-            
-        # Check if all chunks received
-        if chunk_data.chunk_number == chunk_data.total_chunks - 1:
-            # Schedule assembly in background
-            background_tasks.add_task(
-                assemble_chunks,
-                chunk_data.file_id,
-                chunk_data.filename,
-                chunk_data.total_chunks
+        # Parse and validate chunk metadata
+        try:
+            chunk_info = ChunkUploadData.parse_raw(chunk_data)
+        except ValidationError as e:
+            raise ChunkUploadError(str(e), status.HTTP_400_BAD_REQUEST)
+
+        # Validate file type (if first chunk)
+        if chunk_info.chunk_number == 0:
+            content_type = file.content_type
+            allowed_types = [
+                'application/pdf',
+                'application/msword',
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'image/jpeg',
+                'image/png',
+                'image/gif',
+                'text/plain'
+            ]
+            if content_type not in allowed_types:
+                raise ChunkUploadError(
+                    f"File type {content_type} not allowed",
+                    status.HTTP_400_BAD_REQUEST
+                )
+
+        # Read chunk data with timeout
+        try:
+            chunk_bytes = await asyncio.wait_for(
+                file.read(),
+                timeout=30.0  # 30 second timeout
             )
+        except asyncio.TimeoutError:
+            raise ChunkUploadError(
+                "Chunk upload timed out",
+                status.HTTP_408_REQUEST_TIMEOUT
+            )
+
+        # Validate chunk size
+        if len(chunk_bytes) > chunk_info.chunk_size:
+            raise ChunkUploadError(
+                "Chunk size exceeds declared size",
+                status.HTTP_400_BAD_REQUEST
+            )
+
+        # Save chunk
+        if not await chunk_assembly_service.save_chunk(
+            chunk_info.file_id,
+            chunk_info.chunk_number,
+            chunk_bytes
+        ):
+            raise ChunkUploadError("Failed to save chunk")
+
+        # Validate chunk
+        if not await chunk_assembly_service.validate_chunk(
+            chunk_info.file_id,
+            chunk_info.chunk_number,
+            len(chunk_bytes)
+        ):
+            raise ChunkUploadError(
+                "Chunk validation failed",
+                status.HTTP_400_BAD_REQUEST
+            )
+
+        # Calculate progress
+        bytes_uploaded = (chunk_info.chunk_number + 1) * chunk_info.chunk_size
+        if bytes_uploaded > chunk_info.total_size:
+            bytes_uploaded = chunk_info.total_size
+
+        progress = (bytes_uploaded / chunk_info.total_size) * 100
+
+        # Check if this was the last chunk
+        if chunk_info.chunk_number == chunk_info.total_chunks - 1:
+            # Create user directory if it doesn't exist
+            user_dir = Path(get_data_dir()) / "archive" / current_user.username
+            user_dir.mkdir(parents=True, exist_ok=True)
+
+            # Assemble file
+            target_path = user_dir / chunk_info.filename
             
+            # Check if file already exists
+            if target_path.exists():
+                # Append timestamp to filename
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename_parts = chunk_info.filename.rsplit('.', 1)
+                if len(filename_parts) > 1:
+                    new_filename = f"{filename_parts[0]}_{timestamp}.{filename_parts[1]}"
+                else:
+                    new_filename = f"{chunk_info.filename}_{timestamp}"
+                target_path = user_dir / new_filename
+                chunk_info.filename = new_filename
+
+            if await chunk_assembly_service.assemble_file(
+                chunk_info.file_id,
+                chunk_info.total_chunks,
+                target_path
+            ):
+                try:
+                    # Create archive entry
+                    archive = Archive(
+                        filename=chunk_info.filename,
+                        filepath=str(target_path),
+                        size=chunk_info.total_size,
+                        user_id=current_user.id
+                    )
+                    db.add(archive)
+                    await db.commit()
+                    await db.refresh(archive)
+
+                    return UploadProgress(
+                        fileId=chunk_info.file_id,
+                        filename=chunk_info.filename,
+                        bytesUploaded=chunk_info.total_size,
+                        totalSize=chunk_info.total_size,
+                        status="completed",
+                        progress=100.0
+                    )
+                except Exception as e:
+                    # Cleanup file if DB operation fails
+                    if target_path.exists():
+                        target_path.unlink()
+                    raise ChunkUploadError(f"Failed to save file metadata: {str(e)}")
+            else:
+                raise ChunkUploadError("Failed to assemble file")
+
+        # Return progress for intermediate chunks
         return UploadProgress(
-            file_id=chunk_data.file_id,
-            filename=chunk_data.filename,
-            bytes_uploaded=(chunk_data.chunk_number + 1) * chunk_data.chunk_size,
-            total_size=chunk_data.total_size,
-            status="uploading" if chunk_data.chunk_number < chunk_data.total_chunks - 1 else "assembling"
+            fileId=chunk_info.file_id,
+            filename=chunk_info.filename,
+            bytesUploaded=bytes_uploaded,
+            totalSize=chunk_info.total_size,
+            status="uploading",
+            progress=progress
         )
-            
+
+    except ChunkUploadError as e:
+        logger.error(f"Chunk upload error: {e.message}")
+        if chunk_info:
+            chunk_assembly_service.cleanup_assembly(chunk_info.file_id)
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message
+        )
     except Exception as e:
-        logger.error(f"Chunk upload error: {str(e)}")
+        logger.error(f"Unexpected error in chunk upload: {e}")
+        if chunk_info:
+            chunk_assembly_service.cleanup_assembly(chunk_info.file_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={"message": "Chunk upload failed", "error": str(e)}
+            detail=str(e)
         )
+
+@router.get("/upload/{file_id}/status")
+async def get_upload_status(
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> UploadProgress:
+    """Get status of a chunked upload"""
+    try:
+        # Check if file exists in archive
+        archive = await db.execute(
+            select(Archive)
+            .where(Archive.filepath.like(f"%{file_id}%"))
+            .where(Archive.user_id == current_user.id)
+        )
+        archive = archive.scalar_one_or_none()
+
+        if archive:
+            return UploadProgress(
+                fileId=file_id,
+                filename=archive.filename,
+                bytesUploaded=archive.size,
+                totalSize=archive.size,
+                status="completed",
+                progress=100.0
+            )
+
+        # File is still being assembled
+        return UploadProgress(
+            fileId=file_id,
+            filename="",  # Will be updated when complete
+            bytesUploaded=0,
+            totalSize=0,
+            status="assembling",
+            progress=0.0
+        )
+
+    except Exception as e:
+        logger.error(f"Error checking upload status: {e}")
+        return UploadProgress(
+            fileId=file_id,
+            filename="",
+            bytesUploaded=0,
+            totalSize=0,
+            status="error",
+            error=str(e),
+            progress=0.0
+        )
+
+@router.delete("/upload/{file_id}")
+async def cancel_upload(
+    file_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Cancel an in-progress upload and cleanup temporary files"""
+    try:
+        chunk_assembly_service.cleanup_assembly(file_id)
+        return {"message": "Upload cancelled successfully"}
+    except Exception as e:
+        logger.error(f"Error cancelling upload: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+
+# Startup and shutdown events
+@router.on_event("startup")
+async def startup_event():
+    """Initialize chunk manager on startup"""
+    await chunk_manager.start()
+
+@router.on_event("shutdown")
+async def shutdown_event():
+    """Clean up chunk manager on shutdown"""
+    await chunk_manager.stop()
 
 # Bulk operations endpoint
 @router.post("/bulk/move")
@@ -235,37 +447,6 @@ async def bulk_move_items(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"message": "Bulk move failed", "error": str(e)}
         )
-
-# Helper function for chunk assembly
-async def assemble_chunks(file_id: str, filename: str, total_chunks: int):
-    """Assemble uploaded chunks into final file"""
-    try:
-        upload_dir = Path(get_data_dir()) / "temp_uploads" / file_id
-        output_path = Path(get_data_dir()) / "uploads" / filename
-        
-        with open(output_path, 'wb') as outfile:
-            for i in range(total_chunks):
-                chunk_path = upload_dir / f"chunk_{i}"
-                with open(chunk_path, 'rb') as chunk:
-                    outfile.write(chunk.read())
-                chunk_path.unlink()  # Delete chunk after use
-                
-        # Cleanup temp directory
-        upload_dir.rmdir()
-        
-    except Exception as e:
-        logger.error(f"Chunk assembly error: {str(e)}")
-        # Cleanup on failure
-        try:
-            if output_path.exists():
-                output_path.unlink()
-            if upload_dir.exists():
-                for chunk in upload_dir.glob("chunk_*"):
-                    chunk.unlink()
-                upload_dir.rmdir()
-        except:
-            pass
-        raise FileUploadError("Failed to assemble file chunks")
 
 # Error handler for custom exceptions
 @router.exception_handler(ArchiveError)

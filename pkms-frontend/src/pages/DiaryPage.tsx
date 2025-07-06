@@ -255,6 +255,15 @@ export function DiaryPage() {
     }
   };
 
+  const loadPasswordHint = async () => {
+    try {
+      const hint = await diaryService.getPasswordHint();
+      setPasswordHint(hint);
+    } catch (error) {
+      console.error('Failed to load password hint:', error);
+    }
+  };
+
   const handleViewEntry = async (entry: DiaryEntrySummary) => {
     if (!store.encryptionKey) return;
     
@@ -478,6 +487,12 @@ export function DiaryPage() {
     );
   }, [store.titleSearch, store.dayOfWeek, store.hasMedia]);
 
+  useEffect(() => {
+    if (unlockModalOpen && !passwordHint) {
+      loadPasswordHint();
+    }
+  }, [unlockModalOpen]);
+
   // Add encryption setup modal
   const EncryptionSetupModal = () => (
     <Modal
@@ -551,8 +566,12 @@ export function DiaryPage() {
           </Button>
           <Button
             variant="subtle"
-            onClick={() => setShowPasswordHint(true)}
-            disabled={!passwordHint}
+            onClick={() => {
+              if (!passwordHint) {
+                loadPasswordHint();
+              }
+              setShowPasswordHint(true);
+            }}
           >
             Show Hint
           </Button>

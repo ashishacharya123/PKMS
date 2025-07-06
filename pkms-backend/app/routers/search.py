@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta
 import json
 import re
+import logging
 
 from ..database import get_db
 from ..auth.dependencies import get_current_user
@@ -15,8 +16,10 @@ from ..models.document import Document
 from ..models.todo import Todo
 from ..models.archive import ArchiveItem, ArchiveFolder
 from ..models.tag import Tag, archive_tags
+from ..services.fts_service import fts_service
 
 router = APIRouter(prefix="/search", tags=["search"])
+logger = logging.getLogger(__name__)
 
 @router.get("/global")
 async def global_search(
@@ -30,231 +33,384 @@ async def global_search(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Global search across all modules except diary with advanced filtering."""
+    """
+    Enhanced global search across all content types using FTS5
+    """
+    try:
+        # Parse content types
+        content_type_list = None
+        if content_types:
+            content_type_list = [ct.strip() for ct in content_types.split(",")]
+            # Map frontend content types to backend types
+            type_mapping = {
+                'note': 'notes',
+                'document': 'documents', 
+                'todo': 'todos',
+                'archive': 'archive_items'
+            }
+            content_type_list = [type_mapping.get(ct, ct) for ct in content_type_list]
+        
+        # Try FTS5 search first (high performance)
+        logger.info(f"🔍 Performing FTS5 search for query: '{q}'")
+        fts_results = await fts_service.search_all(
+            db=db,
+            query=q,
+            user_id=current_user.id,
+            content_types=content_type_list,
+            limit=limit,
+            offset=offset
+        )
+        
+        if fts_results:
+            logger.info(f"✅ FTS5 search returned {len(fts_results)} results")
+            
+            # Apply tag filtering if specified
+            if tags:
+                tag_list = [tag.strip().lower() for tag in tags.split(",")]
+                filtered_results = []
+                
+                for result in fts_results:
+                    # Get item tags based on type
+                    item_tags = await _get_item_tags(db, result['type'], result['id'])
+                    if any(tag in [t.lower() for t in item_tags] for tag in tag_list):
+                        filtered_results.append(result)
+                
+                fts_results = filtered_results
+            
+            # Apply sorting
+            if sort_by == "date":
+                fts_results.sort(key=lambda x: x.get('updated_at', datetime.min), reverse=True)
+            elif sort_by == "title":
+                fts_results.sort(key=lambda x: x.get('title', '').lower())
+            # 'relevance' is already sorted by FTS5 ranking
+            
+            # Format results for response
+            formatted_results = []
+            for result in fts_results:
+                formatted_result = {
+                    "type": result['type'],
+                    "id": result['id'],
+                    "title": result.get('title', ''),
+                    "preview": result.get('content', '')[:200] + ('...' if len(result.get('content', '')) > 200 else ''),
+                    "created_at": result.get('created_at'),
+                    "updated_at": result.get('updated_at'),
+                    "relevance_score": result.get('relevance_score', 0.0),
+                    "relevance_level": _get_relevance_level(result.get('relevance_score', 0.0))
+                }
+                
+                # Add type-specific fields
+                if result['type'] == 'note':
+                    formatted_result.update({
+                        "area": result.get('area'),
+                        "url": f"/notes/{result['id']}"
+                    })
+                elif result['type'] == 'document':
+                    formatted_result.update({
+                        "filename": result.get('filename'),
+                        "url": f"/documents/{result['id']}"
+                    })
+                elif result['type'] == 'archive_item':
+                    formatted_result.update({
+                        "filename": result.get('filename'),
+                        "folder_uuid": result.get('folder_uuid'),
+                        "url": f"/archive/items/{result['id']}"
+                    })
+                elif result['type'] == 'todo':
+                    formatted_result.update({
+                        "project_id": result.get('project_id'),
+                        "url": f"/todos/{result['id']}"
+                    })
+                
+                # Include full content if requested
+                if include_content:
+                    formatted_result["content"] = result.get('content', '')
+                
+                formatted_results.append(formatted_result)
+            
+            return {
+                "results": formatted_results,
+                "total": len(formatted_results),
+                "query": q,
+                "search_type": "fts5",
+                "performance": "high"
+            }
+        
+        # Fallback to legacy search if FTS5 fails
+        logger.warning("🔄 FTS5 search failed, falling back to legacy search")
+        return await _legacy_global_search(q, content_type_list, tags, sort_by, include_content, limit, offset, current_user, db)
+        
+    except Exception as e:
+        logger.error(f"❌ Search error: {e}")
+        raise HTTPException(status_code=500, detail="Search failed")
+
+async def _legacy_global_search(q: str, content_types: Optional[List[str]], tags: Optional[str], 
+                               sort_by: str, include_content: bool, limit: int, offset: int,
+                               current_user: User, db: AsyncSession) -> Dict[str, Any]:
+    """Legacy search implementation using LIKE queries"""
     
-    start_time = datetime.now()
-    search_pattern = f"%{q.lower()}%"
+    logger.info(f"🔍 Performing legacy search for query: '{q}'")
+    
     results = []
+    search_term = f"%{q}%"
     
-    # Parse content types filter
-    allowed_types = set()
-    if content_types:
-        allowed_types = set(content_types.split(','))
-    else:
-        allowed_types = {'note', 'document', 'todo', 'archive'}
+    # Determine which content types to search
+    if not content_types:
+        content_types = ['notes', 'documents', 'archive_items', 'todos']
     
-    # Parse tags filter
-    tag_names = []
+    # Search notes
+    if 'notes' in content_types:
+        note_query = select(Note).where(
+            and_(
+                Note.user_id == current_user.id,
+                or_(
+                    Note.title.ilike(search_term),
+                    Note.content.ilike(search_term)
+                )
+            )
+        ).limit(limit // len(content_types))
+        
+        note_result = await db.execute(note_query)
+        notes = note_result.scalars().all()
+        
+        for note in notes:
+            preview = note.content[:200] + '...' if len(note.content) > 200 else note.content
+            score = calculate_relevance_score(q, note.title, note.content)
+            
+            results.append({
+                "type": "note",
+                "id": note.id,
+                "title": note.title,
+                "preview": preview,
+                "area": note.area,
+                "created_at": note.created_at,
+                "updated_at": note.updated_at,
+                "relevance_score": score,
+                "relevance_level": _get_relevance_level(score),
+                "url": f"/notes/{note.id}",
+                "content": note.content if include_content else None
+            })
+    
+    # Search documents
+    if 'documents' in content_types:
+        doc_query = select(Document).where(
+            and_(
+                Document.user_id == current_user.id,
+                or_(
+                    Document.filename.ilike(search_term),
+                    Document.original_name.ilike(search_term),
+                    Document.extracted_text.ilike(search_term)
+                )
+            )
+        ).limit(limit // len(content_types))
+        
+        doc_result = await db.execute(doc_query)
+        documents = doc_result.scalars().all()
+        
+        for doc in documents:
+            preview = (doc.extracted_text[:200] + '...' 
+                      if doc.extracted_text and len(doc.extracted_text) > 200 
+                      else (doc.extracted_text or ''))
+            score = calculate_relevance_score(q, doc.original_name, doc.extracted_text or '')
+            
+            results.append({
+                "type": "document",
+                "id": doc.uuid,
+                "title": doc.original_name,
+                "preview": preview,
+                "filename": doc.filename,
+                "created_at": doc.created_at,
+                "updated_at": doc.updated_at,
+                "relevance_score": score,
+                "relevance_level": _get_relevance_level(score),
+                "url": f"/documents/{doc.uuid}",
+                "content": doc.extracted_text if include_content else None
+            })
+    
+    # Search archive items
+    if 'archive_items' in content_types:
+        archive_query = select(ArchiveItem).where(
+            and_(
+                ArchiveItem.user_id == current_user.id,
+                or_(
+                    ArchiveItem.name.ilike(search_term),
+                    ArchiveItem.original_filename.ilike(search_term),
+                    ArchiveItem.extracted_text.ilike(search_term)
+                )
+            )
+        ).limit(limit // len(content_types))
+        
+        archive_result = await db.execute(archive_query)
+        items = archive_result.scalars().all()
+        
+        for item in items:
+            preview = (item.extracted_text[:200] + '...' 
+                      if item.extracted_text and len(item.extracted_text) > 200 
+                      else (item.extracted_text or item.description or ''))
+            score = calculate_relevance_score(q, item.name, item.extracted_text or '')
+            
+            results.append({
+                "type": "archive_item",
+                "id": item.uuid,
+                "title": item.name,
+                "preview": preview,
+                "filename": item.original_filename,
+                "folder_uuid": item.folder_uuid,
+                "created_at": item.created_at,
+                "updated_at": item.updated_at,
+                "relevance_score": score,
+                "relevance_level": _get_relevance_level(score),
+                "url": f"/archive/items/{item.uuid}",
+                "content": item.extracted_text if include_content else None
+            })
+    
+    # Search todos
+    if 'todos' in content_types:
+        todo_query = select(Todo).where(
+            and_(
+                Todo.user_id == current_user.id,
+                or_(
+                    Todo.title.ilike(search_term),
+                    Todo.description.ilike(search_term)
+                )
+            )
+        ).limit(limit // len(content_types))
+        
+        todo_result = await db.execute(todo_query)
+        todos = todo_result.scalars().all()
+        
+        for todo in todos:
+            preview = (todo.description[:200] + '...' 
+                      if todo.description and len(todo.description) > 200 
+                      else (todo.description or ''))
+            score = calculate_relevance_score(q, todo.title, todo.description or '')
+            
+            results.append({
+                "type": "todo",
+                "id": todo.id,
+                "title": todo.title,
+                "preview": preview,
+                "project_id": todo.project_id,
+                "created_at": todo.created_at,
+                "updated_at": todo.updated_at,
+                "relevance_score": score,
+                "relevance_level": _get_relevance_level(score),
+                "url": f"/todos/{todo.id}",
+                "content": todo.description if include_content else None
+            })
+    
+    # Apply tag filtering
     if tags:
-        tag_names = [tag.strip() for tag in tags.split(',') if tag.strip()]
+        tag_list = [tag.strip().lower() for tag in tags.split(",")]
+        filtered_results = []
+        
+        for result in results:
+            item_tags = await _get_item_tags(db, result['type'], result['id'])
+            if any(tag in [t.lower() for t in item_tags] for tag in tag_list):
+                filtered_results.append(result)
+        
+        results = filtered_results
     
-    # Simplified search queries for single-user application
-    # Remove user ownership checks while keeping authentication
-
-        # Search notes (simplified for single user)
-        if 'note' in search_types:
-            note_query = (
-                select(Note)
-                .where(
-                    and_(
-                        Note.is_archived == False,
-                        search_condition_func('Note', Note.title, Note.content)
-                    )
-                )
-                .order_by(Note.updated_at.desc())
-                .limit(limit_per_type)
-            )
-            
-            note_result = await db.execute(note_query)
-            notes = note_result.scalars().all()
-            
-            for note in notes:
-                results.append(SearchResult(
-                    type='note',
-                    id=str(note.id),
-                    title=note.title,
-                    content=note.content if include_content else None,
-                    preview=note.content[:200] + "..." if note.content and len(note.content) > 200 else note.content,
-                    created_at=note.created_at,
-                    updated_at=note.updated_at,
-                    tags=[],
-                    metadata={}
-                ))
-                stats['note'] += 1
-
-        # Search documents (simplified for single user)
-        if 'document' in search_types:
-            document_fields = [Document.filename, Document.original_name]
-            if include_content:
-                document_fields.append(Document.extracted_text)
-                
-            document_query = (
-                select(Document)
-                .where(
-                    and_(
-                        Document.is_archived == False,
-                        search_condition_func('Document', *document_fields)
-                    )
-                )
-                .order_by(Document.updated_at.desc())
-                .limit(limit_per_type)
-            )
-            
-            document_result = await db.execute(document_query)
-            documents = document_result.scalars().all()
-            
-            for doc in documents:
-                results.append(SearchResult(
-                    type='document',
-                    id=doc.uuid,
-                    title=doc.filename,
-                    content=doc.extracted_text if include_content else None,
-                    preview=doc.extracted_text[:200] + "..." if doc.extracted_text and len(doc.extracted_text) > 200 else doc.extracted_text or doc.filename,
-                    created_at=doc.created_at,
-                    updated_at=doc.updated_at,
-                    tags=[],
-                    metadata={'mime_type': doc.mime_type, 'size': doc.size_bytes}
-                ))
-                stats['document'] += 1
-
-        # Search todos (simplified for single user)
-        if 'todo' in search_types:
-            todo_fields = [Todo.task, Todo.description]
-            
-            todo_query = (
-                select(Todo)
-                .where(
-                    and_(
-                        Todo.is_archived == False,
-                        search_condition_func('Todo', *todo_fields)
-                    )
-                )
-                .order_by(Todo.updated_at.desc())
-                .limit(limit_per_type)
-            )
-            
-            todo_result = await db.execute(todo_query)
-            todos = todo_result.scalars().all()
-            
-            for todo in todos:
-                results.append(SearchResult(
-                    type='todo',
-                    id=str(todo.id),
-                    title=todo.task,
-                    content=todo.description if include_content else None,
-                    preview=todo.description[:200] + "..." if todo.description and len(todo.description) > 200 else todo.description or todo.task,
-                    created_at=todo.created_at,
-                    updated_at=todo.updated_at,
-                    tags=[],
-                    metadata={'status': todo.status, 'priority': todo.priority}
-                ))
-                stats['todo'] += 1
-
-        # Search archive folders (simplified for single user)
-        if 'archive-folder' in search_types:
-            folder_fields = [ArchiveFolder.name]
-            if include_content:
-                folder_fields.append(ArchiveFolder.description)
-                
-            folder_query = (
-                select(ArchiveFolder)
-                .where(
-                    and_(
-                        ArchiveFolder.is_archived == False,
-                        search_condition_func('ArchiveFolder', *folder_fields)
-                    )
-                )
-                .order_by(ArchiveFolder.updated_at.desc())
-                .limit(limit_per_type)
-            )
-            
-            folder_result = await db.execute(folder_query)
-            folders = folder_result.scalars().all()
-            
-            for folder in folders:
-                results.append(SearchResult(
-                    type='archive-folder',
-                    id=folder.uuid,
-                    title=folder.name,
-                    content=folder.description if include_content else None,
-                    preview=folder.description[:100] + "..." if folder.description and len(folder.description) > 100 else folder.description or folder.name,
-                    created_at=folder.created_at,
-                    updated_at=folder.updated_at,
-                    tags=[],
-                    metadata={'path': folder.path}
-                ))
-                stats['archive-folder'] += 1
-
-        # Search archive items (simplified for single user)
-        if 'archive-item' in search_types:
-            item_fields = [ArchiveItem.name]
-            if include_content:
-                item_fields.extend([ArchiveItem.extracted_text, ArchiveItem.description])
-                
-            item_query = (
-                select(ArchiveItem)
-                .where(
-                    and_(
-                        ArchiveItem.is_archived == False,
-                        search_condition_func('ArchiveItem', *item_fields)
-                    )
-                )
-                .order_by(ArchiveItem.updated_at.desc())
-                .limit(limit_per_type)
-            )
-            
-            item_result = await db.execute(item_query)
-            items = item_result.scalars().all()
-            
-            for item in items:
-                results.append(SearchResult(
-                    type='archive-item',
-                    id=item.uuid,
-                    title=item.name,
-                    content=item.extracted_text if include_content else None,
-                    preview=item.extracted_text[:200] + "..." if item.extracted_text and len(item.extracted_text) > 200 else item.extracted_text or item.name,
-                    created_at=item.created_at,
-                    updated_at=item.updated_at,
-                    tags=[],
-                    metadata={'mime_type': item.mime_type, 'file_size': item.file_size, 'folder_uuid': item.folder_uuid}
-                ))
-                stats['archive-item'] += 1
-    
-    # Sort results
-    if sort_by == 'relevance':
-        results.sort(key=lambda x: x['score'], reverse=True)
-    elif sort_by == 'date':
-        results.sort(key=lambda x: x['createdAt'], reverse=True)
-    elif sort_by == 'title':
+    # Apply sorting
+    if sort_by == "relevance":
+        results.sort(key=lambda x: x['relevance_score'], reverse=True)
+    elif sort_by == "date":
+        results.sort(key=lambda x: x['updated_at'], reverse=True)
+    elif sort_by == "title":
         results.sort(key=lambda x: x['title'].lower())
     
-    # Calculate search statistics
-    search_time = (datetime.now() - start_time).total_seconds() * 1000
-    
-    # Group results by type for statistics
-    stats = {
-        'totalResults': len(results),
-        'resultsByType': {
-            'note': len([r for r in results if r['type'] == 'note']),
-            'document': len([r for r in results if r['type'] == 'document']),
-            'todo': len([r for r in results if r['type'] == 'todo']),
-            'archive': len([r for r in results if r['type'] == 'archive']),
-            'archive-folder': len([r for r in results if r['type'] == 'archive-folder']),
-        },
-        'searchTime': round(search_time, 2),
-        'query': q,
-        'includeContent': include_content,
-        'appliedFilters': {
-            'contentTypes': list(allowed_types),
-            'tags': tag_names
-        }
-    }
+    # Apply pagination
+    paginated_results = results[offset:offset + limit]
     
     return {
-        'results': results[offset:offset + limit],
-        'stats': stats,
-        'suggestions': [] if not results else await get_search_suggestions_for_query(db, current_user.id, q)
+        "results": paginated_results,
+        "total": len(results),
+        "query": q,
+        "search_type": "legacy",
+        "performance": "standard"
     }
+
+async def _get_item_tags(db: AsyncSession, item_type: str, item_id: str) -> List[str]:
+    """Get tags for a specific item"""
+    try:
+        if item_type == "note":
+            query = text("""
+                SELECT t.name FROM tags t
+                JOIN note_tags nt ON t.id = nt.tag_id
+                WHERE nt.note_id = :item_id
+            """)
+        elif item_type == "document":
+            query = text("""
+                SELECT t.name FROM tags t
+                JOIN document_tags dt ON t.id = dt.tag_id
+                WHERE dt.document_uuid = :item_id
+            """)
+        elif item_type == "archive_item":
+            query = text("""
+                SELECT t.name FROM tags t
+                JOIN archive_tags at ON t.id = at.tag_id
+                WHERE at.item_uuid = :item_id
+            """)
+        elif item_type == "todo":
+            query = text("""
+                SELECT t.name FROM tags t
+                JOIN todo_tags tt ON t.id = tt.tag_id
+                WHERE tt.todo_id = :item_id
+            """)
+        else:
+            return []
+        
+        result = await db.execute(query, {"item_id": item_id})
+        return [row[0] for row in result.fetchall()]
+        
+    except Exception as e:
+        logger.warning(f"Failed to get tags for {item_type} {item_id}: {e}")
+        return []
+
+def _get_relevance_level(score: float) -> str:
+    """Convert relevance score to level"""
+    if score >= 0.8:
+        return "high"
+    elif score >= 0.5:
+        return "medium"
+    else:
+        return "low"
+
+def calculate_relevance_score(query: str, title: str, content: str) -> float:
+    """Calculate relevance score for search results."""
+    query_lower = query.lower()
+    title_lower = title.lower() if title else ""
+    content_lower = content.lower() if content else ""
+    
+    score = 0.0
+    
+    # Title exact match (highest weight)
+    if query_lower == title_lower:
+        score += 100
+    elif query_lower in title_lower:
+        score += 50
+    
+    # Title word matches
+    query_words = query_lower.split()
+    title_words = title_lower.split()
+    
+    for word in query_words:
+        if word in title_words:
+            score += 20
+    
+    # Content matches
+    if content_lower:
+        content_matches = content_lower.count(query_lower)
+        score += min(content_matches * 5, 30)  # Cap content score
+        
+        # Word matches in content
+        for word in query_words:
+            word_matches = content_lower.count(word)
+            score += min(word_matches * 2, 10)  # Cap word score
+        
+        # Normalize by content length (favor shorter, more focused content)
+        score = score * (1000 / max(len(content_lower), 1000))
+    
+    return round(score, 2)
 
 @router.get("/search/fts")
 async def fts_search(
@@ -658,52 +814,6 @@ async def get_search_suggestions_for_query(db: AsyncSession, user_id: int, query
         
     except Exception:
         return []
-
-def calculate_relevance_score(query: str, title: str, content: str) -> float:
-    """Calculate relevance score for search results."""
-    query_lower = query.lower()
-    title_lower = title.lower() if title else ""
-    content_lower = content.lower() if content else ""
-    
-    score = 0.0
-    
-    # Title exact match (highest weight)
-    if query_lower == title_lower:
-        score += 100
-    elif query_lower in title_lower:
-        score += 50
-    
-    # Title word matches
-    query_words = query_lower.split()
-    title_words = title_lower.split()
-    
-    for word in query_words:
-        if word in title_words:
-            score += 20
-    
-    # Content matches
-    if content_lower:
-        content_matches = content_lower.count(query_lower)
-        score += min(content_matches * 5, 30)  # Cap content score
-        
-        # Word matches in content
-        for word in query_words:
-            word_matches = content_lower.count(word)
-            score += min(word_matches * 2, 10)  # Cap word score
-        
-        # Normalize by content length (favor shorter, more focused content)
-        score = score * (1000 / max(len(content_lower), 1000))
-    
-    return round(score, 2)
-
-def get_relevance_level(score: float) -> str:
-    """Convert numeric score to relevance level."""
-    if score >= 50:
-        return 'high'
-    elif score >= 20:
-        return 'medium'
-    else:
-        return 'low'
 
 def extract_preview(text: str, query: str, max_length: int = 200) -> str:
     """Extract preview text highlighting the search query."""

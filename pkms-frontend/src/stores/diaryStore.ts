@@ -1,7 +1,6 @@
 import { create } from 'zustand';
-import { notifications } from '@mantine/notifications';
 import { diaryService } from '../services/diaryService';
-import { DiaryEntry, DiaryEntrySummary, DiaryMetadata, DiaryEntryCreatePayload } from '../types/diary';
+import { DiaryEntry, DiaryEntrySummary, DiaryMetadata, DiaryEntryCreatePayload, DiaryCalendarData, MoodStats } from '../types/diary';
 
 interface DiaryState {
   entries: DiaryEntrySummary[];
@@ -52,7 +51,7 @@ interface DiaryState {
   setHasMedia: (hasMedia: boolean | null) => void;
 }
 
-export const useDiaryStore = create<DiaryState>((set, get) => ({
+export const useDiaryStore = create<DiaryState>((set) => ({
   entries: [],
   currentEntry: null,
   isLoading: false,

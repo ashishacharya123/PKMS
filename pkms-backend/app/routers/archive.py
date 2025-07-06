@@ -4,7 +4,7 @@ Handles hierarchical file and folder organization with enhanced security
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_, desc, delete
 from sqlalchemy.orm import selectinload
@@ -19,6 +19,8 @@ import aiofiles
 import logging
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+import asyncio
+from io import BytesIO
 
 # Optional imports for file processing
 try:
@@ -50,6 +52,7 @@ from app.utils.security import (
     validate_uuid_format,
     sanitize_text_input
 )
+from app.services.file_detection import file_detector
 
 router = APIRouter()
 
@@ -1316,3 +1319,150 @@ async def _extract_metadata(file_path: Path, mime_type: str, original_name: str)
     return metadata
 
 # --- END: COPIED FROM documents.py router --- 
+
+@router.post("/upload")
+async def upload_files(
+    files: List[UploadFile] = File(...),
+    folder_uuid: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Upload multiple files to the archive"""
+    
+    logger.info(f"📁 Starting upload of {len(files)} files to folder {folder_uuid}")
+    
+    try:
+        # Verify folder exists if specified
+        if folder_uuid:
+            folder_query = select(ArchiveFolder).where(
+                and_(
+                    ArchiveFolder.uuid == folder_uuid,
+                    ArchiveFolder.user_id == current_user.id
+                )
+            )
+            folder_result = await db.execute(folder_query)
+            folder = folder_result.scalar_one_or_none()
+            if not folder:
+                raise HTTPException(status_code=404, detail="Folder not found")
+        
+        # Parse tags
+        tag_list = []
+        if tags:
+            tag_names = [tag.strip() for tag in tags.split(",") if tag.strip()]
+            for tag_name in tag_names:
+                # Find or create tag
+                tag_query = select(Tag).where(
+                    and_(
+                        Tag.name == tag_name,
+                        Tag.module_type == "archive",
+                        Tag.user_id == current_user.id
+                    )
+                )
+                tag_result = await db.execute(tag_query)
+                tag = tag_result.scalar_one_or_none()
+                if not tag:
+                    tag = Tag(
+                        name=tag_name,
+                        module_type="archive",
+                        user_id=current_user.id,
+                        color="#6366f1"
+                    )
+                    db.add(tag)
+                    await db.flush()
+                tag_list.append(tag)
+        
+        uploaded_files = []
+        data_dir = get_data_dir() / "archive"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        
+        for file in files:
+            try:
+                # Generate unique filename
+                file_uuid = str(uuid_lib.uuid4())
+                file_extension = Path(file.filename).suffix
+                safe_filename = f"{file_uuid}{file_extension}"
+                file_path = data_dir / safe_filename
+                
+                # Read file content for detection
+                file_content = await file.read()
+                await file.seek(0)  # Reset for saving
+                
+                # Detect file type using our enhanced service
+                detection_result = await file_detector.detect_file_type(
+                    file_path=Path(file.filename),
+                    file_content=file_content
+                )
+                
+                # Save file
+                async with aiofiles.open(file_path, 'wb') as f:
+                    await f.write(file_content)
+                
+                # Create archive item
+                archive_item = ArchiveItem(
+                    uuid=file_uuid,
+                    name=Path(file.filename).stem,
+                    original_filename=file.filename,
+                    filename=safe_filename,
+                    mime_type=detection_result["mime_type"],
+                    file_size=len(file_content),
+                    user_id=current_user.id,
+                    folder_uuid=folder_uuid,
+                    description=description,
+                    metadata_json=json.dumps({
+                        "upload_info": {
+                            "original_name": file.filename,
+                            "upload_date": datetime.utcnow().isoformat(),
+                            "file_detection": detection_result
+                        }
+                    })
+                )
+                
+                db.add(archive_item)
+                await db.flush()
+                
+                # Add tags
+                for tag in tag_list:
+                    await db.execute(
+                        archive_tags.insert().values(
+                            item_uuid=archive_item.uuid,
+                            tag_id=tag.id
+                        )
+                    )
+                
+                uploaded_files.append({
+                    "uuid": archive_item.uuid,
+                    "name": archive_item.name,
+                    "filename": archive_item.original_filename,
+                    "mime_type": archive_item.mime_type,
+                    "file_size": archive_item.file_size,
+                    "detection_info": detection_result
+                })
+                
+                logger.info(f"✅ Uploaded file: {file.filename} -> {safe_filename}")
+                
+            except Exception as e:
+                logger.error(f"❌ Failed to upload file {file.filename}: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to upload file {file.filename}"
+                )
+        
+        await db.commit()
+        
+        logger.info(f"🎉 Successfully uploaded {len(uploaded_files)} files")
+        
+        return {
+            "message": f"Successfully uploaded {len(uploaded_files)} files",
+            "files": uploaded_files,
+            "total_files": len(uploaded_files)
+        }
+        
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"❌ Archive upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Upload failed") 

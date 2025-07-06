@@ -58,3 +58,7 @@ bleach>=6.1.0               # HTML sanitization
 # Performance & Caching
 redis<5.0.0,>=4.2.0                # Redis client
 aiocache==0.12.2           # Async caching
+
+# Alternative file detection libraries
+magika==0.6.2
+pyfsig==1.1.1

@@ -1,5 +1,5 @@
 import { apiService } from './api';
-import { DiaryEntry, DiaryEntrySummary, DiaryMetadata, DiaryEntryCreatePayload, DiaryCalendarData, MoodStats } from '../types/diary';
+import { DiaryEntry, DiaryEntrySummary, DiaryEntryCreatePayload, DiaryCalendarData, MoodStats } from '../types/diary';
 
 class DiaryService {
   private baseUrl = '/diary';
@@ -69,7 +69,7 @@ class DiaryService {
     };
   }
 
-  async decryptContent(encrypted_blob: string, iv: string, tag: string, key: CryptoKey): Promise<string> {
+  async decryptContent(encrypted_blob: string, iv: string, _tag: string, key: CryptoKey): Promise<string> {
     const decoder = new TextDecoder();
     const encryptedData = Uint8Array.from(atob(encrypted_blob), c => c.charCodeAt(0));
     const ivData = Uint8Array.from(atob(iv), c => c.charCodeAt(0));
@@ -81,6 +81,11 @@ class DiaryService {
     );
 
     return decoder.decode(decrypted);
+  }
+
+  async getPasswordHint(): Promise<string> {
+    const response = await apiService.get<{ hint: string }>(`${this.baseUrl}/encryption/hint`);
+    return response.data.hint;
   }
 
   // --- Entry Methods ---

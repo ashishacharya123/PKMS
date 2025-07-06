@@ -16,13 +16,20 @@ from app.database import get_db
 from app.models.diary import DiaryEntry, DiaryMedia
 from app.models.user import User, RecoveryKey
 from app.auth.dependencies import get_current_user
-from app.auth.security import verify_password
+from app.auth.security import verify_password, hash_password
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["diary"])
 
 # --- Pydantic Models ---
+
+class EncryptionSetupRequest(BaseModel):
+    password: str
+    hint: Optional[str] = None
+
+class EncryptionUnlockRequest(BaseModel):
+    password: str
 
 class DiaryEntryCreate(BaseModel):
     date: date
@@ -95,6 +102,116 @@ class DiaryMediaResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# --- Encryption Endpoints ---
+
+@router.get("/encryption/status")
+async def get_encryption_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Check if diary encryption is set up for the current user."""
+    # For simplicity, check if user has any diary entries (indicating encryption is setup)
+    # In a real implementation, you might store encryption setup status separately
+    result = await db.execute(
+        select(DiaryEntry)
+        .where(DiaryEntry.user_id == current_user.id)
+        .limit(1)
+    )
+    entry = result.scalar_one_or_none()
+    
+    # Also check if user has a recovery record that indicates diary setup
+    recovery_result = await db.execute(select(RecoveryKey))
+    recovery_record = recovery_result.scalar_one_or_none()
+    
+    # Consider encryption setup if user has entries OR recovery record
+    is_setup = entry is not None or (recovery_record and recovery_record.master_password_hash)
+    
+    return {"is_setup": is_setup}
+
+@router.post("/encryption/setup")
+async def setup_encryption(
+    request: EncryptionSetupRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Set up diary encryption for the current user."""
+    try:
+        # Store the password hint in the recovery system if provided
+        if request.hint:
+            # Check if recovery record exists and update or create
+            result = await db.execute(select(RecoveryKey))
+            recovery_record = result.scalar_one_or_none()
+            
+            if recovery_record:
+                # Store hint in the existing recovery record
+                # We can use the questions_json field to store the hint
+                recovery_record.questions_json = json.dumps([{"question": "Password Hint", "hint": request.hint}])
+            else:
+                # Create new recovery record with hint
+                recovery_record = RecoveryKey(
+                    user_id=current_user.id,
+                    key_hash="",  # Not using key hash for diary encryption
+                    questions_json=json.dumps([{"question": "Password Hint", "hint": request.hint}]),
+                    answers_hash="",  # Not using answers for diary encryption
+                    salt="",  # Not using salt for diary encryption
+                    master_password_hash=""  # Will be set up separately if needed
+                )
+                db.add(recovery_record)
+            
+            await db.commit()
+        
+        # Encryption setup is successful
+        # The actual encryption key is generated client-side from the password
+        return {"success": True}
+        
+    except Exception as e:
+        logger.error(f"❌ Error setting up diary encryption: {str(e)}")
+        return {"success": False}
+
+@router.post("/encryption/unlock")
+async def unlock_encryption(
+    request: EncryptionUnlockRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Unlock diary encryption session."""
+    try:
+        # For diary encryption, we don't store the password server-side
+        # The client generates the encryption key from the password
+        # We just verify that the user is authenticated and return success
+        
+        # Optionally, you could add password verification here if you store
+        # a hash of the diary password separately from the login password
+        
+        return {"success": True}
+        
+    except Exception as e:
+        logger.error(f"❌ Error unlocking diary encryption: {str(e)}")
+        return {"success": False}
+
+@router.get("/encryption/hint")
+async def get_password_hint(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get the password hint for diary encryption."""
+    try:
+        # Get the recovery record that contains the hint
+        result = await db.execute(select(RecoveryKey))
+        recovery_record = result.scalar_one_or_none()
+        
+        if recovery_record and recovery_record.questions_json:
+            questions = json.loads(recovery_record.questions_json)
+            if questions and len(questions) > 0:
+                hint = questions[0].get("hint", "")
+                return {"hint": hint}
+        
+        return {"hint": ""}
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting password hint: {str(e)}")
+        return {"hint": ""}
 
 # --- API Endpoints ---
 
