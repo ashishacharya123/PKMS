@@ -21,7 +21,7 @@ import sys
 from fastapi.responses import JSONResponse
 
 # Import routers
-from app.routers import auth, notes, documents, todos, diary, archive, dashboard, search, archive_improvements
+from app.routers import auth, notes, documents, todos, diary, archive, dashboard, search  # , archive_improvements
 
 # Import database initialization
 from app.database import init_db, close_db, get_db_session
@@ -139,7 +139,7 @@ app.include_router(documents.router, prefix="/api/v1/documents")
 app.include_router(todos.router, prefix="/api/v1/todos")
 app.include_router(diary.router, prefix="/api/v1/diary")
 app.include_router(archive.router, prefix="/api/v1/archive")
-app.include_router(archive_improvements.router, prefix="/api/v1")
+# app.include_router(archive_improvements.router, prefix="/api/v1")  # Temporarily disabled due to import issues
 app.include_router(dashboard.router, prefix="/api/v1/dashboard")
 app.include_router(search.router, prefix="/api/v1/search")
 

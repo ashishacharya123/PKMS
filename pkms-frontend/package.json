@@ -13,7 +13,7 @@
   "dependencies": {
     "@mantine/code-highlight": "^7.0.0",
     "@mantine/core": "^7.0.0",
-    "@mantine/dates": "^7.0.0",
+    "@mantine/dates": "^7.17.8",
     "@mantine/dropzone": "^7.0.0",
     "@mantine/form": "^7.0.0",
     "@mantine/hooks": "^7.0.0",
@@ -23,6 +23,7 @@
     "@uiw/react-md-editor": "^3.6.0",
     "axios": "^1.6.0",
     "date-fns": "^3.0.0",
+    "dayjs": "^1.11.10",
     "nepali-date-converter": "^3.4.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

@@ -1,0 +1,100 @@
+/* Mantine Override Styles - Fix for deprecation warnings */
+
+/* 
+ * Override deprecated -ms-high-contrast with modern forced-colors
+ * This fixes the Mantine v7 deprecation warnings about -ms-high-contrast
+ */
+
+/* Replace deprecated -ms-high-contrast with forced-colors */
+@media (forced-colors: active) {
+  /* Mantine component overrides for forced colors mode */
+  .mantine-Button-root,
+  .mantine-ActionIcon-root,
+  .mantine-TextInput-input,
+  .mantine-Select-input,
+  .mantine-Badge-root,
+  .mantine-Card-root,
+  .mantine-Paper-root,
+  .mantine-Menu-dropdown,
+  .mantine-Modal-content,
+  .mantine-Alert-root {
+    border: 1px solid ButtonText !important;
+    background: ButtonFace !important;
+    color: ButtonText !important;
+  }
+  
+  .mantine-Button-root:hover,
+  .mantine-ActionIcon-root:hover {
+    background: Highlight !important;
+    color: HighlightText !important;
+    border-color: HighlightText !important;
+  }
+  
+  .mantine-Button-root[data-variant="filled"] {
+    background: ButtonText !important;
+    color: ButtonFace !important;
+  }
+  
+  .mantine-Button-root[data-variant="filled"]:hover {
+    background: Highlight !important;
+    color: HighlightText !important;
+  }
+  
+  /* Text elements */
+  .mantine-Text-root,
+  .mantine-Title-root {
+    color: WindowText !important;
+  }
+  
+  /* Input focus states */
+  .mantine-TextInput-input:focus,
+  .mantine-Select-input:focus {
+    border-color: Highlight !important;
+    outline: 2px solid Highlight !important;
+  }
+  
+  /* Icons */
+  .mantine-ActionIcon-root svg,
+  .mantine-Button-root svg {
+    color: currentColor !important;
+  }
+}
+
+/* Suppress specific -ms-high-contrast warnings */
+@media screen {
+  .mantine-Button-root,
+  .mantine-ActionIcon-root,
+  .mantine-TextInput-input,
+  .mantine-Select-input,
+  .mantine-Badge-root,
+  .mantine-Card-root,
+  .mantine-Paper-root {
+    /* Modern forced-colors support */
+    forced-color-adjust: auto;
+  }
+}
+
+/* Additional accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+  .mantine-Button-root,
+  .mantine-ActionIcon-root,
+  .mantine-Card-root,
+  .mantine-Modal-root {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* High contrast theme improvements */
+@media (prefers-contrast: high) {
+  .mantine-Button-root,
+  .mantine-ActionIcon-root,
+  .mantine-TextInput-input,
+  .mantine-Select-input {
+    border-width: 2px !important;
+  }
+  
+  .mantine-Text-root[data-dimmed="true"] {
+    opacity: 0.8 !important;
+  }
+} 

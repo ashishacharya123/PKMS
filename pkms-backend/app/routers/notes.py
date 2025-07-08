@@ -5,7 +5,7 @@ Handles note creation, editing, linking, tagging, and search
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, text
+from sqlalchemy import select, and_, or_, func, text, delete
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any
@@ -81,122 +81,7 @@ class NoteSummary(BaseModel):
     class Config:
         from_attributes = True
 
-@router.post("/", response_model=NoteResponse)
-async def create_note(
-    note_data: NoteCreate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Create a new note with automatic linking and tagging"""
-    
-    # Create note
-    note = Note(
-        title=note_data.title,
-        content=note_data.content,
-        area=note_data.area,
-        year=datetime.now().year,
-        user_id=current_user.id
-    )
-    
-    db.add(note)
-    await db.flush()  # Get note ID
-    
-    # Handle tags
-    await _handle_note_tags(db, note, note_data.tags, current_user.id)
-    
-    # Process bidirectional links in content
-    await _process_note_links(db, note, note_data.content, current_user.id)
-    
-    await db.commit()
-    await db.refresh(note)
-    
-    # Return with related data
-    return await _get_note_with_relations(db, note.id, current_user.id)
-
-# Simplified queries for single-user application
-# Remove unnecessary user ownership checks while keeping authentication
-
-@router.get("/notes/{note_id}", response_model=NoteResponse)
-async def get_note(
-    note_id: int,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get note by ID (simplified for single user)"""
-    result = await db.execute(
-        select(Note).where(Note.id == note_id)
-    )
-    note = result.scalar_one_or_none()
-    
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
-    
-    return note
-
-@router.put("/notes/{note_id}", response_model=NoteResponse)
-async def update_note(
-    note_id: int,
-    note_data: NoteUpdate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Update note (simplified for single user)"""
-    result = await db.execute(
-        select(Note).where(Note.id == note_id)
-    )
-    note = result.scalar_one_or_none()
-    
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
-    
-    # Update fields
-    if note_data.title is not None:
-        note.title = note_data.title
-    if note_data.content is not None:
-        note.content = note_data.content
-    if note_data.area is not None:
-        note.area = note_data.area
-    if note_data.year is not None:
-        note.year = note_data.year
-    if note_data.is_archived is not None:
-        note.is_archived = note_data.is_archived
-    
-    await db.commit()
-    await db.refresh(note)
-    
-    return note
-
-@router.delete("/notes/{note_id}")
-async def delete_note(
-    note_id: int,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Delete note (simplified for single user)"""
-    result = await db.execute(
-        select(Note).where(Note.id == note_id)
-    )
-    note = result.scalar_one_or_none()
-    
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
-    
-    # Delete associated links
-    await db.execute(
-        delete(Link).where(
-            or_(
-                and_(Link.from_type == "note", Link.from_id == str(note_id)),
-                and_(Link.to_type == "note", Link.to_id == str(note_id))
-            )
-        )
-    )
-    
-    await db.delete(note)
-    await db.commit()
-    
-    return {"message": "Note deleted successfully"}
-
-@router.get("/notes", response_model=List[NoteResponse])
+@router.get("/", response_model=List[NoteSummary])
 async def list_notes(
     area: Optional[str] = Query(None),
     year: Optional[int] = Query(None),
@@ -232,7 +117,147 @@ async def list_notes(
     result = await db.execute(query)
     notes = result.scalars().all()
     
-    return notes
+    # Convert to NoteSummary objects
+    summaries = []
+    for note in notes:
+        # Get tags for this note
+        tags_result = await db.execute(
+            select(Tag.name).select_from(Tag).join(note_tags).where(note_tags.c.note_id == note.id)
+        )
+        tags = [tag for tag, in tags_result.fetchall()]
+        
+        # Create preview
+        preview = note.content[:200] + "..." if len(note.content) > 200 else note.content
+        
+        summary = NoteSummary(
+            id=note.id,
+            title=note.title,
+            area=note.area,
+            year=note.year,
+            is_archived=note.is_archived,
+            created_at=note.created_at,
+            updated_at=note.updated_at,
+            tags=tags,
+            preview=preview
+        )
+        summaries.append(summary)
+    
+    return summaries
+
+@router.post("/", response_model=NoteResponse)
+async def create_note(
+    note_data: NoteCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a new note with automatic linking and tagging"""
+    
+    # Create note
+    note = Note(
+        title=note_data.title,
+        content=note_data.content,
+        area=note_data.area,
+        year=datetime.now().year,
+        user_id=current_user.id
+    )
+    
+    db.add(note)
+    await db.flush()  # Get note ID
+    
+    # Handle tags
+    await _handle_note_tags(db, note, note_data.tags, current_user.id)
+    
+    # Process bidirectional links in content
+    await _process_note_links(db, note, note_data.content, current_user.id)
+    
+    await db.commit()
+    await db.refresh(note)
+    
+    # Return with related data
+    return await _get_note_with_relations(db, note.id, current_user.id)
+
+# Simplified queries for single-user application
+# Remove unnecessary user ownership checks while keeping authentication
+
+@router.get("/{note_id}", response_model=NoteResponse)
+async def get_note(
+    note_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get note by ID (simplified for single user)"""
+    result = await db.execute(
+        select(Note).where(Note.id == note_id)
+    )
+    note = result.scalar_one_or_none()
+    
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    
+    return await _get_note_with_relations(db, note.id, current_user.id)
+
+@router.put("/{note_id}", response_model=NoteResponse)
+async def update_note(
+    note_id: int,
+    note_data: NoteUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update note (simplified for single user)"""
+    result = await db.execute(
+        select(Note).where(Note.id == note_id)
+    )
+    note = result.scalar_one_or_none()
+    
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    
+    # Update fields
+    if note_data.title is not None:
+        note.title = note_data.title
+    if note_data.content is not None:
+        note.content = note_data.content
+    if note_data.area is not None:
+        note.area = note_data.area
+    if note_data.year is not None:
+        note.year = note_data.year
+    if note_data.is_archived is not None:
+        note.is_archived = note_data.is_archived
+    
+    await db.commit()
+    await db.refresh(note)
+    
+    return await _get_note_with_relations(db, note.id, current_user.id)
+
+@router.delete("/{note_id}")
+async def delete_note(
+    note_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete note (simplified for single user)"""
+    result = await db.execute(
+        select(Note).where(Note.id == note_id)
+    )
+    note = result.scalar_one_or_none()
+    
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    
+    # Delete associated links
+    await db.execute(
+        delete(Link).where(
+            or_(
+                and_(Link.from_type == "note", Link.from_id == str(note_id)),
+                and_(Link.to_type == "note", Link.to_id == str(note_id))
+            )
+        )
+    )
+    
+    await db.delete(note)
+    await db.commit()
+    
+    return {"message": "Note deleted successfully"}
 
 @router.get("/areas/list")
 async def list_areas(

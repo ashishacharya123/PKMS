@@ -107,20 +107,24 @@ class TodosService {
 
   // Project methods
   async createProject(projectData: ProjectCreate): Promise<Project> {
-    return await apiService.post<Project>(`${this.baseUrl}/projects`, projectData);
+    const response = await apiService.post<Project>(`${this.baseUrl}/projects`, projectData);
+    return response.data;
   }
 
   async getProjects(archived: boolean = false): Promise<Project[]> {
     const url = `${this.baseUrl}/projects?archived=${archived}`;
-    return await apiService.get<Project[]>(url);
+    const response = await apiService.get<Project[]>(url);
+    return response.data;
   }
 
   async getProject(projectId: number): Promise<Project> {
-    return await apiService.get<Project>(`${this.baseUrl}/projects/${projectId}`);
+    const response = await apiService.get<Project>(`${this.baseUrl}/projects/${projectId}`);
+    return response.data;
   }
 
   async updateProject(projectId: number, projectData: ProjectUpdate): Promise<Project> {
-    return await apiService.put<Project>(`${this.baseUrl}/projects/${projectId}`, projectData);
+    const response = await apiService.put<Project>(`${this.baseUrl}/projects/${projectId}`, projectData);
+    return response.data;
   }
 
   async deleteProject(projectId: number): Promise<void> {
@@ -129,32 +133,35 @@ class TodosService {
 
   // Todo methods
   async createTodo(todoData: TodoCreate): Promise<Todo> {
-    return await apiService.post<Todo>(`${this.baseUrl}/`, todoData);
+    const response = await apiService.post<Todo>(`${this.baseUrl}/`, todoData);
+    return response.data;
   }
 
   async getTodos(params: TodoListParams = {}): Promise<TodoSummary[]> {
     const queryParams = new URLSearchParams();
-    
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
         queryParams.append(key, value.toString());
       }
     });
-
     const url = `${this.baseUrl}/${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    return await apiService.get<TodoSummary[]>(url);
+    const response = await apiService.get<TodoSummary[]>(url);
+    return response.data;
   }
 
   async getTodo(todoId: number): Promise<Todo> {
-    return await apiService.get<Todo>(`${this.baseUrl}/${todoId}`);
+    const response = await apiService.get<Todo>(`${this.baseUrl}/${todoId}`);
+    return response.data;
   }
 
   async updateTodo(todoId: number, todoData: TodoUpdate): Promise<Todo> {
-    return await apiService.put<Todo>(`${this.baseUrl}/${todoId}`, todoData);
+    const response = await apiService.put<Todo>(`${this.baseUrl}/${todoId}`, todoData);
+    return response.data;
   }
 
   async completeTodo(todoId: number): Promise<Todo> {
-    return await apiService.post<Todo>(`${this.baseUrl}/${todoId}/complete`);
+    const response = await apiService.post<Todo>(`${this.baseUrl}/${todoId}/complete`);
+    return response.data;
   }
 
   async deleteTodo(todoId: number): Promise<void> {
@@ -163,7 +170,8 @@ class TodosService {
 
   // Statistics
   async getTodoStats(): Promise<TodoStats> {
-    return await apiService.get<TodoStats>(`${this.baseUrl}/stats/overview`);
+    const response = await apiService.get<TodoStats>(`${this.baseUrl}/stats/overview`);
+    return response.data;
   }
 
   // Utility methods

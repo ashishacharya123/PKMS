@@ -18,7 +18,6 @@ import {
   alpha,
   Stack,
   Paper,
-  MantineTheme,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import {
@@ -29,8 +28,6 @@ import {
   IconArrowRight,
   IconFolderPlus,
   IconUpload,
-  IconLayoutGrid,
-  IconList,
   IconSortAscending,
   IconSortDescending,
   IconHome,
@@ -41,6 +38,7 @@ import { notifications } from '@mantine/notifications';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useArchiveStore } from '../stores/archiveStore';
 import { ArchiveFolder, FolderTree } from '../services/archiveService';
+import { SortOrder } from '../types/archive';
 
 const FolderTreeView = () => {
   const theme = useMantineTheme();
@@ -73,10 +71,8 @@ const FolderTreeView = () => {
       if (!folderId) return;
       const path = new Set<string>();
       let current = findFolderInTree(folderTree, folderId);
-      while (current) {
-        if (current.folder.parent_uuid) {
-          path.add(current.folder.parent_uuid);
-        }
+      while (current && current.folder.parent_uuid) {
+        path.add(current.folder.parent_uuid);
         current = findFolderInTree(folderTree, current.folder.parent_uuid);
       }
       setOpenFolders(prev => new Set([...prev, ...path]));
@@ -157,14 +153,14 @@ const FolderTreeView = () => {
         <IconHome size={20} style={{ marginLeft: 6 }} />
         <Text size="sm" fw={500}>Archive Root</Text>
       </Group>
-      {renderTree(folderTree)}
+      {Array.isArray(folderTree) ? renderTree(folderTree) : null}
     </Box>
   );
 };
 
 export function ArchivePage() {
   const store = useArchiveStore();
-  const [filter, setFilter] = useState('');
+  const [filter] = useState('');
   const [debouncedFilter] = useDebouncedValue(filter, 200);
   const [action, setAction] = useState<'view' | 'create-folder' | 'edit-folder' | 'upload'>('view');
   const [editingFolder, setEditingFolder] = useState<ArchiveFolder | null>(null);
@@ -207,13 +203,13 @@ export function ArchivePage() {
     }
   };
   
-  const filteredFolders = store.folders.filter(f => f.name.toLowerCase().includes(debouncedFilter.toLowerCase()));
-  const filteredItems = store.items.filter(i => i.name.toLowerCase().includes(debouncedFilter.toLowerCase()));
-  const breadcrumbItems = store.breadcrumb.map((item) => (
-    <Anchor component="button" type="button" onClick={() => store.navigateToFolder(item.uuid || null)} key={item.uuid}>
+  const filteredFolders = Array.isArray(store.folders) ? store.folders.filter(f => f.name.toLowerCase().includes(debouncedFilter.toLowerCase())) : [];
+  const filteredItems = Array.isArray(store.items) ? store.items.filter(i => i.name.toLowerCase().includes(debouncedFilter.toLowerCase())) : [];
+  const breadcrumbItems = Array.isArray(store.breadcrumb) ? store.breadcrumb.map((item) => (
+    <Anchor component="button" type="button" onClick={() => store.navigateToFolder(item.uuid)} key={item.uuid}>
       {item.name}
     </Anchor>
-  ));
+  )) : [];
 
   const renderContent = () => {
     if (action === 'create-folder' || action === 'edit-folder') {
@@ -238,7 +234,7 @@ export function ArchivePage() {
     return (
       <>
         <Title order={2} mb="xs">{store.currentFolder?.name || 'Archive Root'}</Title>
-        <Text c="dimmed" mb="lg">{store.folders.length} folders, {store.items.length} files</Text>
+        <Text c="dimmed" mb="lg">{Array.isArray(store.folders) ? store.folders.length : 0} folders, {Array.isArray(store.items) ? store.items.length : 0} files</Text>
         <Title order={4} mb="md">Folders</Title>
         <Grid>
           {filteredFolders.map((folder) => (
@@ -282,7 +278,7 @@ export function ArchivePage() {
           <Box>
             <Group justify="space-between" mb="lg">
               <Breadcrumbs separator=">">
-                <Anchor component="button" type="button" onClick={() => store.navigateToFolder(null)}>
+                <Anchor component="button" type="button" onClick={() => store.navigateToFolder()}>
                   <IconHome size={16} />
                 </Anchor>
                 {breadcrumbItems}
@@ -293,16 +289,16 @@ export function ArchivePage() {
               </Group>
             </Group>
             <Group justify="space-between" mb="lg">
-              <TextInput placeholder="Search in this folder..." value={filter} onChange={(event) => setFilter(event.currentTarget.value)} w={250} />
-              <Group>
+              <Text>{store.currentFolder ? `Folder: ${store.currentFolder.name}` : 'Archive Root'}</Text>
+              <Group gap="sm">
                 <SegmentedControl
                   value={store.viewMode}
-                  onChange={(value) => store.setViewMode(value as 'grid' | 'list')}
-                  data={[{ label: <IconLayoutGrid />, value: 'grid' }, { label: <IconList />, value: 'list' }]}
+                  onChange={(value) => store.setViewMode(value as typeof store.viewMode)}
+                  data={[{ label: 'Grid', value: 'grid' }, { label: 'List', value: 'list' }]}
                 />
                 <SegmentedControl
                   value={store.sortBy}
-                  onChange={(value) => store.setSortBy(value as 'name' | 'updated_at')}
+                  onChange={(value) => store.setSortBy(value as typeof store.sortBy)}
                   data={[{ label: 'Name', value: 'name' }, { label: 'Updated', value: 'updated_at' }]}
                 />
                 <ActionIcon variant="default" onClick={() => store.setSortOrder(store.sortOrder === 'asc' ? 'desc' : 'asc')}>

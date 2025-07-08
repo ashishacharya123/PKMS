@@ -10,6 +10,9 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/dates/styles.css';
 
+// Import custom overrides to fix deprecation warnings
+import './styles/mantine-override.css';
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <MantineProvider 
@@ -23,7 +26,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       }}
     >
       <Notifications position="top-right" />
-      <BrowserRouter>
+      <BrowserRouter
+        future={{
+          v7_startTransition: true,
+          v7_relativeSplatPath: true,
+        }}
+      >
         <App />
       </BrowserRouter>
     </MantineProvider>

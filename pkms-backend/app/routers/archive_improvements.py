@@ -29,7 +29,7 @@ from fastapi_limiter import FastAPILimiter
 
 # Import existing models and dependencies
 from app.database import get_db
-from app.models.archive import ArchiveFolder, ArchiveItem, Archive
+from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import archive_tags
 from app.models.tag import Tag
 from app.models.user import User
@@ -37,6 +37,7 @@ from app.auth.dependencies import get_current_user
 from app.config import settings, get_data_dir
 from app.services.ai_service import analyze_content, is_ai_enabled
 from app.services.chunk_service import chunk_manager
+from app.routers.archive import FolderResponse, _get_folder_with_stats
 from app.utils.security import (
     sanitize_folder_name,
     sanitize_filename,
@@ -48,7 +49,7 @@ from app.utils.security import (
     validate_uuid_format,
     sanitize_text_input
 )
-from app.services.chunk_assembly import chunk_assembly_service
+# from app.services.chunk_assembly import chunk_assembly_service
 
 router = APIRouter(prefix="/archive", tags=["archive"])
 logger = logging.getLogger(__name__)

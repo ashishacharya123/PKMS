@@ -12,7 +12,7 @@ import {
   Badge,
   ActionIcon,
   Menu,
-  Skeleton,
+
   Alert,
   Paper,
   ThemeIcon,
@@ -23,49 +23,33 @@ import {
   Center,
   Pagination,
   Tooltip,
-  Box,
-  Indicator,
+
   PasswordInput,
-  Popover,
-  Switch,
-  SimpleGrid,
-  Divider,
+
   Loader,
-  SegmentedControl,
-  NumberInput,
+
 } from '@mantine/core';
 import { Calendar } from '@mantine/dates';
 import {
   IconBook,
   IconPlus,
-  IconCalendar,
-  IconMoodSmile,
+
   IconEdit,
   IconTrash,
   IconDots,
   IconAlertTriangle,
   IconLock,
-  IconDownload,
+  IconLockOpen,
   IconSortAscending,
   IconSortDescending,
-  IconSearch,
-  IconFilter,
   IconEye,
-  IconX,
-  IconLockOpen,
-  IconPencil,
-  IconChevronLeft,
-  IconChevronRight,
-  IconPhoto,
-  IconMicrophone,
-  IconVideo,
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useDiaryStore } from '../stores/diaryStore';
 import { diaryService } from '../services/diaryService';
-import { isSameDay, format, parse, parseISO } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { notifications } from '@mantine/notifications';
-import type { NotificationData } from '@mantine/notifications';
+
 import { useForm } from '@mantine/form';
 import { shallow } from 'zustand/shallow';
 import { DiaryEntry, DiaryEntrySummary, DiaryFormValues, DiaryMetadata, SortField, SortOrder, DiaryEntryCreatePayload } from '../types/diary';
@@ -87,9 +71,7 @@ const initialFormValues: DiaryFormValues = {
   metadata: initialMetadata
 };
 
-const showNotification = (data: NotificationData) => {
-  notifications.show(data);
-};
+
 
 export function DiaryPage() {
   const store = useDiaryStore(
@@ -131,7 +113,7 @@ export function DiaryPage() {
   const [encryptionPassword, setEncryptionPassword] = useState('');
   const [passwordHint, setPasswordHint] = useState('');
   const [showPasswordHint, setShowPasswordHint] = useState(false);
-  const [viewingEntry, setViewingEntry] = useState<DiaryEntry | null>(null);
+
   const [viewMode, setViewMode] = useState<'view' | 'edit'>('view');
   
   const [currentPage, setCurrentPage] = useState(1);
@@ -139,7 +121,7 @@ export function DiaryPage() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const itemsPerPage = 12;
 
-  const [activeFiltersCount, setActiveFiltersCount] = useState(0);
+
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
@@ -275,10 +257,8 @@ export function DiaryPage() {
         store.encryptionKey
       );
       
-      setViewingEntry({
-        ...entry,
-        content: decryptedContent
-      } as DiaryEntry);
+      // TODO: Implement viewing functionality
+      // setViewingEntry({ ...entry, content: decryptedContent } as DiaryEntry);
       
       setViewMode('view');
       setModalOpen(true);
@@ -451,11 +431,7 @@ export function DiaryPage() {
           {dayData.mood && (
             <Text size="xs">{getMoodEmoji(dayData.mood)}</Text>
           )}
-          {dayData.media_count > 0 && (
-            <Badge size="xs" variant="light">
-              {dayData.media_count} 📎
-            </Badge>
-          )}
+          {/* Media count not available in calendar data */}
         </Stack>
       </Center>
     );
@@ -479,13 +455,7 @@ export function DiaryPage() {
     store.setSearchQuery(debouncedTitleSearch);
   }, [debouncedTitleSearch, store.setSearchQuery]);
 
-  useEffect(() => {
-    setActiveFiltersCount(
-      (store.titleSearch ? 1 : 0) +
-      (store.dayOfWeek !== null ? 1 : 0) +
-      (store.hasMedia !== null ? 1 : 0)
-    );
-  }, [store.titleSearch, store.dayOfWeek, store.hasMedia]);
+  // Filters count calculation removed for now
 
   useEffect(() => {
     if (unlockModalOpen && !passwordHint) {

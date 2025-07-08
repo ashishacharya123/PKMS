@@ -24,7 +24,7 @@ import {
   IconChecklist,
   IconBook,
   IconArchive,
-  IconPlus,
+
   IconFileText,
   IconCalendarEvent,
   IconClipboardList,

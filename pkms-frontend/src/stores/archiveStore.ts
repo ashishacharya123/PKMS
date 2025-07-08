@@ -94,9 +94,9 @@ const initialState: Omit<ArchiveState, 'reset' | 'clearError' | 'setError' | 'se
   currentTag: null,
   showArchived: false,
   selectedItems: new Set(),
-  viewMode: 'grid',
-  sortBy: 'name',
-  sortOrder: 'asc',
+  viewMode: ViewMode.GRID,
+  sortBy: SortBy.NAME,
+  sortOrder: SortOrder.ASC,
   folderTreeCache: new Map(),
   lastTreeUpdate: 0,
 };

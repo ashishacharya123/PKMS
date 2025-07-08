@@ -361,7 +361,7 @@ export function NotesPage() {
                         
                         <Group justify="space-between" mt="md">
                           <Group gap="xs">
-                            {note.tags.slice(0, 3).map((tag: string) => (
+                            {(note.tags || []).slice(0, 3).map((tag: string) => (
                               <Badge 
                                 key={tag} 
                                 variant="dot" 
@@ -375,9 +375,9 @@ export function NotesPage() {
                                 {tag}
                               </Badge>
                             ))}
-                            {note.tags.length > 3 && (
+                            {(note.tags?.length || 0) > 3 && (
                               <Badge variant="dot" size="sm" color="gray">
-                                +{note.tags.length - 3}
+                                +{(note.tags?.length || 0) - 3}
                               </Badge>
                             )}
                           </Group>

@@ -341,7 +341,7 @@ export function TodosPage() {
                   <Badge size="xs" variant="light">{todos.length}</Badge>
                 </Button>
                 
-                {projects.map((project) => (
+                {(projects || []).map((project) => (
                   <Button
                     key={project.id}
                     variant={currentProjectId === project.id ? 'filled' : 'subtle'}
@@ -540,7 +540,7 @@ export function TodosPage() {
                                 </Badge>
                               )}
                               
-                              {todo.tags.map((tag: string) => (
+                              {(todo.tags || []).map((tag: string) => (
                                 <Badge key={tag} variant="outline" size="sm">
                                   {tag}
                                 </Badge>
@@ -567,7 +567,7 @@ export function TodosPage() {
                                   project_id: null,
                                   due_date: todo.due_date || '',
                                   priority: todo.priority,
-                                  tags: todo.tags.join(', ')
+                                  tags: (todo.tags || []).join(', ')
                                 });
                                 setTodoModalOpen(true);
                               }}
@@ -671,7 +671,7 @@ export function TodosPage() {
               placeholder="Select project"
               data={[
                 { value: '', label: 'No Project' },
-                ...projects.map(p => ({ value: p.id.toString(), label: p.name }))
+                                            ...(projects || []).map(p => ({ value: p.id.toString(), label: p.name }))
               ]}
               value={todoForm.project_id?.toString() || ''}
               onChange={(value) => setTodoForm({ 

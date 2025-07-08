@@ -37,17 +37,14 @@ import {
   IconFolder,
   IconTag,
   IconAlertTriangle,
-  IconX
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useDocumentsStore } from '../stores/documentsStore';
-import { documentsService } from '../services/documentsService';
 
 type SortField = 'original_name' | 'created_at' | 'updated_at' | 'size_bytes';
 type SortOrder = 'asc' | 'desc';
 
 export function DocumentsPage() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
   // Local state
@@ -107,6 +104,7 @@ export function DocumentsPage() {
 
   // Sorted and paginated documents
   const sortedDocuments = useMemo(() => {
+    if (!Array.isArray(documents) || documents.length === 0) return [];
     const sorted = [...documents].sort((a, b) => {
       let aValue: string | number = a[sortField];
       let bValue: string | number = b[sortField];
@@ -240,11 +238,12 @@ export function DocumentsPage() {
                   onClick={() => setMimeType(null)}
                 >
                   <span>All Types</span>
-                  <Badge size="xs" variant="light">{documents.length}</Badge>
+                  <Badge size="xs" variant="light">{Array.isArray(documents) ? documents.length : 0}</Badge>
                 </Button>
                 
                 {['application/pdf', 'image/', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'].map((type) => {
-                  const count = documents.filter(doc => 
+                  const documentsArray = Array.isArray(documents) ? documents : [];
+                  const count = documentsArray.filter(doc => 
                     type.endsWith('/') ? doc.mime_type.startsWith(type) : doc.mime_type === type
                   ).length;
                   const label = type === 'application/pdf' ? 'PDF' :

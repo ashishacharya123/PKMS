@@ -27,7 +27,7 @@ engine = create_async_engine(
     connect_args={"check_same_thread": False, "timeout": 20} if "sqlite" in get_database_url() else {}
 )
 
-# Create async session factory
+# Create async session factory (SQLAlchemy 2.0 syntax)
 AsyncSessionLocal = async_sessionmaker(
     engine,
     class_=AsyncSession,

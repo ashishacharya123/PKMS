@@ -24,7 +24,18 @@ class ChunkAssemblyService:
         self.temp_dir = Path(get_data_dir()) / "temp_uploads"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         self.assemblies: Dict[str, Dict] = {}
-        self.cleanup_task = asyncio.create_task(self._cleanup_old_files())
+        self.cleanup_task = None
+        self._initialized = False
+
+    async def initialize(self):
+        """Initialize the service with async tasks"""
+        if not self._initialized:
+            try:
+                self.cleanup_task = asyncio.create_task(self._cleanup_old_files())
+                self._initialized = True
+                logger.info("Chunk assembly service initialized")
+            except Exception as e:
+                logger.warning(f"Failed to initialize chunk assembly service: {e}")
 
     async def _cleanup_old_files(self):
         """Periodically clean up old temporary files"""

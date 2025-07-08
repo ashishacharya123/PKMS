@@ -71,28 +71,32 @@ class NotesService {
    * Create a new note
    */
   async createNote(data: CreateNoteRequest): Promise<Note> {
-    return await apiService.post<Note>('/notes', data);
+    const response = await apiService.post<Note>('/notes/', data);
+    return response.data;
   }
 
   /**
    * Get a specific note by ID
    */
   async getNote(id: number): Promise<Note> {
-    return await apiService.get<Note>(`/notes/${id}`);
+    const response = await apiService.get<Note>(`/notes/${id}`);
+    return response.data;
   }
 
   /**
    * Update a note
    */
   async updateNote(id: number, data: UpdateNoteRequest): Promise<Note> {
-    return await apiService.put<Note>(`/notes/${id}`, data);
+    const response = await apiService.put<Note>(`/notes/${id}`, data);
+    return response.data;
   }
 
   /**
    * Delete a note
    */
   async deleteNote(id: number): Promise<{ message: string }> {
-    return await apiService.delete(`/notes/${id}`);
+    const response = await apiService.delete<{ message: string }>(`/notes/${id}`);
+    return response.data;
   }
 
   /**
@@ -108,22 +112,23 @@ class NotesService {
     offset?: number;
   } = {}): Promise<NoteSummary[]> {
     const queryParams = new URLSearchParams();
-    
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
         queryParams.append(key, value.toString());
       }
     });
 
-    const url = `/notes${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    return await apiService.get<NoteSummary[]>(url);
+    const url = `/notes/${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    const response = await apiService.get<NoteSummary[]>(url);
+    return response.data;
   }
 
   /**
    * Get list of all areas with note counts
    */
   async getAreas(): Promise<{ areas: Area[] }> {
-    return await apiService.get<{ areas: Area[] }>('/notes/areas/list');
+    const response = await apiService.get<{ areas: Area[] }>('/notes/areas/list');
+    return response.data;
   }
 
   /**
