@@ -1,45 +1,50 @@
 """
-Document Model for Documents Module
+Document Model for File Storage and Management
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Table, BigInteger, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-import uuid
+from uuid import uuid4
 
-from app.database import Base
-
-# Junction table for document-tag relationships
-document_tags = Table(
-    'document_tags',
-    Base.metadata,
-    Column('document_uuid', String(36), ForeignKey('documents.uuid', ondelete='CASCADE'), primary_key=True),
-    Column('tag_id', Integer, ForeignKey('tags.id', ondelete='CASCADE'), primary_key=True)
-)
+from app.models.base import Base
+from app.config import nepal_now
+from app.models.tag_associations import document_tags
 
 
 class Document(Base):
-    """Document model for file management"""
+    """Document model for file storage and management"""
     
     __tablename__ = "documents"
     
-    uuid = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    filename = Column(String(255), nullable=False, index=True)  # Stored filename
-    original_name = Column(String(255), nullable=False)  # Original filename
-    filepath = Column(String(500), nullable=False)  # Path to file in storage
+    id = Column(Integer, primary_key=True, index=True)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
+
+    # Original name uploaded by user (for display).  The internal stored filename on disk stays in `filename`.
+    original_name = Column(String(255), nullable=False)
+
+    title = Column(String(255), nullable=False, index=True)
+    filename = Column(String(255), nullable=False)  # stored filename on disk
+    file_path = Column(String(500), nullable=False)
+    file_size = Column(Integer, nullable=False)
     mime_type = Column(String(100), nullable=False)
-    size_bytes = Column(BigInteger, nullable=False)
-    extracted_text = Column(Text, nullable=True)  # Full-text search content
-    metadata_json = Column(Text, default="{}")  # Additional metadata as JSON
-    thumbnail_path = Column(String(500), nullable=True)  # Path to thumbnail
-    is_archived = Column(Boolean, default=False, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    description = Column(Text, nullable=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    is_favorite = Column(Boolean, default=False)
+    is_archived = Column(Boolean, default=False)
+    archive_item_uuid = Column(String(36), nullable=True, index=True)  # Reference to ArchiveItem when archived
+    upload_status = Column(String(20), default="completed")  # pending, processing, completed, failed
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
     
     # Relationships
     user = relationship("User", back_populates="documents")
-    tags = relationship("Tag", secondary=document_tags, back_populates="documents")
+    tag_objs = relationship("Tag", secondary=document_tags, back_populates="documents")
     
+    # Convenience alias for frontend which expects `size_bytes`.
+    @property
+    def size_bytes(self):
+        return self.file_size
+
     def __repr__(self):
-        return f"<Document(uuid='{self.uuid}', filename='{self.filename}')>" 
+        return f"<Document(id={self.id}, uuid='{self.uuid}', title='{self.title}')>" 

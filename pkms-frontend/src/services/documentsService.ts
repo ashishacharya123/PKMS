@@ -3,6 +3,15 @@
  */
 
 import { apiService } from './api';
+import { coreUploadService, UploadProgress } from './shared/coreUploadService';
+import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
+
+const SMALL_FILE_THRESHOLD = 3 * 1024 * 1024; // 3 MB
+
+// Map simple percent progress for UI
+const forwardUploadPct = (cb?: (p: number) => void) => {
+  return (pct: number) => cb?.(pct);
+};
 
 export interface Document {
   uuid: string;
@@ -75,40 +84,50 @@ class DocumentsService {
       formData.append('tags', JSON.stringify(tags));
     }
 
-    const response = await apiService.getAxiosInstance().post('/documents/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-      onUploadProgress: (progressEvent) => {
-        if (onProgress && progressEvent.total) {
-          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          onProgress(progress);
-        }
-      },
+    if (file.size <= SMALL_FILE_THRESHOLD) {
+      const data = await coreUploadService.uploadDirect<Document>('/documents/', formData, { onProgress: forwardUploadPct(onProgress) });
+      return data;
+    }
+
+    const fileId = await coreUploadService.uploadFile(file, {
+      module: 'documents',
+      additionalMeta: { tags },
+      onProgress: p => onProgress?.(p.progress)
     });
 
-    return response.data;
+    // After assembly backend should have created document entry; fetch its metadata
+    // via a dedicated endpoint e.g., /documents/by-upload/{file_id}. For now, re-fetch list.
+    // Simplest: call GET /documents?limit=1&offset=0 and assume newest first.
+    const docs = await this.listDocuments({ limit: 1 });
+    if (docs.length) {
+      const fullDoc = await this.getDocument(docs[0].uuid);
+      return fullDoc;
+    }
+    throw new Error('Upload completed but document metadata not found');
   }
 
   /**
    * Get a specific document by UUID
    */
   async getDocument(uuid: string): Promise<Document> {
-    return await apiService.get<Document>(`/documents/${uuid}`);
+    const response = await apiService.get<Document>(`/documents/${uuid}`);
+    return response.data;
   }
 
   /**
    * Update document metadata and tags
    */
   async updateDocument(uuid: string, data: UpdateDocumentRequest): Promise<Document> {
-    return await apiService.put<Document>(`/documents/${uuid}`, data);
+    const response = await apiService.put<Document>(`/documents/${uuid}`, data);
+    return response.data;
   }
 
   /**
    * Delete a document
    */
   async deleteDocument(uuid: string): Promise<{ message: string }> {
-    return await apiService.delete(`/documents/${uuid}`);
+    const response = await apiService.delete<{ message: string }>(`/documents/${uuid}`);
+    return response.data;
   }
 
   /**
@@ -123,8 +142,12 @@ class DocumentsService {
       }
     });
 
-    const url = `/documents${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    return await apiService.get<DocumentSummary[]>(url);
+    // FastAPI router is mounted at `/api/v1/documents/` (note the trailing slash).
+    // Omitting the slash triggers a 307 redirect which browsers may block for CORS requests.
+    const basePath = '/documents/';
+    const url = `${basePath}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    const response = await apiService.get<DocumentSummary[]>(url);
+    return response.data;
   }
 
   /**
@@ -137,11 +160,9 @@ class DocumentsService {
   /**
    * Download document with authentication
    */
-  async downloadDocument(uuid: string): Promise<Blob> {
-    const response = await apiService.getAxiosInstance().get(`/documents/${uuid}/download`, {
-      responseType: 'blob'
-    });
-    return response.data;
+  async downloadDocument(uuid: string, onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
+    const url = `/documents/${uuid}/download`;
+    return coreDownloadService.downloadFile(url, { fileId: uuid, onProgress });
   }
 
   /**
@@ -174,7 +195,11 @@ class DocumentsService {
       limit: limit.toString()
     });
 
-    return await apiService.get(`/documents/search/fulltext?${params.toString()}`);
+    const response = await apiService.get<{
+      results: SearchResult[];
+      total: number;
+    }>(`/documents/search/fulltext?${params.toString()}`);
+    return response.data;
   }
 
   /**

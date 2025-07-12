@@ -1,4 +1,5 @@
 import { apiService } from './api';
+import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
 
 // Types for todos
 export interface Project {
@@ -42,6 +43,7 @@ export interface Todo {
   updated_at: string;
   tags: string[];
   days_until_due?: number;
+  is_archived: boolean;
 }
 
 export interface TodoCreate {
@@ -53,6 +55,7 @@ export interface TodoCreate {
   tags?: string[];
   is_recurring?: boolean;
   recurrence_pattern?: string;
+  is_archived?: boolean;
 }
 
 export interface TodoUpdate {
@@ -65,6 +68,7 @@ export interface TodoUpdate {
   tags?: string[];
   is_recurring?: boolean;
   recurrence_pattern?: string;
+  is_archived?: boolean;
 }
 
 export interface TodoSummary {
@@ -77,6 +81,7 @@ export interface TodoSummary {
   created_at: string;
   tags: string[];
   days_until_due?: number;
+  is_archived: boolean;
 }
 
 export interface TodoStats {
@@ -100,6 +105,7 @@ export interface TodoListParams {
   search?: string;
   limit?: number;
   offset?: number;
+  is_archived?: boolean;
 }
 
 class TodosService {
@@ -166,6 +172,29 @@ class TodosService {
 
   async deleteTodo(todoId: number): Promise<void> {
     await apiService.delete(`${this.baseUrl}/${todoId}`);
+  }
+
+  async archiveTodo(todoId: number, archive: boolean = true): Promise<Todo> {
+    const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoId}/archive?archive=${archive}`);
+    return response.data;
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /*                               DOWNLOADS                                */
+  /* ---------------------------------------------------------------------- */
+  getExportUrl(todoId: number, format: 'pdf' | 'markdown' | 'txt' = 'pdf'): string {
+    return `${this.baseUrl}/${todoId}/export?format=${format}`;
+  }
+
+  async downloadTodoExport(
+    todoId: number,
+    format: 'pdf' | 'markdown' | 'txt' = 'pdf',
+    onProgress?: (p: DownloadProgress) => void,
+  ): Promise<Blob> {
+    return coreDownloadService.downloadFile(this.getExportUrl(todoId, format), {
+      fileId: `${todoId}-${format}`,
+      onProgress,
+    });
   }
 
   // Statistics

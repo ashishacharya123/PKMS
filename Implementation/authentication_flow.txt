@@ -1,0 +1,63 @@
+# PKMS Authentication & Recovery Flows
+
+## 1. Main Login Authentication Flow
+1. **Login request** – `POST /auth/login` with `{ username, password }` (username is *case-sensitive*).
+2. **Verification** – backend checks bcrypt hash; on success it returns:
+   • **Access-token** (JWT, 15 min) in JSON body  
+   • **Refresh-token** (HttpOnly cookie, 7 days sliding window).
+3. **Frontend handling** – `authStore` stores the JWT in `localStorage` and calls `apiService.setAuthToken(token)` which sets the default Axios header `Authorization: Bearer <token>`.
+4. **Sub-sequent API calls** – any request made through `apiService` automatically carries the token.
+5. **Sliding refresh** –
+   • Explicit: `authStore.extendSession()` → `POST /auth/refresh` returns new JWT.
+   • Implicit: every authenticated backend dependency `get_current_user` prolongs the refresh cookie by 7 days (“sliding window”).
+6. **Logout** – `authStore.logout()` clears token, refresh cookie is invalidated via `POST /auth/logout`.
+
+---
+
+## 2. Diary Module Authentication Flow
+1. **Route mount** – when `<DiaryPage>` is rendered it calls `diaryStore.init()` *only if the user is already authenticated*.
+2. **Encryption status** – `GET /diary/encryption/status` → `{ is_setup: true│false }`.
+3. **If not set up** → user sees *Set-up-encryption* modal.  
+   • `POST /diary/encryption/setup` `{ password, hint }`  
+   • Front-end derives AES-GCM key from password and keeps it only in RAM.
+4. **If already set up** → user sees *Unlock Diary* modal.  
+   • `POST /diary/encryption/unlock` `{ password }`  
+   • On success AES key is derived and stored in memory.
+5. **Unlocked state** – flags `isUnlocked = true`, entries + calendar data are fetched.  
+   • Entry `content` fields stay encrypted in transit; decrypt client-side with the in-memory key.
+6. **Lock / refresh / navigation** – key lives only in the store; navigating away keeps it, clicking *Lock* or logging out wipes it.
+
+---
+
+## 3. Recovery Flow (Login-only)
+*Diary passwords are **not** recoverable – encryption is permanent.*
+
+A. **Security-question reset**  
+   1. User opens RecoveryModal ▶ “Security Questions” tab.  
+   2. `POST /auth/recovery/reset` `{ answers[] , new_password }`  
+   3. On success user logs in with new password.
+
+B. **Master-recovery-password reset**  
+   1. RecoveryModal ▶ “Master Recovery” tab.  
+   2. `POST /auth/recovery/reset-master` `{ master_password , new_password }`.
+
+C. **No recovery options** → UI shows *Database Reset* instructions (delete `pkm_metadata.db`, rebuild containers, create new account).
+
+---
+
+## 4. How Other Modules Use the Auth Token
+• All service files (`notesService.ts`, `documentsService.ts`, `todosService.ts`, `archiveService.ts`, etc.) import **`apiService`**.  
+• `apiService` is a thin Axios instance; when `authStore` calls `setAuthToken(token)` it adds
+```
+axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+```
+• Therefore every module call – e.g. `apiService.get('/notes')`, `apiService.post('/documents')`, `apiService.delete('/archive/folders/:uuid')` – automatically carries the valid token.
+• Backend endpoints are all protected with FastAPI dependency `get_current_user`; if the header is missing/invalid the server returns **401**, prompting the frontend to:
+   1. Attempt `POST /auth/refresh` once.  
+   2. If refresh fails → `authStore.logout()`.
+
+**Effect:** Notes, Documents, Todos, Archive, Search, etc. never handle authentication directly – they just rely on `apiService` to attach the token that the Login flow provided.
+
+---
+
+*Document last updated: 2025-01-10 20:45:00 (+05:45)* 

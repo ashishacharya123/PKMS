@@ -13,7 +13,7 @@ import json
 import shutil
 from datetime import datetime, timedelta
 
-from app.config import settings, get_data_dir
+from app.config import settings, get_data_dir, NEPAL_TZ
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ class ChunkAssemblyService:
         """Periodically clean up old temporary files"""
         while True:
             try:
-                now = datetime.now()
+                now = datetime.now(NEPAL_TZ)
                 for path in self.temp_dir.glob("*"):
                     if path.is_file():
                         mtime = datetime.fromtimestamp(path.stat().st_mtime)

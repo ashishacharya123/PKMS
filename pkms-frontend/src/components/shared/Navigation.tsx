@@ -1,4 +1,4 @@
-import { useState, KeyboardEvent } from 'react';
+import React, { useState, KeyboardEvent, useEffect } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import {
   AppShell,
@@ -18,18 +18,23 @@ import {
 } from '@mantine/core';
 import {
   IconHome,
-  IconNote,
-  IconFiles,
-  IconCalendarCheck,
-  IconBook,
+  IconNotes,
+  IconFile,
+  IconCheckbox,
+  IconCalendar,
+  IconSearch,
   IconArchive,
-  IconLogout,
-
   IconChevronDown,
-  IconSettings,
-  IconSearch
+  IconBook,
+  IconLogout,
+  IconBug,
+  IconDatabase,
+  IconKey,
 } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
+import { TestingInterface } from './TestingInterface';
+import { BackupRestoreModal } from './BackupRestoreModal';
+import RecoveryViewModal from '../auth/RecoveryViewModal';
 
 interface NavigationItem {
   label: string;
@@ -49,21 +54,21 @@ const navigationItems: NavigationItem[] = [
   },
   {
     label: 'Notes',
-    icon: IconNote,
+    icon: IconNotes,
     path: '/notes',
     color: 'green',
     description: 'Markdown notes with linking'
   },
   {
     label: 'Documents',
-    icon: IconFiles,
+    icon: IconFile,
     path: '/documents',
     color: 'orange',
     description: 'File management and search'
   },
   {
     label: 'Todos',
-    icon: IconCalendarCheck,
+    icon: IconCheckbox,
     path: '/todos',
     color: 'red',
     description: 'Task and project management'
@@ -81,6 +86,13 @@ const navigationItems: NavigationItem[] = [
     path: '/archive',
     color: 'teal',
     description: 'Hierarchical file organization'
+  },
+  {
+    label: 'Advanced Fuzzy Search',
+    icon: IconSearch, // Reuse search icon for clarity
+    path: '/advanced-fuzzy-search',
+    color: 'gray',
+    description: 'Typo-tolerant search across all modules'
   }
 ];
 
@@ -90,11 +102,14 @@ interface NavigationProps {
 }
 
 export function Navigation({ collapsed = false }: NavigationProps) {
-  const location = useLocation();
-  const { user, logout } = useAuthStore();
-  const { colorScheme } = useMantineColorScheme();
   const [userMenuOpened, setUserMenuOpened] = useState(false);
+  const [testingModalOpened, setTestingModalOpened] = useState(false);
+  const [backupModalOpened, setBackupModalOpened] = useState(false);
+  const [recoveryViewModalOpened, setRecoveryViewModalOpened] = useState(false);
+  const { user, logout } = useAuthStore();
   const navigate = useNavigate();
+  const location = useLocation();
+  const { colorScheme } = useMantineColorScheme();
 
   const handleLogout = async () => {
     await logout();
@@ -219,55 +234,6 @@ export function Navigation({ collapsed = false }: NavigationProps) {
       <AppShell.Section>
         <Divider mb="sm" />
         
-        {/* Global Search */}
-        {!collapsed ? (
-          <TextInput
-            placeholder="Search everywhere..."
-            leftSection={<IconSearch size={16} />}
-            size="sm"
-            mb="xs"
-            onKeyDown={handleSearchKeyDown}
-            styles={{
-              input: {
-                backgroundColor: colorScheme === 'dark' 
-                  ? 'var(--mantine-color-dark-6)' 
-                  : 'var(--mantine-color-gray-0)',
-                border: `1px solid ${
-                  colorScheme === 'dark' ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-gray-3)'
-                }`,
-              }
-            }}
-          />
-        ) : (
-          <Tooltip label="Global Search" position="right">
-            <UnstyledButton
-              w="100%"
-              p="xs"
-              mb="xs"
-              style={{
-                borderRadius: 'var(--mantine-radius-md)',
-              }}
-              onClick={() => {
-                navigate('/search');
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = colorScheme === 'dark' 
-                  ? 'var(--mantine-color-dark-6)' 
-                  : 'var(--mantine-color-gray-0)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-              }}
-            >
-              <Group justify="center">
-                <ThemeIcon variant="light" color="gray" size="md">
-                  <IconSearch size={18} />
-                </ThemeIcon>
-              </Group>
-            </UnstyledButton>
-          </Tooltip>
-        )}
-
         {/* User Menu */}
         <Menu
           opened={userMenuOpened}
@@ -305,7 +271,7 @@ export function Navigation({ collapsed = false }: NavigationProps) {
                         {user?.username || 'User'}
                       </Text>
                       <Text size="xs" c="dimmed">
-                        {user?.is_first_login ? 'Setup required' : 'Active'}
+                        Active
                       </Text>
                     </div>
                     <IconChevronDown size={14} />
@@ -319,8 +285,27 @@ export function Navigation({ collapsed = false }: NavigationProps) {
             <Menu.Item leftSection={<IconHome size={14} />}>
               Profile Settings
             </Menu.Item>
-            <Menu.Item leftSection={<IconSettings size={14} />}>
-              Preferences
+
+            <Menu.Item 
+              leftSection={<IconKey size={14} />}
+              onClick={() => setRecoveryViewModalOpened(true)}
+            >
+              View Security Questions
+            </Menu.Item>
+
+            <Menu.Item 
+              leftSection={<IconDatabase size={14} />}
+              onClick={() => setBackupModalOpened(true)}
+            >
+              Backup & Restore
+            </Menu.Item>
+            
+            <Menu.Divider />
+            <Menu.Item 
+              leftSection={<IconBug size={14} />}
+              onClick={() => setTestingModalOpened(true)}
+            >
+              Testing & Debug
             </Menu.Item>
 
             <Menu.Divider />
@@ -334,6 +319,24 @@ export function Navigation({ collapsed = false }: NavigationProps) {
           </Menu.Dropdown>
         </Menu>
       </AppShell.Section>
+
+      {/* Testing Interface Modal */}
+      <TestingInterface 
+        opened={testingModalOpened}
+        onClose={() => setTestingModalOpened(false)}
+      />
+
+      {/* Backup & Restore Modal */}
+      <BackupRestoreModal
+        opened={backupModalOpened}
+        onClose={() => setBackupModalOpened(false)}
+      />
+
+      {/* Recovery View Modal */}
+      <RecoveryViewModal
+        opened={recoveryViewModalOpened}
+        onClose={() => setRecoveryViewModalOpened(false)}
+      />
     </AppShell.Navbar>
   );
 } 

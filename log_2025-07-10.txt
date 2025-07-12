@@ -1,0 +1,57 @@
+## Log Entry #81 - 2025-07-10 13:30:00 +05:45
+**Phase**: Archive Module UI/Data Consistency & Single-Upload Simplification  
+**Status**: ✅ COMPLETED  
+**AI Assistant**: o3 GPT-4 via Cursor
+
+### Summary
+Implemented end-to-end improvements for the Archive module:
+1. Restored shared `coreUploadService` chunked-upload flow while removing multi-select uploads.
+2. Added automatic item listing for the selected folder on the Archive page.
+3. Introduced optimistic UI updates & granular loading states.
+4. Strengthened type-safety between service, store, and UI layers.
+
+### Key Changes
+| Layer | File | Description |
+|-------|------|-------------|
+| Frontend Service | `pkms-frontend/src/services/archiveService.ts` | Added `getFolderItems`; refined `uploadFile` |
+| Frontend Store   | `pkms-frontend/src/stores/archiveStore.ts`   | Added `loadItems`, `isLoadingItems`; optimistic uploads; async `setCurrentFolder` |
+| Frontend UI      | `pkms-frontend/src/pages/ArchivePage.tsx`    | New 2-column layout, file grid, loaders & empty-state UI |
+
+### UX Enhancements
+- Selecting a folder now fetches & displays its files.
+- Upload progress (simple or chunked) shown with animated bar.
+- Newly uploaded file appears instantly without full refresh.
+- Clear loader & empty-folder messaging improve usability.
+
+### Files Affected
+1. `pkms-frontend/src/services/archiveService.ts`
+2. `pkms-frontend/src/stores/archiveStore.ts`
+3. `pkms-frontend/src/pages/ArchivePage.tsx`
+
+_No backend changes were required; existing `GET /folders/{folder_uuid}/items/` endpoint is utilized._
+
+--- 
+
+## Log Entry #82 - 2025-07-11 10:30:00 +05:45
+**Phase**: Document Archive UI/UX Improvements
+**Status**: ✅ COMPLETED
+**AI Assistant**: Claude Sonnet 4 via Cursor
+
+### Summary
+Implemented user-facing improvements for document archiving:
+- Added a sidebar toggle to show/hide archived documents in the Documents page
+- Each archived document now displays a gray "Archived" badge for clear visual status
+- Card menu includes Archive/Unarchive action for one-click status change
+- Ensured type safety and robust filtering in all document list operations
+
+### User Impact
+- Users can easily filter, identify, and manage archived documents
+- Archiving/unarchiving is a one-click operation
+- UI is more transparent and matches modern document management best practices
+
+### Files Affected
+1. `pkms-frontend/src/pages/DocumentsPage.tsx`
+2. `pkms-frontend/src/stores/documentsStore.ts`
+3. `pkms-frontend/src/services/documentsService.ts`
+
+--- 

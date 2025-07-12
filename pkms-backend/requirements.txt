@@ -31,9 +31,10 @@ pillow>=11.0.0              # Image processing
 PyMuPDF>=1.23.0             # PDF text/image extraction
 python-docx>=1.1.0          # MS Word .docx parsing
 
-# Smart Tagging with Transformers (Lightweight)
-transformers==4.36.0        # Hugging Face transformers for smart tagging
-huggingface-hub>=0.19.3     # Model downloads and management
+# AI and Smart Features (COMMENTED OUT FOR SIMPLER BUILD)
+# Uncomment these if you want smart tagging and content analysis features
+# transformers==4.36.0        # Hugging Face transformers for smart tagging
+# huggingface-hub>=0.19.3     # Model downloads and management
 
 # Utilities
 python-dateutil>=2.8.2      # Date/time parsing
@@ -41,12 +42,16 @@ pydantic[email]>=2.5.0      # Data validation
 pydantic-settings>=2.1.0    # Settings management
 
 # Development and Testing (remove for production)
-pytest>=7.4.0               # Unit testing
-pytest-asyncio>=0.21.0      # Async test support
-httpx>=0.25.0               # HTTP client
+pytest>=7.4.0               # Unit testing framework
+pytest-asyncio>=0.21.0      # Async test support for pytest
+pytest-cov>=4.1.0           # Test coverage reporting
+pytest-xdist>=3.3.0         # Parallel test execution
+httpx>=0.25.0               # HTTP client for testing API endpoints
+factory-boy>=3.3.0          # Test data factories
+faker>=20.1.0               # Generate fake data for tests
 
 # Environment variables
-python-dotenv==1.0.0        # Load .env files
+python-dotenv>=1.0.1        # Load .env files
 
 # Security monitoring and logging
 structlog==23.2.0           # Structured logging
@@ -55,6 +60,9 @@ prometheus-client==0.19.0   # Prometheus metrics
 # Input validation and sanitization
 bleach>=6.1.0               # HTML sanitization
 
+# System monitoring and resource usage
+psutil>=5.9.0               # System and process monitoring
+
 # Performance & Caching
 redis<5.0.0,>=4.2.0                # Redis client
 aiocache==0.12.2           # Async caching
@@ -62,3 +70,6 @@ aiocache==0.12.2           # Async caching
 # Alternative file detection libraries
 magika==0.6.2
 pyfsig==1.1.1
+
+# Performance fuzzy matching
+rapidfuzz==3.6.1

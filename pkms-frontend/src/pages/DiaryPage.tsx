@@ -12,7 +12,6 @@ import {
   Badge,
   ActionIcon,
   Menu,
-
   Alert,
   Paper,
   ThemeIcon,
@@ -23,11 +22,12 @@ import {
   Center,
   Pagination,
   Tooltip,
-
   PasswordInput,
-
   Loader,
-
+  TagsInput,
+  Checkbox,
+  NumberInput,
+  Divider,
 } from '@mantine/core';
 import { Calendar } from '@mantine/dates';
 import {
@@ -46,19 +46,37 @@ import {
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useDiaryStore } from '../stores/diaryStore';
+import { useAuthStore } from '../stores/authStore';
 import { diaryService } from '../services/diaryService';
 import { format, parseISO } from 'date-fns';
 import { notifications } from '@mantine/notifications';
+import { MoodStatsWidget } from '../components/diary/MoodStatsWidget';
+import { WellnessBadges } from '../components/diary/WellnessBadges';
 
 import { useForm } from '@mantine/form';
 import { shallow } from 'zustand/shallow';
-import { DiaryEntry, DiaryEntrySummary, DiaryFormValues, DiaryMetadata, SortField, SortOrder, DiaryEntryCreatePayload } from '../types/diary';
+import { DiaryEntrySummary, DiaryFormValues, DiaryMetadata, SortField, SortOrder, DiaryEntryCreatePayload } from '../types/diary';
 
 const initialMetadata: DiaryMetadata = {
+  // Legacy fields
   sleep_hours: 0,
   exercise_minutes: 0,
   phone_hours: 0,
   activity_level: 0,
+  
+  // New wellness tracking fields
+  did_exercise: false,
+  did_meditation: false,
+  sleep_duration: 8,
+  screen_time: 0,
+  water_intake: 8,
+  time_outside: 0,
+  social_interaction: false,
+  gratitude_practice: false,
+  reading_time: 0,
+  energy_level: 3,
+  stress_level: 3,
+  
   custom_fields: {}
 };
 
@@ -68,7 +86,8 @@ const initialFormValues: DiaryFormValues = {
   title: '',
   content: '',
   mood: 3,
-  metadata: initialMetadata
+  metadata: initialMetadata,
+  tags: []
 };
 
 
@@ -135,9 +154,14 @@ export function DiaryPage() {
 
   const [debouncedTitleSearch] = useDebouncedValue(store.titleSearch, 500);
 
+  const { isAuthenticated } = useAuthStore();
+
   useEffect(() => {
-    store.init();
-  }, [store.init]);
+    // Only initialize diary if user is authenticated
+    if (isAuthenticated) {
+      store.init();
+    }
+  }, [isAuthenticated, store.init]);
 
   useEffect(() => {
     if (store.isEncryptionSetup && !store.isUnlocked) {
@@ -282,7 +306,8 @@ export function DiaryPage() {
       metadata: {
         ...initialMetadata,
         ...entry.metadata
-      }
+      },
+      tags: entry.tags || []
     });
     setViewMode('edit');
     setModalOpen(true);
@@ -324,7 +349,8 @@ export function DiaryPage() {
         encryption_iv: iv,
         encryption_tag: tag,
         mood: values.mood,
-        metadata: values.metadata
+        metadata: values.metadata,
+        tags: values.tags
       };
       
       if (values.id) {
@@ -335,6 +361,9 @@ export function DiaryPage() {
       
       setModalOpen(false);
       form.reset();
+      // Refresh data so that the new/updated entry instantly appears
+      await store.loadEntries();
+      await store.loadCalendarData(store.currentYear, store.currentMonth);
       notifications.show({
         title: 'Success',
         message: values.id ? 'Diary entry updated' : 'Diary entry created',
@@ -554,23 +583,58 @@ export function DiaryPage() {
   const EncryptionStatus = () => (
     <Group gap="xs">
       {store.isUnlocked ? (
-        <Tooltip label="Diary is unlocked">
-          <ActionIcon color="green" variant="light">
-            <IconLockOpen size={16} />
-          </ActionIcon>
-        </Tooltip>
+        <>
+          <Tooltip label="Diary is unlocked">
+            <ActionIcon color="green" variant="light">
+              <IconLockOpen size={16} />
+            </ActionIcon>
+          </Tooltip>
+          <Text size="sm" c="dimmed">
+            Unlocked
+          </Text>
+          <Button
+            size="xs"
+            variant="light"
+            color="orange"
+            leftSection={<IconLock size={14} />}
+            onClick={() => {
+              store.lockSession();
+              notifications.show({
+                title: 'Diary Locked',
+                message: 'Your diary has been locked for security',
+                color: 'orange',
+              });
+            }}
+          >
+            Lock
+          </Button>
+        </>
       ) : (
-        <Tooltip label="Diary is locked">
-          <ActionIcon color="red" variant="light">
-            <IconLock size={16} />
-          </ActionIcon>
-        </Tooltip>
+        <>
+          <Tooltip label="Diary is locked">
+            <ActionIcon color="red" variant="light">
+              <IconLock size={16} />
+            </ActionIcon>
+          </Tooltip>
+          <Text size="sm" c="dimmed">
+            Locked
+          </Text>
+        </>
       )}
-      <Text size="sm" c="dimmed">
-        {store.isUnlocked ? 'Unlocked' : 'Locked'}
-      </Text>
     </Group>
   );
+
+  // Show loading during initialization
+  if (store.isLoading && !store.isEncryptionSetup && !store.isUnlocked) {
+    return (
+      <Container size="md">
+        <Paper p="xl" radius="md" style={{ textAlign: 'center' }}>
+          <Loader size="lg" mx="auto" mb="md" />
+          <Text c="dimmed">Initializing diary...</Text>
+        </Paper>
+      </Container>
+    );
+  }
 
   if (!store.isEncryptionSetup) {
     return (
@@ -778,6 +842,9 @@ export function DiaryPage() {
           </Alert>
         ) : store.isUnlocked ? (
           <>
+            {/* Mood Insights */}
+            <MoodStatsWidget />
+            
             {/* Calendar View */}
             <Grid>
               <Grid.Col span={{ base: 12, md: 4 }}>
@@ -820,14 +887,31 @@ export function DiaryPage() {
                     {paginatedEntries.map((entry) => (
                       <Card key={entry.id} withBorder>
                         <Group justify="space-between">
-                          <Group>
-                            <Text fw={500}>{entry.title || formatDate(entry.date)}</Text>
-                            {entry.mood && (
-                              <Badge color={getMoodColor(entry.mood)}>
-                                {getMoodEmoji(entry.mood)} {getMoodLabel(entry.mood)}
-                              </Badge>
+                          <Stack gap="xs">
+                            <Group>
+                              <Text fw={500}>{entry.title || formatDate(entry.date)}</Text>
+                              {entry.mood && (
+                                <Badge color={getMoodColor(entry.mood)}>
+                                  {getMoodEmoji(entry.mood)} {getMoodLabel(entry.mood)}
+                                </Badge>
+                              )}
+                              {entry.media_count > 0 && (
+                                <Badge variant="light" color="orange">
+                                  📎 {entry.media_count}
+                                </Badge>
+                              )}
+                            </Group>
+                            {entry.tags && entry.tags.length > 0 && (
+                              <Group gap="xs">
+                                {entry.tags.map((tag) => (
+                                  <Badge key={tag} variant="outline" size="sm" color="gray">
+                                    {tag}
+                                  </Badge>
+                                ))}
+                              </Group>
                             )}
-                          </Group>
+                            <WellnessBadges metadata={entry.metadata} compact={true} />
+                          </Stack>
                           <Group>
                             <Menu>
                               <Menu.Target>
@@ -900,6 +984,16 @@ export function DiaryPage() {
               minRows={10}
               {...form.getInputProps('content')}
             />
+            
+            <TagsInput
+              label="Tags"
+              placeholder="Type and press Enter to add tags"
+              value={form.values.tags}
+              onChange={(value) => form.setFieldValue('tags', value)}
+              clearable
+              description="Organize your entries with tags for easy searching and filtering"
+            />
+            
             <Stack>
               <Text size="sm" fw={500}>Mood</Text>
               <Group>
@@ -912,6 +1006,172 @@ export function DiaryPage() {
                 </Text>
               </Group>
             </Stack>
+
+            <Divider label="Wellness Tracking" labelPosition="center" />
+            
+            {/* Daily Habits - Checkboxes */}
+            <Stack gap="xs">
+              <Text size="sm" fw={500}>Daily Habits</Text>
+              <Grid>
+                <Grid.Col span={6}>
+                  <Checkbox
+                    label="💪 Exercise"
+                    checked={form.values.metadata.did_exercise || false}
+                    onChange={(event) => 
+                      form.setFieldValue('metadata.did_exercise', event.currentTarget.checked)
+                    }
+                  />
+                </Grid.Col>
+                <Grid.Col span={6}>
+                  <Checkbox
+                    label="🧘 Meditation"
+                    checked={form.values.metadata.did_meditation || false}
+                    onChange={(event) => 
+                      form.setFieldValue('metadata.did_meditation', event.currentTarget.checked)
+                    }
+                  />
+                </Grid.Col>
+                <Grid.Col span={6}>
+                  <Checkbox
+                    label="👥 Social Interaction"
+                    checked={form.values.metadata.social_interaction || false}
+                    onChange={(event) => 
+                      form.setFieldValue('metadata.social_interaction', event.currentTarget.checked)
+                    }
+                  />
+                </Grid.Col>
+                <Grid.Col span={6}>
+                  <Checkbox
+                    label="🙏 Gratitude Practice"
+                    checked={form.values.metadata.gratitude_practice || false}
+                    onChange={(event) => 
+                      form.setFieldValue('metadata.gratitude_practice', event.currentTarget.checked)
+                    }
+                  />
+                </Grid.Col>
+              </Grid>
+            </Stack>
+
+            {/* Time Tracking - Number Inputs */}
+            <Stack gap="xs">
+              <Text size="sm" fw={500}>Time & Activities</Text>
+              <Grid>
+                <Grid.Col span={6}>
+                  <NumberInput
+                    label="😴 Sleep Duration"
+                    placeholder="Hours"
+                    min={0}
+                    max={24}
+                    step={0.5}
+                    value={form.values.metadata.sleep_duration || 8}
+                    onChange={(value) => 
+                      form.setFieldValue('metadata.sleep_duration', Number(value) || 8)
+                    }
+                    suffix=" hrs"
+                  />
+                </Grid.Col>
+                <Grid.Col span={6}>
+                  <NumberInput
+                    label="📱 Screen Time"
+                    placeholder="Hours"
+                    min={0}
+                    max={24}
+                    step={0.5}
+                    value={form.values.metadata.screen_time || 0}
+                    onChange={(value) => 
+                      form.setFieldValue('metadata.screen_time', Number(value) || 0)
+                    }
+                    suffix=" hrs"
+                  />
+                </Grid.Col>
+                <Grid.Col span={6}>
+                  <NumberInput
+                    label="🌿 Time Outside"
+                    placeholder="Minutes"
+                    min={0}
+                    max={1440}
+                    step={15}
+                    value={form.values.metadata.time_outside || 0}
+                    onChange={(value) => 
+                      form.setFieldValue('metadata.time_outside', Number(value) || 0)
+                    }
+                    suffix=" min"
+                  />
+                </Grid.Col>
+                <Grid.Col span={6}>
+                  <NumberInput
+                    label="📚 Reading Time"
+                    placeholder="Minutes"
+                    min={0}
+                    max={1440}
+                    step={5}
+                    value={form.values.metadata.reading_time || 0}
+                    onChange={(value) => 
+                      form.setFieldValue('metadata.reading_time', Number(value) || 0)
+                    }
+                    suffix=" min"
+                  />
+                </Grid.Col>
+              </Grid>
+            </Stack>
+
+            {/* Health Metrics */}
+            <Stack gap="xs">
+              <Text size="sm" fw={500}>Health & Wellness</Text>
+              <Grid>
+                <Grid.Col span={6}>
+                  <NumberInput
+                    label="💧 Water Intake"
+                    placeholder="Glasses"
+                    min={0}
+                    max={20}
+                    step={1}
+                    value={form.values.metadata.water_intake || 8}
+                    onChange={(value) => 
+                      form.setFieldValue('metadata.water_intake', Number(value) || 8)
+                    }
+                    suffix=" glasses"
+                  />
+                </Grid.Col>
+                <Grid.Col span={6}>
+                  <Stack gap={4}>
+                    <Text size="sm">⚡ Energy Level</Text>
+                    <Group>
+                      <Rating
+                        value={form.values.metadata.energy_level || 3}
+                        onChange={(value) => 
+                          form.setFieldValue('metadata.energy_level', value)
+                        }
+                        color="yellow"
+                      />
+                      <Text size="xs" c="dimmed">
+                        {form.values.metadata.energy_level || 3}/5
+                      </Text>
+                    </Group>
+                  </Stack>
+                </Grid.Col>
+              </Grid>
+              <Grid>
+                <Grid.Col span={6}>
+                  <Stack gap={4}>
+                    <Text size="sm">😰 Stress Level</Text>
+                    <Group>
+                      <Rating
+                        value={form.values.metadata.stress_level || 3}
+                        onChange={(value) => 
+                          form.setFieldValue('metadata.stress_level', value)
+                        }
+                        color="red"
+                      />
+                      <Text size="xs" c="dimmed">
+                        {form.values.metadata.stress_level || 3}/5
+                      </Text>
+                    </Group>
+                  </Stack>
+                </Grid.Col>
+              </Grid>
+            </Stack>
+
             <Group justify="flex-end">
               <Button variant="light" onClick={() => setModalOpen(false)}>
                 Cancel

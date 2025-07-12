@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, and_
 
 from app.database import get_db
+from app.config import NEPAL_TZ
 from app.auth.dependencies import get_current_user
 from app.models.user import User
 from app.models.note import Note
@@ -59,7 +60,7 @@ async def get_dashboard_stats(
         user_id = current_user.id
         
         # Define time range for "recent" items (last 7 days)
-        recent_cutoff = datetime.utcnow() - timedelta(days=7)
+        recent_cutoff = datetime.now(NEPAL_TZ) - timedelta(days=7)
         
         # Notes Statistics
         notes_total = await db.scalar(
@@ -99,20 +100,20 @@ async def get_dashboard_stats(
         )
         todos_pending = await db.scalar(
             select(func.count(Todo.id)).where(
-                and_(Todo.user_id == user_id, Todo.status == 'pending')
+                and_(Todo.user_id == user_id, Todo.is_completed == False)
             )
         )
         todos_completed = await db.scalar(
             select(func.count(Todo.id)).where(
-                and_(Todo.user_id == user_id, Todo.status == 'completed')
+                and_(Todo.user_id == user_id, Todo.is_completed == True)
             )
         )
         todos_overdue = await db.scalar(
             select(func.count(Todo.id)).where(
                 and_(
                     Todo.user_id == user_id,
-                    Todo.status == 'pending',
-                    Todo.due_date < datetime.utcnow().date()
+                    Todo.is_completed == False,
+                    Todo.due_date < datetime.now(NEPAL_TZ)
                 )
             )
         )
@@ -160,7 +161,7 @@ async def get_dashboard_stats(
                 "folders": archive_folders or 0,
                 "items": archive_items or 0
             },
-            last_updated=datetime.utcnow()
+            last_updated=datetime.now(NEPAL_TZ)
         )
         
     except Exception as e:
@@ -178,7 +179,7 @@ async def get_recent_activity(
     """Get recent activity across all modules"""
     try:
         user_id = current_user.id
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.now(NEPAL_TZ) - timedelta(days=days)
         
         # Get recent activity counts
         recent_notes = await db.scalar(
@@ -261,8 +262,8 @@ async def get_quick_stats(
             select(func.count(Todo.id)).where(
                 and_(
                     Todo.user_id == user_id,
-                    Todo.status == 'pending',
-                    Todo.due_date < datetime.utcnow().date()
+                    Todo.is_completed == False,
+                    Todo.due_date < datetime.now(NEPAL_TZ)
                 )
             )
         )
@@ -311,7 +312,7 @@ async def _calculate_diary_streak(db: AsyncSession, user_id: int) -> int:
             return 0
         
         # Check if there's an entry for today or yesterday
-        today = datetime.utcnow().date()
+        today = datetime.now(NEPAL_TZ).date()
         yesterday = today - timedelta(days=1)
         
         # Start counting from today or yesterday

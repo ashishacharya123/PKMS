@@ -7,10 +7,7 @@ import {
   RecoverySetup,
   RecoveryReset,
   RecoveryKeyResponse,
-  User,
-  MasterRecoverySetup,
-  MasterRecoveryReset,
-  MasterRecoveryCheckResponse
+  User
 } from '../types/auth';
 
 class AuthService {
@@ -50,61 +47,13 @@ class AuthService {
     return response.data;
   }
 
-  // Master Recovery Password Methods (New)
-  
-  // Setup master recovery password
-  async setupMasterRecovery(masterData: MasterRecoverySetup): Promise<{ message: string; method: string }> {
-    const response = await apiService.post<{ message: string; method: string }>('/auth/recovery/setup-master', masterData);
+  // Get user's security questions for recovery
+  async getRecoveryQuestions(): Promise<{ questions: string[] }> {
+    const response = await apiService.get<{ questions: string[] }>('/auth/recovery/questions');
     return response.data;
   }
 
-  // Reset password using master recovery password
-  async resetPasswordWithMaster(resetData: MasterRecoveryReset): Promise<{ message: string }> {
-    const response = await apiService.post<{ message: string }>('/auth/recovery/reset-master', resetData);
-    return response.data;
-  }
-
-  // Check what recovery options are available
-  async checkMasterRecoveryAvailable(): Promise<MasterRecoveryCheckResponse> {
-    const response = await apiService.post<MasterRecoveryCheckResponse>('/auth/recovery/check-master');
-    return response.data;
-  }
-
-  // Diary Recovery Methods
-  
-  // Unlock diary with master recovery password
-  async unlockDiaryWithMaster(masterPassword: string): Promise<{ 
-    message: string; 
-    unlock_method: string; 
-    can_access_diary: boolean; 
-    hint: string 
-  }> {
-    const formData = new FormData();
-    formData.append('master_password', masterPassword);
-    const response = await apiService.post<{ 
-      message: string; 
-      unlock_method: string; 
-      can_access_diary: boolean; 
-      hint: string 
-    }>('/diary/unlock-with-master', formData);
-    return response.data;
-  }
-
-  // Get diary recovery options
-  async getDiaryRecoveryOptions(): Promise<{
-    has_master_recovery: boolean;
-    has_security_questions: boolean;
-    recovery_message: string;
-    recommended_action: string;
-  }> {
-    const response = await apiService.get<{
-      has_master_recovery: boolean;
-      has_security_questions: boolean;
-      recovery_message: string;
-      recommended_action: string;
-    }>('/diary/recovery-options');
-    return response.data;
-  }
+  // Master-recovery endpoints have been removed; related methods deprecated.
 
   // Get current user info
   async getCurrentUser(): Promise<User> {
@@ -158,6 +107,18 @@ class AuthService {
   isAuthenticated(): boolean {
     return !!this.getStoredToken();
   }
+
+  // Login Password Hint Methods (separate from diary encryption hints)
+  async setLoginPasswordHint(hint: string): Promise<{ message: string }> {
+    const response = await apiService.put<{ message: string }>('/auth/login-password-hint', { hint });
+    return response.data;
+  }
+
+  async getLoginPasswordHint(username: string): Promise<string> {
+    const response = await apiService.post<{ hint: string }>('/auth/login-password-hint', { username });
+    return response.data.hint;
+  }
 }
 
-export default new AuthService(); 
+const authService = new AuthService();
+export default authService; 

@@ -26,7 +26,6 @@ class FTS5SearchService:
                     id UNINDEXED,
                     title,
                     content,
-                    area,
                     tags,
                     user_id UNINDEXED,
                     created_at UNINDEXED,
@@ -40,10 +39,10 @@ class FTS5SearchService:
             await db.execute(text("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS fts_documents USING fts5(
                     uuid UNINDEXED,
+                    title,
                     filename,
                     original_name,
-                    extracted_text,
-                    metadata_json,
+                    description,
                     user_id UNINDEXED,
                     created_at UNINDEXED,
                     updated_at UNINDEXED,
@@ -59,7 +58,6 @@ class FTS5SearchService:
                     name,
                     description,
                     original_filename,
-                    extracted_text,
                     metadata_json,
                     user_id UNINDEXED,
                     folder_uuid UNINDEXED,
@@ -85,6 +83,36 @@ class FTS5SearchService:
                 );
             """))
             
+            # Create FTS5 virtual table for diary entries
+            await db.execute(text("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS fts_diary_entries USING fts5(
+                    id UNINDEXED,
+                    title,
+                    tags,
+                    metadata_json,
+                    user_id UNINDEXED,
+                    created_at UNINDEXED,
+                    updated_at UNINDEXED,
+                    content='diary_entries',
+                    content_rowid='id'
+                );
+            """))
+            
+            # Create FTS5 virtual table for archive folders
+            await db.execute(text("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS fts_folders USING fts5(
+                    uuid UNINDEXED,
+                    name,
+                    description,
+                    parent_uuid UNINDEXED,
+                    user_id UNINDEXED,
+                    created_at UNINDEXED,
+                    updated_at UNINDEXED,
+                    content='archive_folders',
+                    content_rowid='uuid'
+                );
+            """))
+            
             # Create triggers to keep FTS tables in sync
             await self._create_sync_triggers(db)
             
@@ -104,8 +132,8 @@ class FTS5SearchService:
         # Notes triggers
         await db.execute(text("""
             CREATE TRIGGER IF NOT EXISTS notes_fts_insert AFTER INSERT ON notes BEGIN
-                INSERT INTO fts_notes(id, title, content, area, tags, user_id, created_at, updated_at)
-                VALUES (new.id, new.title, new.content, new.area, 
+                INSERT INTO fts_notes(id, title, content, tags, user_id, created_at, updated_at)
+                VALUES (new.id, new.title, new.content, 
                        COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM note_tags nt 
                                 JOIN tags t ON nt.tag_id = t.id 
                                 WHERE nt.note_id = new.id), ''),
@@ -118,7 +146,6 @@ class FTS5SearchService:
                 UPDATE fts_notes SET 
                     title = new.title,
                     content = new.content,
-                    area = new.area,
                     tags = COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM note_tags nt 
                                     JOIN tags t ON nt.tag_id = t.id 
                                     WHERE nt.note_id = new.id), ''),
@@ -136,20 +163,20 @@ class FTS5SearchService:
         # Documents triggers
         await db.execute(text("""
             CREATE TRIGGER IF NOT EXISTS documents_fts_insert AFTER INSERT ON documents BEGIN
-                INSERT INTO fts_documents(uuid, filename, original_name, extracted_text, 
-                                        metadata_json, user_id, created_at, updated_at)
-                VALUES (new.uuid, new.filename, new.original_name, new.extracted_text,
-                       new.metadata_json, new.user_id, new.created_at, new.updated_at);
+                INSERT INTO fts_documents(uuid, title, filename, original_name, description, 
+                                        user_id, created_at, updated_at)
+                VALUES (new.uuid, new.title, new.filename, new.original_name, new.description,
+                       new.user_id, new.created_at, new.updated_at);
             END;
         """))
         
         await db.execute(text("""
             CREATE TRIGGER IF NOT EXISTS documents_fts_update AFTER UPDATE ON documents BEGIN
                 UPDATE fts_documents SET 
+                    title = new.title,
                     filename = new.filename,
                     original_name = new.original_name,
-                    extracted_text = new.extracted_text,
-                    metadata_json = new.metadata_json,
+                    description = new.description,
                     updated_at = new.updated_at
                 WHERE uuid = new.uuid;
             END;
@@ -165,10 +192,10 @@ class FTS5SearchService:
         await db.execute(text("""
             CREATE TRIGGER IF NOT EXISTS archive_items_fts_insert AFTER INSERT ON archive_items BEGIN
                 INSERT INTO fts_archive_items(uuid, name, description, original_filename, 
-                                            extracted_text, metadata_json, user_id, 
+                                            metadata_json, user_id, 
                                             folder_uuid, created_at, updated_at)
                 VALUES (new.uuid, new.name, new.description, new.original_filename,
-                       new.extracted_text, new.metadata_json, new.user_id,
+                       new.metadata_json, new.user_id,
                        new.folder_uuid, new.created_at, new.updated_at);
             END;
         """))
@@ -179,7 +206,6 @@ class FTS5SearchService:
                     name = new.name,
                     description = new.description,
                     original_filename = new.original_filename,
-                    extracted_text = new.extracted_text,
                     metadata_json = new.metadata_json,
                     folder_uuid = new.folder_uuid,
                     updated_at = new.updated_at
@@ -219,6 +245,58 @@ class FTS5SearchService:
             END;
         """))
 
+        # Diary entries triggers
+        await db.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS diary_entries_fts_insert AFTER INSERT ON diary_entries BEGIN
+                INSERT INTO fts_diary_entries(id, title, tags, metadata_json, user_id, created_at, updated_at)
+                VALUES (new.id, new.title,
+                    COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM diary_tags dt 
+                              JOIN tags t ON dt.tag_id = t.id 
+                              WHERE dt.diary_entry_id = new.id), ''),
+                    new.metadata_json, new.user_id, new.created_at, new.updated_at);
+            END;
+        """))
+        await db.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS diary_entries_fts_update AFTER UPDATE ON diary_entries BEGIN
+                UPDATE fts_diary_entries SET 
+                    title = new.title,
+                    tags = COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM diary_tags dt 
+                                     JOIN tags t ON dt.tag_id = t.id 
+                                     WHERE dt.diary_entry_id = new.id), ''),
+                    metadata_json = new.metadata_json,
+                    updated_at = new.updated_at
+                WHERE id = new.id;
+            END;
+        """))
+        await db.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS diary_entries_fts_delete AFTER DELETE ON diary_entries BEGIN
+                DELETE FROM fts_diary_entries WHERE id = old.id;
+            END;
+        """))
+
+        # Archive folders triggers
+        await db.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS folders_fts_insert AFTER INSERT ON archive_folders BEGIN
+                INSERT INTO fts_folders(uuid, name, description, parent_uuid, user_id, created_at, updated_at)
+                VALUES (new.uuid, new.name, new.description, new.parent_uuid, new.user_id, new.created_at, new.updated_at);
+            END;
+        """))
+        await db.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS folders_fts_update AFTER UPDATE ON archive_folders BEGIN
+                UPDATE fts_folders SET 
+                    name = new.name,
+                    description = new.description,
+                    parent_uuid = new.parent_uuid,
+                    updated_at = new.updated_at
+                WHERE uuid = new.uuid;
+            END;
+        """))
+        await db.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS folders_fts_delete AFTER DELETE ON archive_folders BEGIN
+                DELETE FROM fts_folders WHERE uuid = old.uuid;
+            END;
+        """))
+
     async def populate_fts_tables(self, db: AsyncSession) -> bool:
         """Populate FTS tables with existing data"""
         try:
@@ -236,9 +314,9 @@ class FTS5SearchService:
             
             # Populate documents
             await db.execute(text("""
-                INSERT INTO fts_documents(uuid, filename, original_name, extracted_text, 
-                                        metadata_json, user_id, created_at, updated_at)
-                SELECT uuid, filename, original_name, extracted_text, metadata_json,
+                INSERT INTO fts_documents(uuid, filename, original_name, description, 
+                                        user_id, created_at, updated_at)
+                SELECT uuid, filename, original_name, description,
                        user_id, created_at, updated_at
                 FROM documents
                 WHERE uuid NOT IN (SELECT uuid FROM fts_documents);
@@ -247,10 +325,10 @@ class FTS5SearchService:
             # Populate archive items
             await db.execute(text("""
                 INSERT INTO fts_archive_items(uuid, name, description, original_filename, 
-                                            extracted_text, metadata_json, user_id, 
+                                            metadata_json, user_id, 
                                             folder_uuid, created_at, updated_at)
-                SELECT uuid, name, description, original_filename, extracted_text,
-                       metadata_json, user_id, folder_uuid, created_at, updated_at
+                SELECT uuid, name, description, original_filename, metadata_json,
+                       user_id, folder_uuid, created_at, updated_at
                 FROM archive_items
                 WHERE uuid NOT IN (SELECT uuid FROM fts_archive_items);
             """))
@@ -261,6 +339,26 @@ class FTS5SearchService:
                 SELECT id, title, description, user_id, project_id, created_at, updated_at
                 FROM todos
                 WHERE id NOT IN (SELECT id FROM fts_todos);
+            """))
+            
+            # Populate diary entries
+            await db.execute(text("""
+                INSERT INTO fts_diary_entries(id, title, tags, metadata_json, user_id, created_at, updated_at)
+                SELECT d.id, d.title,
+                       COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM diary_tags dt 
+                                JOIN tags t ON dt.tag_id = t.id 
+                                WHERE dt.diary_entry_id = d.id), '') as tags,
+                       d.metadata_json, d.user_id, d.created_at, d.updated_at
+                FROM diary_entries d
+                WHERE d.id NOT IN (SELECT id FROM fts_diary_entries);
+            """))
+            
+            # Populate archive folders
+            await db.execute(text("""
+                INSERT INTO fts_folders(uuid, name, description, parent_uuid, user_id, created_at, updated_at)
+                SELECT uuid, name, description, parent_uuid, user_id, created_at, updated_at
+                FROM archive_folders
+                WHERE uuid NOT IN (SELECT uuid FROM fts_folders);
             """))
             
             await db.commit()
@@ -323,7 +421,7 @@ class FTS5SearchService:
             if 'documents' in content_types:
                 docs_sql = text("""
                     SELECT 'document' as type, uuid, filename, original_name, 
-                           extracted_text, created_at, updated_at,
+                           description, created_at, updated_at,
                            bm25(fts_documents) as rank
                     FROM fts_documents 
                     WHERE fts_documents MATCH :query AND user_id = :user_id
@@ -343,9 +441,7 @@ class FTS5SearchService:
                         'type': row.type,
                         'id': row.uuid,
                         'title': row.original_name,
-                        'content': (row.extracted_text[:300] + '...' 
-                                  if row.extracted_text and len(row.extracted_text) > 300 
-                                  else (row.extracted_text or '')),
+                        'content': '', # Remove extracted_text
                         'filename': row.filename,
                         'created_at': row.created_at,
                         'updated_at': row.updated_at,
@@ -356,7 +452,7 @@ class FTS5SearchService:
             if 'archive_items' in content_types:
                 archive_sql = text("""
                     SELECT 'archive_item' as type, uuid, name, description, 
-                           original_filename, extracted_text, folder_uuid,
+                           original_filename, metadata_json, folder_uuid,
                            created_at, updated_at, bm25(fts_archive_items) as rank
                     FROM fts_archive_items 
                     WHERE fts_archive_items MATCH :query AND user_id = :user_id
@@ -376,9 +472,7 @@ class FTS5SearchService:
                         'type': row.type,
                         'id': row.uuid,
                         'title': row.name,
-                        'content': (row.extracted_text[:300] + '...' 
-                                  if row.extracted_text and len(row.extracted_text) > 300 
-                                  else (row.extracted_text or row.description or '')),
+                        'content': '', # Remove extracted_text
                         'filename': row.original_filename,
                         'folder_uuid': row.folder_uuid,
                         'created_at': row.created_at,

@@ -10,10 +10,14 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Mount data directory for persistence
-      - ./PKMS_Data:/app/data
+      # Mount data directory for persistence using Docker volume
+      - pkms_db_data:/app/data
       # Mount source code for development (hot reload)
       - ./pkms-backend:/app
+      # Mount PKMS_Data for backup operations
+      - ./PKMS_Data:/app/PKMS_Data
+      # Mount Docker socket for backup operations (development only)
+      - /var/run/docker.sock:/var/run/docker.sock
       # Exclude virtual environment and cache
       - /app/venv
       - /app/__pycache__
@@ -21,6 +25,8 @@ services:
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///app/data/pkm_metadata.db
       - AUTH_DB_PATH=/app/data/auth.db
+      # Force backend to use the bind-mounted /app/data directory
+      - DATA_DIR=/app/data
       - LOG_LEVEL=debug
       - ENVIRONMENT=development
       - DEBUG=true
@@ -75,6 +81,8 @@ services:
 
 volumes:
   redis_data:
+    driver: local
+  pkms_db_data:
     driver: local
 
 networks:

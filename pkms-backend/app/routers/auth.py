@@ -3,10 +3,10 @@ Authentication Router
 Handles user registration, login, logout, and password recovery
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie, Query
 from fastapi.security import HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete, func
 from pydantic import BaseModel, EmailStr, Field, validator
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -14,20 +14,22 @@ import json
 import re
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+import logging
 
-from app.database import get_db
+from app.database import get_db, init_db
 from app.models.user import User, Session, RecoveryKey
 from app.auth.security import (
     hash_password, verify_password, create_access_token, generate_session_token,
     hash_security_answers, verify_security_answers, validate_password_strength,
     generate_recovery_key, hash_recovery_key
 )
-from app.auth.dependencies import get_current_user, require_first_login, require_not_first_login
-from app.config import settings
+from app.auth.dependencies import get_current_user
+from app.config import settings, NEPAL_TZ
 
 router = APIRouter()
 
 limiter = Limiter(key_func=get_remote_address)
+logger = logging.getLogger(__name__)
 
 # Input validation patterns
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{3,50}$')
@@ -38,6 +40,15 @@ class UserSetup(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=8, max_length=128)
     email: Optional[EmailStr] = None
+    login_password_hint: Optional[str] = Field(None, max_length=255)
+    
+    # Recovery questions (mandatory)
+    recovery_questions: List[str] = Field(..., min_items=2, max_items=5)
+    recovery_answers: List[str] = Field(..., min_items=2, max_items=5)
+    
+    # Diary password (optional but recommended)
+    diary_password: Optional[str] = Field(None, min_length=8, max_length=128)
+    diary_password_hint: Optional[str] = Field(None, max_length=255)
     
     @validator('username')
     def validate_username(cls, v):
@@ -45,13 +56,43 @@ class UserSetup(BaseModel):
             raise ValueError('Username can only contain letters, numbers, hyphens, and underscores')
         if v.lower() in ['admin', 'root', 'administrator', 'user', 'test', 'demo']:
             raise ValueError('This username is not allowed')
-        return v.lower()
+        return v  # Remove .lower() - keep original case
     
     @validator('password')
     def validate_password_security(cls, v):
         # Additional password validation beyond basic strength
         if any(char in v for char in ['<', '>', '&', '"', "'"]):
             raise ValueError('Password contains unsafe characters')
+        return v
+    
+    @validator('recovery_questions')
+    def validate_questions(cls, v):
+        for question in v:
+            if not SAFE_STRING_PATTERN.match(question):
+                raise ValueError('Security questions contain invalid characters')
+            if len(question.strip()) < 10:
+                raise ValueError('Security questions must be at least 10 characters long')
+        return [q.strip() for q in v]
+    
+    @validator('recovery_answers')
+    def validate_answers(cls, v):
+        for answer in v:
+            if not SAFE_STRING_PATTERN.match(answer):
+                raise ValueError('Security answers contain invalid characters')
+            if len(answer.strip()) < 2:
+                raise ValueError('Security answers must be at least 2 characters long')
+        return [a.strip() for a in v]
+    
+    @validator('diary_password')
+    def validate_diary_password(cls, v):
+        if v and any(char in v for char in ['<', '>', '&', '"', "'"]):
+            raise ValueError('Diary password contains unsafe characters')
+        return v
+    
+    @validator('recovery_answers', 'recovery_questions')
+    def validate_matching_count(cls, v, values):
+        if 'recovery_questions' in values and len(v) != len(values['recovery_questions']):
+            raise ValueError('Number of questions and answers must match')
         return v
 
 class UserLogin(BaseModel):
@@ -62,7 +103,7 @@ class UserLogin(BaseModel):
     def validate_username(cls, v):
         if not USERNAME_PATTERN.match(v):
             raise ValueError('Invalid username format')
-        return v.lower()
+        return v  # Remove .lower() - keep original case
 
 class PasswordChange(BaseModel):
     current_password: str = Field(..., min_length=1, max_length=128)
@@ -74,29 +115,8 @@ class PasswordChange(BaseModel):
             raise ValueError('Password contains unsafe characters')
         return v
 
-class RecoverySetup(BaseModel):
-    questions: List[str] = Field(..., min_items=2, max_items=5)
-    answers: List[str] = Field(..., min_items=2, max_items=5)
-    
-    @validator('questions')
-    def validate_questions(cls, v):
-        for question in v:
-            if not SAFE_STRING_PATTERN.match(question):
-                raise ValueError('Security questions contain invalid characters')
-            if len(question.strip()) < 10:
-                raise ValueError('Security questions must be at least 10 characters long')
-        return [q.strip() for q in v]
-    
-    @validator('answers')
-    def validate_answers(cls, v):
-        for answer in v:
-            if not SAFE_STRING_PATTERN.match(answer):
-                raise ValueError('Security answers contain invalid characters')
-            if len(answer.strip()) < 2:
-                raise ValueError('Security answers must be at least 2 characters long')
-        return [a.strip() for a in v]
-
 class RecoveryReset(BaseModel):
+    username: Optional[str] = Field(None, min_length=3, max_length=50)
     answers: List[str] = Field(..., min_items=2, max_items=5)
     new_password: str = Field(..., min_length=8, max_length=128)
     
@@ -123,13 +143,11 @@ class TokenResponse(BaseModel):
     expires_in: int
     user_id: int
     username: str
-    is_first_login: bool
 
 class UserResponse(BaseModel):
     id: int
     username: str
     email: Optional[str]
-    is_first_login: bool
     created_at: datetime
 
     class Config:
@@ -139,30 +157,14 @@ class RefreshTokenRequest(BaseModel):
     """Empty body – refresh is cookie-based but keeps model for future extensibility"""
     pass
 
-class MasterRecoverySetup(BaseModel):
-    master_recovery_password: str = Field(..., min_length=8, max_length=128)
-    
-    @validator('master_recovery_password')
-    def validate_master_password(cls, v):
-        if any(char in v for char in ['<', '>', '&', '"', "'"]):
-            raise ValueError('Master recovery password contains unsafe characters')
-        return v
+class UsernameBody(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50)
 
-class MasterRecoveryReset(BaseModel):
-    master_recovery_password: str = Field(..., min_length=8, max_length=128)
-    new_password: str = Field(..., min_length=8, max_length=128)
-    
-    @validator('master_recovery_password')
-    def validate_master_password(cls, v):
-        if any(char in v for char in ['<', '>', '&', '"', "'"]):
-            raise ValueError('Master recovery password contains unsafe characters')
-        return v
-    
-    @validator('new_password')
-    def validate_new_password(cls, v):
-        if any(char in v for char in ['<', '>', '&', '"', "'"]):
-            raise ValueError('Password contains unsafe characters')
-        return v
+    @validator('username')
+    def validate_username(cls, v):
+        if not USERNAME_PATTERN.match(v):
+            raise ValueError('Invalid username format')
+        return v  # Remove .lower() - keep original case
 
 @router.post("/setup", response_model=TokenResponse)
 @limiter.limit("3/minute")
@@ -173,7 +175,8 @@ async def setup_user(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    First-time user setup (creates master password)
+    Comprehensive user setup (creates user + recovery questions + diary password)
+    Everything is set up in one go - no more first_login complexity!
     """
     # Check if any user already exists
     result = await db.execute(select(User))
@@ -193,6 +196,9 @@ async def setup_user(
             detail=error_message
         )
     
+    # Diary password: allow any complexity (user preference). Only strip unsafe characters via Pydantic validator.
+    # No additional strength validation enforced.
+    
     # Check username availability
     result = await db.execute(select(User).where(User.username == user_data.username))
     if result.scalar_one_or_none():
@@ -201,37 +207,55 @@ async def setup_user(
             detail="Username already taken"
         )
     
-    # Hash password using bcrypt
+    # Hash passwords
     password_hash = hash_password(user_data.password)
+    diary_password_hash = hash_password(user_data.diary_password) if user_data.diary_password else None
     
-    # Create user
+    # Create user with all info
     user = User(
         username=user_data.username,
         email=user_data.email,
         password_hash=password_hash,
-        is_first_login=True
+        diary_password_hash=diary_password_hash,
+        diary_password_hint=user_data.diary_password_hint,
+        login_password_hint=user_data.login_password_hint,
+        is_first_login=False  # Everything is set up at once!
     )
     
     db.add(user)
     await db.commit()
     await db.refresh(user)
     
-    # Create JWT access token
-    access_token = create_access_token(data={"sub": str(user.id)})
+    # Set up recovery questions
+    answers_hash, salt = hash_security_answers(user_data.recovery_answers)
+    recovery_key = generate_recovery_key()
+    key_hash, key_salt = hash_recovery_key(recovery_key)
     
-    # --- NEW: Create refresh session & cookie ---
+    recovery_record = RecoveryKey(
+        user_id=user.id,
+        key_hash=key_hash,
+        questions_json=json.dumps(user_data.recovery_questions),
+        answers_hash=answers_hash,
+        salt=salt
+    )
+    db.add(recovery_record)
+    
+    # Create session for login
     session_token = generate_session_token()
     session = Session(
         session_token=session_token,
         user_id=user.id,
-        expires_at=datetime.utcnow() + timedelta(days=7),  # 7-day sliding window
+        expires_at=datetime.now(NEPAL_TZ) + timedelta(days=7),
         ip_address=None,
         user_agent="internal-setup"
     )
     db.add(session)
     await db.commit()
 
-    # Secure cookie (HttpOnly, SameSite=Lax)
+    # Create JWT access token
+    access_token = create_access_token(data={"sub": str(user.id)})
+
+    # Set secure cookie
     response.set_cookie(
         key="pkms_refresh",
         value=session_token,
@@ -245,8 +269,7 @@ async def setup_user(
         access_token=access_token,
         expires_in=settings.access_token_expire_minutes * 60,
         user_id=user.id,
-        username=user.username,
-        is_first_login=user.is_first_login
+        username=user.username
     )
 
 
@@ -258,17 +281,33 @@ async def login(
     response: Response,
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    User login
-    """
-    # Get user by username
-    result = await db.execute(select(User).where(User.username == user_data.username))
+    """Authenticate user and return access token"""
+    
+    # First check if any users exist in the system
+    user_count = await db.scalar(select(func.count(User.id)))
+    
+    if user_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No user account exists. Please create an account first by clicking 'Create account'."
+        )
+    
+    # Check if user exists
+    result = await db.execute(
+        select(User).where(User.username == user_data.username)
+    )
     user = result.scalar_one_or_none()
     
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password"
+            detail="Invalid username or password. Please check your credentials and try again."
+        )
+    
+    if not verify_password(user_data.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password. Please check your credentials and try again."
         )
     
     if not user.is_active:
@@ -277,47 +316,50 @@ async def login(
             detail="Account is disabled"
         )
     
-    # Verify password using bcrypt
-    if not verify_password(user_data.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password"
-        )
+    # Create access token
+    token_data = {"sub": str(user.id), "username": user.username}
+    access_token = create_access_token(token_data)
     
-    # Update last login
-    user.last_login = datetime.utcnow()
-    await db.commit()
-    
-    # Create JWT access token
-    access_token = create_access_token(data={"sub": str(user.id)})
-    
-    # --- NEW: Create refresh session & cookie ---
+    # Create or update session
     session_token = generate_session_token()
+    expires_at = datetime.now(NEPAL_TZ) + timedelta(days=settings.refresh_token_lifetime_days)
+    
+    # Clean up old sessions for this user
+    await db.execute(
+        delete(Session).where(Session.user_id == user.id)
+    )
+    
+    # Create new session
     session = Session(
         session_token=session_token,
         user_id=user.id,
-        expires_at=datetime.utcnow() + timedelta(days=7),
+        expires_at=expires_at,
         ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent")
+        user_agent=request.headers.get("user-agent", "")[:500]
     )
     db.add(session)
+    
+    # Update last login time
+    user.last_login = datetime.now(NEPAL_TZ)
+    
     await db.commit()
-
+    
+    # Set refresh token cookie
     response.set_cookie(
         key="pkms_refresh",
         value=session_token,
+        max_age=settings.refresh_token_lifetime_days * 24 * 60 * 60,
         httponly=True,
-        samesite="lax",
-        secure=settings.environment == "production",
-        max_age=7*24*60*60
+        secure=False,  # Set to True in production with HTTPS
+        samesite="lax"
     )
     
     return TokenResponse(
         access_token=access_token,
+        token_type="bearer",
         expires_in=settings.access_token_expire_minutes * 60,
         user_id=user.id,
-        username=user.username,
-        is_first_login=user.is_first_login
+        username=user.username
     )
 
 
@@ -334,50 +376,55 @@ async def logout(
     return {"message": "Successfully logged out"}
 
 
-@router.post("/recovery/setup", response_model=RecoveryKeyResponse)
-async def setup_recovery(
-    recovery_data: RecoverySetup,
-    current_user: User = Depends(require_first_login),
+@router.get("/recovery/questions")
+async def get_recovery_questions(
+    username: Optional[str] = Query(None, min_length=3, max_length=50),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Setup password recovery with security questions
+    Get recovery questions for a specific user.
+    This now requires a username to support multi-user environments.
     """
-    if len(recovery_data.questions) != len(recovery_data.answers):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Number of questions and answers must match"
-        )
-    
-    if len(recovery_data.questions) < 2:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least 2 security questions are required"
-        )
-    
-    # Hash answers
-    answers_hash, salt = hash_security_answers(recovery_data.answers)
-    
-    # Generate recovery key
-    recovery_key = generate_recovery_key()
-    key_hash, key_salt = hash_recovery_key(recovery_key)
-    
-    # Create recovery key record
-    recovery_record = RecoveryKey(
-        user_id=current_user.id,
-        key_hash=key_hash,
-        questions_json=json.dumps(recovery_data.questions),
-        answers_hash=answers_hash,
-        salt=salt
+    logger.info("Recovery questions requested" + (f" for username: {username}" if username else " without username (single-user fallback)"))
+
+    if username:
+        user_res = await db.execute(select(User).where(User.username == username))
+        user = user_res.scalar_one_or_none()
+    else:
+        # Fallback: allow omission only when a single user exists
+        users_res = await db.execute(select(User))
+        users = users_res.scalars().all()
+        if len(users) == 1:
+            user = users[0]
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username must be provided when multiple users exist."
+            )
+
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    recovery_key_res = await db.execute(
+        select(RecoveryKey).where(RecoveryKey.user_id == user.id)
     )
-    
-    db.add(recovery_record)
-    await db.commit()
-    
-    return RecoveryKeyResponse(
-        recovery_key=recovery_key,
-        message="Recovery key generated. Store it securely - you'll need it to reset your password."
-    )
+    recovery_key = recovery_key_res.scalar_one_or_none()
+
+    if not recovery_key or not recovery_key.questions_json:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recovery questions not set up for this user."
+        )
+
+    try:
+        questions = json.loads(recovery_key.questions_json)
+        return {"questions": questions}
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse recovery questions for user {user.id}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not retrieve recovery questions."
+        )
 
 
 @router.post("/recovery/reset")
@@ -396,31 +443,39 @@ async def reset_password(
             detail=error_message
         )
     
-    # Get recovery key record
-    result = await db.execute(select(RecoveryKey))
+    # Get user according to provided (or inferred) username
+    if recovery_data.username:
+        user_res = await db.execute(select(User).where(User.username == recovery_data.username))
+        user = user_res.scalar_one_or_none()
+    else:
+        users_res = await db.execute(select(User))
+        users = users_res.scalars().all()
+        if len(users) == 1:
+            user = users[0]
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username must be provided when multiple users exist."
+            )
+
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    # Get recovery key for this user
+    result = await db.execute(select(RecoveryKey).where(RecoveryKey.user_id == user.id))
     recovery_record = result.scalar_one_or_none()
-    
+
     if not recovery_record:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No recovery setup found"
         )
-    
+
     # Verify answers
     if not verify_security_answers(recovery_data.answers, recovery_record.answers_hash, recovery_record.salt):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect security answers"
-        )
-    
-    # Get user
-    result = await db.execute(select(User).where(User.id == recovery_record.user_id))
-    user = result.scalar_one_or_none()
-    
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
         )
     
     # Hash new password using bcrypt
@@ -431,7 +486,7 @@ async def reset_password(
     user.is_first_login = False
     
     # Update recovery key last used
-    recovery_record.last_used = datetime.utcnow()
+    recovery_record.last_used = datetime.now(NEPAL_TZ)
     
     await db.commit()
     
@@ -451,7 +506,7 @@ async def get_current_user_info(
 @router.put("/password")
 async def change_password(
     password_data: PasswordChange,
-    current_user: User = Depends(require_not_first_login),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -484,19 +539,6 @@ async def change_password(
     return {"message": "Password successfully changed"}
 
 
-@router.post("/complete-setup")
-async def complete_setup(
-    current_user: User = Depends(require_first_login),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Mark first-time setup as complete
-    """
-    current_user.is_first_login = False
-    await db.commit()
-    
-    return {"message": "Setup completed successfully"}
-
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_access_token(
     response: Response,
@@ -510,7 +552,7 @@ async def refresh_access_token(
     # Lookup session
     result = await db.execute(select(Session).where(Session.session_token == session_token))
     session = result.scalar_one_or_none()
-    if not session or session.expires_at < datetime.utcnow():
+    if not session or session.expires_at < datetime.now(NEPAL_TZ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
 
     # Get user
@@ -523,7 +565,7 @@ async def refresh_access_token(
     access_token = create_access_token(data={"sub": str(user.id)})
 
     # Slide session expiry by another 7 days
-    session.expires_at = datetime.utcnow() + timedelta(days=7)
+    session.expires_at = datetime.now(NEPAL_TZ) + timedelta(days=7)
     await db.commit()
 
     # refresh cookie max-age
@@ -540,130 +582,70 @@ async def refresh_access_token(
         access_token=access_token,
         expires_in=settings.access_token_expire_minutes * 60,
         user_id=user.id,
-        username=user.username,
-        is_first_login=user.is_first_login
+        username=user.username
     ) 
 
-@router.post("/recovery/setup-master", response_model=dict)
-async def setup_master_recovery(
-    recovery_data: MasterRecoverySetup,
-    current_user: User = Depends(require_first_login),
+# Master recovery system removed - using security questions only
+
+
+# Login Password Hint Endpoints
+class LoginPasswordHintUpdate(BaseModel):
+    hint: str = Field(..., max_length=255)
+    
+    @validator('hint')
+    def validate_hint(cls, v):
+        v = v.strip()
+        if not v:
+            raise ValueError('Hint cannot be empty')
+        if len(v) < 2:
+            raise ValueError('Hint must be at least 2 characters long')
+        return v
+
+
+@router.put("/login-password-hint")
+async def set_login_password_hint(
+    hint_data: LoginPasswordHintUpdate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Setup master recovery password (simplified for single user)
+    Set or update the login password hint for the current user
     """
-    # Validate master recovery password strength
-    is_valid, error_message = validate_password_strength(recovery_data.master_recovery_password)
-    if not is_valid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Master recovery password is too weak: {error_message}"
-        )
-    
-    # Hash the master recovery password
-    master_password_hash = hash_password(recovery_data.master_recovery_password)
-    
-    # Check if recovery record exists and update or create
-    result = await db.execute(select(RecoveryKey))
-    recovery_record = result.scalar_one_or_none()
-    
-    if recovery_record:
-        # Update existing record with master password
-        recovery_record.master_password_hash = master_password_hash
-        recovery_record.last_used = None  # Reset usage
-    else:
-        # Create new recovery record with master password only
-        recovery_record = RecoveryKey(
-            user_id=current_user.id,
-            key_hash="",  # Empty for master password method
-            questions_json="[]",  # Empty for master password method
-            answers_hash="",  # Empty for master password method
-            salt="",  # Empty for master password method
-            master_password_hash=master_password_hash
-        )
-        db.add(recovery_record)
-    
+    current_user.login_password_hint = hint_data.hint.strip()
     await db.commit()
     
-    return {
-        "message": "Master recovery password set successfully. This password can be used to recover your account and unlock your diary.",
-        "method": "master_password"
-    }
+    return {"message": "Login password hint updated successfully"}
 
-@router.post("/recovery/reset-master")
-async def reset_password_with_master(
-    recovery_data: MasterRecoveryReset,
+
+@router.post("/login-password-hint")
+async def get_login_password_hint(
+    data: UsernameBody,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Reset password using master recovery password (simplified for single user)
+    Get the login password hint for a given username.
+    This is intentionally not authenticated to be used on the login page.
     """
-    # Validate new password
-    is_valid, error_message = validate_password_strength(recovery_data.new_password)
-    if not is_valid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_message
-        )
-    
-    # Get recovery key record (simplified for single user)
-    result = await db.execute(select(RecoveryKey))
-    recovery_record = result.scalar_one_or_none()
-    
-    if not recovery_record or not hasattr(recovery_record, 'master_password_hash') or not recovery_record.master_password_hash:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No master recovery password found. Please use security questions instead."
-        )
-    
-    # Verify master recovery password
-    if not verify_password(recovery_data.master_recovery_password, recovery_record.master_password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect master recovery password"
-        )
-    
-    # Get user (simplified for single user)
-    result = await db.execute(select(User))
+    result = await db.execute(select(User).where(User.username == data.username))
     user = result.scalar_one_or_none()
-    
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    
-    # Hash new password using bcrypt
-    password_hash = hash_password(recovery_data.new_password)
-    
-    # Update user password
-    user.password_hash = password_hash
-    user.is_first_login = False
-    
-    # Update recovery key last used
-    recovery_record.last_used = datetime.utcnow()
-    
-    await db.commit()
-    
-    return {"message": "Password successfully reset using master recovery password"}
 
-@router.post("/recovery/check-master")
-async def check_master_recovery_available(db: AsyncSession = Depends(get_db)):
-    """
-    Check if master recovery password is available (simplified for single user)
-    """
-    result = await db.execute(select(RecoveryKey))
-    recovery_record = result.scalar_one_or_none()
+    hint = ""
+    if user and user.login_password_hint:
+        hint = user.login_password_hint
     
-    has_master = (recovery_record and 
-                  hasattr(recovery_record, 'master_password_hash') and 
-                  recovery_record.master_password_hash)
-    has_questions = (recovery_record and recovery_record.questions_json and 
-                    recovery_record.questions_json != "[]")
+    return {"hint": hint}
+
+@router.get("/login-password-hint")
+async def get_any_login_password_hint(db: AsyncSession = Depends(get_db)):
+    """
+    Get any login password hint from the system (for single user systems).
+    This is intentionally not authenticated to be used on the login page.
+    """
+    result = await db.execute(select(User).limit(1))
+    user = result.scalar_one_or_none()
+
+    hint = ""
+    if user and user.login_password_hint:
+        hint = user.login_password_hint
     
-    return {
-        "has_master_recovery": has_master,
-        "has_security_questions": has_questions,
-        "recommended_method": "master_password" if has_master else "security_questions"
-    } 
+    return {"hint": hint, "username": user.username if user else ""} 

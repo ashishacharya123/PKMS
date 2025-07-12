@@ -10,8 +10,6 @@ import {
   PasswordChange,
   RecoverySetup,
   RecoveryReset,
-  MasterRecoverySetup,
-  MasterRecoveryReset,
   User
 } from '../types/auth';
 import { useNotesStore } from './notesStore';
@@ -26,16 +24,8 @@ interface AuthActions {
   setupUser: (userData: UserSetup) => Promise<boolean>;
   logout: () => Promise<void>;
   changePassword: (passwordData: PasswordChange) => Promise<boolean>;
-  setupRecovery: (recoveryData: RecoverySetup) => Promise<string | null>;
   resetPassword: (resetData: RecoveryReset) => Promise<boolean>;
-  completeSetup: () => Promise<boolean>;
-  
-  // Master Recovery Password actions (New)
-  setupMasterRecovery: (masterData: MasterRecoverySetup) => Promise<boolean>;
-  resetPasswordWithMaster: (resetData: MasterRecoveryReset) => Promise<boolean>;
-  checkMasterRecoveryAvailable: () => Promise<{ has_master_recovery: boolean; has_security_questions: boolean; recommended_method: string }>;
-  unlockDiaryWithMaster: (masterPassword: string) => Promise<boolean>;
-  getDiaryRecoveryOptions: () => Promise<{ has_master_recovery: boolean; recovery_message: string; recommended_action: string }>;
+  resetPasswordWithRecovery: (resetData: RecoveryReset) => Promise<boolean>;
   
   // State management
   checkAuth: () => Promise<void>;
@@ -76,7 +66,6 @@ export const useAuthStore = create<AuthState & AuthActions>()(
               id: response.user_id,
               username: response.username,
               email: '', // Will be filled by getUserInfo if needed
-              is_first_login: response.is_first_login,
               created_at: new Date().toISOString()
             },
             token: response.access_token,
@@ -98,7 +87,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         } catch (error: any) {
           set({
             isLoading: false,
-            error: error.response?.data?.detail || 'Login failed'
+            error: error.message || 'Login failed. Please try again.'
           });
           return false;
         }
@@ -119,7 +108,6 @@ export const useAuthStore = create<AuthState & AuthActions>()(
               id: response.user_id,
               username: response.username,
               email: userData.email || '',
-              is_first_login: response.is_first_login,
               created_at: new Date().toISOString()
             },
             token: response.access_token,
@@ -200,29 +188,6 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         }
       },
 
-      setupRecovery: async (recoveryData: RecoverySetup) => {
-        set({ isLoading: true, error: null });
-        
-        try {
-          const response = await authService.setupRecovery(recoveryData);
-          set({ isLoading: false });
-
-          notifications.show({
-            title: 'Success',
-            message: 'Recovery setup completed!',
-            color: 'green',
-          });
-
-          return response.recovery_key;
-        } catch (error: any) {
-          set({
-            isLoading: false,
-            error: error.response?.data?.detail || 'Recovery setup failed'
-          });
-          return null;
-        }
-      },
-
       resetPassword: async (resetData: RecoveryReset) => {
         set({ isLoading: true, error: null });
         
@@ -246,131 +211,18 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         }
       },
 
-      // Master Recovery Password actions (New)
-      setupMasterRecovery: async (masterData: MasterRecoverySetup) => {
+      resetPasswordWithRecovery: async (resetData: RecoveryReset) => {
         set({ isLoading: true, error: null });
         
         try {
-          const response = await authService.setupMasterRecovery(masterData);
+          await authService.resetPassword(resetData);
           set({ isLoading: false });
 
-          notifications.show({
-            title: 'Success',
-            message: 'Master recovery password set successfully! This can be used to recover your account and unlock your diary.',
-            color: 'green',
-            autoClose: 8000,
-          });
-
           return true;
         } catch (error: any) {
           set({
             isLoading: false,
-            error: error.response?.data?.detail || 'Master recovery setup failed'
-          });
-          return false;
-        }
-      },
-
-      resetPasswordWithMaster: async (resetData: MasterRecoveryReset) => {
-        set({ isLoading: true, error: null });
-        
-        try {
-          await authService.resetPasswordWithMaster(resetData);
-          set({ isLoading: false });
-
-          notifications.show({
-            title: 'Success',
-            message: 'Password reset successfully using master recovery password!',
-            color: 'green',
-          });
-
-          return true;
-        } catch (error: any) {
-          set({
-            isLoading: false,
-            error: error.response?.data?.detail || 'Master password reset failed'
-          });
-          return false;
-        }
-      },
-
-      checkMasterRecoveryAvailable: async () => {
-        try {
-          const response = await authService.checkMasterRecoveryAvailable();
-          return response;
-        } catch (error: any) {
-          console.error('Failed to check master recovery availability:', error);
-          return { 
-            has_master_recovery: false, 
-            has_security_questions: false, 
-            recommended_method: 'security_questions' 
-          };
-        }
-      },
-
-      unlockDiaryWithMaster: async (masterPassword: string) => {
-        set({ isLoading: true, error: null });
-        
-        try {
-          const response = await authService.unlockDiaryWithMaster(masterPassword);
-          set({ isLoading: false });
-
-          notifications.show({
-            title: 'Success',
-            message: response.message,
-            color: 'green',
-          });
-
-          return true;
-        } catch (error: any) {
-          set({
-            isLoading: false,
-            error: error.response?.data?.detail || 'Failed to unlock diary with master password'
-          });
-          return false;
-        }
-      },
-
-      getDiaryRecoveryOptions: async () => {
-        try {
-          const response = await authService.getDiaryRecoveryOptions();
-          return response;
-        } catch (error: any) {
-          console.error('Failed to get diary recovery options:', error);
-          return {
-            has_master_recovery: false,
-            recovery_message: 'Unable to check recovery options',
-            recommended_action: 'Try again later'
-          };
-        }
-      },
-
-      completeSetup: async () => {
-        set({ isLoading: true, error: null });
-        
-        try {
-          await authService.completeSetup();
-          
-          // Update user state
-          const currentUser = get().user;
-          if (currentUser) {
-            set({
-              user: { ...currentUser, is_first_login: false },
-              isLoading: false
-            });
-          }
-
-          notifications.show({
-            title: 'Setup Complete',
-            message: 'Welcome to PKMS!',
-            color: 'green',
-          });
-
-          return true;
-        } catch (error: any) {
-          set({
-            isLoading: false,
-            error: error.response?.data?.detail || 'Setup completion failed'
+            error: error.response?.data?.detail || 'Password reset failed'
           });
           return false;
         }
@@ -380,15 +232,22 @@ export const useAuthStore = create<AuthState & AuthActions>()(
       checkAuth: async () => {
         const token = localStorage.getItem('pkms_token');
         
+        console.log('[AUTH STORE] checkAuth called, token exists:', !!token);
+        
         if (!token) {
+          console.log('[AUTH STORE] No token found, clearing auth state');
           set({ isAuthenticated: false, user: null, token: null });
           return;
         }
 
         try {
+          console.log('[AUTH STORE] Setting token in API service');
           apiService.setAuthToken(token);
+          
+          console.log('[AUTH STORE] Fetching current user');
           const user = await authService.getCurrentUser();
           
+          console.log('[AUTH STORE] User fetched successfully:', user);
           set({
             user,
             token,
@@ -399,6 +258,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           // Start session monitoring
           get().startSessionMonitoring();
         } catch (error) {
+          console.error('[AUTH STORE] Token validation failed:', error);
           // Token is invalid
           localStorage.removeItem('pkms_token');
           apiService.clearAuthToken();

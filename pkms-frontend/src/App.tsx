@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ColorSchemeScript } from '@mantine/core';
 import { useAuthStore } from './stores/authStore';
@@ -14,14 +14,11 @@ import { TodosPage } from './pages/TodosPage';
 import { DiaryPage } from './pages/DiaryPage';
 import { ArchivePage } from './pages/ArchivePage';
 import { SearchResultsPage } from './pages/SearchResultsPage';
+import AdvancedFuzzySearchPage from './pages/AdvancedFuzzySearchPage';
 
 // Auth Guard Component
 function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
-
-  useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
+  const { isAuthenticated, isLoading } = useAuthStore();
 
   if (isLoading) {
     return <div>Loading...</div>;
@@ -36,11 +33,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
 // Public Route Component (for auth page)
 function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
-
-  useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
+  const { isAuthenticated, isLoading } = useAuthStore();
 
   if (isLoading) {
     return <div>Loading...</div>;
@@ -54,6 +47,14 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
+  const { checkAuth } = useAuthStore();
+
+  // Single global authentication check
+  useEffect(() => {
+    console.log('[APP] Performing single global authentication check');
+    checkAuth();
+  }, []); // Empty dependency array - only run once on mount
+
   return (
     <>
       <ColorSchemeScript />
@@ -156,6 +157,15 @@ function App() {
             element={
               <AuthGuard>
                 <SearchResultsPage />
+              </AuthGuard>
+            } 
+          />
+
+          <Route 
+            path="/advanced-fuzzy-search" 
+            element={
+              <AuthGuard>
+                <AdvancedFuzzySearchPage />
               </AuthGuard>
             } 
           />

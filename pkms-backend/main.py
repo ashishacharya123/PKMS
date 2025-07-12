@@ -3,9 +3,11 @@ PKMS Backend - Main FastAPI Application
 Personal Knowledge Management System
 """
 
-from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi import FastAPI, HTTPException, Request, Response, status, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
 import asyncio
@@ -18,14 +20,28 @@ from slowapi.middleware import SlowAPIMiddleware
 import logging
 import logging.config
 import sys
-from fastapi.responses import JSONResponse
 
 # Import routers
-from app.routers import auth, notes, documents, todos, diary, archive, dashboard, search  # , archive_improvements
+from app.routers import (
+    auth,
+    notes,
+    documents,
+    todos,
+    diary,
+    archive,
+    dashboard,
+    search,
+    backup,
+    tags,
+    uploads,
+    testing_router,
+    advanced_fuzzy,
+)
+from app.services.chunk_service import chunk_manager
 
 # Import database initialization
 from app.database import init_db, close_db, get_db_session
-from app.config import settings, get_data_dir
+from app.config import settings, get_data_dir, NEPAL_TZ
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -52,7 +68,7 @@ async def cleanup_expired_sessions():
                 from sqlalchemy import delete
                 
                 # Delete expired sessions
-                now = datetime.utcnow()
+                now = datetime.now(NEPAL_TZ)
                 result = await db.execute(
                     delete(Session).where(Session.expires_at < now)
                 )
@@ -71,8 +87,44 @@ async def run_migrations():
     """Run lightweight, idempotent migrations at startup."""
     try:
         async with get_db_session() as db:
-            # This is a good place for future lightweight, idempotent migrations.
-            logger.info("✅ No migrations needed at this time")
+            # --- Lightweight, idempotent migrations ---
+            # 1. Speed up tag prefix look-ups
+            from sqlalchemy import text
+            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);"))
+
+            # 2. Enforce one tag name per user (case-insensitive handled in code)
+            await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_user_name_unique ON tags(user_id, name);"))
+
+            logger.info("✅ Tag indexes ensured")
+            
+            # 3. Documents schema additions (uuid + original_name columns)
+            try:
+                await db.execute(text("ALTER TABLE documents ADD COLUMN uuid TEXT"))
+            except Exception:
+                pass  # Column already exists
+
+            try:
+                await db.execute(text("ALTER TABLE documents ADD COLUMN original_name TEXT"))
+            except Exception:
+                pass
+
+            # Ensure each row has required values (safe even on empty DB)
+            await db.execute(text("UPDATE documents SET uuid = LOWER(HEX(RANDOMBLOB(16))) WHERE uuid IS NULL OR uuid = ''"))
+            await db.execute(text("UPDATE documents SET original_name = filename WHERE original_name IS NULL OR original_name = ''"))
+
+            # Unique index on uuid
+            await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_uuid ON documents(uuid)"))
+
+            logger.info("✅ Document table schema ensured")
+            
+            # 4. Diary schema cleanup (for reference - weather column removed from model)
+            # Note: weather column removed from DiaryEntry model, location column indexed
+            # No migration needed as DB will be reset soon
+            try:
+                await db.execute(text("CREATE INDEX IF NOT EXISTS idx_diary_entries_location ON diary_entries(location);"))
+                logger.info("✅ Diary location index ensured")
+            except Exception:
+                pass  # Index might already exist or column might not exist yet
             
     except Exception as e:
         logger.error(f"❌ Error during migrations: {e}")
@@ -103,6 +155,9 @@ async def lifespan(app: FastAPI):
         logger.info("Starting background tasks...")
         global cleanup_task
         cleanup_task = asyncio.create_task(cleanup_expired_sessions())
+
+        # Start chunk upload cleanup loop
+        await chunk_manager.start()
         logger.info("✅ Background tasks started")
         
         yield
@@ -119,6 +174,7 @@ async def lifespan(app: FastAPI):
                 await cleanup_task
             except asyncio.CancelledError:
                 pass
+        await chunk_manager.stop()
         await close_db()
 
 # Create FastAPI app
@@ -142,6 +198,11 @@ app.include_router(archive.router, prefix="/api/v1/archive")
 # app.include_router(archive_improvements.router, prefix="/api/v1")  # Temporarily disabled due to import issues
 app.include_router(dashboard.router, prefix="/api/v1/dashboard")
 app.include_router(search.router, prefix="/api/v1/search")
+app.include_router(backup.router, prefix="/api/v1/backup")
+app.include_router(tags.router, prefix="/api/v1/tags")
+app.include_router(uploads.router, prefix="/api/v1")
+app.include_router(testing_router, prefix="/api/v1/testing")
+app.include_router(advanced_fuzzy.router, prefix="/api/v1")
 
 # ------------------------------------------------------------
 # ⛑️  Global middlewares
@@ -203,6 +264,30 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
             "retry_after": retry_after,
         },
         headers={"Retry-After": str(retry_after) if retry_after else "1"},
+    )
+
+# --- New: Friendly validation error handler ---
+
+# Provide concise validation error messages instead of the default Pydantic array.
+# This makes frontend debugging easier and avoids overwhelming users with raw stack traces.
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Return flattened error strings and log them for inspection."""
+    # Build a compact human-readable message: <field>: <error>;  ...
+    messages = []
+    for err in exc.errors():
+        loc = ".".join(str(part) for part in err.get("loc", []) if part != "body")
+        messages.append(f"{loc}: {err.get('msg')}")
+
+    flat_msg = "; ".join(messages) if messages else "Validation error"
+
+    # Log for backend inspection
+    logger.warning("ValidationError [%s] %s", request.url.path, flat_msg)
+
+    return JSONResponse(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        content={"detail": flat_msg},
     )
 
 # Security Headers Middleware
@@ -267,7 +352,7 @@ async def root():
 async def health_check():
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(NEPAL_TZ).isoformat(),
         "environment": settings.environment
     }
 

@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import { notifications } from '@mantine/notifications';
+import { API_BASE_URL } from '../config';
 
 interface ApiResponse<T> {
   data: T;
@@ -13,37 +14,124 @@ class ApiService {
 
   constructor() {
     this.instance = axios.create({
-      baseURL: 'http://localhost:8000/api/v1',
+      baseURL: `${API_BASE_URL}/api/v1`,
+      timeout: 10000,
       headers: {
         'Content-Type': 'application/json',
       },
     });
 
-    // Add response interceptor to handle errors
+    // Add response interceptor to handle errors intelligently
     this.instance.interceptors.response.use(
       (response) => response,
       (error) => {
-        if (error.response?.status === 401) {
-          // Token expired or invalid
-          this.handleTokenExpiry();
+        // Check if this is a network error (backend not running)
+        if (error.request && !error.response) {
+          // The request was made but no response was received
+          const isLoginAttempt = error.config?.url?.includes('/auth/login') || 
+                                error.config?.url?.includes('/auth/setup');
+          
+          console.error('Network Error:', {
+            url: error.config?.url,
+            method: error.config?.method,
+            message: error.message,
+            code: error.code
+          });
+          
+          // Create a comprehensive network error message
+          const networkError = new Error(this.createNetworkErrorMessage(isLoginAttempt));
+          (networkError as any).isNetworkError = true;
+          (networkError as any).originalError = error;
+          throw networkError;
         }
 
-        if (error.response) {
-          // The request was made and the server responded with a status code
-          // that falls out of the range of 2xx
-          console.error('API Error:', error.response.data);
-          throw new Error(error.response.data.message || 'An error occurred');
-        } else if (error.request) {
-          // The request was made but no response was received
-          console.error('Network Error:', error.request);
-          throw new Error('Network error occurred');
-        } else {
-          // Something happened in setting up the request that triggered an Error
-          console.error('Request Error:', error.message);
-          throw error;
+        // Check if this is a 401 response
+        if (error.response?.status === 401) {
+          const isLoginAttempt = error.config?.url?.includes('/auth/login') || 
+                                error.config?.url?.includes('/auth/setup');
+          const hasStoredToken = !!localStorage.getItem('pkms_token');
+
+          // Only trigger session expiry handling if:
+          // 1. User has a stored token (was previously authenticated)
+          // 2. This is NOT a login attempt
+          if (hasStoredToken && !isLoginAttempt) {
+            this.handleTokenExpiry();
+          }
+          
+          // For login attempts, just pass through the backend error message
+          const message = error.response.data?.detail || 
+                         error.response.data?.message || 
+                         'Authentication failed';
+          const authError = new Error(message);
+          (authError as any).response = error.response;
+          throw authError;
         }
+
+        // Handle other HTTP errors
+        if (error.response) {
+          const message = error.response.data?.detail || 
+                         error.response.data?.message || 
+                         `HTTP ${error.response.status}: ${error.response.statusText}`;
+          const httpError = new Error(message);
+          (httpError as any).response = error.response;
+          throw httpError;
+        }
+
+        // Handle request setup errors
+        console.error('Request Setup Error:', error.message);
+        throw new Error(`Request failed: ${error.message}`);
       }
     );
+  }
+
+  /**
+   * Create a detailed network error message with diagnostics
+   */
+  private createNetworkErrorMessage(isLoginAttempt: boolean): string {
+    const baseMessage = isLoginAttempt 
+      ? "🔌 Cannot connect to server" 
+      : "🔌 Network connection lost";
+    
+    const diagnostics = [
+      "• Backend server may not be running",
+      "• Check if Docker container is started",
+      `• Verify backend is running on ${API_BASE_URL}`,
+      "• Check network connectivity"
+    ];
+
+    const troubleshooting = isLoginAttempt
+      ? "\n\n🔧 Quick fixes:\n• Run: docker-compose up pkms-backend\n• Or check if backend service is running"
+      : "\n\n🔧 Try refreshing the page or check your connection";
+
+    return `${baseMessage}\n\n${diagnostics.join('\n')}${troubleshooting}`;
+  }
+
+  /**
+   * Check backend connectivity
+   */
+  async checkBackendHealth(): Promise<{ isOnline: boolean; latency?: number; error?: string }> {
+    const startTime = Date.now();
+    
+    try {
+      const response = await axios.get(`${API_BASE_URL}/health`, { 
+        timeout: 5000,
+        headers: {} // Don't include auth headers for health check
+      });
+      
+      const latency = Date.now() - startTime;
+      
+      return {
+        isOnline: response.status === 200,
+        latency,
+      };
+    } catch (error: any) {
+      return {
+        isOnline: false,
+        error: error.code === 'ECONNREFUSED' 
+          ? 'Backend server is not running'
+          : error.message || 'Unknown connection error'
+      };
+    }
   }
 
   /**
@@ -134,8 +222,15 @@ class ApiService {
    */
   async extendSession(): Promise<void> {
     try {
-      // Make a simple authenticated request to refresh the session
-      const response = await this.get('/auth/me');
+      // Use the proper refresh endpoint that handles sliding window sessions
+      const response = await this.post('/auth/refresh', {});
+      
+      // Update the token if a new one was provided
+      if (response.data && (response.data as any).access_token) {
+        const newToken = (response.data as any).access_token;
+        localStorage.setItem('pkms_token', newToken);
+        this.setAuthToken(newToken);
+      }
       
       notifications.show({
         title: '✅ Session Extended',
@@ -214,6 +309,11 @@ class ApiService {
       data: response.data,
       status: response.status
     };
+  }
+
+  async patch<T>(url: string, data = {}, config = {}): Promise<ApiResponse<T>> {
+    const response: AxiosResponse<ApiResponse<T>> = await this.instance.patch(url, data, config);
+    return response.data;
   }
 
   getAxiosInstance(): AxiosInstance {

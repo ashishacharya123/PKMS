@@ -12,7 +12,7 @@ import shutil
 import hashlib
 from datetime import datetime, timedelta
 
-from app.config import settings, get_data_dir
+from app.config import settings, get_data_dir, NEPAL_TZ
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +55,8 @@ class ChunkUploadManager:
                     'total_size': total_size,
                     'bytes_received': 0,
                     'status': 'uploading',
-                    'started_at': datetime.utcnow(),
-                    'last_update': datetime.utcnow(),
+                    'started_at': datetime.now(NEPAL_TZ),
+                    'last_update': datetime.now(NEPAL_TZ),
                     'chunk_hashes': {}
                 }
             
@@ -81,7 +81,7 @@ class ChunkUploadManager:
             # Update tracking
             upload['received_chunks'].add(chunk_number)
             upload['bytes_received'] += len(chunk_data_bytes)
-            upload['last_update'] = datetime.utcnow()
+            upload['last_update'] = datetime.now(NEPAL_TZ)
             upload['chunk_hashes'][chunk_number] = chunk_hash
             
             # Check if upload is complete
@@ -178,7 +178,7 @@ class ChunkUploadManager:
     
     async def _cleanup_expired_uploads(self):
         """Clean up expired uploads and their files"""
-        now = datetime.utcnow()
+        now = datetime.now(NEPAL_TZ)
         expired_ids = []
         
         for file_id, upload in self.uploads.items():

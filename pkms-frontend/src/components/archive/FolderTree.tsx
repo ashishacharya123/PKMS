@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Box, Text, Collapse, Loader } from '@mantine/core';
+import { Box, Text, Collapse, Loader, TextInput, Button, Group } from '@mantine/core';
 import { IconFolder, IconFolderOpen, IconChevronRight } from '@tabler/icons-react';
 import { useArchiveStore } from '../../stores/archiveStore';
 import { FolderTree as FolderTreeType } from '../../types/archive';
@@ -119,23 +119,88 @@ interface FolderTreeProps {
 
 export const FolderTree: React.FC<FolderTreeProps> = ({ onSelect, selectedId }) => {
   const folderTree = useArchiveStore(state => state.folderTree);
-  const loadFolderTree = useArchiveStore(state => state.loadFolderTree);
+  const loadFolders = useArchiveStore(state => state.loadFolders);
+  const folderSearchResults = useArchiveStore(state => state.folderSearchResults);
+  const loadFolderSearchFTS = useArchiveStore(state => state.loadFolderSearchFTS);
+  const clearFolderSearchResults = useArchiveStore(state => state.clearFolderSearchResults);
+  const isLoading = useArchiveStore(state => state.isLoading);
+
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
-    loadFolderTree();
-  }, [loadFolderTree]);
+    loadFolders();
+  }, [loadFolders]);
+
+  const handleSearch = async () => {
+    if (search.trim()) {
+      await loadFolderSearchFTS(search.trim());
+    } else {
+      clearFolderSearchResults();
+    }
+  };
+
+  const handleClear = () => {
+    setSearch('');
+    clearFolderSearchResults();
+  };
 
   return (
     <Box>
-      {folderTree.map(node => (
-        <FolderNode
-          key={node.folder.uuid}
-          node={node}
-          onSelect={onSelect}
-          selectedId={selectedId}
-          level={0}
+      <Group mb="xs" gap="xs">
+        <TextInput
+          placeholder="Search folders..."
+          value={search}
+          onChange={e => setSearch(e.currentTarget.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleSearch(); }}
+          style={{ flex: 1 }}
         />
-      ))}
+        <Button size="xs" onClick={handleSearch} disabled={isLoading || !search.trim()}>
+          Search
+        </Button>
+        {search && (
+          <Button size="xs" variant="subtle" color="gray" onClick={handleClear}>
+            Clear
+          </Button>
+        )}
+      </Group>
+      {folderSearchResults.length > 0 ? (
+        <Box>
+          {folderSearchResults.map((node: FolderTreeType) => (
+            <Box
+              key={node.folder.uuid}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '8px 12px',
+                cursor: 'pointer',
+                borderRadius: '4px',
+                marginBottom: 2,
+                backgroundColor: selectedId === node.folder.uuid ? 'var(--mantine-color-blue-1)' : 'transparent',
+              }}
+              onClick={() => onSelect(node)}
+            >
+              <IconFolder size={18} style={{ marginRight: 8 }} />
+              <Text size="sm" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {node.folder.name}
+              </Text>
+              <Text size="xs" c="dimmed" ml="xs">
+                {node.folder.path}
+              </Text>
+            </Box>
+          ))}
+          {isLoading && <Loader size="xs" mt="sm" />}
+        </Box>
+      ) : (
+        folderTree.map((node: FolderTreeType) => (
+          <FolderNode
+            key={node.folder.uuid}
+            node={node}
+            onSelect={onSelect}
+            selectedId={selectedId}
+            level={0}
+          />
+        ))
+      )}
     </Box>
   );
 }; 

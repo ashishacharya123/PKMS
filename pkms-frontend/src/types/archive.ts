@@ -4,7 +4,6 @@ export interface ArchiveFolder {
   description?: string;
   parent_uuid?: string;
   path: string;
-  is_archived: boolean;
   created_at: string;
   updated_at: string;
   item_count: number;
@@ -24,7 +23,6 @@ export interface ArchiveItem {
   extracted_text?: string;
   metadata: Record<string, any>;
   thumbnail_path?: string;
-  is_archived: boolean;
   is_favorite: boolean;
   version: string;
   created_at: string;
@@ -39,7 +37,6 @@ export interface ArchiveItemSummary {
   original_filename: string;
   mime_type: string;
   file_size: number;
-  is_archived: boolean;
   is_favorite: boolean;
   created_at: string;
   updated_at: string;
@@ -62,7 +59,6 @@ export interface FolderCreate {
 export interface FolderUpdate {
   name?: string;
   description?: string;
-  is_archived?: boolean;
 }
 
 export interface ItemUpdate {
@@ -70,7 +66,6 @@ export interface ItemUpdate {
   description?: string;
   folder_uuid?: string;
   tags?: string[];
-  is_archived?: boolean;
   is_favorite?: boolean;
 }
 
@@ -96,7 +91,6 @@ export interface ArchiveFilters {
   search?: string;
   mime_type?: string;
   tag?: string;
-  archived?: boolean;
 }
 
 export interface ArchiveState {

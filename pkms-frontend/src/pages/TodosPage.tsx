@@ -39,7 +39,9 @@ import {
   IconFlag,
   IconAlertTriangle,
   IconX,
-  IconFolder
+  IconFolder,
+  IconArchive,
+  IconArchiveOff
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useTodosStore } from '../stores/todosStore';
@@ -91,6 +93,7 @@ export function TodosPage() {
     currentPriority,
     currentProjectId,
     showOverdue,
+    isArchivedFilter,
     loadTodos,
     loadProjects,
     loadStats,
@@ -99,11 +102,14 @@ export function TodosPage() {
     completeTodo,
     deleteTodo,
     createProject,
+    archiveTodo,
+    unarchiveTodo,
     setStatus,
     setPriority,
     setProjectFilter,
     setSearch,
     setShowOverdue,
+    setArchivedFilter,
     clearError
   } = useTodosStore();
 
@@ -131,15 +137,23 @@ export function TodosPage() {
     setSearch(debouncedSearch);
   }, [debouncedSearch, setSearch]);
 
+  // Tabs for Ongoing, Completed, Archived
+  const [activeTab, setActiveTab] = useState<'ongoing' | 'completed' | 'archived'>('ongoing');
+  useEffect(() => {
+    if (activeTab === 'ongoing') setArchivedFilter(false);
+    else if (activeTab === 'archived') setArchivedFilter(true);
+    else setArchivedFilter(null);
+  }, [activeTab, setArchivedFilter]);
+
   // Sorted and paginated todos
   const sortedTodos = useMemo(() => {
     const sorted = [...todos].sort((a, b) => {
-      let aValue: string | number = a[sortField];
-      let bValue: string | number = b[sortField];
+      let aValue: string | number = a[sortField] ?? (sortField.includes('date') ? '' : 0);
+      let bValue: string | number = b[sortField] ?? (sortField.includes('date') ? '' : 0);
       
       if (sortField.includes('date')) {
-        aValue = new Date(aValue as string).getTime() || 0;
-        bValue = new Date(bValue as string).getTime() || 0;
+        aValue = aValue ? new Date(aValue as string).getTime() : 0;
+        bValue = bValue ? new Date(bValue as string).getTime() : 0;
       } else if (sortField === 'priority') {
         aValue = Number(aValue);
         bValue = Number(bValue);
@@ -191,7 +205,8 @@ export function TodosPage() {
     const success = await createTodo({
       ...todoForm,
       due_date: todoForm.due_date || undefined,
-      tags
+      tags,
+      project_id: todoForm.project_id === null ? undefined : todoForm.project_id
     });
     
     if (success) {
@@ -229,24 +244,27 @@ export function TodosPage() {
     }
   };
 
-  const getPriorityColor = (priority: number) => {
+  const getPriorityColor = (priority: number | string) => {
     const colors = { 1: 'green', 2: 'yellow', 3: 'red' };
-    return colors[priority as keyof typeof colors] || 'gray';
+    const numPriority = Number(priority);
+    return colors[numPriority as keyof typeof colors] || 'gray';
   };
 
-  const getPriorityLabel = (priority: number) => {
+  const getPriorityLabel = (priority: number | string) => {
     const labels = { 1: 'Low', 2: 'Medium', 3: 'High' };
-    return labels[priority as keyof typeof labels] || 'Unknown';
+    const numPriority = Number(priority);
+    return labels[numPriority as keyof typeof labels] || 'Unknown';
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: string | number) => {
     const colors = {
       pending: 'gray',
       in_progress: 'blue',
       completed: 'green',
       cancelled: 'red'
     };
-    return colors[status as keyof typeof colors] || 'gray';
+    const strStatus = String(status);
+    return colors[strStatus as keyof typeof colors] || 'gray';
   };
 
   const formatDate = (dateString: string) => {
@@ -450,6 +468,22 @@ export function TodosPage() {
               </Group>
             </Group>
 
+            {/* Tabs for Ongoing, Completed, Archived */}
+            <Group gap="xs" mb="sm">
+              <Button
+                variant={activeTab === 'ongoing' ? 'filled' : 'subtle'}
+                onClick={() => setActiveTab('ongoing')}
+              >Ongoing</Button>
+              <Button
+                variant={activeTab === 'completed' ? 'filled' : 'subtle'}
+                onClick={() => setActiveTab('completed')}
+              >Completed</Button>
+              <Button
+                variant={activeTab === 'archived' ? 'filled' : 'subtle'}
+                onClick={() => setActiveTab('archived')}
+              >Archived</Button>
+            </Group>
+
             {/* Error Alert */}
             {error && (
               <Alert
@@ -503,23 +537,23 @@ export function TodosPage() {
                                   opacity: todo.status === 'completed' ? 0.6 : 1
                                 }}
                               >
-                                {todo.title}
+                                {todo.project_name ? `${todo.project_name}_${todo.title}` : todo.title}
                               </Text>
                               
                               <Badge 
                                 variant="light" 
-                                color={getPriorityColor(todo.priority)} 
+                                color={getPriorityColor(Number(todo.priority))} 
                                 size="sm"
                               >
-                                {getPriorityLabel(todo.priority)}
+                                {getPriorityLabel(Number(todo.priority))}
                               </Badge>
                               
                               <Badge 
                                 variant="light" 
-                                color={getStatusColor(todo.status)} 
+                                color={getStatusColor(String(todo.status))} 
                                 size="sm"
                               >
-                                {todo.status.replace('_', ' ')}
+                                {String(todo.status).replace('_', ' ')}
                               </Badge>
                               
                               {todo.due_date && (
@@ -583,6 +617,12 @@ export function TodosPage() {
                               </Menu.Item>
                             )}
                             <Menu.Divider />
+                            <Menu.Item 
+                              leftSection={todo.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
+                              onClick={() => todo.is_archived ? unarchiveTodo(todo.id) : archiveTodo(todo.id)}
+                            >
+                              {todo.is_archived ? 'Unarchive' : 'Archive'}
+                            </Menu.Item>
                             <Menu.Item 
                               leftSection={<IconTrash size={14} />}
                               color="red"

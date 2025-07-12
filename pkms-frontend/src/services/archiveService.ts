@@ -1,360 +1,196 @@
 import { apiService } from './api';
+import { coreUploadService, UploadProgress } from './shared/coreUploadService';
+import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
+import type { AxiosError } from 'axios';
+import { ArchiveItem, ArchiveFolder } from '../types/archive';
+import { FolderTree } from '../types/archive';
 
-// Types for archive
-export interface ArchiveFolder {
-  uuid: string;
-  name: string;
-  description?: string;
-  parent_uuid?: string;
-  path: string;
-  is_archived: boolean;
-  created_at: string;
-  updated_at: string;
-  item_count: number;
-  subfolder_count: number;
-  total_size: number;
-}
+/* -------------------------------------------------------------------------- */
+/*                               API ENDPOINTS                               */
+/* -------------------------------------------------------------------------- */
+const API_PREFIX = '/api/v1/archive';
+const FOLDERS_ENDPOINT = `${API_PREFIX}/folders/`;
+const UPLOAD_COMMIT_ENDPOINT = `${API_PREFIX}/upload/commit/`;
 
-export interface ArchiveItem {
-  uuid: string;
-  name: string;
-  description?: string;
-  folder_uuid: string;
-  original_filename: string;
-  stored_filename: string;
-  mime_type: string;
-  file_size: number;
-  extracted_text?: string;
-  metadata: Record<string, any>;
-  thumbnail_path?: string;
-  is_archived: boolean;
-  is_favorite: boolean;
-  version: string;
-  created_at: string;
-  updated_at: string;
-  tags: string[];
-}
+// Helper to build folder-scoped routes
+const folderPath = (folderUuid: string) => `${FOLDERS_ENDPOINT}${folderUuid}/`;
+const folderItemsPath = (folderUuid: string) => `${folderPath(folderUuid)}items/`;
 
-export interface ArchiveItemSummary {
-  uuid: string;
-  name: string;
-  folder_uuid: string;
-  original_filename: string;
-  mime_type: string;
-  file_size: number;
-  is_archived: boolean;
-  is_favorite: boolean;
-  created_at: string;
-  updated_at: string;
-  tags: string[];
-  preview: string;
-}
+/* -------------------------------------------------------------------------- */
+/*                              HELPER FUNCTIONS                              */
+/* -------------------------------------------------------------------------- */
+// Extract base filename without extension – handles no-extension & multi-dot names.
+const getBaseName = (filename: string): string => {
+  const lastDot = filename.lastIndexOf('.');
+  return lastDot === -1 ? filename : filename.substring(0, lastDot);
+};
 
-export interface FolderCreate {
-  name: string;
-  description?: string;
-  parent_uuid?: string;
-}
-
-export interface FolderUpdate {
-  name?: string;
-  description?: string;
-  is_archived?: boolean;
-}
-
-export interface ItemUpdate {
-  name?: string;
-  description?: string;
-  folder_uuid?: string;
-  tags?: string[];
-  is_archived?: boolean;
-  is_favorite?: boolean;
-}
-
-export interface FolderTree {
-  folder: ArchiveFolder;
-  children: FolderTree[];
-  items: ArchiveItemSummary[];
-}
-
-export interface UploadItemData {
-  file: File;
-  name?: string;
-  description?: string;
-  tags?: string[];
-}
-
-export interface SearchResult {
-  uuid: string;
-  name: string;
-  original_filename: string;
-  mime_type: string;
-  highlight: string;
-  folder_uuid: string;
-  created_at: string;
-}
-
-export interface ArchiveListParams {
-  parent_uuid?: string;
-  archived?: boolean;
-  search?: string;
-  mime_type?: string;
-  tag?: string;
-  limit?: number;
-  offset?: number;
-}
-
-class ArchiveService {
-  private baseUrl = '/archive';
-
-  // Folder methods
-  async createFolder(folderData: FolderCreate): Promise<ArchiveFolder> {
-    return await apiService.post<ArchiveFolder>(`${this.baseUrl}/folders`, folderData);
+// Map common Axios errors to user-friendly messages
+const handleAxiosError = (error: AxiosError): never => {
+  const status = error.response?.status;
+  switch (status) {
+    case 404:
+      throw new Error('Folder or item not found.');
+    case 409:
+      throw new Error('A file or folder with this name already exists.');
+    case 413:
+      throw new Error('File is too large. Please try a smaller file.');
+    case 415:
+      throw new Error('Unsupported file type.');
+    default:
+      throw new Error(error.message || 'An unexpected error occurred.');
   }
+};
 
-  async getFolders(params: ArchiveListParams = {}): Promise<ArchiveFolder[]> {
-    const queryParams = new URLSearchParams();
-    
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        queryParams.append(key, value.toString());
-      }
-    });
+const LARGE_FILE_THRESHOLD = 3 * 1024 * 1024; // 3 MB
 
-    const url = `${this.baseUrl}/folders${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    return await apiService.get<ArchiveFolder[]>(url);
-  }
+/* -------------------------------------------------------------------------- */
+/*                               UPLOAD HELPERS                               */
+/* -------------------------------------------------------------------------- */
+const uploadSmallFile = async (
+  file: File,
+  folderUuid: string,
+  onProgress?: (progress: UploadProgress) => void,
+): Promise<ArchiveItem> => {
+  const formData = new FormData();
+  formData.append('file', file);
 
-  async getFolderTree(rootUuid?: string, archived = false): Promise<FolderTree[]> {
-    const queryParams = new URLSearchParams();
-    if (rootUuid) queryParams.append('root_uuid', rootUuid);
-    if (archived) queryParams.append('archived', 'true');
-
-    const url = `${this.baseUrl}/folders/tree${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    return await apiService.get<FolderTree[]>(url);
-  }
-
-  async getBreadcrumb(uuid: string): Promise<ArchiveFolder[]> {
-    return await apiService.get<ArchiveFolder[]>(`${this.baseUrl}/folders/${uuid}/breadcrumb`);
-  }
-
-  async getFolder(uuid: string): Promise<ArchiveFolder> {
-    return await apiService.get<ArchiveFolder>(`${this.baseUrl}/folders/${uuid}`);
-  }
-
-  async updateFolder(uuid: string, data: FolderUpdate): Promise<ArchiveFolder> {
-    return await apiService.put<ArchiveFolder>(`${this.baseUrl}/folders/${uuid}`, data);
-  }
-
-  async deleteFolder(uuid: string, force = false): Promise<{ message: string }> {
-    const params = force ? '?force=true' : '';
-    return await apiService.delete<{ message: string }>(`${this.baseUrl}/folders/${uuid}${params}`);
-  }
-
-  // Item methods
-  async uploadItem(folderUuid: string, uploadData: UploadItemData): Promise<ArchiveItem> {
-    const formData = new FormData();
-    formData.append('file', uploadData.file);
-    
-    if (uploadData.name) formData.append('name', uploadData.name);
-    if (uploadData.description) formData.append('description', uploadData.description);
-    if (uploadData.tags?.length) {
-      formData.append('tags', JSON.stringify(uploadData.tags));
-    }
-
-    // Use the axios instance directly for form data upload
-    const axios = apiService.getAxiosInstance();
-    const response = await axios.post(`${this.baseUrl}/folders/${folderUuid}/items`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
+  try {
+    const data = await coreUploadService.uploadDirect<ArchiveItem>(
+      folderItemsPath(folderUuid),
+      formData,
+      {
+        onProgress: (pct) => {
+          if (onProgress) {
+            onProgress({
+              fileId: '',
+              filename: file.name,
+              bytesUploaded: Math.round((pct / 100) * file.size),
+              totalSize: file.size,
+              status: pct === 100 ? 'completed' : 'uploading',
+              progress: pct,
+            });
+          }
+        },
       },
+    );
+    return data;
+  } catch (err) {
+    handleAxiosError(err as AxiosError);
+    throw err;
+  }
+};
+
+const uploadLargeFile = async (
+  file: File,
+  folderUuid: string,
+  onProgress?: (progress: UploadProgress) => void,
+): Promise<ArchiveItem> => {
+  try {
+    const fileId = await coreUploadService.uploadFile(file, {
+      module: 'archive',
+      additionalMeta: { folder_uuid: folderUuid },
+      onProgress,
     });
 
-    return response.data;
-  }
-
-  async getFolderItems(folderUuid: string, params: ArchiveListParams = {}): Promise<ArchiveItemSummary[]> {
-    const queryParams = new URLSearchParams();
-    
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        queryParams.append(key, value.toString());
-      }
-    });
-
-    const url = `${this.baseUrl}/folders/${folderUuid}/items${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    return await apiService.get<ArchiveItemSummary[]>(url);
-  }
-
-  async getItem(uuid: string): Promise<ArchiveItem> {
-    return await apiService.get<ArchiveItem>(`${this.baseUrl}/items/${uuid}`);
-  }
-
-  async updateItem(uuid: string, data: ItemUpdate): Promise<ArchiveItem> {
-    return await apiService.put<ArchiveItem>(`${this.baseUrl}/items/${uuid}`, data);
-  }
-
-  async deleteItem(uuid: string): Promise<{ message: string }> {
-    return await apiService.delete<{ message: string }>(`${this.baseUrl}/items/${uuid}`);
-  }
-
-  async downloadItem(uuid: string): Promise<Blob> {
-    const axios = apiService.getAxiosInstance();
-    const response = await axios.get(`${this.baseUrl}/items/${uuid}/download`, {
-      responseType: 'blob'
-    });
-    return response.data;
-  }
-
-  getDownloadUrl(uuid: string): string {
-    return `${apiService.getAxiosInstance().defaults.baseURL}${this.baseUrl}/items/${uuid}/download`;
-  }
-
-  // Search methods
-  async searchArchive(query: string, params: {
-    folder_uuid?: string;
-    mime_type?: string;
-    limit?: number;
-  } = {}): Promise<{
-    results: SearchResult[];
-    total: number;
-  }> {
-    const queryParams = new URLSearchParams();
-    queryParams.append('query', query);
-    
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        queryParams.append(key, value.toString());
-      }
-    });
-
-    const url = `${this.baseUrl}/search?${queryParams.toString()}`;
-    return await apiService.get<{
-      results: SearchResult[];
-      total: number;
-    }>(url);
-  }
-
-  // Utility methods
-  formatFileSize(bytes: number): string {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  }
-
-  getFileIcon(mimeType: string): string {
-    if (mimeType.startsWith('image/')) return '🖼️';
-    if (mimeType === 'application/pdf') return '📄';
-    if (mimeType.includes('word')) return '📝';
-    if (mimeType.includes('excel') || mimeType.includes('spreadsheet')) return '📊';
-    if (mimeType.includes('powerpoint') || mimeType.includes('presentation')) return '📋';
-    if (mimeType === 'text/plain') return '📃';
-    if (mimeType.startsWith('audio/')) return '🎵';
-    if (mimeType.startsWith('video/')) return '🎬';
-    if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('tar')) return '🗜️';
-    return '📎';
-  }
-
-  getSupportedFileTypes(): string[] {
-    return [
-      // Documents
-      '.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt',
-      // Spreadsheets
-      '.xls', '.xlsx', '.csv', '.ods',
-      // Presentations
-      '.ppt', '.pptx', '.odp',
-      // Images
-      '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.svg',
-      // Audio
-      '.mp3', '.wav', '.ogg', '.m4a', '.flac',
-      // Video
-      '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm',
-      // Archives
-      '.zip', '.rar', '.7z', '.tar', '.gz',
-      // Code
-      '.js', '.ts', '.py', '.java', '.cpp', '.c', '.html', '.css', '.json', '.xml'
-    ];
-  }
-
-  isFileTypeSupported(fileName: string): boolean {
-    const extension = '.' + fileName.split('.').pop()?.toLowerCase();
-    return this.getSupportedFileTypes().includes(extension);
-  }
-
-  getBreadcrumbPath(folder: ArchiveFolder): string[] {
-    return folder.path.split('/').filter(part => part.length > 0);
-  }
-
-  getFolderDepth(folder: ArchiveFolder): number {
-    return folder.path.split('/').filter(part => part.length > 0).length;
-  }
-
-  formatDate(dateString: string): string {
-    return new Date(dateString).toLocaleDateString();
-  }
-
-  formatDateTime(dateString: string): string {
-    return new Date(dateString).toLocaleString();
-  }
-
-  canMoveToFolder(sourceFolder: ArchiveFolder, targetFolder: ArchiveFolder): boolean {
-    // Prevent moving a folder into itself or its children
-    return !targetFolder.path.startsWith(sourceFolder.path + '/') && 
-           targetFolder.uuid !== sourceFolder.uuid;
-  }
-
-  validateFolderName(name: string): { isValid: boolean; error?: string } {
-    if (!name.trim()) {
-      return { isValid: false, error: 'Folder name cannot be empty' };
-    }
-
-    if (name.length > 255) {
-      return { isValid: false, error: 'Folder name too long (max 255 characters)' };
-    }
-
-    const unsafeChars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
-    const hasUnsafeChar = unsafeChars.some(char => name.includes(char));
-    
-    if (hasUnsafeChar) {
-      return { 
-        isValid: false, 
-        error: `Folder name cannot contain: ${unsafeChars.join(' ')}` 
-      };
-    }
-
-    return { isValid: true };
-  }
-
-  // Helper to build folder tree structure
-  buildFolderHierarchy(folders: ArchiveFolder[], rootUuid?: string): FolderTree[] {
-    const folderMap = new Map<string, ArchiveFolder>();
-    const children = new Map<string, ArchiveFolder[]>();
-
-    // Build maps
-    folders.forEach(folder => {
-      folderMap.set(folder.uuid, folder);
-      
-      const parentUuid = folder.parent_uuid || 'root';
-      if (!children.has(parentUuid)) {
-        children.set(parentUuid, []);
-      }
-      children.get(parentUuid)!.push(folder);
-    });
-
-    // Build tree recursively
-    const buildTree = (parentUuid: string): FolderTree[] => {
-      const childFolders = children.get(parentUuid) || [];
-      return childFolders.map(folder => ({
-        folder,
-        children: buildTree(folder.uuid),
-        items: [] // Items would be loaded separately when needed
-      }));
+    const commitData = {
+      file_id: fileId,
+      original_filename: file.name,
+      mime_type: file.type,
+      folder_uuid: folderUuid,
+      name: getBaseName(file.name),
     };
 
-    return buildTree(rootUuid || 'root');
+    const response = await apiService.post<ArchiveItem>(UPLOAD_COMMIT_ENDPOINT, commitData);
+    return response.data;
+  } catch (err) {
+    handleAxiosError(err as AxiosError);
+    throw err;
   }
-}
+};
 
-export const archiveService = new ArchiveService(); 
+/* -------------------------------------------------------------------------- */
+/*                              PUBLIC SERVICE                                */
+/* -------------------------------------------------------------------------- */
+export const archiveService = {
+  async listFolders(): Promise<ArchiveFolder[]> {
+    const { data } = await apiService.get<ArchiveFolder[]>(FOLDERS_ENDPOINT);
+    return data;
+  },
+
+  async getFolder(uuid: string): Promise<ArchiveFolder> {
+    const { data } = await apiService.get<ArchiveFolder>(folderPath(uuid));
+    return data;
+  },
+
+  async createFolder(name: string, parentUuid?: string): Promise<ArchiveFolder> {
+    try {
+      const { data } = await apiService.post<ArchiveFolder>(FOLDERS_ENDPOINT, {
+        name,
+        parent_uuid: parentUuid,
+      });
+      return data;
+    } catch (err) {
+      handleAxiosError(err as AxiosError);
+      throw err;
+    }
+  },
+
+  async updateFolder(uuid: string, data: Partial<ArchiveFolder>): Promise<ArchiveFolder> {
+    try {
+      const resp = await apiService.put<ArchiveFolder>(folderPath(uuid), data);
+      return resp.data;
+    } catch (err) {
+      handleAxiosError(err as AxiosError);
+      throw err;
+    }
+  },
+
+  async deleteFolder(uuid: string): Promise<void> {
+    try {
+      await apiService.delete(folderPath(uuid));
+    } catch (err) {
+      handleAxiosError(err as AxiosError);
+      throw err;
+    }
+  },
+
+  async getFolderItems(folderUuid: string): Promise<ArchiveItem[]> {
+    try {
+      const { data } = await apiService.get<ArchiveItem[]>(folderItemsPath(folderUuid));
+      return data;
+    } catch (err) {
+      handleAxiosError(err as AxiosError);
+      throw err;
+    }
+  },
+
+  async uploadFile(
+    file: File,
+    folderUuid: string,
+    onProgress?: (progress: UploadProgress) => void,
+  ): Promise<ArchiveItem> {
+    if (file.size < LARGE_FILE_THRESHOLD) {
+      return uploadSmallFile(file, folderUuid, onProgress);
+    }
+    return uploadLargeFile(file, folderUuid, onProgress);
+  },
+
+  async searchFoldersFTS(query: string): Promise<FolderTree[]> {
+    const { data } = await apiService.get<FolderTree[]>(`${API_PREFIX}/folders/tree?search=${encodeURIComponent(query)}`);
+    return data;
+  },
+
+  // Convenience helper for direct download links
+  getDownloadUrl(itemUuid: string): string {
+    return `${API_PREFIX}/items/${itemUuid}/download`;
+  },
+
+  async downloadItem(
+    itemUuid: string,
+    onProgress?: (progress: DownloadProgress) => void,
+  ): Promise<Blob> {
+    const url = this.getDownloadUrl(itemUuid);
+    return coreDownloadService.downloadFile(url, { fileId: itemUuid, onProgress });
+  },
+}; 

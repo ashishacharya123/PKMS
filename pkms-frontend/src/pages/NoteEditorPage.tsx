@@ -296,14 +296,23 @@ export function NoteEditorPage() {
                   <Select
                     label="Area"
                     placeholder="Select area"
-                    data={[
-                      { value: 'Inbox', label: 'Inbox' },
-                      { value: 'Projects', label: 'Projects' },
-                      { value: 'Areas', label: 'Areas' },
-                      { value: 'Resources', label: 'Resources' },
-                      { value: 'Archive', label: 'Archive' },
-                      ...areas.map(a => ({ value: a.name, label: a.name }))
-                    ]}
+                    data={(() => {
+                      // Default PARA method areas
+                      const defaultAreas = [
+                        { value: 'Inbox', label: 'Inbox' },
+                        { value: 'Projects', label: 'Projects' },
+                        { value: 'Areas', label: 'Areas' },
+                        { value: 'Resources', label: 'Resources' },
+                        { value: 'Archive', label: 'Archive' }
+                      ];
+                      
+                      // Additional areas from the database
+                      const additionalAreas = areas
+                        .filter(a => !defaultAreas.some(d => d.value === a.name))
+                        .map(a => ({ value: a.name, label: a.name }));
+                      
+                      return [...defaultAreas, ...additionalAreas];
+                    })()}
                     value={area}
                     onChange={(value) => setArea(value || 'Inbox')}
                     searchable

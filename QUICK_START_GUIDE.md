@@ -154,6 +154,48 @@ docker-compose ps
 # Should show pkms-backend as running
 ```
 
+## 💾 **Database Management**
+
+### **Docker Volume Architecture**
+PKMS uses a Docker-managed volume for the SQLite database to ensure:
+- ✅ **Optimal Performance**: No Windows filesystem interference
+- ✅ **Reliable SQLite Operations**: WAL mode and full ACID compliance
+- ✅ **No I/O Errors**: Eliminates bind-mount locking issues
+
+### **Database Backup & Restore**
+
+#### **Create Backup**
+```bash
+# Windows
+.\backup_db.bat
+
+# Manual backup
+docker run --rm -v pkms_db_data:/source -v "%cd%/PKMS_Data/backups":/backup alpine sh -c "cp /source/pkm_metadata.db /backup/backup_$(date +%Y%m%d_%H%M).db"
+```
+
+#### **List Available Backups**
+```bash
+.\list_backups.bat
+```
+
+#### **Restore from Backup**
+```bash
+# Windows (specify backup filename)
+.\restore_db.bat pkm_metadata_backup_20250710_144947.db
+
+# Manual restore
+docker compose down
+docker run --rm -v pkms_db_data:/target -v "%cd%/PKMS_Data/backups":/source alpine sh -c "cp /source/[backup_file] /target/pkm_metadata.db"
+docker compose up -d
+```
+
+### **Database Location**
+- **Production DB**: Docker volume `pkms_db_data`
+- **Backups**: `PKMS_Data/backups/` (local filesystem)
+- **Legacy Location**: `PKMS_Data/pkm_metadata.db` (no longer used for runtime)
+
+⚠️ **Important**: The database now runs inside a Docker volume for optimal performance. Use the backup scripts for data portability.
+
 ## 🎯 **Development Workflow**
 
 1. **Start Development Environment**
@@ -178,6 +220,7 @@ docker-compose ps
 
 ## 📝 **Recent Fixes Applied**
 
+✅ **Critical Database Fix**: Migrated to Docker volume architecture - eliminated all SQLite I/O errors
 ✅ **Frontend Build Issues**: Fixed dayjs/@mantine/dates compatibility completely
 ✅ **Calendar Implementation**: Full Mantine Calendar working in DiaryPage
 ✅ **Documentation Fixes**: Corrected all misleading documentation
@@ -185,6 +228,7 @@ docker-compose ps
 ✅ **TypeScript Errors**: Fixed runtime array access errors
 ✅ **Dashboard Integration**: Real-time statistics and working navigation
 ✅ **Complete Module Suite**: All five modules (Notes, Documents, Todos, Diary, Archive) operational
+✅ **Database Management**: Added comprehensive backup/restore scripts for Docker volume
 
 ## 🎉 **Production Ready!**
 

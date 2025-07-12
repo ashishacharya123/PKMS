@@ -140,9 +140,22 @@ export function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   useEffect(() => {
-    loadDashboardData();
+    // Prevent double loading in React strict mode
+    if (!hasLoaded) {
+      loadDashboardData();
+    }
+  }, [hasLoaded]);
+
+  useEffect(() => {
+    const handler = () => {
+      console.log('[Dashboard] Folder change detected, refreshing stats...');
+      loadDashboardData(true);
+    };
+    window.addEventListener('pkms-folder-change', handler);
+    return () => window.removeEventListener('pkms-folder-change', handler);
   }, []);
 
   const loadDashboardData = async (isRefresh: boolean = false) => {
@@ -154,11 +167,11 @@ export function DashboardPage() {
     setError(null);
     
     try {
-      // Use the new dashboard service to get real data
-      console.log('Loading dashboard data...');
+      console.log('[Dashboard] Loading dashboard data…');
       const dashboardStats = await dashboardService.getDashboardStats();
-      console.log('Dashboard stats received:', dashboardStats);
+      console.log('[Dashboard] Stats received:', dashboardStats);
       setStats(dashboardStats);
+      setHasLoaded(true);
     } catch (err) {
       setError('Failed to load dashboard data');
       console.error('Dashboard load error:', err);
@@ -171,6 +184,7 @@ export function DashboardPage() {
         archive: { folders: 0, items: 0 },
         last_updated: new Date().toISOString()
       });
+      setHasLoaded(true);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);

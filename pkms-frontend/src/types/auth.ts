@@ -2,19 +2,26 @@ export interface User {
   id: number;
   username: string;
   email?: string;
-  is_first_login: boolean;
   created_at: string;
+}
+
+// Comprehensive user setup interface
+export interface UserSetup {
+  username: string;
+  password: string;
+  email?: string;
+  login_password_hint?: string;
+  // Recovery questions (mandatory)
+  recovery_questions: string[];
+  recovery_answers: string[];
+  // Diary password (optional)
+  diary_password?: string;
+  diary_password_hint?: string;
 }
 
 export interface LoginCredentials {
   username: string;
   password: string;
-}
-
-export interface UserSetup {
-  username: string;
-  password: string;
-  email?: string;
 }
 
 export interface PasswordChange {
@@ -28,6 +35,7 @@ export interface RecoverySetup {
 }
 
 export interface RecoveryReset {
+  username: string;
   answers: string[];
   new_password: string;
 }
@@ -38,7 +46,6 @@ export interface AuthResponse {
   expires_in: number;
   user_id: number;
   username: string;
-  is_first_login: boolean;
 }
 
 export interface RecoveryKeyResponse {
@@ -59,19 +66,4 @@ export interface AuthState {
   isLoading: boolean;
   error: string | null;
   sessionTimer: number | null;
-}
-
-export interface MasterRecoverySetup {
-  master_recovery_password: string;
-}
-
-export interface MasterRecoveryReset {
-  master_recovery_password: string;
-  new_password: string;
-}
-
-export interface MasterRecoveryCheckResponse {
-  has_master_recovery: boolean;
-  has_security_questions: boolean;
-  recommended_method: string;
 } 

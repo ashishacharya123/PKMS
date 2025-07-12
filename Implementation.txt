@@ -1,423 +1,582 @@
-# 📋 PKMS Implementation Complete Documentation
+# PKMS Implementation Documentation
 
-## 🎯 **Current System Status - ALL PHASES COMPLETED** ✅
+## Overview
+Personal Knowledge Management System (PKMS) built with FastAPI backend and React frontend, featuring comprehensive content management, encrypted diary functionality, and advanced testing capabilities.
 
-### ✅ **PKMS Personal Knowledge Management System - FULLY OPERATIONAL**
+## System Architecture
 
-**System Architecture**: Local-first desktop application with complete functionality
-**Current Version**: Production-ready with all core modules implemented
-**Backend Status**: ✅ Healthy on port 8000 (Docker containerized)
-**Frontend Status**: ✅ Healthy on port 3000 (Vite dev server)
-**Database**: ✅ SQLite with complete schema and FTS5 search
-**Security**: ✅ Full encryption, authentication, and security hardening implemented
+### Backend (FastAPI)
+- **Framework**: FastAPI with SQLite database
+- **Authentication**: JWT-based with secure cookie handling  
+- **Database**: SQLite with SQLAlchemy ORM
+- **Security**: Password hashing, input sanitization, CORS configuration
+- **Testing**: Comprehensive pytest suite with fixtures
 
----
+### Frontend (React + TypeScript)
+- **Framework**: React 18 with TypeScript
+- **UI Library**: Mantine v7 components
+- **State Management**: Custom stores with localStorage
+- **Routing**: React Router with protected routes
+- **Testing**: Advanced testing interface with real-time diagnostics
 
-## 📁 **COMPLETE FILE & FOLDER STRUCTURE GUIDE**
+## Core Modules
 
-### **🌟 ROOT DIRECTORY STRUCTURE**
+### 1. Authentication System
+- JWT token-based authentication
+- Secure password hashing with bcrypt
+- Auto-logout on token expiration
+- Race condition protection in auth guards
 
+### 2. Notes Management
+- Rich text editing capabilities
+- Tag-based organization
+- Full-text search functionality
+- Hierarchical categorization
+
+### 3. Document Management
+- File upload and storage
+- Multiple format support
+- Metadata extraction
+- Version tracking
+
+### 4. Todo System
+- Task management with projects
+- Priority levels and due dates
+- Progress tracking
+- Status workflows
+
+### 5. Encrypted Diary System
+- Client-side encryption for privacy
+- Daily entries with mood tracking
+- Media attachments support
+- Password-protected access
+
+### 6. Archive Module
+- Hierarchical folder structure
+- Bulk operations support
+- Tagging and categorization
+- Search and retrieval
+
+## 🔧 Advanced Testing & Debugging System
+
+### Frontend Testing Interface
+**Access**: User menu → "Testing & Debug"
+**New Features**: 6-tab interface with enterprise-level monitoring capabilities
+
+#### 1. Authentication Testing Tab
+- **Comprehensive Auth Tests**: Multi-step authentication flow testing
+- **Real-time Logging**: Timeline-based step tracking with timestamps
+- **Token Validation**: JWT structure, expiry, and payload analysis
+- **🆕 Token Remaining Time**: Shows exact seconds remaining until token expiry
+- **API Connectivity**: Backend health, CORS, and endpoint accessibility
+- **Results Summary**: Visual status indicators for auth components
+
+**How Authentication Testing Works:**
+1. **Token Analysis**: Decodes JWT payload and validates structure
+2. **Expiry Calculation**: Shows remaining time in seconds (e.g., "1234s remaining")
+3. **Backend Connectivity**: Tests health endpoint and response times
+4. **CORS Validation**: Verifies cross-origin request handling
+5. **Auth Endpoint Testing**: Tests authenticated API access
+6. **Visual Results**: Color-coded badges showing success/failure status
+
+**Features:**
+- Live authentication monitoring with countdown
+- Detailed step-by-step logs with timestamps
+- Token decoding and validation with remaining time display
+- Copy test results functionality
+- Quick authentication status checks
+
+#### 2. Database Testing Tab
+- **Database Statistics**: Size, table counts, schema analysis
+- **🆕 Individual Table Sizes**: Shows storage size for each table alongside row counts
+- **Table Group Navigation**: Organized by modules (Core, Content, Diary, Archive, Organization)
+- **Sample Data Inspector**: Configurable row fetching (1-20 rows)
+- **Schema Drawer**: Complete database schema with column details
+- **🆕 37 Tables Explanation**: Modal explaining all database tables with categorization
+
+**How Database Testing Works:**
+1. **Size Analysis**: Uses SQLite PRAGMA queries to get accurate table sizes
+2. **Row + Size Display**: Shows both count and storage (e.g., "156 rows" + "2.3 MB")
+3. **Table Categorization**: Groups tables by function for easier navigation
+4. **Complete Table Breakdown**: Explains FTS5 search tables and system tables
+5. **Sample Data Inspection**: Fetches and displays actual table data with JSON formatting
+6. **Schema Analysis**: Shows column types, constraints, and relationships
+
+**Table Categories:**
+- **Application Data** (~17 tables): Your actual data (users, notes, todos, etc.)
+- **Full-Text Search (FTS5)** (~20 tables): SQLite search indexes (automatically created)
+- **SQLite System** (~3 tables): Internal SQLite tables
+
+**Table Groups:**
+- **Core System**: users, sessions, recovery_keys
+- **Content Modules**: notes, documents, todos, projects  
+- **Diary & Privacy**: diary_entries, diary_media
+- **Archive System**: archive_folders, archive_items
+- **Organization**: tags, links, cross-references
+
+#### 3. Diary Encryption Testing Tab
+- **Password Verification**: Test diary encryption passwords
+- **Verbose Logging**: Step-by-step encryption process tracking
+- **Sample Entry Analysis**: Decrypt and display diary data
+- **Encryption Metrics**: Blob size, IV length, tag analysis
+- **Media File Counting**: Associated file verification
+
+**How Diary Encryption Testing Works:**
+1. **Password Validation**: Tests provided password against encrypted diary entries
+2. **Decryption Process**: Shows step-by-step decryption with detailed logging
+3. **Sample Entry Display**: Shows decrypted diary content (title, mood, metadata)
+4. **Encryption Analysis**: Displays encryption blob length and technical details
+5. **Media Verification**: Counts associated encrypted media files
+
+#### 4. System Health Tab
+- **Database Connectivity**: SQLite version and connection status
+- **User Session Info**: Account details and session data
+- **System Metrics**: Table counts and system information
+- **Performance Indicators**: Response times and health checks
+
+**How System Health Testing Works:**
+1. **Database Health**: Tests SQLite connectivity and version
+2. **User Session Analysis**: Shows current user details and session info
+3. **System Overview**: Displays table counts and system statistics
+4. **Performance Metrics**: Measures response times and system health
+
+#### 5. 🆕 Advanced Testing Tab
+**New Enterprise-Level Testing Capabilities**
+
+##### A. Performance Monitoring
+- **Query Timing Analysis**: Measures simple and complex query performance
+- **Database Configuration**: Shows SQLite PRAGMA settings and optimization status
+- **Performance Scoring**: Rates system performance (good/slow/critical)
+- **Optimization Recommendations**: Provides specific improvement suggestions
+
+**How Performance Testing Works:**
+1. **Query Benchmarking**: Times simple count queries and complex joins
+2. **Configuration Analysis**: Checks cache size, journal mode, synchronization settings
+3. **Performance Scoring**: Calculates overall performance rating based on timings
+4. **Smart Recommendations**: Suggests optimizations based on measured performance
+
+##### B. Data Integrity Validation
+- **Foreign Key Integrity**: Checks for orphaned records and broken relationships
+- **Date Consistency**: Validates date fields for logical consistency
+- **Required Field Validation**: Ensures critical fields are properly populated
+- **SQLite Integrity Check**: Runs PRAGMA integrity_check for database corruption
+- **Detailed Results**: Shows pass/warning/critical status with explanations
+
+**How Data Integrity Testing Works:**
+1. **Relationship Validation**: Checks foreign key constraints across all tables
+2. **Data Consistency**: Validates dates, required fields, and data formats
+3. **Database Integrity**: Runs SQLite's built-in integrity verification
+4. **Comprehensive Reporting**: Categories issues by severity with detailed descriptions
+
+##### C. Resource Monitoring
+- **Process Memory Usage**: RSS, VMS, and percentage memory utilization
+- **CPU Usage**: Process CPU percentage and thread count
+- **System Resources**: Total/available memory, disk usage, CPU cores
+- **Database Statistics**: Connection info and cache performance
+- **Real-time Recommendations**: Dynamic suggestions based on resource usage
+
+**How Resource Monitoring Works:**
+1. **Process Analysis**: Uses psutil (when available) to get detailed process metrics
+2. **System Overview**: Shows total system resources and availability
+3. **Database Metrics**: Analyzes database cache usage and connection stats
+4. **Smart Alerts**: Provides recommendations when resources are under stress
+
+##### D. All Tables Analysis
+- **Complete Table Breakdown**: Shows all 37 database tables with categorization
+- **FTS5 Explanation**: Explains why SQLite creates multiple search tables
+- **System vs Application**: Clearly distinguishes user data from system tables
+- **Visual Statistics**: Charts showing table distribution by category
+
+**How All Tables Analysis Works:**
+1. **Complete Discovery**: Queries sqlite_master for all tables and indexes
+2. **Smart Categorization**: Groups tables by function (Application/FTS5/System)
+3. **Educational Display**: Explains the purpose of each table category
+4. **Visual Breakdown**: Shows statistics and counts per category
+
+#### 6. Console Commands Tab
+- **Frontend Browser Commands**: JavaScript debugging and localStorage management
+- **Backend CLI Commands**: Pytest, database operations, and health checks
+- **Docker Commands**: Container management and debugging
+- **Copy-to-Clipboard**: One-click command copying
+
+**How Console Commands Work:**
+1. **Categorized Commands**: Groups commands by usage (Frontend, Backend, Docker)
+2. **Copy Functionality**: One-click copying of commands to clipboard
+3. **Detailed Descriptions**: Explains what each command does
+4. **Execution Guidance**: Shows where and how to run each command
+
+### Backend Testing Endpoints
+**Base URL**: `/api/v1/testing/`
+
+#### Database Testing
 ```
-PKMS/                                    # 📂 Project Root Directory
-├── .dockerignore                        # 🐳 Docker build exclusions
-├── .gitignore                          # 📝 Git version control exclusions
-├── always_do.cursorrules               # 🤖 AI agent instructions & rules
-├── docker-compose.yml                  # 🐳 Multi-container orchestration
-├── start-dev.bat                       # 🚀 Windows development startup script
-├── start-dev.sh                        # 🚀 Linux/Mac development startup script
-├── start-full-dev.bat                  # 🚀 Windows full stack startup
-├── start-full-dev.sh                   # 🚀 Linux/Mac full stack startup
-│
-├── 📚 **DOCUMENTATION FILES**
-├── AI_HANDOFF_DOCUMENTATION.md         # 🤖 Critical AI agent handoff guide
-├── DOCKER_SETUP.md                     # 🐳 Docker configuration & setup guide
-├── ERROR_FIX_DOCUMENTATION.md          # 🐛 Error fixes & troubleshooting history
-├── Implementation.txt                   # 📋 This file - complete implementation guide
-├── Instructions.txt                     # 📝 Original project requirements
-├── QUICK_START_GUIDE.md                # 🚀 Quick setup & running instructions
-├── README.md                           # 📖 Project overview & introduction
-├── SECURITY_GUIDE.md                   # 🔒 Security implementation details
-├── SETUP_COMPLETE.md                   # ✅ Setup completion guide
-├── SYSTEM_REQUIREMENTS.txt             # 💻 Hardware/software requirements
-├── WEB_DEVELOPMENT_TUTORIAL.md         # 📚 Development learning guide
-├── done_till_now.txt                   # 📊 Complete development progress log
-├── log.txt                             # 📝 Detailed development activity log
-│
-├── 📂 **DATA & STORAGE**
-├── PKMS_Data/                          # 💾 Application data storage
-│   ├── archive/                        # 📁 Archive module file storage
-│   │   └── metadata/              # Folder metadata cache
-│   ├── assets/                         # 🎨 Application assets
-│   │   ├── documents/                  # 📄 Document storage
-│   │   └── images/                     # 🖼️ Image storage
-│   ├── backups/                        # 💾 System backups
-│   ├── exports/                        # 📤 Data exports
-│   ├── recovery/                       # 🔧 Recovery data
-│   ├── secure/                         # 🔒 Encrypted storage
-│   │   ├── entries/                    # 📔 Encrypted diary entries
-│   │   ├── photos/                     # 📷 Encrypted photos
-│   │   ├── videos/                     # 🎥 Encrypted videos
-│   │   └── voice/                      # 🎤 Encrypted voice recordings
-│   ├── pkm_metadata.db                 # 🗄️ Main SQLite database
-│   ├── pkm_metadata.db-shm             # 🗄️ SQLite shared memory
-│   └── pkm_metadata.db-wal             # 🗄️ SQLite write-ahead log
-│
-└── 📂 **IMPLEMENTATION GUIDES**
-    ├── Implementation/
-    ├── AI_Service.md                   # 🤖 AI service architecture guide
-    └── Archive_Module.md               # 📁 Archive module implementation
-```
+GET /testing/database/stats
+  - Returns: Database size, table counts, individual table sizes, user info
+  - NEW: table_sizes field with size_bytes, size_mb, page_count per table
 
----
+GET /testing/database/sample-rows?table={table}&limit={limit}
+  - Returns: Sample rows from specified table with JSON formatting
 
-## 🐍 **BACKEND STRUCTURE (pkms-backend/)**
+GET /testing/database/table-schema?table={table}
+  - Returns: Complete table schema with column details and constraints
 
-### **🏗️ Application Architecture**
-
-```
-pkms-backend/                           # 🐍 Python FastAPI Backend
-├── Dockerfile                         # 🐳 Backend container configuration
-├── main.py                            # 🚀 FastAPI application entry point
-├── requirements.txt                   # 📦 Python dependencies
-│
-├── app/                               # 📂 Main application package
-│   ├── __init__.py                    # 📦 Package initialization
-│   ├── config.py                     # ⚙️ Configuration management
-│   ├── database.py                   # 🗄️ Database connection & session management
-│   │
-│   ├── auth/                          # 🔐 Authentication System
-│   │   ├── __init__.py               # 📦 Auth package init
-│   │   ├── dependencies.py           # 🔗 Auth dependency injection
-│   │   └── security.py               # 🔒 Password hashing, JWT tokens, validation
-│   │
-│   ├── middleware/                    # ⚡ Request/Response Middleware
-│   │   └── sanitization.py           # 🧹 Input sanitization middleware
-│   │
-│   ├── models/                        # 🗄️ Database Models (SQLAlchemy)
-│   │   ├── __init__.py               # 📦 Models package init
-│   │   ├── archive.py                # 📁 Archive folders & items models
-│   │   ├── diary.py                  # 📔 Encrypted diary entries & media
-│   │   ├── document.py               # 📄 Document management models
-│   │   ├── link.py                   # 🔗 Cross-module linking system
-│   │   ├── note.py                   # 📝 Notes with bidirectional links
-│   │   ├── tag.py                    # 🏷️ Tagging system across modules
-│   │   ├── todo.py                   # ✅ Tasks & project management
-│   │   └── user.py                   # 👤 User, session, recovery models
-│   │
-│   ├── routers/                       # 🛣️ API Endpoints (FastAPI Routers)
-│   │   ├── __init__.py               # 📦 Routers package init
-│   │   ├── archive.py                # 📁 Archive CRUD & file operations
-│   │   ├── archive_improvements.py   # 📁 Advanced archive features
-│   │   ├── auth.py                   # 🔐 Authentication endpoints
-│   │   ├── dashboard.py              # 📊 Dashboard statistics & overview
-│   │   ├── diary.py                  # 📔 Encrypted diary operations
-│   │   ├── documents.py              # 📄 Document upload/download/search
-│   │   ├── notes.py                  # 📝 Notes CRUD & linking
-│   │   ├── search.py                 # 🔍 Global search & FTS5 integration
-│   │   └── todos.py                  # ✅ Task & project management
-│   │
-│   ├── services/                      # 🔧 Business Logic Services
-│   │   ├── __init__.py               # 📦 Services package init
-│   │   ├── ai_service.py             # 🤖 Smart tagging & content analysis
-│   │   ├── chunk_assembly.py         # 📦 Large file chunk assembly
-│   │   ├── chunk_service.py          # 📦 Chunked upload management
-│   │   ├── file_detection.py         # 🔍 File type detection & validation
-│   │   └── fts_service.py            # 🔍 Full-text search (SQLite FTS5)
-│   │
-│   └── utils/                         # 🛠️ Utility Functions
-│       ├── __init__.py               # 📦 Utils package init
-│       └── security.py               # 🔒 Security utilities & validation
-│
-└── data/                              # 💾 Backend Data Storage
-    ├── pkm_metadata.db               # 🗄️ Backend database copy
-    ├── pkm_metadata.db-shm           # 🗄️ SQLite shared memory
-    ├── pkm_metadata.db-wal           # 🗄️ SQLite write-ahead log
-    └── temp_uploads/                  # 📁 Temporary upload processing
-```
-
-### **🔥 Key Backend Files Explained**
-
-#### **🚀 Core Application Files**
-- **`main.py`** - FastAPI app initialization, middleware setup, CORS, rate limiting
-- **`config.py`** - Environment variables, database URLs, security settings
-- **`database.py`** - SQLAlchemy async setup, session management, migrations
-
-#### **🔐 Authentication System**
-- **`auth/security.py`** - Password hashing (bcrypt), JWT tokens, validation
-- **`auth/dependencies.py`** - FastAPI dependency injection for auth
-- **`models/user.py`** - User, Session, RecoveryKey database models
-
-#### **🗄️ Database Models (Complete Schema)**
-- **`models/note.py`** - Notes with PARA method, bidirectional linking
-- **`models/document.py`** - File management with metadata extraction
-- **`models/todo.py`** - Tasks, projects, priorities, due dates
-- **`models/diary.py`** - Encrypted entries with mood tracking
-- **`models/archive.py`** - Hierarchical folder structure, file organization
-- **`models/tag.py`** - Cross-module tagging system
-- **`models/link.py`** - Bidirectional linking between modules
-
-#### **🛣️ API Endpoints (RESTful Design)**
-- **`routers/auth.py`** - Login, registration, password recovery, JWT refresh
-- **`routers/notes.py`** - CRUD operations, linking, area management
-- **`routers/documents.py`** - Upload, download, preview, text extraction
-- **`routers/todos.py`** - Task management, project organization, statistics
-- **`routers/diary.py`** - Encrypted CRUD, mood tracking, calendar data
-- **`routers/archive.py`** - Hierarchical folders, file operations, search
-- **`routers/search.py`** - Global search, FTS5 integration, suggestions
-- **`routers/dashboard.py`** - Statistics, activity tracking, quick stats
-
-#### **🔧 Business Logic Services**
-- **`services/ai_service.py`** - Smart tagging, sentiment analysis, summarization
-- **`services/fts_service.py`** - SQLite FTS5 full-text search implementation
-- **`services/file_detection.py`** - MIME type detection, file validation
-- **`services/chunk_service.py`** - Large file chunked upload handling
-
----
-
-## ⚛️ **FRONTEND STRUCTURE (pkms-frontend/)**
-
-### **🎨 React TypeScript Frontend**
-
-```
-pkms-frontend/                          # ⚛️ React TypeScript Frontend
-├── index.html                         # 🌐 HTML entry point
-├── package.json                       # 📦 Node.js dependencies & scripts
-├── package-lock.json                  # 🔒 Dependency version lock
-├── tsconfig.json                      # 📝 TypeScript configuration
-├── tsconfig.node.json                 # 📝 Node.js TypeScript config
-├── vite.config.ts                     # ⚡ Vite build configuration
-│
-├── public/                            # 🌐 Static Assets
-│   └── (static files served directly)
-│
-└── src/                               # 📂 Source Code
-    ├── main.tsx                       # 🚀 React application entry point
-    ├── App.tsx                        # 🏠 Main app component & routing
-    │
-    ├── components/                    # 🧩 Reusable UI Components
-    │   ├── archive/
-    │   │   └── FolderTree.tsx         # 🌳 Hierarchical folder navigation
-    │   ├── auth/
-    │   │   ├── LoginForm.tsx          # 🔐 User login interface
-    │   │   └── SetupForm.tsx          # ⚙️ Initial user setup
-    │   ├── diary/                     # 📔 Diary-specific components
-    │   ├── documents/                 # 📄 Document management components
-    │   ├── notes/                     # 📝 Note editing components
-    │   ├── shared/
-    │   │   ├── Layout.tsx             # 🏗️ Main application layout
-    │   │   └── Navigation.tsx         # 🧭 Navigation sidebar
-    │   └── todos/                     # ✅ Todo management components
-    │
-    ├── hooks/
-    │   └── useDateTime.ts             # ⏰ Date/time utilities with Nepali calendar
-    │
-    ├── pages/                         # 📄 Main Application Pages
-    │   ├── ArchivePage.tsx            # 📁 Hierarchical file organization
-    │   ├── AuthPage.tsx               # 🔐 Authentication & setup
-    │   ├── DashboardPage.tsx          # 📊 Main dashboard & statistics
-    │   ├── DiaryPage.tsx              # 📔 Encrypted diary with calendar
-    │   ├── DocumentsPage.tsx          # 📄 Document management interface
-    │   ├── NoteEditorPage.tsx         # 📝 Markdown note editor
-    │   ├── NotesPage.tsx              # 📝 Notes overview & management
-    │   ├── SearchResultsPage.tsx      # 🔍 Global search results
-    │   └── TodosPage.tsx              # ✅ Task & project management
-    │
-    ├── services/                      # 🔗 API Integration Layer
-    │   ├── api.ts                     # 🌐 Axios configuration & interceptors
-    │   ├── archiveService.ts          # 📁 Archive API integration
-    │   ├── authService.ts             # 🔐 Authentication API calls
-    │   ├── dashboardService.ts        # 📊 Dashboard data fetching
-    │   ├── diaryService.ts            # 📔 Diary API integration
-    │   ├── documentsService.ts        # 📄 Document API integration
-    │   ├── notesService.ts            # 📝 Notes API integration
-    │   ├── searchService.ts           # 🔍 Search API integration
-    │   ├── todosService.ts            # ✅ Todos API integration
-    │   └── uploadService.ts           # 📤 File upload utilities
-    │
-    ├── stores/                        # 🗃️ State Management (Zustand)
-    │   ├── archiveStore.ts            # 📁 Archive state management
-    │   ├── authStore.ts               # 🔐 Authentication state
-    │   ├── diaryStore.ts              # 📔 Diary state & encryption
-    │   ├── documentsStore.ts          # 📄 Document state management
-    │   ├── notesStore.ts              # 📝 Notes state management
-    │   └── todosStore.ts              # ✅ Todos state management
-    │
-    ├── styles/
-    │   └── mantine-override.css       # 🎨 Custom CSS overrides
-    │
-    ├── types/                         # 📝 TypeScript Type Definitions
-    │   ├── archive.ts                 # 📁 Archive type definitions
-    │   ├── auth.ts                    # 🔐 Authentication types
-    │   ├── diary.ts                   # 📔 Diary types
-    │   └── index.ts                   # 📋 Main type exports
-    │
-    └── utils/
-        └── diary.ts                   # 🔒 Diary encryption utilities
+GET /testing/database/all-tables
+  - NEW: Complete list of all 37 tables with categorization and explanations
+  - Returns: Tables grouped by category with detailed explanations
 ```
 
-### **🔥 Key Frontend Files Explained**
+#### 🆕 Advanced Testing Endpoints
 
-#### **🚀 Core Application**
-- **`main.tsx`** - React app initialization, Mantine provider, routing setup
-- **`App.tsx`** - Main routing, authentication guards, layout management
-- **`components/shared/Layout.tsx`** - Application shell with navigation
-- **`components/shared/Navigation.tsx`** - Sidebar with live date/time, Nepali calendar
+##### Performance Testing
+```
+GET /testing/performance/database-metrics
+  - Returns: Query timing analysis, database configuration, performance scoring
+  - Features: Simple/complex query timings, PRAGMA settings, recommendations
+```
 
-#### **📄 Page Components (Full Applications)**
-- **`pages/DashboardPage.tsx`** - Statistics overview, quick actions, recent activity
-- **`pages/NotesPage.tsx`** - Markdown editor, bidirectional linking, PARA method
-- **`pages/DocumentsPage.tsx`** - File upload, preview, tag management
-- **`pages/TodosPage.tsx`** - Project management, priority tracking, statistics
-- **`pages/DiaryPage.tsx`** - Encrypted entries, Mantine calendar, mood tracking
-- **`pages/ArchivePage.tsx`** - Hierarchical folders, file organization
-- **`pages/SearchResultsPage.tsx`** - Global search with content/tag filtering
+##### Data Integrity Testing
+```
+GET /testing/validation/data-integrity
+  - Returns: Comprehensive data validation results
+  - Checks: Foreign keys, date consistency, required fields, SQLite integrity
+  - Format: Detailed pass/warning/critical breakdown
+```
 
-#### **🗃️ State Management (Zustand Stores)**
-- **`stores/authStore.ts`** - User authentication, JWT tokens, session management
-- **`stores/notesStore.ts`** - Notes CRUD, linking, area organization
-- **`stores/documentsStore.ts`** - Document management, upload tracking
-- **`stores/todosStore.ts`** - Task management, project organization
-- **`stores/diaryStore.ts`** - Encrypted diary, password management
-- **`stores/archiveStore.ts`** - Hierarchical folder navigation
+##### Resource Monitoring
+```
+GET /testing/monitoring/resource-usage
+  - Returns: Process memory, CPU usage, system resources, database stats
+  - Features: Real-time metrics with recommendations
+  - Fallback: Graceful handling when psutil unavailable
+```
 
-#### **🔗 API Integration Services**
-- **`services/api.ts`** - Axios configuration, auth interceptors, error handling
-- **`services/authService.ts`** - Login, registration, password recovery
-- **`services/notesService.ts`** - Notes CRUD operations
-- **`services/documentsService.ts`** - File upload, download, search
-- **`services/todosService.ts`** - Task and project management
-- **`services/diaryService.ts`** - Encrypted diary operations
-- **`services/archiveService.ts`** - Hierarchical file organization
-- **`services/searchService.ts`** - Global search and suggestions
+#### Diary Encryption Testing
+```
+POST /testing/diary/encryption-test
+  Body: { "password": "user_diary_password" }
+  - Returns: Encryption test results and sample decrypted entry
+```
 
-#### **📝 TypeScript Type Safety**
-- **`types/auth.ts`** - User, login, token types
-- **`types/archive.ts`** - Folder, item, tree structure types
-- **`types/diary.ts`** - Encrypted entry, mood tracking types
-- **`types/index.ts`** - Common types, API responses
+#### System Health
+```
+GET /testing/health
+  - Returns: Basic system health check
 
----
+GET /testing/health/detailed
+  - Returns: Comprehensive system information with user session details
+```
 
-## 🏗️ **Architecture Overview**
+#### Console Commands
+```
+GET /testing/console-commands
+  - Returns: Categorized command sets for frontend, backend, and Docker testing
+```
 
-### **Three-Layer Architecture**
-1. **Frontend Layer**: React 18 + TypeScript + Mantine UI
-2. **Backend Layer**: FastAPI + Python 3.11 + SQLAlchemy 1.4.46
-3. **Storage Layer**: SQLite + Organized file system + Client-side encryption
+## 🛠️ Testing Commands Reference
 
-### **🔑 Key Features Implemented**
+### Frontend Browser Console Commands
 
-#### **🔐 Security Features**
-- Industry-standard bcrypt password hashing
-- JWT token authentication with refresh
-- Client-side AES-256-GCM encryption for diary
-- Input sanitization and XSS prevention
-- Rate limiting and brute-force protection
-- CORS configuration and security headers
+#### Authentication Testing
+```javascript
+// Check current authentication status
+const authStatus = JSON.parse(localStorage.getItem('auth_user') || '{}');
+console.log('Auth Status:', authStatus);
 
-#### **🤖 AI Integration**
-- Smart content tagging with transformer models
-- Sentiment analysis for diary entries
-- Content categorization and topic extraction
-- Semantic similarity for content linking
-- CPU-optimized inference (no GPU required)
+// Validate JWT token
+const token = localStorage.getItem('jwt_token');
+if (token) {
+  const payload = JSON.parse(atob(token.split('.')[1]));
+  console.log('Token Payload:', payload);
+  console.log('Expires:', new Date(payload.exp * 1000));
+}
 
-#### **🔍 Search Capabilities**
-- SQLite FTS5 full-text search implementation
-- Global search across all modules
-- Content-aware vs title-only search modes
-- Tag-based filtering and autocomplete
-- Search suggestions and popular tags
+// Clear authentication data
+localStorage.removeItem('jwt_token');
+localStorage.removeItem('auth_user');
+location.reload();
+```
 
-#### **📁 File Management**
-- Hierarchical folder organization (Archive)
-- Large file chunked upload support
-- MIME type detection and validation
-- Thumbnail generation for images
-- Text extraction from PDFs and documents
+#### LocalStorage Management
+```javascript
+// View all stored data
+console.log('LocalStorage:', Object.fromEntries(
+  Object.entries(localStorage).map(([k,v]) => [k, JSON.parse(v)])
+));
 
-#### **📊 Data Organization**
-- PARA method for notes (Projects, Areas, Resources, Archive)
-- Cross-module bidirectional linking
-- Tag system with color coding
-- Project-based task organization
-- Mood tracking and calendar integration
+// Clear all application data
+['jwt_token', 'auth_user', 'notes', 'documents'].forEach(key => 
+  localStorage.removeItem(key)
+);
 
----
+// Export all data for backup
+const backup = Object.fromEntries(Object.entries(localStorage));
+console.log('Backup Data:', JSON.stringify(backup, null, 2));
+```
 
-## 🚀 **Development & Deployment**
+#### API Testing
+```javascript
+// Test backend connectivity
+fetch('http://localhost:8000/health')
+  .then(r => r.json())
+  .then(data => console.log('Backend Health:', data));
 
-### **🛠️ Development Tools**
-- **Backend**: FastAPI, SQLAlchemy, Pytest, Docker
-- **Frontend**: React, TypeScript, Vite, Mantine UI
-- **Database**: SQLite with FTS5 extension
-- **State Management**: Zustand for React state
-- **Authentication**: JWT with refresh tokens
-- **File Processing**: Text extraction, thumbnail generation
+// Test authenticated endpoint
+const token = localStorage.getItem('jwt_token');
+fetch('http://localhost:8000/api/v1/notes', {
+  headers: { 'Authorization': `Bearer ${token}` }
+})
+.then(r => r.json())
+.then(data => console.log('Notes API:', data));
+```
 
-### **🐳 Docker Configuration**
-- **Backend Container**: Python 3.11, FastAPI, SQLAlchemy
-- **Redis Container**: Caching and rate limiting
-- **Volume Mounts**: Data persistence and hot reload
-- **Health Checks**: Automatic container monitoring
+### Backend CLI Commands
 
-### **🔧 API Design**
-- RESTful endpoints following OpenAPI standards
-- Comprehensive error handling and validation
-- Rate limiting on authentication endpoints
-- File upload with progress tracking
-- Pagination and filtering support
+#### Pytest Testing
+```bash
+# Run all tests with coverage
+cd pkms-backend
+python -m pytest tests/ -v --cov=app --cov-report=html
 
----
+# Run specific test categories
+python -m pytest tests/test_auth.py -v
+python -m pytest tests/ -k "authentication" -v
 
-## 📈 **Performance Optimizations**
+# Run tests with detailed output
+python -m pytest tests/ -v -s --tb=long
 
-### **🚀 Backend Performance**
-- Async SQLAlchemy for concurrent database operations
-- Connection pooling and session management
-- FTS5 indexing for fast text search
-- Lazy loading of AI models
-- Efficient file chunking for large uploads
+# Generate coverage report
+python -m pytest --cov=app --cov-report=term-missing
+```
 
-### **⚡ Frontend Performance**
-- Vite for fast development and building
-- Component lazy loading and code splitting
-- Optimized bundle size with tree shaking
-- Memoization for expensive operations
-- Debounced search and real-time updates
+#### Database Operations
+```bash
+# Database inspection
+cd pkms-backend
+python -c "
+from app.database import engine
+from sqlalchemy import text
+with engine.connect() as conn:
+    tables = conn.execute(text('SELECT name FROM sqlite_master WHERE type=\"table\"')).fetchall()
+    print('Tables:', [t[0] for t in tables])
+"
 
----
+# Check database size
+python -c "
+import os
+db_path = 'data/pkm_metadata.db'
+if os.path.exists(db_path):
+    size = os.path.getsize(db_path)
+    print(f'Database size: {size} bytes ({size/1024/1024:.2f} MB)')
+"
 
-## 🎯 **Current System Capabilities**
+# Run database integrity check
+python -c "
+from app.database import engine
+from sqlalchemy import text
+with engine.connect() as conn:
+    result = conn.execute(text('PRAGMA integrity_check')).fetchone()
+    print('DB Integrity:', result[0])
+"
+```
 
-### ✅ **Fully Operational Modules**
-1. **Authentication System** - Complete user management
-2. **Notes Module** - Markdown editor with bidirectional linking
-3. **Documents Module** - File management with search
-4. **Todos Module** - Project and task management
-5. **Diary Module** - Encrypted personal journal
-6. **Archive Module** - Hierarchical file organization
-7. **Search System** - Global search across all content
-8. **Dashboard** - Statistics and activity overview
+#### Health Checks
+```bash
+# Backend health check
+curl -X GET http://localhost:8000/health
 
-### ✅ **Security Standards Met**
-- OWASP Top 10 protection implemented
-- Industry-standard authentication and encryption
-- Input validation and sanitization throughout
-- Secure file handling and upload validation
+# Authentication test
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"test","password":"test"}'
+
+# Database stats (requires auth)
+curl -X GET http://localhost:8000/api/v1/testing/database/stats \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+#### Advanced Testing Script
+```bash
+# Comprehensive backend test
+cd pkms-backend
+python scripts/test_runner.py --comprehensive
+
+# Run with specific filters
+python scripts/test_runner.py --auth-only --verbose
+
+# Generate detailed report
+python scripts/test_runner.py --generate-report
+```
+
+### Docker Debugging Commands
+
+#### Container Management
+```bash
+# View container logs
+docker-compose logs pkms-backend
+docker-compose logs pkms-frontend
+
+# Interactive backend shell
+docker-compose exec pkms-backend bash
+
+# Database file access
+docker-compose exec pkms-backend ls -la data/
+docker-compose exec pkms-backend sqlite3 data/pkm_metadata.db ".tables"
+
+# Restart services
+docker-compose restart pkms-backend
+docker-compose restart pkms-frontend
+```
+
+#### Health Monitoring
+```bash
+# Container resource usage
+docker stats pkms-backend pkms-frontend
+
+# Network connectivity test
+docker-compose exec pkms-frontend ping pkms-backend
+
+# Port verification
+docker-compose ps
+netstat -tulpn | grep :8000
+netstat -tulpn | grep :3000
+```
+
+## Testing Best Practices
+
+### 1. Pre-Testing Checklist
+- [ ] Verify Docker containers are running
+- [ ] Check backend health endpoint
+- [ ] Confirm authentication status
+- [ ] Validate database connectivity
+
+### 2. Authentication Testing
+- [ ] Test token validation and expiry
+- [ ] Verify protected route access
+- [ ] Check race condition scenarios
+- [ ] Validate session persistence
+
+### 3. Database Testing
+- [ ] Check table schemas match models
+- [ ] Verify data integrity constraints
+- [ ] Test sample data retrieval
+- [ ] Validate encryption for diary entries
+
+### 4. Integration Testing
+- [ ] Test full authentication flow
+- [ ] Verify CORS configuration
+- [ ] Check API endpoint accessibility
+- [ ] Test error handling scenarios
+
+## Troubleshooting Guide
+
+### Common Issues
+
+#### Authentication Problems
+- **403 Forbidden**: Check JWT token validity and expiry
+- **Race Conditions**: Verify AuthGuard completion before API calls
+- **CORS Errors**: Ensure backend CORS configuration includes frontend origin
+
+#### Database Issues
+- **Connection Errors**: Verify SQLite file permissions and path
+- **Schema Mismatches**: Run migrations and check model definitions
+- **Encryption Failures**: Validate diary password and encryption keys
+
+#### Performance Issues
+- **Slow API Responses**: Check database query optimization
+- **Frontend Lag**: Monitor network requests and state management
+- **Memory Usage**: Analyze container resource consumption
+
+### Quick Fixes
+
+#### Clear Application State
+```bash
+# Frontend storage reset
+localStorage.clear();
+sessionStorage.clear();
+location.reload();
+
+# Backend container restart
+docker-compose restart pkms-backend
+```
+
+#### Database Repair
+```bash
+# SQLite integrity check and repair
+cd pkms-backend
+python -c "
+from app.database import engine
+from sqlalchemy import text
+with engine.connect() as conn:
+    conn.execute(text('VACUUM'))
+    print('Database vacuumed successfully')
+"
+```
+
+## Security Considerations
+
+### Authentication Security
+- JWT tokens stored in localStorage (consider httpOnly cookies for production)
+- Password hashing with bcrypt
+- Token expiry and refresh mechanisms
+- Protected route implementation
+
+### Diary Encryption
 - Client-side encryption for sensitive data
+- Secure password handling
+- Encryption key management
+- Media file security
 
-### ✅ **User Experience Features**
-- Modern, responsive UI with Mantine components
-- Real-time date/time with Nepali calendar support
-- Drag-and-drop file uploads with progress
-- Advanced search with content inclusion controls
-- Comprehensive error handling and feedback
+### API Security
+- Input validation and sanitization
+- CORS configuration
+- Rate limiting considerations
+- Error message security
 
----
+## Performance Optimizations
 
-**📚 This comprehensive guide covers every file and folder in your PKMS application. Study this document to understand the complete architecture, functionality, and implementation details of your Personal Knowledge Management System.**
+### Database Optimizations
+- Proper indexing on frequently queried columns
+- Connection pooling for concurrent requests
+- Query optimization for complex operations
+- Regular database maintenance (VACUUM)
 
-**🎯 Next Steps**: Use this documentation to understand any specific part of the system you want to modify or extend. All code is production-ready and follows industry best practices.
+### Frontend Optimizations
+- Component lazy loading
+- State management optimization
+- API request caching
+- Bundle size optimization
 
-**AI Attribution**: Complete file structure documentation by **Claude Sonnet 4** via Cursor, January 2025.
+## Deployment Notes
+
+### Development Environment
+- Docker Compose for local development
+- Hot reloading for both frontend and backend
+- Development database with sample data
+- Debug logging enabled
+
+### Production Considerations
+- Environment variable configuration
+- HTTPS enforcement
+- Database backup strategies
+- Monitoring and logging setup
+- Error tracking integration
+
+## Testing Infrastructure
+
+### Backend Testing (pytest)
+- **Location**: `pkms-backend/tests/`
+- **Configuration**: `conftest.py` with shared fixtures
+- **Coverage**: Authentication, API endpoints, database operations
+- **Features**: Async testing, database isolation, mocking
+
+### Frontend Testing Interface
+- **Location**: User menu → "Testing & Debug"
+- **Features**: Real-time testing, detailed logging, result export
+- **Capabilities**: Auth testing, database inspection, encryption verification
+
+### CLI Testing Tools
+- **Script**: `pkms-backend/scripts/test_runner.py`
+- **Features**: Colored output, health checks, coverage analysis
+- **Usage**: `python scripts/test_runner.py --comprehensive`
+
+This comprehensive testing infrastructure ensures robust application development and provides detailed debugging capabilities for both development and production troubleshooting.

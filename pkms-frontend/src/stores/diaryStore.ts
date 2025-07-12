@@ -44,6 +44,7 @@ interface DiaryState {
   setFilter: (filter: Partial<DiaryState['filters']>) => void;
   clearFilters: () => void;
   setError: (error: string | null) => void;
+  clearError: () => void;
   setYear: (year: number) => void;
   setMonth: (month: number) => void;
   setSearchQuery: (query: string) => void;
@@ -51,7 +52,7 @@ interface DiaryState {
   setHasMedia: (hasMedia: boolean | null) => void;
 }
 
-export const useDiaryStore = create<DiaryState>((set) => ({
+export const useDiaryStore = create<DiaryState>((set, get) => ({
   entries: [],
   currentEntry: null,
   isLoading: false,
@@ -71,20 +72,26 @@ export const useDiaryStore = create<DiaryState>((set) => ({
 
   init: async () => {
     try {
+      set({ error: null, isLoading: true }); // Set loading while checking
       const isSetup = await diaryService.isEncryptionSetup();
-      set({ isEncryptionSetup: isSetup });
-    } catch (error) {
+      set({ isEncryptionSetup: isSetup, error: null, isLoading: false });
+    } catch (error: any) {
       console.error('Failed to initialize diary:', error);
-      set({ error: 'Failed to initialize diary' });
+      // Handle authentication errors gracefully
+      if (error?.response?.status === 401 || error?.message?.includes('authentication')) {
+        set({ error: null, isEncryptionSetup: false, isLoading: false }); // Don't show error for auth issues
+      } else {
+        set({ error: 'Failed to initialize diary', isLoading: false });
+      }
     }
   },
 
   setupEncryption: async (password: string, hint?: string) => {
     try {
-      set({ isLoading: true });
+      set({ isLoading: true, error: null });
       const { key, success } = await diaryService.setupEncryption(password, hint);
       if (success) {
-        set({ encryptionKey: key, isEncryptionSetup: true, isUnlocked: true });
+        set({ encryptionKey: key, isEncryptionSetup: true, isUnlocked: true, error: null });
       }
       return success;
     } catch (error) {
@@ -98,10 +105,10 @@ export const useDiaryStore = create<DiaryState>((set) => ({
 
   unlockSession: async (password: string) => {
     try {
-      set({ isLoading: true });
+      set({ isLoading: true, error: null });
       const { key, success } = await diaryService.unlockSession(password);
       if (success) {
-        set({ encryptionKey: key, isUnlocked: true });
+        set({ encryptionKey: key, isUnlocked: true, error: null });
       }
       return success;
     } catch (error) {
@@ -128,10 +135,48 @@ export const useDiaryStore = create<DiaryState>((set) => ({
   loadEntries: async () => {
     try {
       set({ isLoading: true });
-      const entries = await diaryService.getEntries();
-      set({ entries });
+      const state = get();
+      
+      console.log('[DIARY STORE] Loading entries, current state:', {
+        isUnlocked: state.isUnlocked,
+        searchQuery: state.searchQuery,
+        currentDayOfWeek: state.currentDayOfWeek,
+        currentHasMedia: state.currentHasMedia
+      });
+      
+      // Build filter parameters from current state (only if they have meaningful values)
+      const filters: any = {};
+      
+      // Only add filters if they are set to meaningful values
+      if (state.searchQuery && state.searchQuery.trim()) {
+        filters.search_title = state.searchQuery.trim();
+      }
+      if (state.currentDayOfWeek !== null && state.currentDayOfWeek !== undefined) {
+        filters.day_of_week = state.currentDayOfWeek;
+      }
+      if (state.currentHasMedia !== null && state.currentHasMedia !== undefined) {
+        filters.has_media = state.currentHasMedia;
+      }
+      
+      console.log('[DIARY STORE] Using filters:', filters);
+      
+      // Only pass filters if there are any, otherwise let backend return all entries
+      const entries = Object.keys(filters).length > 0 
+        ? await diaryService.getEntries(filters)
+        : await diaryService.getEntries();
+        
+      console.log('[DIARY STORE] Loaded entries:', entries?.length, 'entries');
+      
+      // Ensure metadata is properly structured for each entry
+      const processedEntries = entries.map(entry => ({
+        ...entry,
+        metadata: entry.metadata || {},
+        tags: entry.tags || []
+      }));
+        
+      set({ entries: processedEntries, error: null });
     } catch (error) {
-      console.error('Failed to load entries:', error);
+      console.error('[DIARY STORE] Failed to load entries:', error);
       set({ error: 'Failed to load entries' });
     } finally {
       set({ isLoading: false });
@@ -237,6 +282,7 @@ export const useDiaryStore = create<DiaryState>((set) => ({
   },
 
   setError: (error: string | null) => set({ error }),
+  clearError: () => set({ error: null }),
   setYear: (year: number) => set({ currentYear: year }),
   setMonth: (month: number) => set({ currentMonth: month }),
   setSearchQuery: (query: string) => set({ searchQuery: query }),

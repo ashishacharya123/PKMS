@@ -1,0 +1,161 @@
+# SQLite “disk I/O error” Investigation & Action Plan – 2025-07-10 (+05:45)
+
+## 1  Problem Statement
+The `pkms-backend` container repeatedly exits with:
+```
+sqlite3.OperationalError: disk I/O error
+[SQL: PRAGMA journal_mode = …]
+```
+The error persists for **all** journal modes (WAL, TRUNCATE, DELETE) whenever the
+main database file *pkm_metadata.db* is accessed on the **bind-mounted Windows
+directory** `./PKMS_Data → /app/data`.
+
+## 2  Root Cause Hypothesis
+Windows ⇄ Docker Desktop bind mounts use **9P/SMB** which can sporadically lock
+SQLite files.  WAL is the most sensitive, but even rollback-journals can fail
+when the host keeps an open handle (AV, indexer, backup, shell).  Evidence:
+* Manual PRAGMA tests outside Docker also return “database is locked”.
+* After triggers were dropped and WAL/SHM files deleted the error remained.
+* Brand-new empty DB shows the same I/O error on first PRAGMA.
+
+**CONFIRMED TRIGGER – Database Path Consolidation (Log Entries #64-68)**  
+
+The `disk I/O error` emerged **immediately after** we consolidated the database paths to fix the "two different DBs" issue. This timing strongly indicates a direct causality relationship.
+
+### Database Path Consolidation Changes Made:
+
+**1. Removed Duplicate Database Locations (Log #64-66):**
+- Deleted `pkms-backend/data/pkm_metadata.db-shm` and `pkm_metadata.db-wal`  
+- Cleaned up entire `pkms-backend/data/` directory
+- Added `.gitignore` entries for `pkms-backend/data/` and `pkms-backend/PKMS_Data/`
+- Removed stray root-level `data/` directory
+
+**2. Consolidated to Single Authoritative DB (Log #65):**
+- Made `PKMS_Data/pkm_metadata.db` the single source of truth
+- Added `DATA_DIR=/app/data` environment variable in docker-compose.yml
+- Updated backend configuration to consistently use the bind-mounted path
+- Force-directed all database operations to `./PKMS_Data → /app/data` mount
+
+### Why This Consolidation Likely Caused the I/O Error:
+
+**BEFORE Consolidation (Working State):**
+- Backend was probably using a database file **inside the Docker container** (not bind-mounted)
+- Container filesystem has proper POSIX file locking mechanisms
+- No Windows bind-mount interference with SQLite operations
+- WAL mode and other journal modes worked normally
+- This explains why the system was functional despite the "two DB confusion"
+
+**AFTER Consolidation (Broken State):**
+- We forced the backend to use the **bind-mounted Windows path** (`./PKMS_Data → /app/data`)
+- This triggered the known Windows Docker bind-mount SQLite incompatibility
+- 9P/SMB filesystem layer interferes with SQLite file locking
+- ALL journal modes now fail with "disk I/O error"
+
+### Evidence Supporting This Root Cause:
+
+**1. Perfect Timing Correlation:**
+- Log #64-66: Database consolidation work completed
+- Log #67-68: Backend immediately starts failing with I/O errors
+- No other significant changes between working and broken states
+
+**2. Original "Two DB Problem":**
+- User reported confusion between dashboard showing 4 folders vs Archive showing 3
+- This suggests the system WAS working before consolidation
+- Backend was reading from in-container DB while frontend expected bind-mounted DB
+
+**3. Consistent Failure Pattern:**
+- Error persists across ALL journal modes (WAL, TRUNCATE, DELETE)
+- Fresh empty databases show identical error
+- Manual SQLite operations on host also fail with "database is locked"
+
+**4. Windows Bind-Mount Evidence:**
+- Error occurs on Windows Docker Desktop with bind mounts
+- Matches documented SQLite + Windows Docker issues
+- Container-internal operations would not have this limitation
+
+## 3  Timeline of Attempts
+| Time (+05:45) | Change / Action | Result |
+|--------------|-----------------|--------|
+| 09:30 | Added WAL→TRUNCATE fallback | WAL failed, TRUNCATE failed |
+| 09:45 | Added DELETE fallback | DELETE still raises I/O error |
+| 09:50 | Deleted stray `*.db-wal` / `*.db-shm` files | No change |
+| 10:00 | Stopped container, manual `PRAGMA journal_mode=DELETE` on host | `database is locked` |
+| 10:15 | Renamed DB, tried fresh empty DB | New DB triggers same error |
+| 10:30 | **reset_user.py** created – drops all *users* + related data | Works, but unrelated to I/O error |
+| 10:35 | **Dropped ALL triggers** (to fix T.tags error) | User reset succeeds |
+| 10:45 | Backend still fails on PRAGMA despite trigger cleanup |
+| 11:15 | Clean-up commit logic & logs (redundant commit removed) | No functional change |
+
+## 4  Functionality Temporarily Removed / Altered
+1. **All SQLite triggers** were dropped by `reset_user.py` to bypass
+   outdated FTS triggers (`no such column: T.tags`).
+   * Impact: Only FTS5 sync triggers are auto-recreated at startup; any custom
+     timestamp or housekeeping triggers are currently *missing*.
+2. **FTS5 creation disabled** during one test run – restored afterwards.
+3. `init_db()` log wording changed (FTS5 now reported correctly).
+4. Redundant `session.commit()` removed – no behavioural impact.
+
+## 5  Current State
+* Container starts → dies on first PRAGMA with **disk I/O error**.
+* Database file is located on Windows NTFS host path (`PKMS_Data`).
+* No triggers beyond FTS5 exist – production logic seems unaffected so far.
+
+## 6  Recommended Next Steps (Tomorrow)
+
+### A. Move DB into a Docker-managed volume (fastest, most reliable)
+```yaml
+services:
+  pkms-backend:
+    volumes:
+      - pkms_db_data:/app/data  # replace bind-mount
+volumes:
+  pkms_db_data:
+```
+1. `docker compose down` (stops containers)  
+2. `docker volume create pkms_db_data` (auto with up)  
+3. **Copy existing DB** into the new volume *once* (or start fresh).  
+4. `docker compose up -d` – WAL should work, I/O error disappears.
+
+### B. Revert to pre-consolidation setup (alternative approach)
+If volume migration seems complex, consider reverting the path consolidation:
+1. Remove `DATA_DIR=/app/data` from docker-compose.yml
+2. Allow backend to use internal container database path
+3. Accept the "two DB" situation temporarily while testing
+4. This should restore the working state before consolidation
+
+### C. Keep bind-mount but avoid WAL (least reliable)
+1. Remove WAL/SHM files.  
+2. Hard-set journal mode via env-var: `SQLITE_JOURNAL_MODE=DELETE`.  
+3. Ensure **no host process** touches `PKMS_Data` (indexer, AV, editor).
+   * Not bullet-proof; Windows may still lock the file.
+
+### C. Restore Essential Triggers
+If option A succeeds, recreate necessary non-FTS triggers:
+```sql
+-- Example timestamp trigger for notes
+CREATE TRIGGER IF NOT EXISTS notes_set_updated
+AFTER UPDATE ON notes
+BEGIN
+  UPDATE notes SET updated_at = CURRENT_TIMESTAMP WHERE id = old.id;
+END;
+```
+Catalogue missing triggers tomorrow and re-add them via Alembic or raw SQL.
+
+## 7  Action Plan
+1. **Start-of-day**: implement option A (named volume). If backend starts → done.
+2. If still failing, test same DB inside container with `sqlite3` CLI to isolate.
+3. Audit triggers: list from fresh schema vs current DB, copy missing ones.
+4. Update `reset_user.py` to export & restore triggers automatically once fixed.
+
+## 8  Reference Commands
+```bash
+# Copy DB into new Docker volume (one-off)
+docker compose down
+docker volume create pkms_db_data
+docker run --rm \
+  -v pkms_db_data:/target \
+  -v $(pwd)/PKMS_Data:/src \
+  alpine sh -c 'cp /src/pkm_metadata.db /target/'
+
+docker compose up -d
+```

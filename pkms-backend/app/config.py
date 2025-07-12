@@ -9,6 +9,34 @@ from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings
 import warnings
+from datetime import timezone, timedelta
+from sqlalchemy import text
+from sqlalchemy.sql import expression
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.types import DateTime
+
+# Nepal Standard Time (UTC +05:45)
+NEPAL_TZ = timezone(timedelta(hours=5, minutes=45))
+
+class nepal_now(expression.FunctionElement):
+    """Custom SQLAlchemy function that returns current time in Nepal timezone"""
+    type = DateTime()
+    name = 'nepal_now'
+
+@compiles(nepal_now, 'sqlite')
+def visit_nepal_now_sqlite(element, compiler, **kw):
+    """Compile nepal_now() for SQLite - adds 5:45 to UTC time"""
+    return "datetime('now', '+5 hours', '+45 minutes')"
+
+@compiles(nepal_now, 'postgresql') 
+def visit_nepal_now_postgresql(element, compiler, **kw):
+    """Compile nepal_now() for PostgreSQL"""
+    return "NOW() AT TIME ZONE 'Asia/Kathmandu'"
+
+@compiles(nepal_now, 'mysql')
+def visit_nepal_now_mysql(element, compiler, **kw):
+    """Compile nepal_now() for MySQL"""
+    return "CONVERT_TZ(NOW(), 'UTC', '+05:45')"
 
 
 class Settings(BaseSettings):
@@ -46,7 +74,11 @@ class Settings(BaseSettings):
     session_cleanup_interval_hours: int = 24  # Clean expired sessions every 24 hours
     
     # File Storage
-    data_dir: str = "./data"
+    # data_dir should be supplied via the DATA_DIR env-var or left unset so the
+    # helper below can resolve to the repository-root PKMS_Data folder. Using a
+    # hard-coded "./data" default was causing duplicate SQLite files whenever
+    # the backend was launched outside Docker.
+    data_dir: Optional[str] = None  # Set via DATA_DIR or auto-resolved
     max_file_size: int = 50 * 1024 * 1024  # 50MB
     allowed_file_types: list = [".pdf", ".docx", ".txt", ".jpg", ".png", ".mp3", ".wav"]
     
@@ -97,7 +129,25 @@ settings = Settings()
 
 def get_data_dir() -> Path:
     """Get the data directory path"""
-    data_dir = Path(settings.data_dir)
+    # (1) Use the data_dir attribute if it's set (e.g., for Docker)
+    if settings.data_dir:
+        data_dir = Path(settings.data_dir)
+        if not data_dir.exists():
+            data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir
+    
+    # (2) Use project-root PKMS_Data **only if it already exists**.
+    #     This is the normal case when you run the backend from the host
+    #     machine (not in Docker) because you created the folder once and
+    #     Docker also bind-mounts it to /app/data inside the container.
+    repo_root = Path(__file__).resolve().parents[2]
+    root_data_dir = repo_root / "PKMS_Data"
+    if root_data_dir.exists():
+        return root_data_dir
+    
+    # Fallback to current directory if data_dir is not set and PKMS_Data doesn't exist
+    current_dir = Path(__file__).resolve().parent
+    data_dir = current_dir / "data"
     if not data_dir.exists():
         data_dir.mkdir(parents=True, exist_ok=True)
     return data_dir

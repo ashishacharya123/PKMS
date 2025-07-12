@@ -1,5 +1,7 @@
 import { apiService } from './api';
 import { DiaryEntry, DiaryEntrySummary, DiaryEntryCreatePayload, DiaryCalendarData, MoodStats } from '../types/diary';
+import { coreUploadService } from './shared/coreUploadService';
+import { coreDownloadService } from './shared/coreDownloadService';
 
 class DiaryService {
   private baseUrl = '/diary';
@@ -90,8 +92,31 @@ class DiaryService {
 
   // --- Entry Methods ---
 
-  async getEntries(): Promise<DiaryEntrySummary[]> {
-    const response = await apiService.get<DiaryEntrySummary[]>(`${this.baseUrl}/entries`);
+  async getEntries(filters?: {
+    year?: number;
+    month?: number;
+    mood?: number;
+    search_title?: string;
+    day_of_week?: number;
+    has_media?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<DiaryEntrySummary[]> {
+    const params = new URLSearchParams();
+    
+    if (filters?.year) params.append('year', filters.year.toString());
+    if (filters?.month) params.append('month', filters.month.toString());
+    if (filters?.mood) params.append('mood', filters.mood.toString());
+    if (filters?.search_title) params.append('search_title', filters.search_title);
+    if (filters?.day_of_week !== undefined) params.append('day_of_week', filters.day_of_week.toString());
+    if (filters?.has_media !== undefined) params.append('has_media', filters.has_media.toString());
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    if (filters?.offset) params.append('offset', filters.offset.toString());
+    
+    const queryString = params.toString();
+    const url = queryString ? `${this.baseUrl}/entries?${queryString}` : `${this.baseUrl}/entries`;
+    
+    const response = await apiService.get<DiaryEntrySummary[]>(url);
     return response.data;
   }
 
@@ -117,12 +142,117 @@ class DiaryService {
   // --- Calendar Methods ---
 
   async getCalendarData(year: number, month: number): Promise<DiaryCalendarData[]> {
-    const response = await apiService.get<DiaryCalendarData[]>(`${this.baseUrl}/calendar/${year}/${month}`);
-    return response.data;
+    /*
+     * Backend now returns an object of shape:
+     *   { calendar_data: DiaryCalendarData[] }
+     * Adapt to that while keeping the old array return type for callers.
+     */
+    const response = await apiService.get<{ calendar_data: DiaryCalendarData[] }>(
+      `${this.baseUrl}/calendar/${year}/${month}`
+    );
+    // Fallback if backend rolls back to plain array
+    const maybeArray = response.data as unknown as DiaryCalendarData[];
+    if (Array.isArray(maybeArray)) {
+      return maybeArray;
+    }
+    return (response.data as any).calendar_data ?? [];
   }
 
   async getMoodStats(): Promise<MoodStats> {
     const response = await apiService.get<MoodStats>(`${this.baseUrl}/stats/mood`);
+    return response.data;
+  }
+
+  // --- Media Methods ---
+
+  async uploadMedia(
+    entryId: number, 
+    file: File, 
+    mediaType: 'photo' | 'video' | 'voice',
+    caption?: string,
+    onProgress?: (progress: { progress: number; status: string }) => void
+  ): Promise<any> {
+    try {
+      // Step 1: Upload file using core chunk upload service
+      const uploadResult = await coreUploadService.uploadFile(file, {
+        module: 'diary',
+        onProgress: onProgress ? (progress) => {
+          onProgress({ 
+            progress: progress.progress, 
+            status: `Uploading... ${progress.progress}%` 
+          });
+        } : undefined,
+      });
+
+      if (onProgress) {
+        onProgress({ progress: 95, status: 'Processing...' });
+      }
+
+      // Step 2: Commit the upload with diary-specific metadata
+      const commitResponse = await apiService.post(`${this.baseUrl}/media/upload/commit`, {
+        file_id: uploadResult.fileId,
+        entry_id: entryId,
+        media_type: mediaType,
+        caption: caption || null
+      });
+
+      if (onProgress) {
+        onProgress({ progress: 100, status: 'Complete' });
+      }
+
+      return commitResponse.data;
+    } catch (error) {
+      console.error('❌ Diary media upload failed:', error);
+      throw error;
+    }
+  }
+
+  async downloadMedia(
+    mediaId: number,
+    onProgress?: (progress: { progress: number; status: string }) => void
+  ): Promise<Blob> {
+    try {
+      const downloadUrl = `${this.baseUrl}/media/${mediaId}/download`;
+      
+      return await coreDownloadService.downloadFile(downloadUrl, {
+        fileId: `diary-media-${mediaId}`,
+        onProgress: onProgress ? (progress) => {
+          onProgress({
+            progress: progress.progress,
+            status: progress.status === 'downloading' ? 'Downloading...' : 'Complete'
+          });
+        } : undefined
+      });
+    } catch (error) {
+      console.error('❌ Diary media download failed:', error);
+      throw error;
+    }
+  }
+
+  async getMediaAsObjectURL(
+    mediaId: number,
+    onProgress?: (progress: { progress: number; status: string }) => void
+  ): Promise<string> {
+    try {
+      const downloadUrl = `${this.baseUrl}/media/${mediaId}/download`;
+      
+      return await coreDownloadService.downloadAsObjectURL(downloadUrl, {
+        fileId: `diary-media-${mediaId}`,
+        onProgress: onProgress ? (progress) => {
+          onProgress({
+            progress: progress.progress,
+            status: progress.status === 'downloading' ? 'Downloading...' : 'Complete'
+          });
+        } : undefined
+      });
+    } catch (error) {
+      console.error('❌ Diary media download failed:', error);
+      throw error;
+    }
+  }
+
+  async getEntryMedia(entryId: number): Promise<any[]> {
+    const response = await apiService.get(`${this.baseUrl}/entries/${entryId}/media`);
     return response.data;
   }
 }

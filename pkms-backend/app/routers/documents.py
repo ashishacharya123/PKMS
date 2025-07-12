@@ -1,636 +1,571 @@
 """
-Documents Router - Complete Documents Module Implementation
-Handles document upload, metadata extraction, search, and file management
+Document Router with Core Upload Service Integration
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query, Form
-from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func
-from pydantic import BaseModel, Field, validator
-from typing import List, Optional, Dict, Any, BinaryIO
-from datetime import datetime
-import aiofiles
-import uuid
-import mimetypes
-import json
+import os
+import shutil
 from pathlib import Path
-import asyncio
-import io
+from typing import List, Optional, Dict, Any
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, UploadFile, Form, HTTPException, Query, status
+from fastapi.responses import FileResponse
+from sqlalchemy import select, and_, or_, func, desc
+from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, Field, validator
+from datetime import datetime
+import json
+import logging
+import uuid as uuid_lib
 
 from app.database import get_db
-from app.models.document import Document, document_tags
+from app.config import NEPAL_TZ, get_data_dir
+from app.models.document import Document
 from app.models.tag import Tag
 from app.models.user import User
+from app.models.tag_associations import document_tags
+from app.models.archive import ArchiveFolder, ArchiveItem
+from app.models.tag_associations import archive_tags
 from app.auth.dependencies import get_current_user
-from app.config import get_data_dir
+from app.utils.security import sanitize_text_input, sanitize_tags
+from app.services.chunk_service import chunk_manager
+from app.services.file_detection import FileTypeDetectionService
+from app.services.fts_service import fts_service
 
-router = APIRouter()
+logger = logging.getLogger(__name__)
+router = APIRouter(tags=["documents"])
 
-# Supported file types and limits
-ALLOWED_MIME_TYPES = {
-    'application/pdf': '.pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-    'application/msword': '.doc',
-    'text/plain': '.txt',
-    'image/jpeg': '.jpg',
-    'image/png': '.png',
-    'image/gif': '.gif',
-    'image/webp': '.webp'
-}
+# Initialize file type detection service
+file_detector = FileTypeDetectionService()
 
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-
-class DocumentResponse(BaseModel):
-    uuid: str
-    filename: str
-    original_name: str
-    mime_type: str
-    size_bytes: int
-    extracted_text: Optional[str]
-    metadata: Dict[str, Any]
-    thumbnail_path: Optional[str]
-    is_archived: bool
-    created_at: datetime
-    updated_at: datetime
-    tags: List[str]
+# Pydantic Models
+class DocumentCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=1000)
+    tags: Optional[List[str]] = Field(default=[], max_items=20)
     
-    class Config:
-        from_attributes = True
-
-class DocumentSummary(BaseModel):
-    uuid: str
-    filename: str
-    original_name: str
-    mime_type: str
-    size_bytes: int
-    is_archived: bool
-    created_at: datetime
-    updated_at: datetime
-    tags: List[str]
-    preview: str  # First 200 chars of extracted text
-    
-    class Config:
-        from_attributes = True
+    @validator('tags')
+    def validate_tags(cls, v):
+        return sanitize_tags(v or [])
 
 class DocumentUpdate(BaseModel):
+    title: Optional[str] = Field(None, min_length=1)
+    description: Optional[str] = None
     tags: Optional[List[str]] = Field(None, max_items=20)
-    is_archived: Optional[bool] = None
-    metadata: Optional[Dict[str, Any]] = None
+    is_favorite: Optional[bool] = None
 
-@router.post("/upload", response_model=DocumentResponse)
-async def upload_document(
-    file: UploadFile = File(...),
-    tags: Optional[str] = Form(None),  # JSON string of tag list
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Upload a document with automatic metadata extraction"""
-    
-    # Validate file
-    if not file.filename:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No filename provided"
-        )
-    
-    # Check file size
-    if hasattr(file, 'size') and file.size > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB"
-        )
-    
-    # Validate MIME type
-    content_type = file.content_type
-    if content_type not in ALLOWED_MIME_TYPES:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File type not supported. Allowed types: {list(ALLOWED_MIME_TYPES.values())}"
-        )
-    
-    # Generate unique filename
-    document_uuid = str(uuid.uuid4())
-    file_extension = ALLOWED_MIME_TYPES[content_type]
-    filename = f"{document_uuid}{file_extension}"
-    
-    # Create document directory
-    documents_dir = get_data_dir() / "assets" / "documents" / str(datetime.now().year)
-    documents_dir.mkdir(parents=True, exist_ok=True)
-    
-    file_path = documents_dir / filename
-    
-    # Save file
-    content = await file.read()
-    file_size = len(content)
-    
-    if file_size > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File too large. Maximum size is {MAX_FILE_SIZE // (1024*1024)}MB"
-        )
-    
-    async with aiofiles.open(file_path, 'wb') as f:
-        await f.write(content)
-    
-    # Extract text and metadata
-    extracted_text = await _extract_text_from_file(file_path, content_type)
-    metadata = await _extract_metadata(file_path, content_type, file.filename)
-    
-    # Generate thumbnail for images
-    thumbnail_path = None
-    if content_type.startswith('image/'):
-        thumbnail_path = await _generate_thumbnail(file_path, document_uuid)
-    
-    # Parse tags
-    tag_list = []
-    if tags:
-        try:
-            tag_list = json.loads(tags)
-        except json.JSONDecodeError:
-            # Treat as comma-separated string
-            tag_list = [tag.strip() for tag in tags.split(',') if tag.strip()]
-    
-    # Create document record
-    document = Document(
-        uuid=document_uuid,
-        filename=filename,
-        original_name=file.filename,
-        filepath=str(file_path),
-        mime_type=content_type,
-        size_bytes=file_size,
-        extracted_text=extracted_text,
-        metadata_json=json.dumps(metadata),
-        thumbnail_path=thumbnail_path,
-        user_id=current_user.id
-    )
-    
-    db.add(document)
-    await db.flush()
-    
-    # Handle tags
-    await _handle_document_tags(db, document, tag_list, current_user.id)
-    
-    await db.commit()
-    
-    return await _get_document_with_relations(db, document_uuid, current_user.id)
+class DocumentResponse(BaseModel):
+    id: int
+    uuid: str
+    title: str
+    original_name: str
+    filename: str
+    file_path: str
+    file_size: int
+    mime_type: str
+    description: Optional[str]
+    is_favorite: bool
+    is_archived: bool
+    archive_item_uuid: Optional[str]  # Reference to ArchiveItem if archived
+    upload_status: str
+    created_at: datetime
+    updated_at: datetime
+    tags: List[str]
 
-@router.get("/{document_uuid}", response_model=DocumentResponse)
-async def get_document(
-    document_uuid: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get document metadata and information"""
-    
-    result = await db.execute(
-        select(Document).where(
-            and_(Document.uuid == document_uuid, Document.user_id == current_user.id)
-        )
-    )
-    document = result.scalar_one_or_none()
-    
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found"
-        )
-    
-    return await _get_document_with_relations(db, document_uuid, current_user.id)
+    class Config:
+        from_attributes = True
 
-@router.put("/{document_uuid}", response_model=DocumentResponse)
-async def update_document(
-    document_uuid: str,
-    update_data: DocumentUpdate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Update document metadata and tags"""
-    
-    result = await db.execute(
-        select(Document).where(
-            and_(Document.uuid == document_uuid, Document.user_id == current_user.id)
-        )
-    )
-    document = result.scalar_one_or_none()
-    
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found"
-        )
-    
-    # Update fields
-    if update_data.is_archived is not None:
-        document.is_archived = update_data.is_archived
-    
-    if update_data.metadata is not None:
-        document.metadata_json = json.dumps(update_data.metadata)
-    
-    # Handle tags
-    if update_data.tags is not None:
-        await _handle_document_tags(db, document, update_data.tags, current_user.id)
-    
-    document.updated_at = datetime.utcnow()
-    await db.commit()
-    
-    return await _get_document_with_relations(db, document_uuid, current_user.id)
+class CommitDocumentUploadRequest(BaseModel):
+    """Request model for committing chunked document upload"""
+    file_id: str
+    title: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=1000)
+    tags: Optional[List[str]] = Field(default=[], max_items=20)
 
-@router.delete("/{document_uuid}")
-async def delete_document(
-    document_uuid: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Delete a document and its file"""
-    
-    result = await db.execute(
-        select(Document).where(
-            and_(Document.uuid == document_uuid, Document.user_id == current_user.id)
-        )
-    )
-    document = result.scalar_one_or_none()
-    
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found"
-        )
-    
-    # Delete physical file
-    file_path = Path(document.filepath)
-    if file_path.exists():
-        file_path.unlink()
-    
-    # Delete thumbnail if exists
-    if document.thumbnail_path:
-        thumbnail_path = Path(document.thumbnail_path)
-        if thumbnail_path.exists():
-            thumbnail_path.unlink()
-    
-    await db.delete(document)
-    await db.commit()
-    
-    return {"message": "Document deleted successfully"}
+    @validator('tags')
+    def validate_tags(cls, v):
+        return sanitize_tags(v or [])
 
-@router.get("/{document_uuid}/download")
-async def download_document(
-    document_uuid: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Download the actual document file"""
-    
-    result = await db.execute(
-        select(Document).where(
-            and_(Document.uuid == document_uuid, Document.user_id == current_user.id)
-        )
-    )
-    document = result.scalar_one_or_none()
-    
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found"
-        )
-    
-    file_path = Path(document.filepath)
-    if not file_path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="File not found on disk"
-        )
-    
-    return FileResponse(
-        path=file_path,
-        filename=document.original_name,
-        media_type=document.mime_type
-    )
+class ArchiveDocumentRequest(BaseModel):
+    """Request model for archiving a document to the archive module"""
+    folder_uuid: str = Field(..., description="UUID of the archive folder to store the document")
+    copy_tags: bool = Field(True, description="Whether to copy document tags to the archive item")
 
-@router.get("/{document_uuid}/preview")
-async def preview_document(
-    document_uuid: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get document preview (thumbnail for images, text preview for documents)"""
+# Helper Functions
+async def _handle_document_tags(db: AsyncSession, doc: Document, tag_names: List[str], user_id: int):
+    """Handle document tag associations and update usage counts."""
+    from sqlalchemy import delete
     
-    result = await db.execute(
-        select(Document).where(
-            and_(Document.uuid == document_uuid, Document.user_id == current_user.id)
-        )
-    )
-    document = result.scalar_one_or_none()
-    
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found"
-        )
-    
-    # Return thumbnail for images
-    if document.thumbnail_path:
-        thumbnail_path = Path(document.thumbnail_path)
-        if thumbnail_path.exists():
-            return FileResponse(
-                path=thumbnail_path,
-                media_type="image/jpeg"
-            )
-    
-    # Return text preview for text documents
-    if document.extracted_text:
-        preview_text = document.extracted_text[:1000] + "..." if len(document.extracted_text) > 1000 else document.extracted_text
-        return {"preview": preview_text, "type": "text"}
-    
-    return {"message": "No preview available"}
-
-@router.get("/", response_model=List[DocumentSummary])
-async def list_documents(
-    mime_type: Optional[str] = Query(None),
-    archived: Optional[bool] = Query(False),
-    tag: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
-    limit: int = Query(50, le=100),
-    offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """List documents with filtering and search"""
-    
-    query = select(Document).where(Document.user_id == current_user.id)
-    
-    # Apply filters
-    if mime_type:
-        query = query.where(Document.mime_type == mime_type)
-    if archived is not None:
-        query = query.where(Document.is_archived == archived)
-    
-    # Tag filter
-    if tag:
-        query = query.join(document_tags).join(Tag).where(Tag.name == tag)
-    
-    # Search filter
-    if search:
-        search_term = f"%{search}%"
-        query = query.where(
-            or_(
-                Document.filename.ilike(search_term),
-                Document.original_name.ilike(search_term),
-                Document.extracted_text.ilike(search_term)
-            )
-        )
-    
-    # Order and pagination
-    query = query.order_by(Document.updated_at.desc()).offset(offset).limit(limit)
-    
-    result = await db.execute(query)
-    documents = result.scalars().all()
-    
-    # Convert to summaries with tags
-    summaries = []
-    for doc in documents:
-        # Get tags
-        tag_result = await db.execute(
-            select(Tag.name).join(document_tags).where(document_tags.c.document_uuid == doc.uuid)
-        )
-        doc_tags = [row[0] for row in tag_result.fetchall()]
-        
-        summaries.append(DocumentSummary(
-            uuid=doc.uuid,
-            filename=doc.filename,
-            original_name=doc.original_name,
-            mime_type=doc.mime_type,
-            size_bytes=doc.size_bytes,
-            is_archived=doc.is_archived,
-            created_at=doc.created_at,
-            updated_at=doc.updated_at,
-            tags=doc_tags,
-            preview=doc.extracted_text[:200] + "..." if doc.extracted_text and len(doc.extracted_text) > 200 else (doc.extracted_text or "")
-        ))
-    
-    return summaries
-
-@router.get("/search/fulltext")
-async def search_documents(
-    query: str = Query(..., min_length=1),
-    limit: int = Query(20, le=50),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Full-text search across all document content"""
-    
-    search_term = f"%{query}%"
-    
-    # Search in extracted text, filename, and original name
-    result = await db.execute(
-        select(Document).where(
-            and_(
-                Document.user_id == current_user.id,
-                or_(
-                    Document.extracted_text.ilike(search_term),
-                    Document.filename.ilike(search_term),
-                    Document.original_name.ilike(search_term)
-                )
-            )
-        ).order_by(Document.updated_at.desc()).limit(limit)
-    )
-    
-    documents = result.scalars().all()
-    
-    # Format results with highlights
-    results = []
-    for doc in documents:
-        # Simple highlight - find matching snippets
-        highlight = ""
-        if doc.extracted_text:
-            text_lower = doc.extracted_text.lower()
-            query_lower = query.lower()
-            index = text_lower.find(query_lower)
-            if index != -1:
-                start = max(0, index - 100)
-                end = min(len(doc.extracted_text), index + len(query) + 100)
-                highlight = doc.extracted_text[start:end]
-                if start > 0:
-                    highlight = "..." + highlight
-                if end < len(doc.extracted_text):
-                    highlight = highlight + "..."
-        
-        results.append({
-            "uuid": doc.uuid,
-            "original_name": doc.original_name,
-            "mime_type": doc.mime_type,
-            "highlight": highlight,
-            "created_at": doc.created_at
-        })
-    
-    return {"results": results, "total": len(results)}
-
-# Helper functions
-async def _handle_document_tags(db: AsyncSession, document: Document, tag_names: List[str], user_id: int):
-    """Handle tag assignment for a document"""
-    
-    # Clear existing tags
+    # Clear existing tag associations
     await db.execute(
-        document_tags.delete().where(document_tags.c.document_uuid == document.uuid)
+        delete(document_tags).where(document_tags.c.document_id == doc.id)
     )
     
+    if not tag_names:
+        return
+
     for tag_name in tag_names:
-        if not tag_name.strip():
-            continue
-            
-        tag_name = tag_name.strip().lower()
-        
-        # Get or create tag
+        # Get or create tag with proper module_type
         result = await db.execute(
             select(Tag).where(
-                and_(Tag.name == tag_name, Tag.module_type == "documents", Tag.user_id == user_id)
+                and_(
+                    Tag.name == tag_name,
+                    Tag.user_id == user_id,
+                    Tag.module_type == "documents"
+                )
             )
         )
         tag = result.scalar_one_or_none()
         
         if not tag:
+            # Create new tag with documents module_type
             tag = Tag(
                 name=tag_name,
+                user_id=user_id,
                 module_type="documents",
-                user_id=user_id
+                usage_count=1,
+                color="#f59e0b"  # Amber color for document tags
             )
             db.add(tag)
             await db.flush()
+        else:
+            # Increment usage count
+            tag.usage_count += 1
         
-        # Associate with document
+        # Create association
         await db.execute(
-            document_tags.insert().values(document_uuid=document.uuid, tag_id=tag.id)
+            document_tags.insert().values(
+                document_id=doc.id,
+                tag_id=tag.id
+            )
         )
 
-async def _extract_text_from_file(file_path: Path, mime_type: str) -> Optional[str]:
-    """Extract text content from uploaded file"""
-    
-    try:
-        if mime_type == 'text/plain':
-            async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
-                return await f.read()
-        
-        elif mime_type == 'application/pdf':
-            # For PDF extraction, we'd use PyMuPDF
-            try:
-                import fitz  # PyMuPDF
-                doc = fitz.open(file_path)
-                text = ""
-                for page in doc:
-                    text += page.get_text()
-                doc.close()
-                return text
-            except ImportError:
-                return "PDF text extraction not available - PyMuPDF not installed"
-        
-        elif mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-            # For DOCX extraction
-            try:
-                from docx import Document as DocxDocument
-                doc = DocxDocument(file_path)
-                text = ""
-                for paragraph in doc.paragraphs:
-                    text += paragraph.text + "\n"
-                return text
-            except ImportError:
-                return "DOCX text extraction not available - python-docx not installed"
-        
-        return None
-        
-    except Exception as e:
-        print(f"Text extraction failed: {e}")
-        return None
-
-async def _extract_metadata(file_path: Path, mime_type: str, original_name: str) -> Dict[str, Any]:
-    """Extract metadata from uploaded file"""
-    
-    metadata = {
-        "original_name": original_name,
-        "file_size": file_path.stat().st_size,
-        "mime_type": mime_type,
-        "upload_date": datetime.utcnow().isoformat()
-    }
-    
-    # Add image-specific metadata
-    if mime_type.startswith('image/'):
-        try:
-            from PIL import Image
-            with Image.open(file_path) as img:
-                metadata.update({
-                    "width": img.width,
-                    "height": img.height,
-                    "format": img.format,
-                    "mode": img.mode
-                })
-        except ImportError:
-            pass
-        except Exception as e:
-            print(f"Image metadata extraction failed: {e}")
-    
-    return metadata
-
-async def _generate_thumbnail(file_path: Path, document_uuid: str) -> Optional[str]:
-    """Generate thumbnail for image files"""
-    
-    try:
-        from PIL import Image
-        
-        thumbnail_dir = get_data_dir() / "assets" / "images" / "thumbnails"
-        thumbnail_dir.mkdir(parents=True, exist_ok=True)
-        
-        thumbnail_path = thumbnail_dir / f"{document_uuid}_thumb.jpg"
-        
-        with Image.open(file_path) as img:
-            # Convert to RGB if necessary
-            if img.mode in ('RGBA', 'LA', 'P'):
-                img = img.convert('RGB')
-            
-            # Create thumbnail
-            img.thumbnail((300, 300), Image.Resampling.LANCZOS)
-            img.save(thumbnail_path, 'JPEG', quality=85)
-        
-        return str(thumbnail_path)
-        
-    except ImportError:
-        return None
-    except Exception as e:
-        print(f"Thumbnail generation failed: {e}")
-        return None
-
-async def _get_document_with_relations(db: AsyncSession, document_uuid: str, user_id: int) -> DocumentResponse:
-    """Get document with all related data (tags)"""
-    
-    # Get document
-    result = await db.execute(
-        select(Document).where(and_(Document.uuid == document_uuid, Document.user_id == user_id))
-    )
-    document = result.scalar_one()
-    
-    # Get tags
-    tag_result = await db.execute(
-        select(Tag.name).join(document_tags).where(document_tags.c.document_uuid == document_uuid)
-    )
-    tags = [row[0] for row in tag_result.fetchall()]
-    
-    # Parse metadata
-    metadata = {}
-    if document.metadata_json:
-        try:
-            metadata = json.loads(document.metadata_json)
-        except json.JSONDecodeError:
-            pass
-    
+def _convert_doc_to_response(doc: Document) -> DocumentResponse:
+    """Convert Document model to DocumentResponse with relational tags."""
     return DocumentResponse(
-        uuid=document.uuid,
-        filename=document.filename,
-        original_name=document.original_name,
-        mime_type=document.mime_type,
-        size_bytes=document.size_bytes,
-        extracted_text=document.extracted_text,
-        metadata=metadata,
-        thumbnail_path=document.thumbnail_path,
-        is_archived=document.is_archived,
-        created_at=document.created_at,
-        updated_at=document.updated_at,
-        tags=tags
-    ) 
+        id=doc.id,
+        uuid=doc.uuid,
+        title=doc.title,
+        original_name=doc.original_name,
+        filename=doc.filename,
+        file_path=doc.file_path,
+        file_size=doc.file_size,
+        mime_type=doc.mime_type,
+        description=doc.description,
+        is_favorite=doc.is_favorite,
+        is_archived=doc.is_archived,
+        upload_status=doc.upload_status,
+        created_at=doc.created_at,
+        updated_at=doc.updated_at,
+        tags=[t.name for t in doc.tag_objs] if doc.tag_objs else []
+    )
+
+# Document Endpoints
+@router.post("/upload/commit", response_model=DocumentResponse)
+async def commit_document_upload(
+    payload: CommitDocumentUploadRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Finalize a previously chunk-uploaded document file and create DB record.
+    
+    Uses the core chunk upload service for efficient uploading, then creates
+    the document record with proper file organization.
+    """
+    try:
+        logger.info(f"📄 Committing document upload: {payload.title}")
+        
+        # Check assembled file status
+        status_obj = await chunk_manager.get_upload_status(payload.file_id)
+        if not status_obj or status_obj.get("status") != "completed":
+            raise HTTPException(status_code=400, detail="File not yet assembled")
+
+        # Locate assembled file path
+        temp_dir = Path(get_data_dir()) / "temp_uploads"
+        assembled = next(temp_dir.glob(f"complete_{payload.file_id}_*"), None)
+        if not assembled:
+            raise HTTPException(status_code=404, detail="Assembled file not found")
+
+        # Prepare destination directory
+        docs_dir = get_data_dir() / "assets" / "documents"
+        docs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate unique filename
+        file_uuid = str(uuid_lib.uuid4())
+        file_extension = assembled.suffix
+        stored_filename = f"{file_uuid}{file_extension}"
+        dest_path = docs_dir / stored_filename
+
+        # Move assembled file to final location
+        assembled.rename(dest_path)
+
+        # Detect file type and extract metadata
+        detection_result = await file_detector.detect_file_type(
+            file_path=dest_path,
+            file_content=None  # File is already on disk
+        )
+
+        # Create Document record
+        document = Document(
+            uuid=file_uuid,
+            title=payload.title,
+            original_name=assembled.name,
+            filename=stored_filename,
+            file_path=str(dest_path.relative_to(get_data_dir())),
+            file_size=dest_path.stat().st_size,
+            mime_type=detection_result["mime_type"],
+            description=payload.description,
+            upload_status="completed",
+            user_id=current_user.id
+        )
+        
+        db.add(document)
+        await db.flush()  # Get the ID for tag associations
+
+        # Handle tags
+        if payload.tags:
+            await _handle_document_tags(db, document, payload.tags, current_user.id)
+
+        await db.commit()
+        await db.refresh(document)
+
+        # Clean up temporary file tracking
+        if payload.file_id in chunk_manager.uploads:
+            del chunk_manager.uploads[payload.file_id]
+
+        logger.info(f"✅ Document committed successfully: {stored_filename}")
+        
+        return _convert_doc_to_response(document)
+        
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"❌ Error committing document upload: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to commit document upload"
+        )
+
+@router.get("/", response_model=List[DocumentResponse])
+async def list_documents(
+    search: Optional[str] = Query(None),
+    tag: Optional[str] = Query(None),
+    mime_type: Optional[str] = Query(None),
+    archived: Optional[bool] = Query(False),
+    limit: int = Query(50, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List documents with filtering and pagination. Uses FTS5 for text search."""
+    if search:
+        # Use FTS5 for full-text search
+        fts_results = await fts_service.search_all(db, search, current_user.id, content_types=["documents"], limit=limit, offset=offset)
+        doc_uuids = [r["id"] for r in fts_results if r["type"] == "document"]
+        if not doc_uuids:
+            return []
+        # Fetch documents by UUIDs, preserving FTS5 order
+        query = select(Document).options(selectinload(Document.tag_objs)).where(
+            and_(
+                Document.user_id == current_user.id,
+                Document.is_archived == archived,
+                Document.uuid.in_(doc_uuids)
+            )
+        )
+        if tag:
+            query = query.join(Document.tag_objs).where(Tag.name == tag)
+        if mime_type:
+            query = query.where(Document.mime_type.like(f"{mime_type}%"))
+        result = await db.execute(query)
+        documents = result.scalars().unique().all()
+        # Order documents by FTS5 relevance
+        docs_by_uuid = {d.uuid: d for d in documents}
+        ordered_docs = [docs_by_uuid[uuid] for uuid in doc_uuids if uuid in docs_by_uuid]
+    else:
+        # Fallback to regular query
+        query = select(Document).options(selectinload(Document.tag_objs)).where(
+            and_(
+                Document.user_id == current_user.id,
+                Document.is_archived == archived
+            )
+        )
+        if tag:
+            query = query.join(Document.tag_objs).where(Tag.name == tag)
+        if mime_type:
+            query = query.where(Document.mime_type.like(f"{mime_type}%"))
+        query = query.order_by(Document.created_at.desc()).offset(offset).limit(limit)
+        result = await db.execute(query)
+        ordered_docs = result.scalars().unique().all()
+    return [_convert_doc_to_response(d) for d in ordered_docs]
+
+@router.get("/{document_id}", response_model=DocumentResponse)
+async def get_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get a specific document by ID."""
+    result = await db.execute(
+        select(Document).options(selectinload(Document.tag_objs)).where(
+            and_(Document.id == document_id, Document.user_id == current_user.id)
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    return _convert_doc_to_response(doc)
+
+@router.get("/{document_id}/download")
+async def download_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Download a document file."""
+    result = await db.execute(
+        select(Document).where(
+            and_(Document.id == document_id, Document.user_id == current_user.id)
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    
+    file_path = get_data_dir() / doc.file_path
+    if not file_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found on disk")
+    
+    return FileResponse(
+        path=str(file_path),
+        filename=doc.original_name,
+        media_type=doc.mime_type,
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{doc.original_name}\"",
+            "X-File-Size": str(doc.file_size)
+        }
+    )
+
+@router.put("/{document_id}", response_model=DocumentResponse)
+async def update_document(
+    document_id: int,
+    document_data: DocumentUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update document metadata and tags."""
+    result = await db.execute(
+        select(Document).options(selectinload(Document.tag_objs)).where(
+            and_(Document.id == document_id, Document.user_id == current_user.id)
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    update_data = document_data.model_dump(exclude_unset=True)
+    
+    if "tags" in update_data:
+        await _handle_document_tags(db, doc, update_data.pop("tags"), current_user.id)
+
+    for key, value in update_data.items():
+        setattr(doc, key, value)
+        
+    await db.commit()
+    await db.refresh(doc)
+    return _convert_doc_to_response(doc)
+
+@router.post("/{document_id}/archive")
+async def archive_document(
+    document_id: int,
+    archive_request: ArchiveDocumentRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Archive a document by copying it to the archive module.
+    
+    This copies the document file to the archive storage and creates an ArchiveItem
+    while preserving the original document. The document is marked as archived.
+    User can safely delete the original document later if desired.
+    """
+    try:
+        logger.info(f"📦 Archiving document {document_id} to folder {archive_request.folder_uuid}")
+        
+        # Get document
+        doc_result = await db.execute(
+            select(Document)
+            .options(selectinload(Document.tag_objs))
+            .where(and_(Document.id == document_id, Document.user_id == current_user.id))
+        )
+        document = doc_result.scalar_one_or_none()
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        if document.is_archived:
+            raise HTTPException(status_code=400, detail="Document is already archived")
+        
+        # Verify archive folder exists and belongs to user
+        folder_result = await db.execute(
+            select(ArchiveFolder).where(
+                and_(
+                    ArchiveFolder.uuid == archive_request.folder_uuid,
+                    ArchiveFolder.user_id == current_user.id
+                )
+            )
+        )
+        archive_folder = folder_result.scalar_one_or_none()
+        if not archive_folder:
+            raise HTTPException(status_code=404, detail="Archive folder not found")
+        
+        # Check if document file exists
+        original_file_path = get_data_dir() / document.file_path
+        if not original_file_path.exists():
+            raise HTTPException(status_code=404, detail="Document file not found on disk")
+        
+        # Prepare archive storage location
+        archive_dir = get_data_dir() / "archive" / str(current_user.id)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate unique filename for archive
+        archive_filename = f"{uuid_lib.uuid4()}{original_file_path.suffix}"
+        archive_file_path = archive_dir / archive_filename
+        
+        # Copy file to archive location
+        try:
+            shutil.copy2(original_file_path, archive_file_path)
+            logger.info(f"📋 Copied file to archive: {archive_file_path}")
+        except Exception as e:
+            logger.error(f"❌ Failed to copy file to archive: {e}")
+            raise HTTPException(status_code=500, detail="Failed to copy file to archive")
+        
+        # Create ArchiveItem record
+        archive_item = ArchiveItem(
+            name=document.title,
+            description=document.description or f"Archived from Documents: {document.title}",
+            folder_uuid=archive_request.folder_uuid,
+            original_filename=document.original_name,
+            stored_filename=archive_filename,
+            file_path=str(archive_file_path.relative_to(get_data_dir())),
+            file_size=document.file_size,
+            mime_type=document.mime_type,
+            extracted_text=document.extracted_text,
+            user_id=current_user.id,
+            is_archived=False,  # In archive module, items start as not archived
+            is_favorite=document.is_favorite,
+            metadata_json=json.dumps({
+                "source": "documents",
+                "original_document_id": document.id,
+                "archived_at": datetime.now().isoformat()
+            })
+        )
+        
+        db.add(archive_item)
+        await db.flush()  # Get the UUID
+        
+        # Copy tags if requested
+        if archive_request.copy_tags and document.tag_objs:
+            for doc_tag in document.tag_objs:
+                # Create or find equivalent tag for archive module
+                archive_tag_result = await db.execute(
+                    select(Tag).where(
+                        and_(
+                            Tag.name == doc_tag.name,
+                            Tag.user_id == current_user.id,
+                            Tag.module_type.in_(["archive", "general"])
+                        )
+                    )
+                )
+                archive_tag = archive_tag_result.scalar_one_or_none()
+                
+                if not archive_tag:
+                    # Create new tag for archive
+                    archive_tag = Tag(
+                        name=doc_tag.name,
+                        user_id=current_user.id,
+                        module_type="archive",
+                        color=doc_tag.color,
+                        usage_count=1
+                    )
+                    db.add(archive_tag)
+                    await db.flush()
+                else:
+                    archive_tag.usage_count += 1
+                
+                # Create tag association
+                await db.execute(
+                    archive_tags.insert().values(
+                        item_uuid=archive_item.uuid,
+                        tag_id=archive_tag.id
+                    )
+                )
+        
+        # Update document to mark as archived
+        document.is_archived = True
+        document.archive_item_uuid = archive_item.uuid
+        
+        await db.commit()
+        
+        logger.info(f"✅ Document {document_id} archived successfully to {archive_request.folder_uuid}")
+        
+        return {
+            "success": True,
+            "message": "Document archived successfully",
+            "archive_item_uuid": archive_item.uuid,
+            "archive_folder": archive_folder.name,
+            "archive_path": archive_folder.path,
+            "tags_copied": len(document.tag_objs) if archive_request.copy_tags else 0
+        }
+        
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"❌ Error archiving document {document_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to archive document"
+        )
+
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a document and its associated file.
+    
+    Note: If the document was archived, this only deletes the original document.
+    The archived copy in the Archive module remains intact and accessible.
+    """
+    result = await db.execute(
+        select(Document).where(
+            and_(Document.id == document_id, Document.user_id == current_user.id)
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    
+    # Log archive status for clarity
+    if doc.is_archived:
+        logger.info(f"🗑️ Deleting archived document {document_id} (archive copy preserved: {doc.archive_item_uuid})")
+    else:
+        logger.info(f"🗑️ Deleting document {document_id} (not archived)")
+    
+    # Delete the physical file
+    try:
+        file_to_delete = get_data_dir() / doc.file_path
+        if file_to_delete.exists():
+            file_to_delete.unlink()
+            logger.info(f"🗑️ Deleted document file: {file_to_delete}")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not delete file {doc.file_path}: {e}")
+        # Continue with database deletion even if file deletion fails
+        
+    await db.delete(doc)
+    await db.commit()
+    
+    logger.info(f"✅ Document {document_id} deleted successfully")

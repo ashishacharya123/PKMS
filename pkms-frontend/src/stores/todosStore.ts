@@ -33,6 +33,7 @@ interface TodosState {
   currentTag: string | null;
   searchQuery: string;
   showOverdue: boolean;
+  isArchivedFilter: boolean | null;
   
   // Pagination
   limit: number;
@@ -47,6 +48,8 @@ interface TodosState {
   updateTodo: (id: number, data: TodoUpdate) => Promise<Todo | null>;
   completeTodo: (id: number) => Promise<Todo | null>;
   deleteTodo: (id: number) => Promise<boolean>;
+  archiveTodo: (id: number) => Promise<void>;
+  unarchiveTodo: (id: number) => Promise<void>;
   
   // Actions - Projects
   loadProjects: () => Promise<void>;
@@ -65,6 +68,7 @@ interface TodosState {
   setTag: (tag: string | null) => void;
   setSearch: (query: string) => void;
   setShowOverdue: (show: boolean) => void;
+  setArchivedFilter: (archived: boolean | null) => void;
   
   // UI Actions
   clearError: () => void;
@@ -73,7 +77,7 @@ interface TodosState {
   reset: () => void;
 }
 
-const initialState: Omit<TodosState, 'reset' | 'clearCurrentProject' | 'clearCurrentTodo' | 'clearError' | 'setShowOverdue' | 'setSearch' | 'setTag' | 'setProjectFilter' | 'setPriority' | 'setStatus' | 'loadStats' | 'deleteProject' | 'updateProject' | 'createProject' | 'loadProject' | 'loadProjects' | 'deleteTodo' | 'completeTodo' | 'updateTodo' | 'createTodo' | 'loadTodo' | 'loadMore' | 'loadTodos'> = {
+const initialState: Omit<TodosState, 'reset' | 'clearCurrentProject' | 'clearCurrentTodo' | 'clearError' | 'setShowOverdue' | 'setSearch' | 'setTag' | 'setProjectFilter' | 'setPriority' | 'setStatus' | 'loadStats' | 'deleteProject' | 'updateProject' | 'createProject' | 'loadProject' | 'loadProjects' | 'deleteTodo' | 'completeTodo' | 'updateTodo' | 'createTodo' | 'loadTodo' | 'loadMore' | 'loadTodos' | 'archiveTodo' | 'unarchiveTodo' | 'setArchivedFilter'> = {
   todos: [],
   currentTodo: null,
   projects: [],
@@ -89,6 +93,7 @@ const initialState: Omit<TodosState, 'reset' | 'clearCurrentProject' | 'clearCur
   currentTag: null,
   searchQuery: '',
   showOverdue: false,
+  isArchivedFilter: null,
   limit: 20,
   offset: 0,
   hasMore: true,
@@ -109,6 +114,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
         tag: state.currentTag || undefined,
         search: state.searchQuery || undefined,
         overdue: state.showOverdue || undefined,
+        is_archived: state.isArchivedFilter !== null ? state.isArchivedFilter : undefined,
         limit: state.limit,
         offset: 0
       };
@@ -193,7 +199,8 @@ export const useTodosStore = create<TodosState>((set, get) => ({
         status: todo.status,
         created_at: todo.created_at,
         tags: todo.tags,
-        days_until_due: todo.days_until_due
+        days_until_due: todo.days_until_due,
+        is_archived: todo.is_archived
       };
       
       // Add to todos list if it matches current filters
@@ -242,7 +249,8 @@ export const useTodosStore = create<TodosState>((set, get) => ({
         status: updatedTodo.status,
         created_at: updatedTodo.created_at,
         tags: updatedTodo.tags,
-        days_until_due: updatedTodo.days_until_due
+        days_until_due: updatedTodo.days_until_due,
+        is_archived: updatedTodo.is_archived
       };
       
       // Update in todos list
@@ -283,7 +291,8 @@ export const useTodosStore = create<TodosState>((set, get) => ({
         status: completedTodo.status,
         created_at: completedTodo.created_at,
         tags: completedTodo.tags,
-        days_until_due: completedTodo.days_until_due
+        days_until_due: completedTodo.days_until_due,
+        is_archived: completedTodo.is_archived
       };
       
       // Update in todos list
@@ -329,6 +338,33 @@ export const useTodosStore = create<TodosState>((set, get) => ({
         error: error instanceof Error ? error.message : 'Failed to delete todo'
       });
       return false;
+    }
+  },
+
+  archiveTodo: async (id: number) => {
+    set({ isUpdating: true, error: null });
+    try {
+      const updatedTodo = await todosService.archiveTodo(id, true);
+      set(state => ({
+        todos: state.todos.map(todo => todo.id === id ? { ...todo, is_archived: true } : todo),
+        isUpdating: false
+      }));
+      get().loadStats();
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : 'Failed to archive todo', isUpdating: false });
+    }
+  },
+  unarchiveTodo: async (id: number) => {
+    set({ isUpdating: true, error: null });
+    try {
+      const updatedTodo = await todosService.archiveTodo(id, false);
+      set(state => ({
+        todos: state.todos.map(todo => todo.id === id ? { ...todo, is_archived: false } : todo),
+        isUpdating: false
+      }));
+      get().loadStats();
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : 'Failed to unarchive todo', isUpdating: false });
     }
   },
   
@@ -476,6 +512,11 @@ export const useTodosStore = create<TodosState>((set, get) => ({
   
   setShowOverdue: (show: boolean) => {
     set({ showOverdue: show });
+    get().loadTodos();
+  },
+
+  setArchivedFilter: (archived: boolean | null) => {
+    set({ isArchivedFilter: archived });
     get().loadTodos();
   },
   
