@@ -34,6 +34,7 @@ import {
   IconAlertTriangle
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
+import { notifications } from '@mantine/notifications';
 import { useNotesStore } from '../stores/notesStore';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { notesService } from '../services/notesService';
@@ -117,6 +118,17 @@ export function NotesPage() {
       if (success) {
         // Invalidate React Query cache to refresh the notes list
         queryClient.invalidateQueries({ queryKey: ['notes'] });
+        notifications.show({
+          title: 'Note Deleted',
+          message: 'The note was deleted successfully',
+          color: 'green'
+        });
+      } else {
+        notifications.show({
+          title: 'Delete Failed',
+          message: 'Could not delete the note. Please try again.',
+          color: 'red'
+        });
       }
     }
   };

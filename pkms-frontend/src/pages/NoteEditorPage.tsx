@@ -70,7 +70,8 @@ export function NoteEditorPage() {
         message: 'Your note has been created successfully',
         color: 'green'
       });
-      navigate(`/notes/${newNote.id}`);
+      // After creating a new note, return to the notes listing for clearer UX
+      navigate('/notes');
     },
     onError: () => {
       notifications.show({

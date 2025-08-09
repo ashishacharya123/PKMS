@@ -1109,6 +1109,17 @@ async def commit_diary_media_upload(
         entry_date = entry.date.strftime("%Y-%m-%d")
         encrypted_filename = f"{entry_date}_{payload.entry_id}_{diary_media.id}.dat"
 
+        # Check assembled file status
+        status_obj = await chunk_manager.get_upload_status(payload.file_id)
+        if not status_obj or status_obj.get("status") != "completed":
+            raise HTTPException(status_code=400, detail="File not yet assembled")
+
+        # Locate assembled file path
+        temp_dir = Path(get_data_dir()) / "temp_uploads"
+        assembled = next(temp_dir.glob(f"complete_{payload.file_id}_*"), None)
+        if not assembled:
+            raise HTTPException(status_code=404, detail="Assembled file not found")
+
         # Prepare destination directory
         media_dir = get_data_dir() / "secure" / "entries" / "media"
         media_dir.mkdir(parents=True, exist_ok=True)
