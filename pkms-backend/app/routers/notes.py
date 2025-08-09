@@ -57,6 +57,7 @@ class NoteUpdate(BaseModel):
 
 class NoteResponse(BaseModel):
     id: int
+    uuid: str
     title: str
     content: str
     file_count: int
@@ -71,6 +72,7 @@ class NoteResponse(BaseModel):
 
 class NoteSummary(BaseModel):
     id: int
+    uuid: str
     title: str
     file_count: int
     is_favorite: bool
@@ -84,8 +86,8 @@ class NoteSummary(BaseModel):
         from_attributes = True
 
 class NoteFileResponse(BaseModel):
-    id: int
-    note_id: int
+    uuid: str
+    note_uuid: str
     filename: str
     original_name: str
     file_size: int
@@ -99,16 +101,35 @@ class NoteFileResponse(BaseModel):
 class CommitNoteFileRequest(BaseModel):
     """Request model for committing chunked note file upload"""
     file_id: str
-    note_id: int
+    note_uuid: str
     description: Optional[str] = Field(None, max_length=500)
 
 # --- Helper Functions ---
 
 async def _handle_note_tags(db: AsyncSession, note: Note, tag_names: List[str], user_id: int):
     """Handle note tag associations and update usage counts."""
+    # Get existing tags for this note to track changes
+    existing_tags_result = await db.execute(
+        select(Tag).join(note_tags).where(
+            and_(
+                note_tags.c.note_uuid == note.uuid,
+                Tag.user_id == user_id
+            )
+        )
+    )
+    existing_tags = existing_tags_result.scalars().all()
+    existing_tag_names = {tag.name for tag in existing_tags}
+    new_tag_names = set(tag_names)
+    
+    # Decrement usage count for removed tags
+    removed_tag_names = existing_tag_names - new_tag_names
+    for existing_tag in existing_tags:
+        if existing_tag.name in removed_tag_names:
+            existing_tag.usage_count = max(0, existing_tag.usage_count - 1)
+    
     # Clear existing tag associations
     await db.execute(
-        delete(note_tags).where(note_tags.c.note_id == note.id)
+        delete(note_tags).where(note_tags.c.note_uuid == note.uuid)
     )
     
     if not tag_names:
@@ -139,14 +160,15 @@ async def _handle_note_tags(db: AsyncSession, note: Note, tag_names: List[str], 
             db.add(tag)
             await db.flush()
         else:
-            # Increment usage count
-            tag.usage_count += 1
+            # Only increment usage count for newly added tags
+            if tag_name not in existing_tag_names:
+                tag.usage_count += 1
         
         # Create association
         await db.execute(
             note_tags.insert().values(
-                note_id=note.id,
-                tag_id=tag.id
+                note_uuid=note.uuid,
+                tag_uuid=tag.uuid
             )
         )
 
@@ -202,6 +224,7 @@ def _convert_note_to_response(note: Note) -> NoteResponse:
     """Convert Note model to NoteResponse."""
     return NoteResponse(
         id=note.id,
+        uuid=note.uuid,
         title=note.title,
         content=note.content,
         file_count=note.file_count,
@@ -275,6 +298,7 @@ async def list_notes(
         preview = note.content[:200] + "..." if len(note.content) > 200 else note.content
         summary = NoteSummary(
             id=note.id,
+            uuid=note.uuid,
             title=note.title,
             file_count=note.file_count,
             is_favorite=note.is_favorite,
@@ -359,7 +383,7 @@ async def update_note(
     
     return _convert_note_to_response(note)
 
-@router.delete("/{note_id}")
+@router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_note(
     note_id: int,
     current_user: User = Depends(get_current_user),
@@ -367,28 +391,49 @@ async def delete_note(
 ):
     """Delete a note and its associated files."""
     result = await db.execute(
-        select(Note).options(selectinload(Note.files)).where(
+        select(Note).options(selectinload(Note.files), selectinload(Note.tag_objs)).where(
             and_(Note.id == note_id, Note.user_id == current_user.id)
         )
     )
     note = result.scalar_one_or_none()
     if not note:
+        logger.warning(f"Attempted to delete non-existent note with ID: {note_id} for user: {current_user.id}")
         raise HTTPException(status_code=404, detail="Note not found")
 
-    # Delete associated files from disk
-    for note_file in note.files:
-        try:
-            file_path = get_data_dir() / note_file.file_path
-            if file_path.exists():
-                file_path.unlink()
-                logger.info(f"🗑️ Deleted note file: {file_path}")
-        except Exception as e:
-            logger.warning(f"⚠️ Could not delete file {note_file.file_path}: {e}")
+    logger.info(f"Attempting to delete note with ID: {note_id} for user: {current_user.id}")
 
-    await db.delete(note)
-    await db.commit()
-    
-    return {"message": "Note deleted successfully"}
+    try:
+        # Delete associated files from disk
+        if note.files:
+            logger.info(f"Deleting {len(note.files)} associated files for note ID: {note_id}")
+            for note_file in note.files:
+                try:
+                    file_path = get_data_dir() / note_file.file_path
+                    if file_path.exists():
+                        file_path.unlink()
+                        logger.info(f"🗑️ Deleted note file: {file_path}")
+                    else:
+                        logger.warning(f"File not found, cannot delete: {file_path}")
+                except Exception as e:
+                    logger.error(f"⚠️ Could not delete file {note_file.file_path}: {e}")
+
+        # Decrement tag usage counts BEFORE deleting note (associations will cascade)
+        if note.tag_objs:
+            logger.info(f"Decrementing usage count for {len(note.tag_objs)} tags")
+            for tag in note.tag_objs:
+                tag.usage_count = max(0, tag.usage_count - 1)
+                logger.debug(f"Tag '{tag.name}' usage count: {tag.usage_count + 1} -> {tag.usage_count}")
+
+        # Delete note (cascade will handle note_tags associations automatically)
+        logger.info(f"Deleting note record with ID: {note_id} from the database.")
+        await db.delete(note)
+        await db.commit()
+        logger.info(f"✅ Successfully deleted note with ID: {note_id}")
+        
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"❌ Failed to delete note with ID: {note_id}. Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete note due to an internal error: {str(e)}")
 
 # --- File Attachment Endpoints ---
 
@@ -399,25 +444,26 @@ async def get_note_files(
     db: AsyncSession = Depends(get_db)
 ):
     """Get all files attached to a note."""
-    # Verify note exists and belongs to user
+    # First get the note to verify it exists and get the UUID
     note_result = await db.execute(
-        select(Note.id).where(
+        select(Note).where(
             and_(Note.id == note_id, Note.user_id == current_user.id)
         )
     )
-    if not note_result.scalar_one_or_none():
+    note = note_result.scalar_one_or_none()
+    if not note:
         raise HTTPException(status_code=404, detail="Note not found")
 
-    # Get files
+    # Get files using note UUID
     files_result = await db.execute(
-        select(NoteFile).where(NoteFile.note_id == note_id).order_by(NoteFile.created_at.desc())
+        select(NoteFile).where(NoteFile.note_uuid == note.uuid).order_by(NoteFile.created_at.desc())
     )
     files = files_result.scalars().all()
     
     return [
         NoteFileResponse(
-            id=f.id,
-            note_id=f.note_id,
+            uuid=f.uuid,
+            note_uuid=f.note_uuid,
             filename=f.filename,
             original_name=f.original_name,
             file_size=f.file_size,
@@ -439,7 +485,7 @@ async def commit_note_file_upload(
     Uses the core chunk upload service for efficient uploading.
     """
     try:
-        logger.info(f"📎 Committing note file upload for note {payload.note_id}")
+        logger.info(f"📎 Committing note file upload for note {payload.note_uuid}")
         
         # Check assembled file status
         status_obj = await chunk_manager.get_upload_status(payload.file_id)
@@ -455,7 +501,7 @@ async def commit_note_file_upload(
         # Verify note exists and belongs to user
         note_result = await db.execute(
             select(Note).where(
-                and_(Note.id == payload.note_id, Note.user_id == current_user.id)
+                and_(Note.uuid == payload.note_uuid, Note.user_id == current_user.id)
             )
         )
         note = note_result.scalar_one_or_none()
@@ -483,7 +529,7 @@ async def commit_note_file_upload(
 
         # Create NoteFile record
         note_file = NoteFile(
-            note_id=payload.note_id,
+            note_uuid=payload.note_uuid,
             user_id=current_user.id,
             filename=stored_filename,
             original_name=assembled.name,
@@ -498,7 +544,7 @@ async def commit_note_file_upload(
 
         # Update note file count
         file_count_result = await db.execute(
-            select(func.count(NoteFile.id)).where(NoteFile.note_id == payload.note_id)
+            select(func.count(NoteFile.uuid)).where(NoteFile.note_uuid == payload.note_uuid)
         )
         new_file_count = file_count_result.scalar() or 0
         note.file_count = new_file_count
@@ -513,8 +559,8 @@ async def commit_note_file_upload(
         logger.info(f"✅ Note file committed successfully: {stored_filename}")
         
         return NoteFileResponse(
-            id=note_file.id,
-            note_id=note_file.note_id,
+            uuid=note_file.uuid,
+            note_uuid=note_file.note_uuid,
             filename=note_file.filename,
             original_name=note_file.original_name,
             file_size=note_file.file_size,
@@ -534,9 +580,9 @@ async def commit_note_file_upload(
             detail="Failed to commit file upload"
         )
 
-@router.get("/files/{file_id}/download")
+@router.get("/files/{file_uuid}/download")
 async def download_note_file(
-    file_id: int,
+    file_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -546,7 +592,7 @@ async def download_note_file(
         .join(Note)
         .where(
             and_(
-                NoteFile.id == file_id,
+                NoteFile.uuid == file_uuid,
                 Note.user_id == current_user.id
             )
         )
@@ -569,9 +615,9 @@ async def download_note_file(
         }
     )
 
-@router.delete("/files/{file_id}")
+@router.delete("/files/{file_uuid}")
 async def delete_note_file(
-    file_id: int,
+    file_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -581,7 +627,7 @@ async def delete_note_file(
         .join(Note)
         .where(
             and_(
-                NoteFile.id == file_id,
+                NoteFile.uuid == file_uuid,
                 Note.user_id == current_user.id
             )
         )
@@ -590,7 +636,7 @@ async def delete_note_file(
     if not note_file:
         raise HTTPException(status_code=404, detail="File not found")
     
-    note_id = note_file.note_id
+    note_uuid = note_file.note_uuid
     
     # Delete the physical file
     try:
@@ -606,11 +652,11 @@ async def delete_note_file(
     
     # Update note file count
     file_count_result = await db.execute(
-        select(func.count(NoteFile.id)).where(NoteFile.note_id == note_id)
+        select(func.count(NoteFile.uuid)).where(NoteFile.note_uuid == note_uuid)
     )
     new_file_count = file_count_result.scalar() or 0
     
-    note_result = await db.execute(select(Note).where(Note.id == note_id))
+    note_result = await db.execute(select(Note).where(Note.uuid == note_uuid))
     note = note_result.scalar_one_or_none()
     if note:
         note.file_count = new_file_count

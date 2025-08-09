@@ -87,7 +87,6 @@ class RecoveryKey(Base):
     questions_json = Column(Text, nullable=False)  # Security questions as JSON
     answers_hash = Column(String(255), nullable=False)  # Hashed answers
     salt = Column(String(255), nullable=False)  # Salt for answers (still needed for security questions)
-    master_password_hash = Column(String(255), nullable=True)  # Master recovery password hash
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     last_used = Column(DateTime(timezone=True), nullable=True)
     

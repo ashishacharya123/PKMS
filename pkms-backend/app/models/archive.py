@@ -17,7 +17,8 @@ class ArchiveFolder(Base):
     
     __tablename__ = "archive_folders"
     
-    uuid = Column(String(36), primary_key=True, default=lambda: str(uuid_lib.uuid4()))
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid_lib.uuid4()), index=True)
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
     path = Column(String(1000), nullable=False, index=True)  # Full path for hierarchy
@@ -41,7 +42,8 @@ class ArchiveItem(Base):
     
     __tablename__ = "archive_items"
     
-    uuid = Column(String(36), primary_key=True, default=lambda: str(uuid_lib.uuid4()), unique=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid_lib.uuid4()), index=True)
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
     folder_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=False, index=True)

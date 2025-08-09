@@ -49,14 +49,20 @@ limiter = Limiter(key_func=get_remote_address)
 # Session cleanup task
 cleanup_task = None
 
-# Initialize logging with more detailed configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+# --- Custom Nepal Time Formatter ---
+class NepalTimeFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, NEPAL_TZ)
+        if datefmt:
+            return dt.strftime(datefmt)
+        return dt.isoformat()
+
+# Initialize logging with Nepal time
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(NepalTimeFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logging.getLogger().handlers = [handler]
+logging.getLogger().setLevel(logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 async def cleanup_expired_sessions():
@@ -83,54 +89,7 @@ async def cleanup_expired_sessions():
         # Sleep for configured interval
         await asyncio.sleep(settings.session_cleanup_interval_hours * 3600)
 
-async def run_migrations():
-    """Run lightweight, idempotent migrations at startup."""
-    try:
-        async with get_db_session() as db:
-            # --- Lightweight, idempotent migrations ---
-            # 1. Speed up tag prefix look-ups
-            from sqlalchemy import text
-            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);"))
 
-            # 2. Enforce one tag name per user (case-insensitive handled in code)
-            await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_user_name_unique ON tags(user_id, name);"))
-
-            logger.info("✅ Tag indexes ensured")
-            
-            # 3. Documents schema additions (uuid + original_name columns)
-            try:
-                await db.execute(text("ALTER TABLE documents ADD COLUMN uuid TEXT"))
-            except Exception:
-                pass  # Column already exists
-
-            try:
-                await db.execute(text("ALTER TABLE documents ADD COLUMN original_name TEXT"))
-            except Exception:
-                pass
-
-            # Ensure each row has required values (safe even on empty DB)
-            await db.execute(text("UPDATE documents SET uuid = LOWER(HEX(RANDOMBLOB(16))) WHERE uuid IS NULL OR uuid = ''"))
-            await db.execute(text("UPDATE documents SET original_name = filename WHERE original_name IS NULL OR original_name = ''"))
-
-            # Unique index on uuid
-            await db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_uuid ON documents(uuid)"))
-
-            logger.info("✅ Document table schema ensured")
-            
-            # 4. Diary schema cleanup (for reference - weather column removed from model)
-            # Note: weather column removed from DiaryEntry model, location column indexed
-            # No migration needed as DB will be reset soon
-            try:
-                await db.execute(text("CREATE INDEX IF NOT EXISTS idx_diary_entries_location ON diary_entries(location);"))
-                logger.info("✅ Diary location index ensured")
-            except Exception:
-                pass  # Index might already exist or column might not exist yet
-            
-    except Exception as e:
-        logger.error(f"❌ Error during migrations: {e}")
-        # Log the error but don't exit - let the app try to continue
-        return False
-    return True
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -144,12 +103,6 @@ async def lifespan(app: FastAPI):
         logger.info("Initializing database...")
         await init_db()
         logger.info("✅ Database initialized successfully")
-        
-        # Run lightweight migrations
-        logger.info("Running migrations...")
-        migration_success = await run_migrations()
-        if not migration_success:
-            logger.warning("⚠️ Migrations had some issues but continuing startup")
         
         # Start background tasks
         logger.info("Starting background tasks...")
@@ -218,10 +171,11 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:5173",
         "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173"
+        "http://127.0.0.1:5173",
+        "http://localhost:8000"
     ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 

@@ -137,7 +137,7 @@ async def _handle_document_tags(db: AsyncSession, doc: Document, tag_names: List
         await db.execute(
             document_tags.insert().values(
                 document_id=doc.id,
-                tag_id=tag.id
+                tag_uuid=tag.uuid
             )
         )
 

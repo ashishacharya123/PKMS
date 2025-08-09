@@ -51,7 +51,8 @@ class DashboardService {
    */
   async getDashboardStats(): Promise<DashboardStats> {
     try {
-      return await apiService.get<DashboardStats>(`${this.baseUrl}/stats`);
+      const response = await apiService.get<DashboardStats>(`${this.baseUrl}/stats`);
+      return response.data;
     } catch (error) {
       console.error('Failed to load dashboard stats:', error);
       // Return default stats on error to prevent dashboard crash
@@ -72,7 +73,8 @@ class DashboardService {
    */
   async getRecentActivity(days: number = 7): Promise<ModuleActivity> {
     try {
-      return await apiService.get<ModuleActivity>(`${this.baseUrl}/activity?days=${days}`);
+      const response = await apiService.get<ModuleActivity>(`${this.baseUrl}/activity?days=${days}`);
+      return response.data;
     } catch (error) {
       console.error('Failed to load recent activity:', error);
       return {
@@ -90,7 +92,8 @@ class DashboardService {
    */
   async getQuickStats(): Promise<QuickStats> {
     try {
-      return await apiService.get<QuickStats>(`${this.baseUrl}/quick-stats`);
+      const response = await apiService.get<QuickStats>(`${this.baseUrl}/quick-stats`);
+      return response.data;
     } catch (error) {
       console.error('Failed to load quick stats:', error);
       return {

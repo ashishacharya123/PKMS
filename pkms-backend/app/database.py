@@ -187,7 +187,7 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_notes_created_at ON notes(created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_notes_title ON notes(title);",
                 "CREATE INDEX IF NOT EXISTS idx_notes_archived ON notes(is_archived);",
-                "CREATE INDEX IF NOT EXISTS idx_note_files_note_id ON note_files(note_id);",
+                "CREATE INDEX IF NOT EXISTS idx_note_files_note_uuid ON note_files(note_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_note_files_user_id ON note_files(user_id);",
                 
                 # Documents indexes  
@@ -239,16 +239,18 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_tags_usage_count ON tags(usage_count DESC);",
                 
                 # Tag association indexes
-                "CREATE INDEX IF NOT EXISTS idx_note_tags_note_id ON note_tags(note_id);",
-                "CREATE INDEX IF NOT EXISTS idx_note_tags_tag_id ON note_tags(tag_id);",
-                "CREATE INDEX IF NOT EXISTS idx_document_tags_document_id ON document_tags(document_id);",
-                "CREATE INDEX IF NOT EXISTS idx_document_tags_tag_id ON document_tags(tag_id);",
-                "CREATE INDEX IF NOT EXISTS idx_todo_tags_todo_id ON todo_tags(todo_id);",
-                "CREATE INDEX IF NOT EXISTS idx_todo_tags_tag_id ON todo_tags(tag_id);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_tags_diary_entry_id ON diary_tags(diary_entry_id);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_tags_tag_id ON diary_tags(tag_id);",
-                "CREATE INDEX IF NOT EXISTS idx_archive_tags_archive_item_id ON archive_tags(archive_item_id);",
-                "CREATE INDEX IF NOT EXISTS idx_archive_tags_tag_id ON archive_tags(tag_id);",
+                "CREATE INDEX IF NOT EXISTS idx_note_tags_note_uuid ON note_tags(note_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_note_tags_tag_uuid ON note_tags(tag_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_document_tags_document_uuid ON document_tags(document_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_document_tags_tag_uuid ON document_tags(tag_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_todo_tags_todo_uuid ON todo_tags(todo_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_todo_tags_tag_uuid ON todo_tags(tag_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_tags_diary_entry_uuid ON diary_tags(diary_entry_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_tags_tag_uuid ON diary_tags(tag_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_archive_tags_item_uuid ON archive_tags(item_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_archive_tags_tag_uuid ON archive_tags(tag_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_link_tags_link_uuid ON link_tags(link_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_link_tags_tag_uuid ON link_tags(tag_uuid);",
             ]
             
             created_count = 0

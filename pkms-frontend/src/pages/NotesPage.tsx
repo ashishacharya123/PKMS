@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Container,
   Grid,
@@ -31,95 +31,93 @@ import {
   IconTrash,
   IconDots,
   IconNotes,
-  IconFolder,
-  IconTag,
   IconAlertTriangle
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useNotesStore } from '../stores/notesStore';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { notesService } from '../services/notesService';
 
 type SortField = 'title' | 'created_at' | 'updated_at';
 type SortOrder = 'asc' | 'desc';
 
 export function NotesPage() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
   
   // Local state
-  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
+  const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
   const [sortField, setSortField] = useState<SortField>('updated_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
-  // Store state
+  // Store state (for filters/UI only)
   const {
-    notes,
-    areas,
-    isLoading,
-    error,
-    currentArea,
     currentTag,
     showArchived,
-    loadNotes,
-    loadAreas,
     deleteNote,
-    setArea,
     setTag,
-    setSearch,
     setShowArchived,
     clearError
   } = useNotesStore();
 
-  // Load data on mount
-  useEffect(() => {
-    loadNotes();
-    loadAreas();
-  }, []);
+  // React Query for notes fetching
+  const {
+    data: notes,
+    isLoading,
+    error
+  } = useQuery({
+    queryKey: ['notes', { tag: currentTag, search: debouncedSearch, archived: showArchived, page: currentPage }],
+    queryFn: () => notesService.listNotes({
+      tag: currentTag || undefined,
+      search: debouncedSearch || undefined,
+      archived: showArchived,
+      limit: itemsPerPage,
+      offset: (currentPage - 1) * itemsPerPage,
+    }),
+    staleTime: 5 * 60 * 1000,
+  });
+  const safeNotes = Array.isArray(notes) ? notes : [];
 
-  // Update search in store when debounced value changes
-  useEffect(() => {
-    setSearch(debouncedSearch);
-  }, [debouncedSearch, setSearch]);
-
-  // Sorted and paginated notes
+  // Sorted and paginated notes (sorting is still local, but you can move to backend if needed)
   const sortedNotes = useMemo(() => {
-    const sorted = [...notes].sort((a, b) => {
+    const sorted = [...safeNotes].sort((a, b) => {
       let aValue: string | number = a[sortField];
       let bValue: string | number = b[sortField];
-      
       if (sortField.includes('_at')) {
         aValue = new Date(aValue as string).getTime();
         bValue = new Date(bValue as string).getTime();
       }
-      
       if (typeof aValue === 'string') {
         aValue = aValue.toLowerCase();
         bValue = (bValue as string).toLowerCase();
       }
-      
       if (sortOrder === 'asc') {
         return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
       } else {
         return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
       }
     });
-    
     return sorted;
-  }, [notes, sortField, sortOrder]);
+  }, [safeNotes, sortField, sortOrder]);
 
   const paginatedNotes = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    const end = start + itemsPerPage;
+    const start = 0;
+    const end = itemsPerPage;
     return sortedNotes.slice(start, end);
-  }, [sortedNotes, currentPage, itemsPerPage]);
+  }, [sortedNotes, itemsPerPage]);
 
   const totalPages = Math.ceil(sortedNotes.length / itemsPerPage);
 
   const handleDeleteNote = async (id: number, title: string) => {
     if (window.confirm(`Are you sure you want to delete "${title}"?`)) {
-      await deleteNote(id);
+      const success = await deleteNote(id);
+      if (success) {
+        // Invalidate React Query cache to refresh the notes list
+        queryClient.invalidateQueries({ queryKey: ['notes'] });
+      }
     }
   };
 
@@ -159,41 +157,6 @@ export function NotesPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.currentTarget.value)}
             />
-
-            {/* Areas Filter */}
-            <Paper p="md" withBorder>
-              <Group justify="space-between" mb="xs">
-                <Text fw={600} size="sm">Areas</Text>
-                <IconFolder size={16} />
-              </Group>
-              
-              <Stack gap="xs">
-                <Button
-                  variant={!currentArea ? 'filled' : 'subtle'}
-                  size="xs"
-                  justify="space-between"
-                  fullWidth
-                  onClick={() => setArea(null)}
-                >
-                  <span>All Areas</span>
-                  <Badge size="xs" variant="light">{notes.length}</Badge>
-                </Button>
-                
-                {areas.map((area) => (
-                  <Button
-                    key={area.name}
-                    variant={currentArea === area.name ? 'filled' : 'subtle'}
-                    size="xs"
-                    justify="space-between"
-                    fullWidth
-                    onClick={() => setArea(area.name)}
-                  >
-                    <span>{area.name}</span>
-                    <Badge size="xs" variant="light">{area.count}</Badge>
-                  </Button>
-                ))}
-              </Stack>
-            </Paper>
 
             {/* Filters */}
             <Paper p="md" withBorder>
@@ -259,7 +222,7 @@ export function NotesPage() {
                 withCloseButton
                 onClose={clearError}
               >
-                {error}
+                {error instanceof Error ? error.message : String(error)}
               </Alert>
             )}
 
@@ -296,12 +259,6 @@ export function NotesPage() {
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <Text fw={600} size="lg" truncate>{note.title}</Text>
                             <Group gap="xs" mt="xs">
-                              <Badge variant="light" color="blue" size="sm">
-                                {note.area}
-                              </Badge>
-                              <Badge variant="outline" size="sm">
-                                {note.year}
-                              </Badge>
                               {note.is_archived && (
                                 <Badge variant="light" color="gray" size="sm">
                                   Archived
@@ -412,10 +369,10 @@ export function NotesPage() {
                   <IconNotes size={32} />
                 </ThemeIcon>
                 <Title order={3} mb="xs">
-                  {searchQuery || currentArea || currentTag ? 'No notes found' : 'No notes yet'}
+                  {searchQuery || currentTag ? 'No notes found' : 'No notes yet'}
                 </Title>
                 <Text c="dimmed" mb="lg">
-                  {searchQuery || currentArea || currentTag 
+                  {searchQuery || currentTag 
                     ? 'Try adjusting your search or filters'
                     : 'Create your first note to get started'
                   }

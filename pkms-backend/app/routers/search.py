@@ -335,25 +335,25 @@ async def _get_item_tags(db: AsyncSession, item_type: str, item_id: str) -> List
         if item_type == "note":
             query = text("""
                 SELECT t.name FROM tags t
-                JOIN note_tags nt ON t.id = nt.tag_id
-                WHERE nt.note_id = :item_id
+                JOIN note_tags nt ON t.uuid = nt.tag_uuid
+                WHERE nt.note_uuid = :item_id
             """)
         elif item_type == "document":
             query = text("""
                 SELECT t.name FROM tags t
-                JOIN document_tags dt ON t.id = dt.tag_id
+                JOIN document_tags dt ON t.uuid = dt.tag_uuid
                 WHERE dt.document_uuid = :item_id
             """)
         elif item_type == "archive_item":
             query = text("""
                 SELECT t.name FROM tags t
-                JOIN archive_tags at ON t.id = at.tag_id
+                JOIN archive_tags at ON t.uuid = at.tag_uuid
                 WHERE at.item_uuid = :item_id
             """)
         elif item_type == "todo":
             query = text("""
                 SELECT t.name FROM tags t
-                JOIN todo_tags tt ON t.id = tt.tag_id
+                JOIN todo_tags tt ON t.uuid = tt.tag_uuid
                 WHERE tt.todo_id = :item_id
             """)
         else:
@@ -542,8 +542,8 @@ async def get_search_suggestions(
             select(ArchiveFolder.name).where(
                 and_(
                     ArchiveFolder.user_id == current_user.id,
-                    ArchiveFolder.name.ilike(pattern),
-                    ArchiveFolder.is_archived == False
+                    ArchiveFolder.name.ilike(pattern)
+                    # Archive folders don't use is_archived flag - all are active by being in archive
                 )
             ).limit(10)
         )
@@ -691,7 +691,7 @@ async def create_tag(
         await db.refresh(new_tag)
         
         return {
-            'id': new_tag.id,
+            'uuid': new_tag.uuid,
             'name': new_tag.name,
             'color': new_tag.color,
             'module_type': new_tag.module_type
@@ -703,9 +703,9 @@ async def create_tag(
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to create tag")
 
-@router.put("/tags/{tag_id}")
+@router.put("/tags/{tag_uuid}")
 async def update_tag(
-    tag_id: int,
+    tag_uuid: str,
     name: Optional[str] = Query(None, description="New tag name"),
     color: Optional[str] = Query(None, description="New tag color"),
     current_user: User = Depends(get_current_user),
@@ -718,7 +718,7 @@ async def update_tag(
         tag_result = await db.execute(
             select(Tag).where(
                 and_(
-                    Tag.id == tag_id,
+                    Tag.uuid == tag_uuid,
                     Tag.user_id == current_user.id
                 )
             )
@@ -738,7 +738,7 @@ async def update_tag(
         await db.refresh(tag)
         
         return {
-            'id': tag.id,
+            'uuid': tag.uuid,
             'name': tag.name,
             'color': tag.color,
             'module_type': tag.module_type
@@ -750,9 +750,9 @@ async def update_tag(
         await db.rollback()
         raise HTTPException(status_code=500, detail="Failed to update tag")
 
-@router.delete("/tags/{tag_id}")
+@router.delete("/tags/{tag_uuid}")
 async def delete_tag(
-    tag_id: int,
+    tag_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -763,7 +763,7 @@ async def delete_tag(
         tag_result = await db.execute(
             select(Tag).where(
                 and_(
-                    Tag.id == tag_id,
+                    Tag.uuid == tag_uuid,
                     Tag.user_id == current_user.id
                 )
             )

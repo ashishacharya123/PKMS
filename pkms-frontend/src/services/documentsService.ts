@@ -5,6 +5,7 @@
 import { apiService } from './api';
 import { coreUploadService, UploadProgress } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
+import { searchService } from './searchService';
 
 const SMALL_FILE_THRESHOLD = 3 * 1024 * 1024; // 3 MB
 
@@ -14,31 +15,41 @@ const forwardUploadPct = (cb?: (p: number) => void) => {
 };
 
 export interface Document {
+  id: number;
   uuid: string;
-  filename: string;
+  title: string;
   original_name: string;
+  filename: string;
+  file_path: string;
+  file_size: number;
   mime_type: string;
-  size_bytes: number;
-  extracted_text?: string;
-  metadata: Record<string, any>;
-  thumbnail_path?: string;
+  description?: string;
+  is_favorite: boolean;
   is_archived: boolean;
+  archive_item_uuid?: string;
+  upload_status: string;
   created_at: string;
   updated_at: string;
   tags: string[];
 }
 
 export interface DocumentSummary {
+  id: number;
   uuid: string;
-  filename: string;
+  title: string;
   original_name: string;
+  filename: string;
+  file_path: string;
+  file_size: number;
   mime_type: string;
-  size_bytes: number;
+  description?: string;
+  is_favorite: boolean;
   is_archived: boolean;
+  archive_item_uuid?: string;
+  upload_status: string;
   created_at: string;
   updated_at: string;
   tags: string[];
-  preview: string;
 }
 
 export interface UploadDocumentRequest {
@@ -53,6 +64,7 @@ export interface UpdateDocumentRequest {
 }
 
 export interface SearchResult {
+  id: number;
   uuid: string;
   original_name: string;
   mime_type: string;
@@ -86,10 +98,12 @@ class DocumentsService {
 
     if (file.size <= SMALL_FILE_THRESHOLD) {
       const data = await coreUploadService.uploadDirect<Document>('/documents/', formData, { onProgress: forwardUploadPct(onProgress) });
+      // Invalidate search cache for documents
+      searchService.invalidateCacheForContentType('document');
       return data;
     }
 
-    const fileId = await coreUploadService.uploadFile(file, {
+    await coreUploadService.uploadFile(file, {
       module: 'documents',
       additionalMeta: { tags },
       onProgress: p => onProgress?.(p.progress)
@@ -100,33 +114,39 @@ class DocumentsService {
     // Simplest: call GET /documents?limit=1&offset=0 and assume newest first.
     const docs = await this.listDocuments({ limit: 1 });
     if (docs.length) {
-      const fullDoc = await this.getDocument(docs[0].uuid);
+      const fullDoc = await this.getDocument(docs[0].id);
+      // Invalidate search cache for documents
+      searchService.invalidateCacheForContentType('document');
       return fullDoc;
     }
     throw new Error('Upload completed but document metadata not found');
   }
 
   /**
-   * Get a specific document by UUID
+   * Get a specific document by ID
    */
-  async getDocument(uuid: string): Promise<Document> {
-    const response = await apiService.get<Document>(`/documents/${uuid}`);
+  async getDocument(id: number): Promise<Document> {
+    const response = await apiService.get<Document>(`/documents/${id}`);
     return response.data;
   }
 
   /**
    * Update document metadata and tags
    */
-  async updateDocument(uuid: string, data: UpdateDocumentRequest): Promise<Document> {
-    const response = await apiService.put<Document>(`/documents/${uuid}`, data);
+  async updateDocument(id: number, data: UpdateDocumentRequest): Promise<Document> {
+    const response = await apiService.put<Document>(`/documents/${id}`, data);
+    // Invalidate search cache for documents
+    searchService.invalidateCacheForContentType('document');
     return response.data;
   }
 
   /**
    * Delete a document
    */
-  async deleteDocument(uuid: string): Promise<{ message: string }> {
-    const response = await apiService.delete<{ message: string }>(`/documents/${uuid}`);
+  async deleteDocument(id: number): Promise<{ message: string }> {
+    const response = await apiService.delete<{ message: string }>(`/documents/${id}`);
+    // Invalidate search cache for documents
+    searchService.invalidateCacheForContentType('document');
     return response.data;
   }
 
@@ -142,8 +162,7 @@ class DocumentsService {
       }
     });
 
-    // FastAPI router is mounted at `/api/v1/documents/` (note the trailing slash).
-    // Omitting the slash triggers a 307 redirect which browsers may block for CORS requests.
+    // FastAPI router endpoint for document list is `/documents/` 
     const basePath = '/documents/';
     const url = `${basePath}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
     const response = await apiService.get<DocumentSummary[]>(url);
@@ -153,24 +172,24 @@ class DocumentsService {
   /**
    * Download a document file
    */
-  getDownloadUrl(uuid: string): string {
-    return `${apiService.getAxiosInstance().defaults.baseURL}/documents/${uuid}/download`;
+  getDownloadUrl(id: number): string {
+    return `${apiService.getAxiosInstance().defaults.baseURL}/documents/${id}/download`;
   }
 
   /**
    * Download document with authentication
    */
-  async downloadDocument(uuid: string, onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
-    const url = `/documents/${uuid}/download`;
-    return coreDownloadService.downloadFile(url, { fileId: uuid, onProgress });
+  async downloadDocument(id: number, onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
+    const url = `/documents/${id}/download`;
+    return coreDownloadService.downloadFile(url, { fileId: id.toString(), onProgress });
   }
 
   /**
    * Get document preview (thumbnail or text preview)
    */
-  async getDocumentPreview(uuid: string): Promise<any> {
+  async getDocumentPreview(id: number): Promise<any> {
     try {
-      return await apiService.get(`/documents/${uuid}/preview`);
+      return await apiService.get(`/documents/${id}/preview`);
     } catch (error) {
       return null;
     }
@@ -179,8 +198,8 @@ class DocumentsService {
   /**
    * Get preview URL for images
    */
-  getPreviewUrl(uuid: string): string {
-    return `${apiService.getAxiosInstance().defaults.baseURL}/documents/${uuid}/preview`;
+  getPreviewUrl(id: number): string {
+    return `${apiService.getAxiosInstance().defaults.baseURL}/documents/${id}/preview`;
   }
 
   /**
@@ -219,8 +238,8 @@ class DocumentsService {
   /**
    * Archive/unarchive a document
    */
-  async toggleArchive(uuid: string, archived: boolean): Promise<Document> {
-    return await this.updateDocument(uuid, { is_archived: archived });
+  async toggleArchive(id: number, archived: boolean): Promise<Document> {
+    return await this.updateDocument(id, { is_archived: archived });
   }
 
   /**

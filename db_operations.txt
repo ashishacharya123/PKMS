@@ -1,0 +1,192 @@
+# PKMS Database Operations Guide
+
+## Database Location
+The PKMS database (pkm_metadata.db) is managed through Docker volumes:
+- Container path: `/app/data/pkm_metadata.db`
+- Docker volume: `pkms_pkms_db_data` (maps to `/app/data` in container)
+- The actual database file is stored in this Docker volume, managed by Docker
+- The volume ensures data persistence even if the container is removed
+
+## Database Management
+
+### Docker Volume Operations
+```bash
+# List Docker volumes
+docker volume ls | findstr "pkms"
+
+# Delete PKMS database volume
+docker volume rm pkms_pkms_db_data
+
+# Create fresh database (by starting services)
+docker-compose up -d
+```
+
+### Database Operations
+
+1. Access Database Shell
+```bash
+# Enter the container
+docker exec -it pkms-backend bash
+
+# Access SQLite database
+sqlite3 /app/data/pkm_metadata.db
+```
+
+2. Basic Database Information
+```sql
+-- Show all tables
+.tables
+
+-- Show schema of a specific table
+.schema diary_entries
+.schema tags
+.schema users
+
+-- Show database size
+.dbinfo
+
+-- Show SQLite version
+.version
+```
+
+3. Table Operations
+```sql
+-- List all tables with their row counts
+SELECT 
+    name as table_name,
+    (SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND tbl_name=m.name) as index_count,
+    (SELECT COUNT(*) FROM pragma_table_info(m.name)) as column_count
+FROM sqlite_master m
+WHERE type='table'
+ORDER BY name;
+
+-- Get table schema details
+SELECT 
+    name, type, notnull, dflt_value, pk
+FROM pragma_table_info('diary_entries');
+```
+
+4. Data Queries
+```sql
+-- View last 5 diary entries
+SELECT 
+    uuid, title, date, nepali_date, mood, created_at 
+FROM diary_entries 
+ORDER BY created_at DESC 
+LIMIT 5;
+
+-- View tags with usage counts
+SELECT 
+    uuid, name, module_type, usage_count, created_at 
+FROM tags 
+ORDER BY usage_count DESC 
+LIMIT 5;
+
+-- View user info (except passwords)
+SELECT 
+    id, username, email, is_active, created_at, last_login 
+FROM users;
+```
+
+5. Schema Modifications
+```sql
+-- Add a new column
+ALTER TABLE diary_entries 
+ADD COLUMN priority INTEGER DEFAULT 0;
+
+-- Drop a column (SQLite doesn't support direct column dropping)
+-- Instead, you need to:
+-- 1. Create new table
+-- 2. Copy data
+-- 3. Drop old table
+-- 4. Rename new table
+
+-- Example to drop a column:
+BEGIN TRANSACTION;
+
+CREATE TABLE diary_entries_new (
+    -- all columns except the one to drop
+    uuid VARCHAR(36) PRIMARY KEY NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    -- ... other columns ...
+);
+
+INSERT INTO diary_entries_new 
+SELECT uuid, title, ... -- all columns except dropped one
+FROM diary_entries;
+
+DROP TABLE diary_entries;
+ALTER TABLE diary_entries_new RENAME TO diary_entries;
+
+COMMIT;
+```
+
+6. Data Manipulation
+```sql
+-- Update tag usage counts
+UPDATE tags 
+SET usage_count = (
+    SELECT COUNT(*) 
+    FROM diary_tags 
+    WHERE tag_uuid = tags.uuid
+);
+
+-- Mark old entries as archived
+UPDATE diary_entries 
+SET is_template = 1 
+WHERE date < date('now', '-1 year');
+
+-- Delete unused tags
+DELETE FROM tags 
+WHERE usage_count = 0 
+  AND created_at < datetime('now', '-30 days');
+```
+
+7. Database Backup
+```bash
+# From host machine
+docker exec pkms-backend sqlite3 /app/data/pkm_metadata.db ".backup '/app/data/backups/backup_$(date +%Y%m%d_%H%M%S).db'"
+
+# Inside container
+sqlite3 /app/data/pkm_metadata.db ".backup '/app/data/backups/manual_backup.db'"
+```
+
+8. Database Maintenance
+```sql
+-- Analyze database
+ANALYZE;
+
+-- Rebuild indexes
+REINDEX;
+
+-- Vacuum database (reclaim space)
+VACUUM;
+
+-- Check database integrity
+PRAGMA integrity_check;
+```
+
+## Common Tasks
+
+1. Reset User Password
+```sql
+-- Update password hash (replace with actual hash)
+UPDATE users 
+SET password_hash = 'new_hash' 
+WHERE username = 'user';
+```
+
+2. Fix Tag Counts
+```sql
+-- Update tag usage counts based on actual usage
+UPDATE tags 
+SET usage_count = (
+    SELECT COUNT(*) FROM (
+        SELECT tag_uuid FROM diary_tags WHERE tag_uuid = tags.uuid
+        UNION ALL
+        SELECT tag_uuid FROM note_tags WHERE tag_uuid = tags.uuid
+        UNION ALL
+        SELECT tag_uuid FROM document_tags WHERE tag_uuid = tags.uuid
+    )
+);
+```

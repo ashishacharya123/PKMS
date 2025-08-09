@@ -33,7 +33,6 @@ import { Calendar } from '@mantine/dates';
 import {
   IconBook,
   IconPlus,
-
   IconEdit,
   IconTrash,
   IconDots,
@@ -52,10 +51,12 @@ import { format, parseISO } from 'date-fns';
 import { notifications } from '@mantine/notifications';
 import { MoodStatsWidget } from '../components/diary/MoodStatsWidget';
 import { WellnessBadges } from '../components/diary/WellnessBadges';
+import EncryptionStatus from '../components/diary/EncryptionStatus';
 
 import { useForm } from '@mantine/form';
-import { shallow } from 'zustand/shallow';
 import { DiaryEntrySummary, DiaryFormValues, DiaryMetadata, SortField, SortOrder, DiaryEntryCreatePayload } from '../types/diary';
+import { useDateTime } from '../hooks/useDateTime';
+import { formatDate, formatDateTime, convertToNepaliDate } from '../utils/diary';
 
 const initialMetadata: DiaryMetadata = {
   // Legacy fields
@@ -90,45 +91,13 @@ const initialFormValues: DiaryFormValues = {
   tags: []
 };
 
-
-
 export function DiaryPage() {
-  const store = useDiaryStore(
-    (state) => ({
-      entries: state.entries,
-      isUnlocked: state.isUnlocked,
-      isEncryptionSetup: state.isEncryptionSetup,
-      isLoading: state.isLoading,
-      error: state.error,
-      currentYear: state.currentYear,
-      currentMonth: state.currentMonth,
-      calendarData: state.calendarData,
-      encryptionKey: state.encryptionKey,
-      titleSearch: state.searchQuery,
-      dayOfWeek: state.currentDayOfWeek,
-      hasMedia: state.currentHasMedia,
-      init: state.init,
-      setupEncryption: state.setupEncryption,
-      unlockSession: state.unlockSession,
-      lockSession: state.lockSession,
-      loadEntries: state.loadEntries,
-      loadCalendarData: state.loadCalendarData,
-      createEntry: state.createEntry,
-      updateEntry: state.updateEntry,
-      deleteEntry: state.deleteEntry,
-      setError: state.setError,
-      setYear: state.setYear,
-      setMonth: state.setMonth,
-      setSearchQuery: state.setSearchQuery,
-      setDayOfWeek: state.setDayOfWeek,
-      setHasMedia: state.setHasMedia,
-    }),
-    shallow
-  );
+  const store = useDiaryStore();
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [encryptionModalOpen, setEncryptionModalOpen] = useState(false);
   const [unlockModalOpen, setUnlockModalOpen] = useState(false);
+  const [deleteConfirmModalOpen, setDeleteConfirmModalOpen] = useState(false);
+  const [entryToDelete, setEntryToDelete] = useState<string | null>(null);
   const [encryptionPassword, setEncryptionPassword] = useState('');
   const [passwordHint, setPasswordHint] = useState('');
   const [showPasswordHint, setShowPasswordHint] = useState(false);
@@ -140,8 +109,6 @@ export function DiaryPage() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const itemsPerPage = 12;
 
-
-
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
   const form = useForm<DiaryFormValues>({
@@ -152,36 +119,51 @@ export function DiaryPage() {
     },
   });
 
-  const [debouncedTitleSearch] = useDebouncedValue(store.titleSearch, 500);
+  // Use debounced search directly from store
+  const [debouncedTitleSearch] = useDebouncedValue(store.searchQuery, 500);
 
   const { isAuthenticated } = useAuthStore();
 
-  useEffect(() => {
-    // Only initialize diary if user is authenticated
-    if (isAuthenticated) {
-      store.init();
-    }
-  }, [isAuthenticated, store.init]);
+  const [hasInitialized, setHasInitialized] = useState(false);
 
+  // Initialize store on mount
   useEffect(() => {
-    if (store.isEncryptionSetup && !store.isUnlocked) {
+    if (isAuthenticated && !hasInitialized) {
+      store.init().then(() => setHasInitialized(true));
+    }
+  }, [isAuthenticated, hasInitialized]);
+
+  // Load entries when authenticated or search query changes
+  useEffect(() => {
+    if (isAuthenticated) {
+      store.loadEntries();
+    }
+  }, [isAuthenticated, debouncedTitleSearch]);
+
+  const [hasLoadedMoodStats, setHasLoadedMoodStats] = useState(false);
+
+  // Load calendar data when year/month changes and diary is unlocked
+  useEffect(() => {
+    if (isAuthenticated && store.isUnlocked) {
+      store.loadCalendarData(store.currentYear, store.currentMonth);
+    }
+  }, [isAuthenticated, store.currentYear, store.currentMonth, store.isUnlocked]);
+
+  // Load mood stats when diary is unlocked and moodStats has not been loaded yet
+  useEffect(() => {
+    if (isAuthenticated && store.isUnlocked && !store.moodStats) {
+      store.loadMoodStats();
+    }
+  }, [isAuthenticated, store.isUnlocked]);
+
+  // Show unlock modal if encryption is setup but not unlocked, and after initial load
+  useEffect(() => {
+    if (hasInitialized && store.isEncryptionSetup && !store.isUnlocked) {
       setUnlockModalOpen(true);
     } else {
       setUnlockModalOpen(false);
     }
-  }, [store.isEncryptionSetup, store.isUnlocked]);
-
-  useEffect(() => {
-    if (store.isUnlocked) {
-      store.loadEntries();
-    }
-  }, [store.isUnlocked, store.loadEntries, store.titleSearch, store.dayOfWeek, store.hasMedia, store.currentYear, store.currentMonth]);
-
-  useEffect(() => {
-    if (store.isUnlocked) {
-      store.loadCalendarData(store.currentYear, store.currentMonth);
-    }
-  }, [store.isUnlocked, store.loadCalendarData, store.currentYear, store.currentMonth]);
+  }, [hasInitialized, store.isEncryptionSetup, store.isUnlocked]);
 
   const sortedEntries = useMemo(() => {
     return [...store.entries].sort((a, b) => {
@@ -199,49 +181,29 @@ export function DiaryPage() {
           bVal = new Date(b.created_at).getTime();
           break;
         case 'mood':
-          aVal = a.mood || 0;
-          bVal = b.mood || 0;
+          aVal = a.mood;
+          bVal = b.mood;
           break;
         default:
-          aVal = a[sortField];
-          bVal = b[sortField];
+          return 0;
       }
-      
-      if (sortOrder === 'asc') return aVal < bVal ? -1 : 1;
+
+      if (sortOrder === 'asc') {
+        return aVal < bVal ? -1 : 1;
+      }
       return aVal > bVal ? -1 : 1;
     });
   }, [store.entries, sortField, sortOrder]);
 
   const paginatedEntries = sortedEntries.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-
   const totalPages = Math.ceil(sortedEntries.length / itemsPerPage);
 
-  const resetEntryForm = () => {
-    form.reset();
-  };
-
   const handleSort = (field: SortField) => {
-    if (sortField === field) {
+    if (field === sortField) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
       setSortOrder('desc');
-    }
-  };
-
-  const handleSetupEncryption = async () => {
-    if (!encryptionPassword) return;
-    
-    const success = await store.setupEncryption(encryptionPassword, passwordHint);
-    if (success) {
-      setEncryptionModalOpen(false);
-      setEncryptionPassword('');
-      setPasswordHint('');
-      notifications.show({
-        title: 'Success',
-        message: 'Diary encryption has been set up',
-        color: 'green',
-      });
     }
   };
 
@@ -271,7 +233,10 @@ export function DiaryPage() {
   };
 
   const handleViewEntry = async (entry: DiaryEntrySummary) => {
-    if (!store.encryptionKey) return;
+    if (!store.encryptionKey) {
+      setUnlockModalOpen(true);
+      return;
+    }
     
     try {
       const decryptedContent = await diaryService.decryptContent(
@@ -281,8 +246,18 @@ export function DiaryPage() {
         store.encryptionKey
       );
       
-      // TODO: Implement viewing functionality
-      // setViewingEntry({ ...entry, content: decryptedContent } as DiaryEntry);
+      form.setValues({
+        id: entry.id,
+        date: parseISO(entry.date),
+        title: entry.title || '',
+        content: decryptedContent,
+        mood: entry.mood || 3,
+        metadata: {
+          ...initialMetadata,
+          ...entry.metadata
+        },
+        tags: entry.tags || []
+      });
       
       setViewMode('view');
       setModalOpen(true);
@@ -297,27 +272,20 @@ export function DiaryPage() {
   };
 
   const handleEditEntry = (entry: DiaryEntrySummary) => {
-    form.setValues({
-      id: entry.id,
-      date: parseISO(entry.date),
-      title: entry.title || '',
-      content: '',  // Will be decrypted when viewing
-      mood: entry.mood || 3,
-      metadata: {
-        ...initialMetadata,
-        ...entry.metadata
-      },
-      tags: entry.tags || []
-    });
+    handleViewEntry(entry);
     setViewMode('edit');
-    setModalOpen(true);
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this entry?')) return;
-    
+  const handleDelete = (uuid: string) => {
+    setEntryToDelete(uuid);
+    setDeleteConfirmModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!entryToDelete) return;
+
     try {
-      await store.deleteEntry(id);
+      await store.deleteEntry(entryToDelete);
       notifications.show({
         title: 'Success',
         message: 'Diary entry deleted',
@@ -330,6 +298,9 @@ export function DiaryPage() {
         message: 'Failed to delete diary entry',
         color: 'red',
       });
+    } finally {
+      setDeleteConfirmModalOpen(false);
+      setEntryToDelete(null);
     }
   };
 
@@ -344,6 +315,7 @@ export function DiaryPage() {
       
       const payload: DiaryEntryCreatePayload = {
         date: format(values.date, 'yyyy-MM-dd'),
+        nepali_date: convertToNepaliDate(values.date),
         title: values.title,
         encrypted_blob,
         encryption_iv: iv,
@@ -353,20 +325,21 @@ export function DiaryPage() {
         tags: values.tags
       };
       
-      if (values.id) {
-        await store.updateEntry(values.id, payload);
+      if (values.uuid) {
+        await store.updateEntry(values.uuid, payload);
       } else {
         await store.createEntry(payload);
       }
       
       setModalOpen(false);
       form.reset();
-      // Refresh data so that the new/updated entry instantly appears
-      await store.loadEntries();
-      await store.loadCalendarData(store.currentYear, store.currentMonth);
+
+      // Refresh data
+      store.loadEntries();
+      store.loadCalendarData(store.currentYear, store.currentMonth);
       notifications.show({
         title: 'Success',
-        message: values.id ? 'Diary entry updated' : 'Diary entry created',
+        message: values.uuid ? 'Diary entry updated' : 'Diary entry created',
         color: 'green',
       });
     } catch (error) {
@@ -380,53 +353,31 @@ export function DiaryPage() {
   };
 
   const getMoodLabel = (mood: number) => {
-    const labels: { [key: number]: string } = { 1: 'Very Bad', 2: 'Bad', 3: 'Neutral', 4: 'Good', 5: 'Excellent' };
+    const labels: { [key: number]: string } = { 1: 'Very Low', 2: 'Low', 3: 'Neutral', 4: 'Good', 5: 'Excellent' };
     return labels[mood] || 'Unknown';
   };
 
   const getMoodEmoji = (mood: number) => {
-    const emojis: { [key: number]: string } = { 1: '😢', 2: '😞', 3: '😐', 4: '😊', 5: '😄' };
-    return emojis[mood] || '😐';
+    const emojis: { [key: number]: string } = { 1: '😢', 2: '😕', 3: '😐', 4: '😊', 5: '😄' };
+    return emojis[mood] || '-';
   };
 
   const getMoodColor = (mood: number) => {
-    const colors = { 1: 'red', 2: 'orange', 3: 'gray', 4: 'green', 5: 'blue' };
-    return colors[mood as keyof typeof colors] || 'gray';
-  };
-
-  const getWeatherEmoji = (weather: string) => {
-    const emojis: Record<string, string> = {
-      sunny: '☀️', cloudy: '☁️', rainy: '🌧️', snowy: '❄️', stormy: '⛈️'
-    };
-    return emojis[weather.toLowerCase()] || '🌤️';
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString();
+    const colors: { [key: number]: string } = { 1: 'red', 2: 'orange', 3: 'yellow', 4: 'lime', 5: 'green' };
+    return colors[mood] || 'gray';
   };
 
   const formatDateForCard = (dateString: string) => {
-    const date = new Date(dateString);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    if (date.toDateString() === today.toDateString()) {
-      return 'Today';
-    } else if (date.toDateString() === yesterday.toDateString()) {
-      return 'Yesterday';
-    } else {
-      return date.toLocaleDateString('en-US', { 
-        month: 'short', 
-        day: 'numeric',
-        year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined
-      });
+    try {
+      const date = parseISO(dateString);
+      return {
+        day: format(date, 'd'),
+        month: format(date, 'MMM'),
+        weekday: format(date, 'EEEE'),
+      };
+    } catch (error) {
+      return { day: '?', month: '???', weekday: 'Error' };
     }
-  };
-
-  const handleMonthChange = (date: Date) => {
-    store.setYear(date.getFullYear());
-    store.setMonth(date.getMonth() + 1);
   };
 
   const renderDay = (date: Date) => {
@@ -460,7 +411,6 @@ export function DiaryPage() {
           {dayData.mood && (
             <Text size="xs">{getMoodEmoji(dayData.mood)}</Text>
           )}
-          {/* Media count not available in calendar data */}
         </Stack>
       </Center>
     );
@@ -481,356 +431,39 @@ export function DiaryPage() {
   };
 
   useEffect(() => {
-    store.setSearchQuery(debouncedTitleSearch);
-  }, [debouncedTitleSearch, store.setSearchQuery]);
-
-  // Filters count calculation removed for now
-
-  useEffect(() => {
     if (unlockModalOpen && !passwordHint) {
       loadPasswordHint();
     }
   }, [unlockModalOpen]);
 
-  // Add encryption setup modal
-  const EncryptionSetupModal = () => (
-    <Modal
-      opened={encryptionModalOpen}
-      onClose={() => setEncryptionModalOpen(false)}
-      title="Setup Diary Encryption"
-      size="sm"
-    >
-      <Stack>
-        <Text size="sm">
-          Your diary entries will be encrypted for privacy. Please set a strong password.
-        </Text>
-        <PasswordInput
-          label="Encryption Password"
-          placeholder="Enter a strong password"
-          value={encryptionPassword}
-          onChange={(e) => setEncryptionPassword(e.target.value)}
-          required
-        />
-        <TextInput
-          label="Password Hint (Optional)"
-          placeholder="Enter a hint to help remember your password"
-          value={passwordHint}
-          onChange={(e) => setPasswordHint(e.target.value)}
-        />
-        <Button
-          onClick={handleSetupEncryption}
-          loading={store.isLoading}
-          disabled={!encryptionPassword}
-        >
-          Setup Encryption
-        </Button>
-      </Stack>
-    </Modal>
-  );
-
-  // Add unlock modal
-  const UnlockModal = () => (
-    <Modal
-      opened={unlockModalOpen}
-      onClose={() => setUnlockModalOpen(false)}
-      title="Unlock Diary"
-      size="sm"
-      closeOnClickOutside={false}
-      closeOnEscape={false}
-      withCloseButton={false}
-    >
-      <Stack>
-        <Text size="sm">
-          Enter your encryption password to unlock your diary.
-        </Text>
-        <PasswordInput
-          label="Password"
-          placeholder="Enter your encryption password"
-          value={encryptionPassword}
-          onChange={(e) => setEncryptionPassword(e.target.value)}
-          required
-        />
-        {showPasswordHint && (
-          <Alert color="blue" title="Password Hint">
-            {passwordHint}
-          </Alert>
-        )}
-        <Group>
-          <Button
-            onClick={handleUnlockSession}
-            loading={store.isLoading}
-            disabled={!encryptionPassword}
-          >
-            Unlock
-          </Button>
-          <Button
-            variant="subtle"
-            onClick={() => {
-              if (!passwordHint) {
-                loadPasswordHint();
-              }
-              setShowPasswordHint(true);
-            }}
-          >
-            Show Hint
-          </Button>
-        </Group>
-      </Stack>
-    </Modal>
-  );
-
-  // Add encryption status indicator
-  const EncryptionStatus = () => (
-    <Group gap="xs">
-      {store.isUnlocked ? (
-        <>
-          <Tooltip label="Diary is unlocked">
-            <ActionIcon color="green" variant="light">
-              <IconLockOpen size={16} />
-            </ActionIcon>
-          </Tooltip>
-          <Text size="sm" c="dimmed">
-            Unlocked
-          </Text>
-          <Button
-            size="xs"
-            variant="light"
-            color="orange"
-            leftSection={<IconLock size={14} />}
-            onClick={() => {
-              store.lockSession();
-              notifications.show({
-                title: 'Diary Locked',
-                message: 'Your diary has been locked for security',
-                color: 'orange',
-              });
-            }}
-          >
-            Lock
-          </Button>
-        </>
-      ) : (
-        <>
-          <Tooltip label="Diary is locked">
-            <ActionIcon color="red" variant="light">
-              <IconLock size={16} />
-            </ActionIcon>
-          </Tooltip>
-          <Text size="sm" c="dimmed">
-            Locked
-          </Text>
-        </>
-      )}
-    </Group>
-  );
-
-  // Show loading during initialization
-  if (store.isLoading && !store.isEncryptionSetup && !store.isUnlocked) {
-    return (
-      <Container size="md">
-        <Paper p="xl" radius="md" style={{ textAlign: 'center' }}>
-          <Loader size="lg" mx="auto" mb="md" />
-          <Text c="dimmed">Initializing diary...</Text>
-        </Paper>
-      </Container>
-    );
-  }
-
-  if (!store.isEncryptionSetup) {
-    return (
-      <Container size="md">
-        <Paper p="xl" radius="md" style={{ textAlign: 'center' }}>
-          <ThemeIcon size="xl" variant="light" color="purple" mx="auto" mb="md">
-            <IconLock size={32} />
-          </ThemeIcon>
-          <Title order={2} mb="xs">Secure Diary Setup</Title>
-          <Text c="dimmed" mb="lg">
-            Your diary entries are encrypted for maximum privacy. Please set up your encryption password.
-          </Text>
-          <Button
-            leftSection={<IconLock size={16} />}
-            onClick={() => setEncryptionModalOpen(true)}
-            size="lg"
-          >
-            Setup Encryption
-          </Button>
-        </Paper>
-
-        <Modal
-          opened={encryptionModalOpen}
-          onClose={() => setEncryptionModalOpen(false)}
-          title="Setup Diary Encryption"
-          size="md"
-        >
-          <Stack gap="md">
-            <Alert color="blue" variant="light">
-              <Text size="sm">
-                Choose a strong password for encrypting your diary entries. 
-                This password cannot be recovered if lost.
-              </Text>
-            </Alert>
-            
-            {store.error && (
-              <Alert color="red" variant="light" title="Error">
-                {store.error}
-              </Alert>
-            )}
-            
-            <TextInput
-              label="Encryption Password"
-              type="password"
-              placeholder="Enter a strong password"
-              value={encryptionPassword}
-              onChange={(e) => setEncryptionPassword(e.currentTarget.value)}
-              required
-            />
-
-            <TextInput
-              label="Password Hint (Optional)"
-              placeholder="Enter a hint to help you remember your password"
-              value={passwordHint || ''}
-              onChange={(e) => setPasswordHint(e.currentTarget.value)}
-            />
-            
-            <Group justify="flex-end">
-              <Button
-                variant="subtle"
-                onClick={() => {
-                  setEncryptionModalOpen(false);
-                  setEncryptionPassword('');
-                  setPasswordHint('');
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSetupEncryption}
-                disabled={!encryptionPassword.trim()}
-              >
-                Setup Encryption
-              </Button>
-            </Group>
-          </Stack>
-        </Modal>
-      </Container>
-    );
-  }
-
-  if (!store.isUnlocked) {
-    return (
-        <Container size="md">
-            <Modal
-              opened={unlockModalOpen}
-              onClose={() => { /* Disallow closing */ }}
-              title="Unlock Diary"
-              size="md"
-              withCloseButton={false}
-              centered
-            >
-              <Stack gap="md">
-                <Alert color="blue" variant="light">
-                  <Text size="sm">
-                    Your diary is locked. Please enter your password to unlock it for this session.
-                  </Text>
-                </Alert>
-
-                {store.error && (
-                  <Alert color="red" variant="light" title="Error">
-                    {store.error}
-                  </Alert>
-                )}
-                
-                {passwordHint && (
-                  <Alert color="yellow" variant="light" title="Password Hint">
-                    <Group justify="space-between" align="center">
-                      <Text size="sm" style={{ flex: 1 }}>
-                        {showPasswordHint ? passwordHint : "Click to show your password hint"}
-                      </Text>
-                      <Button 
-                        variant="subtle" 
-                        size="xs"
-                        onClick={() => setShowPasswordHint(!showPasswordHint)}
-                      >
-                        {showPasswordHint ? "Hide" : "Show"}
-                      </Button>
-                    </Group>
-                  </Alert>
-                )}
-                
-                <TextInput
-                  label="Encryption Password"
-                  type="password"
-                  placeholder="Enter your password"
-                  value={encryptionPassword}
-                  onChange={(e) => setEncryptionPassword(e.currentTarget.value)}
-                  required
-                />
-                
-                <Group justify="space-between">
-                  <Button
-                    variant="subtle"
-                    color="red"
-                    onClick={() => {
-                      if (window.confirm("Are you sure you want to clear encryption? This will reset your diary and you'll need to set up encryption again.")) {
-                        store.init();
-                      }
-                    }}
-                  >
-                    Reset Encryption
-                  </Button>
-                  <Button
-                    onClick={handleUnlockSession}
-                    disabled={!encryptionPassword.trim()}
-                  >
-                    Unlock
-                  </Button>
-                </Group>
-              </Stack>
-            </Modal>
-        </Container>
-    );
-  }
-
   return (
-    <Container size="xl" py="md">
-      <EncryptionSetupModal />
-      <UnlockModal />
-      
-      <Stack>
+    <Container size="xl" py="lg">
+      <Stack gap="xl">
         <Group justify="space-between">
           <Group>
-            <ThemeIcon size="lg" variant="light" color="blue">
-              <IconBook size={24} />
-            </ThemeIcon>
+            <IconBook size={28} />
             <Title order={2}>Diary</Title>
           </Group>
           <Group>
-            <EncryptionStatus />
+            <EncryptionStatus 
+              isUnlocked={store.isUnlocked}
+              onLock={store.lockSession}
+              onUnlock={() => setUnlockModalOpen(true)}
+            />
             {store.isUnlocked && (
               <Button
                 leftSection={<IconPlus size={16} />}
-                onClick={() => setModalOpen(true)}
+                onClick={() => {
+                  form.reset();
+                  setViewMode('edit');
+                  setModalOpen(true);
+                }}
               >
                 New Entry
               </Button>
             )}
           </Group>
         </Group>
-
-        {!store.isEncryptionSetup && (
-          <Alert
-            color="blue"
-            title="Welcome to Your Diary"
-            icon={<IconLock size={16} />}
-          >
-            <Text mb="sm">
-              Your diary entries will be encrypted for privacy. Click below to set up encryption.
-            </Text>
-            <Button onClick={() => setEncryptionModalOpen(true)}>
-              Setup Encryption
-            </Button>
-          </Alert>
-        )}
 
         {store.isLoading ? (
           <Center py="xl">
@@ -859,112 +492,156 @@ export function DiaryPage() {
                   />
                 </Card>
               </Grid.Col>
+              
               <Grid.Col span={{ base: 12, md: 8 }}>
-                <Card withBorder>
-                  <Group justify="space-between" mb="md">
-                    <Title order={3}>Entries</Title>
-                    <Group>
-                      <Select
-                        value={sortField}
-                        onChange={(value) => setSortField(value as SortField)}
-                        data={[
-                          { value: 'date', label: 'Date' },
-                          { value: 'created_at', label: 'Created' },
-                          { value: 'mood', label: 'Mood' },
-                        ]}
-                      />
-                      <ActionIcon
-                        variant="light"
-                        onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                      >
-                        {sortOrder === 'asc' ? <IconSortAscending size={16} /> : <IconSortDescending size={16} />}
-                      </ActionIcon>
-                    </Group>
+                <Stack>
+                  <Group justify="space-between">
+                    <TextInput
+                      style={{ flex: 1 }}
+                      placeholder="Search by title..."
+                      value={store.searchQuery}
+                      onChange={(event) => store.setSearchQuery(event.currentTarget.value)}
+                      rightSection={store.isLoading ? <Loader size="xs" /> : null}
+                    />
                   </Group>
 
-                  {/* Entry List */}
-                  <Stack>
-                    {paginatedEntries.map((entry) => (
-                      <Card key={entry.id} withBorder>
-                        <Group justify="space-between">
-                          <Stack gap="xs">
-                            <Group>
-                              <Text fw={500}>{entry.title || formatDate(entry.date)}</Text>
-                              {entry.mood && (
-                                <Badge color={getMoodColor(entry.mood)}>
-                                  {getMoodEmoji(entry.mood)} {getMoodLabel(entry.mood)}
-                                </Badge>
-                              )}
-                              {entry.media_count > 0 && (
-                                <Badge variant="light" color="orange">
-                                  📎 {entry.media_count}
-                                </Badge>
-                              )}
+                  {paginatedEntries.length > 0 ? (
+                    <Grid>
+                      {paginatedEntries.map((entry) => (
+                        <Grid.Col span={{ base: 12, sm: 6, lg: 4 }} key={entry.uuid}>
+                          <Card withBorder radius="md" p={0}>
+                            <Group wrap="nowrap" gap={0}>
+                              <Paper bg={getMoodColor(entry.mood || 3)} p="md" radius={0}>
+                                <Stack align="center" gap="xs">
+                                  <Text size="xs" c="white">{formatDateForCard(entry.date).month}</Text>
+                                  <Title order={3} c="white">{formatDateForCard(entry.date).day}</Title>
+                                </Stack>
+                              </Paper>
+                              <Stack p="md" gap="xs" style={{ flex: 1 }}>
+                                <Group justify="space-between">
+                                  <Text fw={500} truncate>{entry.title}</Text>
+                                  <Menu shadow="md" width={200}>
+                                    <Menu.Target>
+                                      <ActionIcon variant="subtle">
+                                        <IconDots />
+                                      </ActionIcon>
+                                    </Menu.Target>
+                                    <Menu.Dropdown>
+                                      <Menu.Item 
+                                        leftSection={<IconEye size={14} />} 
+                                        onClick={() => handleViewEntry(entry)}
+                                      >
+                                        View/Edit
+                                      </Menu.Item>
+                                      <Menu.Item 
+                                        color="red" 
+                                        leftSection={<IconTrash size={14} />} 
+                                        onClick={() => handleDelete(entry.uuid)}
+                                      >
+                                        Delete
+                                      </Menu.Item>
+                                    </Menu.Dropdown>
+                                  </Menu>
+                                </Group>
+                                <Text size="sm" c="dimmed">
+                                  Mood: {getMoodEmoji(entry.mood || 3)}
+                                </Text>
+                                <Text size="xs" c="dimmed">
+                                  Updated: {formatDateTime(entry.updated_at)}
+                                </Text>
+                              </Stack>
                             </Group>
-                            {entry.tags && entry.tags.length > 0 && (
-                              <Group gap="xs">
-                                {entry.tags.map((tag) => (
-                                  <Badge key={tag} variant="outline" size="sm" color="gray">
-                                    {tag}
-                                  </Badge>
-                                ))}
-                              </Group>
-                            )}
-                            <WellnessBadges metadata={entry.metadata} compact={true} />
-                          </Stack>
-                          <Group>
-                            <Menu>
-                              <Menu.Target>
-                                <ActionIcon variant="light">
-                                  <IconDots size={16} />
-                                </ActionIcon>
-                              </Menu.Target>
-                              <Menu.Dropdown>
-                                <Menu.Item
-                                  leftSection={<IconEye size={16} />}
-                                  onClick={() => handleViewEntry(entry)}
-                                >
-                                  View
-                                </Menu.Item>
-                                <Menu.Item
-                                  leftSection={<IconEdit size={16} />}
-                                  onClick={() => handleEditEntry(entry)}
-                                >
-                                  Edit
-                                </Menu.Item>
-                                <Menu.Item
-                                  leftSection={<IconTrash size={16} />}
-                                  color="red"
-                                  onClick={() => handleDelete(entry.id)}
-                                >
-                                  Delete
-                                </Menu.Item>
-                              </Menu.Dropdown>
-                            </Menu>
-                          </Group>
-                        </Group>
-                      </Card>
-                    ))}
-                  </Stack>
-
-                  {/* Pagination */}
+                          </Card>
+                        </Grid.Col>
+                      ))}
+                    </Grid>
+                  ) : (
+                    <Center py="xl">
+                      <Text>No diary entries found.</Text>
+                    </Center>
+                  )}
+                  
                   {totalPages > 1 && (
                     <Group justify="center" mt="md">
                       <Pagination
+                        total={totalPages}
                         value={currentPage}
                         onChange={setCurrentPage}
-                        total={totalPages}
                       />
                     </Group>
                   )}
-                </Card>
+                </Stack>
               </Grid.Col>
             </Grid>
           </>
-        ) : null}
+        ) : (
+          <Alert color="blue" title="Diary Locked" icon={<IconLock size={16} />}>
+            <Text>Your diary is encrypted and locked. Please unlock it to view your entries.</Text>
+            <Button mt="md" onClick={() => setUnlockModalOpen(true)}>
+              Unlock Diary
+            </Button>
+          </Alert>
+        )}
       </Stack>
 
-      {/* Entry Modal */}
+      {/* Delete Confirmation Modal */}
+      <Modal
+        opened={deleteConfirmModalOpen}
+        onClose={() => setDeleteConfirmModalOpen(false)}
+        title="Confirm Deletion"
+        size="sm"
+        centered
+      >
+        <Stack>
+          <Text>Are you sure you want to delete this entry? This action cannot be undone.</Text>
+          <Group justify="flex-end">
+            <Button variant="light" onClick={() => setDeleteConfirmModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button color="red" onClick={confirmDelete}>
+              Delete
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+      <Modal
+        opened={unlockModalOpen}
+        onClose={() => setUnlockModalOpen(false)}
+        title="Unlock Diary"
+        size="sm"
+      >
+        <Stack>
+          <Text size="sm">
+            Enter your encryption password to unlock your diary.
+          </Text>
+          <PasswordInput
+            label="Password"
+            placeholder="Enter your password"
+            value={encryptionPassword}
+            onChange={(e) => setEncryptionPassword(e.target.value)}
+            required
+          />
+          {passwordHint && (
+            <Text size="xs" c="dimmed">
+              Hint: {passwordHint}
+            </Text>
+          )}
+          {!showPasswordHint && (
+            <Button variant="subtle" size="xs" onClick={() => setShowPasswordHint(true)}>
+              Show password hint
+            </Button>
+          )}
+          <Button
+            onClick={handleUnlockSession}
+            loading={store.isLoading}
+            disabled={!encryptionPassword}
+          >
+            Unlock
+          </Button>
+        </Stack>
+      </Modal>
+
+      {/* Entry Modal - Only for editing/creating entries */}
       <Modal
         opened={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -1007,171 +684,6 @@ export function DiaryPage() {
               </Group>
             </Stack>
 
-            <Divider label="Wellness Tracking" labelPosition="center" />
-            
-            {/* Daily Habits - Checkboxes */}
-            <Stack gap="xs">
-              <Text size="sm" fw={500}>Daily Habits</Text>
-              <Grid>
-                <Grid.Col span={6}>
-                  <Checkbox
-                    label="💪 Exercise"
-                    checked={form.values.metadata.did_exercise || false}
-                    onChange={(event) => 
-                      form.setFieldValue('metadata.did_exercise', event.currentTarget.checked)
-                    }
-                  />
-                </Grid.Col>
-                <Grid.Col span={6}>
-                  <Checkbox
-                    label="🧘 Meditation"
-                    checked={form.values.metadata.did_meditation || false}
-                    onChange={(event) => 
-                      form.setFieldValue('metadata.did_meditation', event.currentTarget.checked)
-                    }
-                  />
-                </Grid.Col>
-                <Grid.Col span={6}>
-                  <Checkbox
-                    label="👥 Social Interaction"
-                    checked={form.values.metadata.social_interaction || false}
-                    onChange={(event) => 
-                      form.setFieldValue('metadata.social_interaction', event.currentTarget.checked)
-                    }
-                  />
-                </Grid.Col>
-                <Grid.Col span={6}>
-                  <Checkbox
-                    label="🙏 Gratitude Practice"
-                    checked={form.values.metadata.gratitude_practice || false}
-                    onChange={(event) => 
-                      form.setFieldValue('metadata.gratitude_practice', event.currentTarget.checked)
-                    }
-                  />
-                </Grid.Col>
-              </Grid>
-            </Stack>
-
-            {/* Time Tracking - Number Inputs */}
-            <Stack gap="xs">
-              <Text size="sm" fw={500}>Time & Activities</Text>
-              <Grid>
-                <Grid.Col span={6}>
-                  <NumberInput
-                    label="😴 Sleep Duration"
-                    placeholder="Hours"
-                    min={0}
-                    max={24}
-                    step={0.5}
-                    value={form.values.metadata.sleep_duration || 8}
-                    onChange={(value) => 
-                      form.setFieldValue('metadata.sleep_duration', Number(value) || 8)
-                    }
-                    suffix=" hrs"
-                  />
-                </Grid.Col>
-                <Grid.Col span={6}>
-                  <NumberInput
-                    label="📱 Screen Time"
-                    placeholder="Hours"
-                    min={0}
-                    max={24}
-                    step={0.5}
-                    value={form.values.metadata.screen_time || 0}
-                    onChange={(value) => 
-                      form.setFieldValue('metadata.screen_time', Number(value) || 0)
-                    }
-                    suffix=" hrs"
-                  />
-                </Grid.Col>
-                <Grid.Col span={6}>
-                  <NumberInput
-                    label="🌿 Time Outside"
-                    placeholder="Minutes"
-                    min={0}
-                    max={1440}
-                    step={15}
-                    value={form.values.metadata.time_outside || 0}
-                    onChange={(value) => 
-                      form.setFieldValue('metadata.time_outside', Number(value) || 0)
-                    }
-                    suffix=" min"
-                  />
-                </Grid.Col>
-                <Grid.Col span={6}>
-                  <NumberInput
-                    label="📚 Reading Time"
-                    placeholder="Minutes"
-                    min={0}
-                    max={1440}
-                    step={5}
-                    value={form.values.metadata.reading_time || 0}
-                    onChange={(value) => 
-                      form.setFieldValue('metadata.reading_time', Number(value) || 0)
-                    }
-                    suffix=" min"
-                  />
-                </Grid.Col>
-              </Grid>
-            </Stack>
-
-            {/* Health Metrics */}
-            <Stack gap="xs">
-              <Text size="sm" fw={500}>Health & Wellness</Text>
-              <Grid>
-                <Grid.Col span={6}>
-                  <NumberInput
-                    label="💧 Water Intake"
-                    placeholder="Glasses"
-                    min={0}
-                    max={20}
-                    step={1}
-                    value={form.values.metadata.water_intake || 8}
-                    onChange={(value) => 
-                      form.setFieldValue('metadata.water_intake', Number(value) || 8)
-                    }
-                    suffix=" glasses"
-                  />
-                </Grid.Col>
-                <Grid.Col span={6}>
-                  <Stack gap={4}>
-                    <Text size="sm">⚡ Energy Level</Text>
-                    <Group>
-                      <Rating
-                        value={form.values.metadata.energy_level || 3}
-                        onChange={(value) => 
-                          form.setFieldValue('metadata.energy_level', value)
-                        }
-                        color="yellow"
-                      />
-                      <Text size="xs" c="dimmed">
-                        {form.values.metadata.energy_level || 3}/5
-                      </Text>
-                    </Group>
-                  </Stack>
-                </Grid.Col>
-              </Grid>
-              <Grid>
-                <Grid.Col span={6}>
-                  <Stack gap={4}>
-                    <Text size="sm">😰 Stress Level</Text>
-                    <Group>
-                      <Rating
-                        value={form.values.metadata.stress_level || 3}
-                        onChange={(value) => 
-                          form.setFieldValue('metadata.stress_level', value)
-                        }
-                        color="red"
-                      />
-                      <Text size="xs" c="dimmed">
-                        {form.values.metadata.stress_level || 3}/5
-                      </Text>
-                    </Group>
-                  </Stack>
-                </Grid.Col>
-              </Grid>
-            </Stack>
-
             <Group justify="flex-end">
               <Button variant="light" onClick={() => setModalOpen(false)}>
                 Cancel
@@ -1185,4 +697,4 @@ export function DiaryPage() {
       </Modal>
     </Container>
   );
-} 
+}

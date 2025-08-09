@@ -22,8 +22,9 @@ export interface DiaryMetadata {
 }
 
 export interface DiaryEntry {
-  id: number;
+  uuid: string;
   date: string;
+  nepali_date?: string;
   title?: string;
   content: string;
   encrypted_blob: string;
@@ -38,8 +39,9 @@ export interface DiaryEntry {
 }
 
 export interface DiaryEntrySummary {
-  id: number;
+  uuid: string;
   date: string;
+  nepali_date?: string;
   title?: string;
   encrypted_blob: string;
   encryption_iv: string;
@@ -47,12 +49,13 @@ export interface DiaryEntrySummary {
   mood?: number;
   metadata: DiaryMetadata;
   created_at: string;
+  updated_at: string;
   media_count: number;
   tags: string[];
 }
 
 export interface DiaryFormValues {
-  id: number | null;
+  uuid: string | null;
   date: Date;
   title: string;
   content: string;
@@ -63,23 +66,25 @@ export interface DiaryFormValues {
 
 export interface DiaryEntryCreatePayload {
   date: string;
-  title: string;
+  nepali_date?: string;
+  title?: string;
   encrypted_blob: string;
   encryption_iv: string;
   encryption_tag: string;
-  mood: number;
-  metadata: DiaryMetadata;
-  tags: string[];
+  mood?: number;
+  metadata?: DiaryMetadata;
+  tags?: string[];
 }
 
 export interface DiaryEntryUpdatePayload extends DiaryEntryCreatePayload {
-  id: number;
+  uuid: string;
 }
 
 export interface DiaryCalendarData {
   date: string;
   has_entry: boolean;
   mood?: number;
+  media_count: number;
 }
 
 export interface MoodStats {

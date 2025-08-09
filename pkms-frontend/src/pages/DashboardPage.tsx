@@ -147,7 +147,7 @@ export function DashboardPage() {
     if (!hasLoaded) {
       loadDashboardData();
     }
-  }, [hasLoaded]);
+  }, []);
 
   useEffect(() => {
     const handler = () => {

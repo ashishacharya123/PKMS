@@ -736,11 +736,14 @@ export function TodosPage() {
             onChange={(e) => setTodoForm({ ...todoForm, due_date: e.currentTarget.value })}
           />
           
-          <TextInput
-            label="Tags (comma separated)"
-            placeholder="work, important, urgent"
-            value={todoForm.tags}
-            onChange={(e) => setTodoForm({ ...todoForm, tags: e.currentTarget.value })}
+          <TagsInput
+            label="Tags"
+            placeholder="Type and press Enter to add tags"
+            value={todoForm.tags ? todoForm.tags.split(',').map(t => t.trim()).filter(Boolean) : []}
+            onChange={(value) => setTodoForm({ ...todoForm, tags: value.join(', ') })}
+            splitChars={[',', ' ']}
+            clearable
+            description="Add multiple tags separated by comma or space"
           />
           
           <Group justify="flex-end">

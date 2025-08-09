@@ -1,0 +1,346 @@
+PKMS Troubleshooting Guide
+=========================
+
+## Quick Navigation
+- Database Access: #database-access
+- User Management: #user-management  
+- Authentication Testing: #authentication-testing
+- Container Operations: #container-operations
+- Common Issues: #common-issues
+
+## Database Access Commands
+
+### Current Working Directory
+**IMPORTANT**: Run these commands from the PKMS project root directory:
+```bash
+cd /d/Coding/PKMS
+```
+
+### Check Which Database is Being Used
+**Docker Volume Database (ACTUAL working database):**
+```bash
+# Check users in the actual Docker volume database
+curl "http://localhost:8000/api/v1/testing/check-users"
+
+# Expected output for existing user:
+# {"status":"users_found","user_count":1,"first_user":{"id":1,"username":"Ashish","created_at":"2025-07-12T11:10:04"},"timestamp":"2025-07-15T20:52:28.982485+05:45"}
+```
+
+**Local Database (NOT used by Docker backend):**
+```bash
+# This is NOT the database the backend uses:
+ls -la PKMS_Data/pkm_metadata.db
+```
+
+### Database Existence Check
+```bash
+# Check if backend can access its database
+curl "http://localhost:8000/health"
+
+# Check database tables and status
+curl "http://localhost:8000/api/v1/testing/database/stats" -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### User Management Commands
+
+#### Check if Users Exist
+```bash
+# Quick user check (no auth needed)
+curl "http://localhost:8000/api/v1/testing/check-users"
+```
+
+#### Create New User (First Time Setup)
+```bash
+curl -X POST "http://localhost:8000/api/v1/auth/setup" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "your_username",
+    "password": "your_password",
+    "email": "your_email@example.com",
+    "recovery_questions": ["What is your favorite color?", "What city were you born in?"],
+    "recovery_answers": ["blue", "kathmandu"]
+  }'
+```
+
+#### Delete All Users (Fresh Start)
+```bash
+# Run from project root
+python scripts/reset_user.py
+```
+
+## Authentication Testing
+
+### Test Login with Correct Credentials
+```bash
+# Replace "Ashish" and "your_password" with actual credentials
+curl -X POST "http://localhost:8000/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "Ashish", "password": "your_password"}'
+
+# Successful response will include:
+# {"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...","token_type":"bearer","expires_in":1800,"user_id":1,"username":"Ashish"}
+```
+
+### Test Protected Endpoint
+```bash
+# Use the access_token from login response
+curl "http://localhost:8000/api/v1/auth/me" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN_HERE"
+```
+
+### Get Password Hint
+```bash
+curl -X POST "http://localhost:8000/api/v1/auth/login-password-hint" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "Ashish"}'
+```
+
+## Container Operations
+
+### Check Container Status
+```bash
+# Check if containers are running
+docker ps | grep pkms
+
+# Check container health
+docker-compose ps
+```
+
+### Container Logs
+```bash
+# Backend logs
+docker-compose logs pkms-backend
+
+# Live log monitoring
+docker-compose logs -f pkms-backend
+```
+
+### Restart Services
+```bash
+# Restart all services
+docker-compose restart
+
+# Restart only backend
+docker-compose restart pkms-backend
+```
+
+### Access Container Shell
+```bash
+# Access backend container
+docker exec -it pkms-backend bash
+
+# Inside container, check database path
+ls -la /app/data/
+```
+
+## Database Volume Operations
+
+### Backup Docker Volume Database
+```bash
+# Create backup of the actual working database
+docker run --rm \
+  -v pkms_db_data:/source \
+  -v "$(pwd)/PKMS_Data/backups":/backup \
+  alpine sh -c "cp /source/pkm_metadata.db /backup/manual_backup_$(date +%Y%m%d_%H%M%S).db"
+```
+
+### Delete Docker Volume (Nuclear Option)
+```bash
+# DANGER: This deletes the entire database!
+docker-compose down
+
+# Check current volume name first
+docker volume ls | grep pkms
+
+# Delete the correct database volume (name may vary)
+docker volume rm pkms_pkms_db_data   # Current correct volume name
+# OR if different naming:
+# docker volume rm pkms_db_data
+
+docker-compose up -d
+# This creates a fresh, empty database with latest schema
+```
+
+### Restore from Backup
+```bash
+# Stop services
+docker-compose down
+
+# Restore from backup file
+docker run --rm \
+  -v pkms_db_data:/target \
+  -v "$(pwd)/PKMS_Data/backups":/source \
+  alpine sh -c "cp /source/your_backup_file.db /target/pkm_metadata.db"
+
+# Start services
+docker-compose up -d
+```
+
+## Frontend Debugging
+
+### Check Frontend Connection
+```bash
+# Test if frontend can reach backend
+curl "http://localhost:3000" 
+curl "http://localhost:8000/health"
+```
+
+### Browser Console Debugging
+1. Open browser dev tools (F12)
+2. Go to Console tab
+3. Try logging in
+4. Look for error messages or failed network requests
+5. Check Network tab for failed API calls
+
+### Clear Frontend Cache
+```bash
+# Clear browser storage
+# In browser console:
+localStorage.clear();
+sessionStorage.clear();
+location.reload();
+```
+
+## Common Issues & Solutions
+
+### "No users found" Error
+**Solution**: Create a user account first:
+```bash
+curl -X POST "http://localhost:8000/api/v1/auth/setup" -H "Content-Type: application/json" -d '{"username":"admin","password":"admin123","recovery_questions":["test?"],"recovery_answers":["test"]}'
+```
+
+### "Invalid username or password"
+**Check**: Case sensitivity (e.g., "ashish" vs "Ashish")
+```bash
+curl "http://localhost:8000/api/v1/testing/check-users"
+```
+
+### Frontend Can't Login (Backend Works)
+**Debug steps**:
+1. Check browser console for errors
+2. Check Network tab for failed requests
+3. Clear browser cache/localStorage
+4. Restart frontend dev server
+
+### "Database locked" or I/O Errors
+**Solution**: The database is in Docker volume, should not happen
+**Check**: Ensure using Docker volume, not bind mount
+
+### Backend Won't Start
+```bash
+# Check logs
+docker-compose logs pkms-backend
+
+# Restart services
+docker-compose down && docker-compose up -d
+```
+
+### Port Already in Use
+```bash
+# Kill processes on ports
+npx kill-port 3000
+npx kill-port 8000
+
+# Or restart Docker
+docker-compose down && docker-compose up -d
+```
+
+## Quick Health Check Sequence
+```bash
+# Run these in order to verify everything is working:
+
+# 1. Check Docker containers
+docker-compose ps
+
+# 2. Check backend health
+curl "http://localhost:8000/health"
+
+# 3. Check if users exist
+curl "http://localhost:8000/api/v1/testing/check-users"
+
+# 4. Test login (replace credentials)
+curl -X POST "http://localhost:8000/api/v1/auth/login" -H "Content-Type: application/json" -d '{"username": "Ashish", "password": "your_password"}'
+
+# 5. Check frontend
+curl "http://localhost:3000"
+```
+
+## Database Management Guide
+
+### Understanding Database Locations
+**IMPORTANT**: PKMS uses TWO different database configurations:
+
+1. **Docker Volume Database (PRODUCTION)** - Used by Docker backend
+   - Location: Docker volume `pkms_pkms_db_data`
+   - Path inside container: `/app/data/pkm_metadata.db`
+   - This is the ACTIVE database that the backend uses
+
+2. **Local File Database (DEVELOPMENT/BACKUP)** - Local filesystem
+   - Location: `PKMS_Data/pkm_metadata.db` (project root)
+   - Used for backups and local development
+   - NOT used by Docker backend
+
+### Complete Database Reset (Nuclear Option)
+```bash
+# 1. Stop all services
+docker-compose down
+
+# 2. Check what volumes exist
+docker volume ls | grep pkms
+
+# 3. Delete database and cache volumes
+docker volume rm pkms_pkms_db_data pkms_redis_data
+# Note: Volume names may vary - check step 2 output
+
+# 4. Start services with fresh database
+docker-compose up -d
+
+# 5. Verify fresh start
+curl "http://localhost:8000/api/v1/testing/check-users"
+# Expected: {"status":"no_users_found", ...}
+
+# 6. Create new user account
+curl -X POST "http://localhost:8000/api/v1/auth/setup" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123","recovery_questions":["test?"],"recovery_answers":["test"]}'
+```
+
+### Partial Database Reset (Preserve Schema, Clear Data)
+```bash
+# If you want to keep schema but clear all user data
+docker exec -it pkms-backend bash
+sqlite3 /app/data/pkm_metadata.db << 'EOF'
+DELETE FROM users;
+DELETE FROM diary_entries;
+DELETE FROM diary_media;
+DELETE FROM notes;
+DELETE FROM documents;
+DELETE FROM todos;
+DELETE FROM projects;
+DELETE FROM archive_folders;
+DELETE FROM archive_items;
+DELETE FROM tags;
+VACUUM;
+EOF
+exit
+```
+
+### Schema Migration After Code Changes
+```bash
+# When diary models change and you need fresh schema
+docker-compose down
+docker volume rm pkms_pkms_db_data  # Removes old schema
+docker-compose up -d                # Creates new schema from models
+```
+
+## Notes
+- **Database Location**: Docker backend uses volume `pkms_pkms_db_data` at `/app/data/pkm_metadata.db`
+- **Local PKMS_Data**: Used for file storage and backups, NOT the active database
+- **Volume Names**: May be `pkms_pkms_db_data` or `pkms_db_data` depending on docker-compose version
+- **Schema Updates**: Delete volume and restart to get latest schema from models
+- **Case Sensitivity**: Usernames are case-sensitive
+- **Token Expiry**: JWT tokens expire in 30 minutes
+- **Debug Endpoint**: `/api/v1/testing/check-users` doesn't require authentication
+- **After Database Reset**: Must create new user account before accessing protected endpoints 
+
+

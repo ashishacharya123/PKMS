@@ -10,7 +10,7 @@ import {
   Card,
   Title,
   Select,
-  MultiSelect,
+  TagsInput,
   ActionIcon,
   Tabs,
   Alert,
@@ -32,8 +32,9 @@ import {
   IconTrash
 } from '@tabler/icons-react';
 import MDEditor from '@uiw/react-md-editor';
-import { useNotesStore } from '../stores/notesStore';
 import { notifications } from '@mantine/notifications';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { notesService, Note } from '../services/notesService';
 
 export function NoteEditorPage() {
   const navigate = useNavigate();
@@ -42,50 +43,76 @@ export function NoteEditorPage() {
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [area, setArea] = useState('Inbox');
   const [tags, setTags] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
+  const queryClient = useQueryClient();
+
   const {
-    currentNote,
-    areas,
+    data: currentNote,
     isLoading,
     error,
-    loadNote,
-    loadAreas,
-    createNote,
-    updateNote,
-    clearCurrentNote,
-    clearError
-  } = useNotesStore();
+  } = useQuery<Note, Error>({
+    queryKey: ['note', id],
+    queryFn: () => notesService.getNote(parseInt(id!)),
+    enabled: isEditing && id !== undefined,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    cacheTime: 30 * 60 * 1000, // 30 minutes
+  });
 
-  useEffect(() => {
-    loadAreas();
-    
-    if (isEditing) {
-      loadNote(parseInt(id!));
-    } else {
-      clearCurrentNote();
-      // Set defaults for new note
-      setTitle('');
-      setContent('');
-      setArea('Inbox');
-      setTags([]);
+  const createNoteMutation = useMutation({
+    mutationFn: notesService.createNote,
+    onSuccess: (newNote) => {
+      queryClient.invalidateQueries({ queryKey: ['notes'] });
+      notifications.show({
+        title: 'Note Created',
+        message: 'Your note has been created successfully',
+        color: 'green'
+      });
+      navigate(`/notes/${newNote.id}`);
+    },
+    onError: () => {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to create note. Please try again.',
+        color: 'red'
+      });
     }
+  });
 
-    return () => {
-      clearCurrentNote();
-    };
-  }, [id, isEditing, loadNote, loadAreas, clearCurrentNote]);
+  const updateNoteMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Parameters<typeof notesService.updateNote>[1] }) => notesService.updateNote(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['note', id] });
+      queryClient.invalidateQueries({ queryKey: ['notes'] });
+      notifications.show({
+        title: 'Note Updated',
+        message: 'Your note has been saved successfully',
+        color: 'green'
+      });
+      setHasUnsavedChanges(false);
+    },
+    onError: () => {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to update note. Please try again.',
+        color: 'red'
+      });
+    }
+  });
 
   useEffect(() => {
-    if (currentNote && isEditing) {
+    if (isEditing && currentNote) {
       setTitle(currentNote.title);
       setContent(currentNote.content);
-      setArea(currentNote.area);
       setTags(currentNote.tags);
       setHasUnsavedChanges(false);
+    } else if (!isEditing) {
+      setTitle('');
+      setContent('');
+      setTags([]);
+      setHasUnsavedChanges(false); // Reset for new note
     }
   }, [currentNote, isEditing]);
 
@@ -95,14 +122,13 @@ export function NoteEditorPage() {
       const hasChanges = 
         title !== currentNote.title ||
         content !== currentNote.content ||
-        area !== currentNote.area ||
         JSON.stringify(tags.sort()) !== JSON.stringify(currentNote.tags.sort());
       setHasUnsavedChanges(hasChanges);
     } else if (!isEditing) {
       const hasChanges = title.trim() !== '' || content.trim() !== '';
       setHasUnsavedChanges(hasChanges);
     }
-  }, [title, content, area, tags, currentNote, isEditing]);
+  }, [title, content, tags, currentNote, isEditing]);
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -116,41 +142,18 @@ export function NoteEditorPage() {
 
     setIsSaving(true);
 
-    try {
-      const noteData = {
-        title: title.trim(),
-        content: content.trim(),
-        area,
-        tags
-      };
+    const noteData = {
+      title: title.trim(),
+      content: content.trim(),
+      tags
+    };
 
+    try {
       if (isEditing) {
-        const updated = await updateNote(parseInt(id!), noteData);
-        if (updated) {
-          notifications.show({
-            title: 'Note Updated',
-            message: 'Your note has been saved successfully',
-            color: 'green'
-          });
-          setHasUnsavedChanges(false);
-        }
+        await updateNoteMutation.mutateAsync({ id: parseInt(id!), data: noteData });
       } else {
-        const created = await createNote(noteData);
-        if (created) {
-          notifications.show({
-            title: 'Note Created',
-            message: 'Your note has been created successfully',
-            color: 'green'
-          });
-          navigate(`/notes/${created.id}`);
-        }
+        await createNoteMutation.mutateAsync(noteData);
       }
-    } catch (error) {
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to save note. Please try again.',
-        color: 'red'
-      });
     } finally {
       setIsSaving(false);
     }
@@ -166,12 +169,7 @@ export function NoteEditorPage() {
     }
   };
 
-  const generateSlug = (text: string) => {
-    return text
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '');
-  };
+  
 
   if (isLoading && isEditing) {
     return (
@@ -201,8 +199,8 @@ export function NoteEditorPage() {
           variant="light"
         >
           <Group justify="space-between" align="center">
-            <Text>{error}</Text>
-            <Button size="xs" variant="light" onClick={() => { clearError(); navigate('/notes'); }}>
+            <Text>{error.message}</Text>
+            <Button size="xs" variant="light" onClick={() => { navigate('/notes'); }}>
               Back to Notes
             </Button>
           </Group>
@@ -290,41 +288,15 @@ export function NoteEditorPage() {
                     <IconFolder size={18} />
                     Metadata
                   </Group>
-                </Title>
-                
-                <Stack gap="sm">
-                  <Select
-                    label="Area"
-                    placeholder="Select area"
-                    data={(() => {
-                      // Default PARA method areas
-                      const defaultAreas = [
-                        { value: 'Inbox', label: 'Inbox' },
-                        { value: 'Projects', label: 'Projects' },
-                        { value: 'Areas', label: 'Areas' },
-                        { value: 'Resources', label: 'Resources' },
-                        { value: 'Archive', label: 'Archive' }
-                      ];
-                      
-                      // Additional areas from the database
-                      const additionalAreas = areas
-                        .filter(a => !defaultAreas.some(d => d.value === a.name))
-                        .map(a => ({ value: a.name, label: a.name }));
-                      
-                      return [...defaultAreas, ...additionalAreas];
-                    })()}
-                    value={area}
-                    onChange={(value) => setArea(value || 'Inbox')}
-                    searchable
-                  />
-
-                  <MultiSelect
+                </Title>                  <Stack gap="sm">
+                  <TagsInput
                     label="Tags"
-                    placeholder="Add tags"
-                    data={tags.map(tag => ({ value: tag, label: tag }))}
+                    placeholder="Type and press Enter to add tags"
                     value={tags}
                     onChange={setTags}
-                    searchable
+                    splitChars={[',', ' ']}
+                    clearable
+                    description="Add multiple tags separated by comma or space"
                   />
                 </Stack>
               </Card>
@@ -345,11 +317,6 @@ export function NoteEditorPage() {
                       <Text fw={600}>{title}</Text>
                     </div>
                   )}
-                  
-                  <div>
-                    <Text size="sm" c="dimmed" mb="xs">Area</Text>
-                    <Badge variant="light" color="blue">{area}</Badge>
-                  </div>
                   
                   {tags.length > 0 && (
                     <div>

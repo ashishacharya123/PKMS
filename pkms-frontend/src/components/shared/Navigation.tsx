@@ -32,6 +32,7 @@ import {
   IconKey,
 } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
+import dashboardService from '../../services/dashboardService';
 import { TestingInterface } from './TestingInterface';
 import { BackupRestoreModal } from './BackupRestoreModal';
 import RecoveryViewModal from '../auth/RecoveryViewModal';
@@ -271,7 +272,7 @@ export function Navigation({ collapsed = false }: NavigationProps) {
                         {user?.username || 'User'}
                       </Text>
                       <Text size="xs" c="dimmed">
-                        Active
+                        {user?.last_login ? `Last login: ${dashboardService.formatLastUpdated(user.last_login)}` : 'Active'}
                       </Text>
                     </div>
                     <IconChevronDown size={14} />
@@ -339,4 +340,4 @@ export function Navigation({ collapsed = false }: NavigationProps) {
       />
     </AppShell.Navbar>
   );
-} 
+}

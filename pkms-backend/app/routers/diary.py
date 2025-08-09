@@ -30,6 +30,7 @@ from app.utils.diary_encryption import write_encrypted_file, read_encrypted_head
 from app.models.tag import Tag
 from app.models.tag_associations import diary_tags
 from app.services.chunk_service import chunk_manager
+from app.services.fts_service import fts_service
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +190,7 @@ async def _handle_diary_tags(db: AsyncSession, entry: DiaryEntry, tag_names: Lis
         await db.execute(
             diary_tags.insert().values(
                 diary_entry_id=entry.id,
-                tag_id=tag.id
+                tag_uuid=tag.uuid
             )
         )
 
@@ -225,6 +226,7 @@ class EncryptionUnlockRequest(BaseModel):
 
 class DiaryEntryCreate(BaseModel):
     date: date
+    nepali_date: Optional[str] = None
     title: Optional[str] = Field(None, max_length=255)
     encrypted_blob: str
     encryption_iv: str
@@ -237,6 +239,7 @@ class DiaryEntryCreate(BaseModel):
 class DiaryEntryResponse(BaseModel):
     id: int
     date: date
+    nepali_date: Optional[str]
     title: Optional[str]
     encrypted_blob: str
     encryption_iv: str
@@ -261,6 +264,7 @@ class DiaryEntryResponse(BaseModel):
 class DiaryEntrySummary(BaseModel):
     id: int
     date: date
+    nepali_date: Optional[str]
     title: Optional[str]
     mood: Optional[int]
     is_template: bool
@@ -501,7 +505,9 @@ async def create_diary_entry(
         
         # Create initial entry with temporary path (we need the ID first)
         entry = DiaryEntry(
+            uuid=str(uuid_lib.uuid4()),
             date=datetime.combine(entry_data.date, datetime.min.time()),
+            nepali_date=entry_data.nepali_date,
             title=entry_data.title,
             day_of_week=day_of_week,
             media_count=0,  # New entry has no media yet
@@ -552,6 +558,7 @@ async def create_diary_entry(
         response = DiaryEntryResponse(
             id=entry.id,
             date=entry.date.date(),
+            nepali_date=entry.nepali_date,
             title=entry.title,
             encrypted_blob=entry_data.encrypted_blob,  # Return original for frontend compatibility
             encryption_iv=entry.encryption_iv,
@@ -589,6 +596,15 @@ async def list_diary_entries(
     db: AsyncSession = Depends(get_db)
 ):
     """List diary entries with filtering. Uses FTS5 for text search if search_title is provided."""
+    
+    # Check if diary is unlocked
+    diary_password = _get_diary_password_from_session(current_user.id)
+    if not diary_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Diary is locked. Please unlock diary first."
+        )
+    
     from sqlalchemy import text
     import json
     
@@ -601,31 +617,12 @@ async def list_diary_entries(
 
     summaries = []
     if search_title:
-        # Use FTS5 for full-text search (title, tags, metadata)
-        fts_query = text("""
-            SELECT id, bm25(fts_diary_entries) as rank
-            FROM fts_diary_entries
-            WHERE fts_diary_entries MATCH :query AND user_id = :user_id
-            ORDER BY rank
-            LIMIT :limit OFFSET :offset
-        """)
-        # Prepare FTS5 query string (case-insensitive, prefix match)
-        def prepare_fts_query(q: str) -> str:
-            # Escape special FTS5 chars, add * for prefix
-            import re
-            q = re.sub(r'[\"\'\^\*\:\(\)\-]', ' ', q)
-            return f'{q.strip()}*'
-        fts_search = prepare_fts_query(search_title)
-        result = await db.execute(fts_query, {
-            'query': fts_search,
-            'user_id': current_user.id,
-            'limit': limit,
-            'offset': offset
-        })
-        id_rank_pairs = result.fetchall()
-        if not id_rank_pairs:
+        # Use centralized FTS5 for full-text search (title, tags, metadata)
+        id_list = await fts_service.search_diary_entries(
+            db, search_title, current_user.id, limit=limit, offset=offset
+        )
+        if not id_list:
             return []
-        id_list = [row.id for row in id_rank_pairs]
         # Fetch full rows, preserving FTS5 order
         entry_query = (
             select(
@@ -673,6 +670,7 @@ async def list_diary_entries(
                 summary = DiaryEntrySummary(
                     id=r.id,
                     date=r.date.date() if isinstance(r.date, datetime) else r.date,
+                    nepali_date=r.nepali_date,
                     title=r.title,
                     mood=r.mood,
                     is_template=r.is_template,
@@ -729,6 +727,7 @@ async def list_diary_entries(
             summary = DiaryEntrySummary(
                 id=row.id,
                 date=row.date.date() if isinstance(row.date, datetime) else row.date,
+                nepali_date=row.nepali_date,
                 title=row.title,
                 mood=row.mood,
                 is_template=row.is_template,
@@ -768,6 +767,7 @@ async def get_diary_entries_by_date(
         res = DiaryEntryResponse(
             id=entry.id,
             date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
+            nepali_date=entry.nepali_date,
             title=entry.title,
             encrypted_blob=entry.encrypted_blob,
             encryption_iv=entry.encryption_iv,
@@ -873,6 +873,7 @@ async def get_diary_entry_by_id(
         response = DiaryEntryResponse(
             id=entry.id,
             date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
+            nepali_date=entry.nepali_date,
             title=entry.title,
             encrypted_blob=encrypted_blob,  # Read from file for API compatibility
             encryption_iv=entry.encryption_iv or "",
@@ -922,6 +923,7 @@ async def update_diary_entry(
         raise HTTPException(status_code=404, detail="Diary entry not found")
 
     entry.date = datetime.combine(entry_data.date, datetime.min.time())
+    entry.nepali_date = entry_data.nepali_date
     entry.title = entry_data.title
     entry.encrypted_blob = entry_data.encrypted_blob
     entry.encryption_iv = entry_data.encryption_iv
@@ -941,6 +943,7 @@ async def update_diary_entry(
     response = DiaryEntryResponse(
         id=entry.id,
         date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
+        nepali_date=entry.nepali_date,
         title=entry.title,
         encrypted_blob=entry.encrypted_blob,
         encryption_iv=entry.encryption_iv,
@@ -966,6 +969,14 @@ async def delete_diary_entry(
     Also deletes the associated encrypted file from storage.
     """
     try:
+        # Check if diary is unlocked first
+        diary_password = _get_diary_password_from_session(current_user.id)
+        if not diary_password:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Diary is locked. Please unlock diary first."
+            )
+
         result = await db.execute(
             select(DiaryEntry).where(
                 and_(DiaryEntry.id == entry_id, DiaryEntry.user_id == current_user.id)
@@ -973,7 +984,10 @@ async def delete_diary_entry(
         )
         entry = result.scalar_one_or_none()
         if not entry:
-            raise HTTPException(status_code=404, detail="Diary entry not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, 
+                detail="Diary entry not found"
+            )
         
         # Delete associated encrypted file
         if entry.content_file_path:
@@ -981,19 +995,10 @@ async def delete_diary_entry(
                 file_path = Path(entry.content_file_path)
                 if file_path.exists():
                     file_path.unlink()
-                    logger.info(f"🗑️ Deleted encrypted file {file_path.name} for entry {entry_id}")
-            except FileNotFoundError:
-                # File already deleted or moved - this is fine
-                logger.debug(f"🗑️ File already deleted: {entry.content_file_path}")
-            except PermissionError:
-                logger.warning(f"⚠️ Permission denied deleting file {entry.content_file_path}")
-                # Continue with entry deletion - file can be cleaned up manually later
-            except OSError as e:
-                logger.warning(f"⚠️ OS error deleting file {entry.content_file_path}: {e}")
-                # Continue with entry deletion - file can be cleaned up manually later
+                    logger.info(f"🗑️ Deleted diary file: {file_path.name}")
             except Exception as e:
-                logger.warning(f"⚠️ Unexpected error deleting file {entry.content_file_path}: {e}")
-                # Continue with entry deletion even if file deletion fails
+                logger.error(f"❌ Failed to delete diary file {entry.content_file_path}: {str(e)}")
+                # Continue with DB deletion even if file deletion fails
         
         await db.delete(entry)
         await db.commit()
@@ -1010,7 +1015,7 @@ async def delete_diary_entry(
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred while deleting the diary entry"
+            detail="Failed to delete diary entry"
         )
 
 @router.get("/entries/{entry_id}/media", response_model=List[DiaryMediaResponse])
@@ -1020,6 +1025,14 @@ async def get_entry_media(
     db: AsyncSession = Depends(get_db)
 ):
     """Get all media associated with a diary entry."""
+    # Check if diary is unlocked first
+    diary_password = _get_diary_password_from_session(current_user.id)
+    if not diary_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Diary is locked. Please unlock diary first."
+        )
+
     # First, ensure the user has access to the diary entry
     entry_res = await db.execute(
         select(DiaryEntry.id).where(
@@ -1027,7 +1040,10 @@ async def get_entry_media(
         )
     )
     if not entry_res.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="Diary entry not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Diary entry not found"
+        )
 
     media_res = await db.execute(
         select(DiaryMedia).where(DiaryMedia.diary_entry_id == entry_id)
@@ -1047,47 +1063,40 @@ async def commit_diary_media_upload(
     encryption with the naming scheme: {date}_{diary_id}_{media_id}.dat
     """
     try:
-        logger.info(f"📷 Committing diary media upload for entry {payload.entry_id}")
-        
-        # SECURITY: Check diary is unlocked and get password from session
-        if not current_user.diary_password_hash:
-            raise HTTPException(status_code=400, detail="Diary encryption not set up")
-        
+        # Check if diary is unlocked first
         diary_password = _get_diary_password_from_session(current_user.id)
         if not diary_password:
-            logger.warning(f"❌ Diary not unlocked for user {current_user.id}")
-            raise HTTPException(status_code=401, detail="Diary is locked. Please unlock first.")
-        
-        # Check assembled file status
-        status_obj = await chunk_manager.get_upload_status(payload.file_id)
-        if not status_obj or status_obj.get("status") != "completed":
-            raise HTTPException(status_code=400, detail="File not yet assembled")
-
-        # Locate assembled file path
-        temp_dir = Path(get_data_dir()) / "temp_uploads"
-        assembled = next(temp_dir.glob(f"complete_{payload.file_id}_*"), None)
-        if not assembled:
-            raise HTTPException(status_code=404, detail="Assembled file not found")
-
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Diary is locked. Please unlock diary first."
+            )
+            
         # Verify diary entry exists and belongs to user
         entry_result = await db.execute(
             select(DiaryEntry).where(
-                and_(DiaryEntry.id == payload.entry_id, DiaryEntry.user_id == current_user.id)
+                and_(
+                    DiaryEntry.id == payload.entry_id,
+                    DiaryEntry.user_id == current_user.id
+                )
             )
         )
-        diary_entry = entry_result.scalar_one_or_none()
-        if not diary_entry:
-            raise HTTPException(status_code=404, detail="Diary entry not found")
+        entry = entry_result.scalar_one_or_none()
+        if not entry:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Diary entry not found"
+            )
 
         # Create DiaryMedia record first to get the ID for filename
         diary_media = DiaryMedia(
+            uuid=str(uuid_lib.uuid4()),
             diary_entry_id=payload.entry_id,
             user_id=current_user.id,
             filename="temp",  # Will be updated with proper name
-            original_name=assembled.name,
+            original_name="",
             file_path="temp",  # Will be updated
-            file_size=assembled.stat().st_size,
-            mime_type=status_obj.get("mime_type", "application/octet-stream"),
+            file_size=0,  # Placeholder, will be updated after encryption
+            mime_type="application/octet-stream",  # Default, will be updated
             media_type=payload.media_type,
             caption=payload.caption,
             is_encrypted=True
@@ -1097,7 +1106,7 @@ async def commit_diary_media_upload(
         await db.flush()  # Get the ID without committing
 
         # Generate proper filename using the naming scheme: {date}_{diary_id}_{media_id}.dat
-        entry_date = diary_entry.date.strftime("%Y-%m-%d")
+        entry_date = entry.date.strftime("%Y-%m-%d")
         encrypted_filename = f"{entry_date}_{payload.entry_id}_{diary_media.id}.dat"
 
         # Prepare destination directory
@@ -1144,13 +1153,15 @@ async def commit_diary_media_upload(
         # Update the DiaryMedia record with proper values
         diary_media.filename = encrypted_filename
         diary_media.file_path = str(encrypted_file_path)
+        diary_media.file_size = assembled.stat().st_size
+        diary_media.mime_type = status_obj.get("mime_type", "application/octet-stream")
 
         # Calculate and update entry media count
         media_count_result = await db.execute(
             select(func.count(DiaryMedia.id)).where(DiaryMedia.diary_entry_id == payload.entry_id)
         )
         new_media_count = media_count_result.scalar() or 0
-        diary_entry.media_count = new_media_count
+        entry.media_count = new_media_count
 
         await db.commit()
         await db.refresh(diary_media)
@@ -1326,13 +1337,14 @@ async def get_calendar_data(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    logger.info(f"🗓️ Fetching calendar data for user {current_user.id}, year {year}, month {month}")
     """Get calendar data for a specific month, showing which days have entries."""
     
     # Subquery to count media per day
     media_count_subquery = (
         select(
             func.date(DiaryMedia.created_at).label("media_date"),
-            func.count(DiaryMedia.uuid).label("media_count")
+            func.count(DiaryMedia.id).label("media_count")
         )
         .where(
             and_(
@@ -1437,4 +1449,4 @@ async def get_mood_stats(
         average_mood=average_mood,
         mood_distribution=mood_distribution,
         total_entries=total_entries
-    ) 
+    )

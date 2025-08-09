@@ -8,15 +8,9 @@ import {
   LoginCredentials,
   UserSetup,
   PasswordChange,
-  RecoverySetup,
   RecoveryReset,
-  User
+  UserSettings
 } from '../types/auth';
-import { useNotesStore } from './notesStore';
-import { useDocumentsStore } from './documentsStore';
-import { useTodosStore } from './todosStore';
-import { useDiaryStore } from './diaryStore';
-import { useArchiveStore } from './archiveStore';
 
 interface AuthActions {
   // Authentication actions
@@ -33,6 +27,7 @@ interface AuthActions {
   setLoading: (loading: boolean) => void;
   startSessionMonitoring: () => void;
   stopSessionMonitoring: () => void;
+  updateSettings: (settings: Partial<UserSettings>) => Promise<boolean>;
 }
 
 // Session monitoring interval
@@ -57,16 +52,19 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         try {
           const response = await authService.login(credentials);
           
-          // Store token and user data
+          // Store token FIRST, then make authenticated requests
           localStorage.setItem('pkms_token', response.access_token);
           apiService.setAuthToken(response.access_token);
           
+          const currentUser = await authService.getCurrentUser(); // Get full user details
+          
+          // Parse settings from JSON
+          const settings = currentUser.settings_json ? JSON.parse(currentUser.settings_json) : {};
+          
           set({
             user: {
-              id: response.user_id,
-              username: response.username,
-              email: '', // Will be filled by getUserInfo if needed
-              created_at: new Date().toISOString()
+              ...currentUser,
+              settings // Add parsed settings
             },
             token: response.access_token,
             isAuthenticated: true,
@@ -98,17 +96,19 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         
         try {
           const response = await authService.setupUser(userData);
+          const currentUser = await authService.getCurrentUser(); // Get full user details
           
           // Store token and user data
           localStorage.setItem('pkms_token', response.access_token);
           apiService.setAuthToken(response.access_token);
           
+          // Parse settings from JSON
+          const settings = currentUser.settings_json ? JSON.parse(currentUser.settings_json) : {};
+          
           set({
             user: {
-              id: response.user_id,
-              username: response.username,
-              email: userData.email || '',
-              created_at: new Date().toISOString()
+              ...currentUser,
+              settings // Add parsed settings
             },
             token: response.access_token,
             isAuthenticated: true,
@@ -144,10 +144,12 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           // Clear auth data
           localStorage.removeItem('pkms_token');
           apiService.clearAuthToken();
+          apiService.resetTokenExpiryWarning(); // Reset the warning flag
           
           // Stop session monitoring
           get().stopSessionMonitoring();
           
+          // Only clear auth-related state
           set({
             user: null,
             token: null,
@@ -157,11 +159,15 @@ export const useAuthStore = create<AuthState & AuthActions>()(
             sessionTimer: null
           });
 
+          // Notify user
           notifications.show({
             title: 'Logged out',
             message: 'You have been successfully logged out',
             color: 'blue',
           });
+
+          // Broadcast logout event for other stores to react
+          window.dispatchEvent(new Event('auth:logout'));
         }
       },
 
@@ -228,6 +234,50 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         }
       },
 
+      updateSettings: async (newSettings: Partial<UserSettings>) => {
+        set({ isLoading: true, error: null });
+        
+        try {
+          // Get current user state
+          const { user } = get();
+          if (!user) throw new Error('No user logged in');
+          
+          // Merge new settings with existing
+          const currentSettings = user.settings || {};
+          const mergedSettings = {
+            ...currentSettings,
+            ...newSettings
+          };
+          
+          // Send update to backend
+          await authService.updateSettings(mergedSettings);
+          
+          // Update local state
+          set({
+            user: {
+              ...user,
+              settings_json: JSON.stringify(mergedSettings),
+              settings: mergedSettings
+            },
+            isLoading: false
+          });
+          
+          notifications.show({
+            title: 'Success',
+            message: 'Settings updated successfully',
+            color: 'green'
+          });
+          
+          return true;
+        } catch (error: any) {
+          set({
+            isLoading: false,
+            error: error.message || 'Failed to update settings'
+          });
+          return false;
+        }
+      },
+
       // State management
       checkAuth: async () => {
         const token = localStorage.getItem('pkms_token');
@@ -245,11 +295,17 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           apiService.setAuthToken(token);
           
           console.log('[AUTH STORE] Fetching current user');
-          const user = await authService.getCurrentUser();
+          const currentUser = await authService.getCurrentUser();
           
-          console.log('[AUTH STORE] User fetched successfully:', user);
+          // Parse settings from JSON
+          const settings = currentUser.settings_json ? JSON.parse(currentUser.settings_json) : {};
+          
+          console.log('[AUTH STORE] User fetched successfully:', currentUser);
           set({
-            user,
+            user: {
+              ...currentUser,
+              settings // Add parsed settings
+            },
             token,
             isAuthenticated: true,
             error: null
@@ -297,4 +353,4 @@ export const useAuthStore = create<AuthState & AuthActions>()(
       name: 'auth-store',
     }
   )
-); 
+);

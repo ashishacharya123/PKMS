@@ -46,8 +46,8 @@ class UserSetup(BaseModel):
     recovery_questions: List[str] = Field(..., min_items=2, max_items=5)
     recovery_answers: List[str] = Field(..., min_items=2, max_items=5)
     
-    # Diary password (optional but recommended)
-    diary_password: Optional[str] = Field(None, min_length=8, max_length=128)
+    # Diary password (now mandatory)
+    diary_password: str = Field(..., min_length=8, max_length=128)
     diary_password_hint: Optional[str] = Field(None, max_length=255)
     
     @validator('username')

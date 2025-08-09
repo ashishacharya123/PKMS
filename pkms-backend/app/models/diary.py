@@ -22,6 +22,7 @@ in scripts/decrypt_pkms_file.py so that standalone utilities can process
 files without database access.
 """
 
+from uuid import uuid4
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, SmallInteger
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -42,7 +43,8 @@ class DiaryEntry(Base):
     
     __tablename__ = "diary_entries"
     
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
     title = Column(String(255), nullable=False, index=True)
     day_of_week = Column(SmallInteger, nullable=False, index=True)  # 0=Monday .. 6=Sunday
     media_count = Column(Integer, default=0, nullable=False)
@@ -53,6 +55,7 @@ class DiaryEntry(Base):
     is_favorite = Column(Boolean, default=False)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     date = Column(DateTime(timezone=True), nullable=False, index=True)
+    nepali_date = Column(String(20), nullable=True, index=True)  # Nepali date in BS format (YYYY/MM/DD)
     encryption_iv = Column(String(32), nullable=True)  # AES-GCM IV
     encryption_tag = Column(String(32), nullable=True)  # AES-GCM authentication tag
     metadata_json = Column(Text, nullable=True, default='{}')  # Flexible metadata storage
@@ -66,7 +69,7 @@ class DiaryEntry(Base):
     tag_objs = relationship("Tag", secondary=diary_tags, back_populates="diary_entries")
 
     def __repr__(self):
-        return f"<DiaryEntry(id={self.id}, title='{self.title}', date='{self.date}')>"
+        return f"<DiaryEntry(uuid={self.uuid}, title='{self.title}', date='{self.date}')>"
 
 
 class DiaryMedia(Base):
@@ -74,8 +77,9 @@ class DiaryMedia(Base):
     
     __tablename__ = "diary_media"
     
-    id = Column(Integer, primary_key=True, index=True)
-    diary_entry_id = Column(Integer, ForeignKey("diary_entries.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    diary_entry_uuid = Column(String(36), ForeignKey("diary_entries.uuid", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     filename = Column(String(255), nullable=False)
     original_name = Column(String(255), nullable=False)
@@ -92,4 +96,4 @@ class DiaryMedia(Base):
     user = relationship("User", back_populates="diary_media")
     
     def __repr__(self):
-        return f"<DiaryMedia(id={self.id}, filename='{self.filename}', type='{self.media_type}')>" 
+        return f"<DiaryMedia(uuid={self.uuid}, filename='{self.filename}', type='{self.media_type}')>" 

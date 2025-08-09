@@ -8,9 +8,14 @@ interface ApiResponse<T> {
   message?: string;
 }
 
+interface AuthResponse {
+  access_token: string;
+}
+
 class ApiService {
   private instance: AxiosInstance;
   private tokenExpiryWarningShown: boolean = false;
+  private tokenRefreshPromise: Promise<string | null> | null = null;
 
   constructor() {
     this.instance = axios.create({
@@ -150,6 +155,13 @@ class ApiService {
   }
 
   /**
+   * Reset the token expiry warning flag
+   */
+  resetTokenExpiryWarning(): void {
+    this.tokenExpiryWarningShown = false;
+  }
+
+  /**
    * Check if JWT token is expiring soon (within 5 minutes)
    */
   isTokenExpiringSoon(): boolean {
@@ -162,8 +174,11 @@ class ApiService {
       const expiryTime = payload.exp * 1000; // Convert to milliseconds
       const currentTime = Date.now();
       const fiveMinutes = 5 * 60 * 1000; // 5 minutes in milliseconds
+      const oneMinute = 1 * 60 * 1000; // 1 minute in milliseconds
 
-      return (expiryTime - currentTime) <= fiveMinutes && (expiryTime - currentTime) > 0;
+      const timeRemaining = expiryTime - currentTime;
+
+      return timeRemaining <= fiveMinutes && timeRemaining > oneMinute;
     } catch (error) {
       console.error('Error parsing token:', error);
       return false;
@@ -221,25 +236,29 @@ class ApiService {
    * Extend the current session by making a request to refresh the token
    */
   async extendSession(): Promise<void> {
+    // If a token refresh is already in progress, wait for it
+    if (this.tokenRefreshPromise) {
+      await this.tokenRefreshPromise;
+      return;
+    }
+
     try {
-      // Use the proper refresh endpoint that handles sliding window sessions
-      const response = await this.post('/auth/refresh', {});
+      this.tokenRefreshPromise = this.refreshToken();
+      const newToken = await this.tokenRefreshPromise;
       
-      // Update the token if a new one was provided
-      if (response.data && (response.data as any).access_token) {
-        const newToken = (response.data as any).access_token;
+      if (newToken) {
         localStorage.setItem('pkms_token', newToken);
         this.setAuthToken(newToken);
-      }
-      
-      notifications.show({
-        title: '✅ Session Extended',
-        message: 'Your session has been extended successfully!',
-        color: 'green',
-        autoClose: 3000,
-      });
+        
+        notifications.show({
+          title: '✅ Session Extended',
+          message: 'Your session has been extended successfully!',
+          color: 'green',
+          autoClose: 3000,
+        });
 
-      this.tokenExpiryWarningShown = false;
+        this.tokenExpiryWarningShown = false;
+      }
     } catch (error) {
       console.error('Failed to extend session:', error);
       
@@ -250,9 +269,15 @@ class ApiService {
         autoClose: 5000,
       });
 
-      // Trigger logout on extension failure
       this.handleTokenExpiry();
+    } finally {
+      this.tokenRefreshPromise = null;
     }
+  }
+
+  private async refreshToken(): Promise<string | null> {
+    const response = await this.post<AuthResponse>('/auth/refresh', {});
+    return response.data?.access_token || null;
   }
 
   /**
@@ -312,8 +337,12 @@ class ApiService {
   }
 
   async patch<T>(url: string, data = {}, config = {}): Promise<ApiResponse<T>> {
-    const response: AxiosResponse<ApiResponse<T>> = await this.instance.patch(url, data, config);
-    return response.data;
+    const response = await this.instance.patch<T>(url, data, config);
+    // FastAPI returns data directly, so we wrap it in our ApiResponse format
+    return {
+      data: response.data,
+      status: response.status
+    };
   }
 
   getAxiosInstance(): AxiosInstance {
@@ -321,4 +350,4 @@ class ApiService {
   }
 }
 
-export const apiService = new ApiService(); 
+export const apiService = new ApiService();

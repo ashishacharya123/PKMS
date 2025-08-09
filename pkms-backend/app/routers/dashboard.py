@@ -128,14 +128,10 @@ async def get_dashboard_stats(
         
         # Archive Statistics
         archive_folders = await db.scalar(
-            select(func.count(ArchiveFolder.uuid)).where(
-                and_(ArchiveFolder.user_id == user_id, ArchiveFolder.is_archived == False)
-            )
+            select(func.count(ArchiveFolder.uuid)).where(ArchiveFolder.user_id == user_id)
         )
         archive_items = await db.scalar(
-            select(func.count(ArchiveItem.uuid)).where(
-                and_(ArchiveItem.user_id == user_id, ArchiveItem.is_archived == False)
-            )
+            select(func.count(ArchiveItem.uuid)).where(ArchiveItem.user_id == user_id)
         )
         
         return DashboardStats(

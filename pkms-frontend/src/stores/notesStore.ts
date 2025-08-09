@@ -1,11 +1,10 @@
 import { create } from 'zustand';
-import { notesService, type Note, type NoteSummary, type CreateNoteRequest, type UpdateNoteRequest, type Area } from '../services/notesService';
+import { notesService, type Note, type NoteSummary, type CreateNoteRequest, type UpdateNoteRequest } from '../services/notesService';
 
 interface NotesState {
   // Data
   notes: NoteSummary[];
   currentNote: Note | null;
-  areas: Area[];
   
   // UI State
   isLoading: boolean;
@@ -14,7 +13,6 @@ interface NotesState {
   error: string | null;
   
   // Filters
-  currentArea: string | null;
   currentTag: string | null;
   searchQuery: string;
   showArchived: boolean;
@@ -31,10 +29,8 @@ interface NotesState {
   createNote: (data: CreateNoteRequest) => Promise<Note | null>;
   updateNote: (id: number, data: UpdateNoteRequest) => Promise<Note | null>;
   deleteNote: (id: number) => Promise<boolean>;
-  loadAreas: () => Promise<void>;
   
   // Filters
-  setArea: (area: string | null) => void;
   setTag: (tag: string | null) => void;
   setSearch: (query: string) => void;
   setShowArchived: (show: boolean) => void;
@@ -45,15 +41,13 @@ interface NotesState {
   reset: () => void;
 }
 
-const initialState: Omit<NotesState, 'reset' | 'clearCurrentNote' | 'clearError' | 'setShowArchived' | 'setSearch' | 'setTag' | 'setArea' | 'loadAreas' | 'deleteNote' | 'updateNote' | 'createNote' | 'loadNote' | 'loadMore' | 'loadNotes'> = {
+const initialState: Omit<NotesState, 'reset' | 'clearCurrentNote' | 'clearError' | 'setShowArchived' | 'setSearch' | 'setTag' | 'deleteNote' | 'updateNote' | 'createNote' | 'loadNote' | 'loadMore' | 'loadNotes'> = {
   notes: [],
   currentNote: null,
-  areas: [],
   isLoading: false,
   isCreating: false,
   isUpdating: false,
   error: null,
-  currentArea: null,
   currentTag: null,
   searchQuery: '',
   showArchived: false,
@@ -72,7 +66,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     
     try {
       const notes = await notesService.listNotes({
-        area: state.currentArea || undefined,
         tag: state.currentTag || undefined,
         search: state.searchQuery || undefined,
         archived: state.showArchived,
@@ -102,7 +95,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     
     try {
       const newNotes = await notesService.listNotes({
-        area: state.currentArea || undefined,
         tag: state.currentTag || undefined,
         search: state.searchQuery || undefined,
         archived: state.showArchived,
@@ -147,9 +139,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       // Convert Note to NoteSummary for the list
       const noteSummary: NoteSummary = {
         id: note.id,
+        uuid: note.uuid,
         title: note.title,
-        area: note.area,
-        year: note.year,
+        file_count: note.file_count,
+        is_favorite: note.is_favorite,
         is_archived: note.is_archived,
         created_at: note.created_at,
         updated_at: note.updated_at,
@@ -159,8 +152,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       
       // Add to notes list if it matches current filters
       const state = get();
-      const shouldAdd = (!state.currentArea || note.area === state.currentArea) &&
-                       (!state.currentTag || note.tags.includes(state.currentTag)) &&
+      const shouldAdd = (!state.currentTag || note.tags.includes(state.currentTag)) &&
                        (!state.searchQuery || note.title.toLowerCase().includes(state.searchQuery.toLowerCase()));
       
       if (shouldAdd) {
@@ -191,9 +183,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       // Convert Note to NoteSummary for the list
       const noteSummary: NoteSummary = {
         id: updatedNote.id,
+        uuid: updatedNote.uuid,
         title: updatedNote.title,
-        area: updatedNote.area,
-        year: updatedNote.year,
+        file_count: updatedNote.file_count,
+        is_favorite: updatedNote.is_favorite,
         is_archived: updatedNote.is_archived,
         created_at: updatedNote.created_at,
         updated_at: updatedNote.updated_at,
@@ -241,23 +234,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
   
-  loadAreas: async () => {
-    try {
-      const response = await notesService.getAreas();
-      set({ areas: response.areas });
-    } catch (error) {
-      set({ 
-        error: error instanceof Error ? error.message : 'Failed to load areas'
-      });
-    }
-  },
-  
   // Filter actions
-  setArea: (area: string | null) => {
-    set({ currentArea: area });
-    get().loadNotes();
-  },
-  
   setTag: (tag: string | null) => {
     set({ currentTag: tag });
     get().loadNotes();

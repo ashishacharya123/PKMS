@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   Paper,
   Title,
@@ -40,18 +40,37 @@ const moodEmojis = {
 };
 
 export function MoodStatsWidget() {
-  const { moodStats, loadMoodStats, error, isLoading } = useDiaryStore();
+  const { moodStats, loadMoodStats, error, isLoading, isUnlocked } = useDiaryStore();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
 
   useEffect(() => {
-    loadMoodStats();
-  }, [loadMoodStats]);
+    // Only load mood stats once when component mounts and diary is unlocked
+    if (isUnlocked && !hasLoadedRef.current && !isLoading && !moodStats) {
+      hasLoadedRef.current = true;
+      loadMoodStats();
+    }
+  }, [isUnlocked]); // Only depend on isUnlocked
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await loadMoodStats();
     setIsRefreshing(false);
   };
+
+  if (moodStats && moodStats.total_entries === 0) {
+    return (
+      <Paper p="lg" withBorder>
+        <Stack gap="md" align="center" py="xl">
+          <Text size="xl">😊</Text>
+          <Text fw={500} ta="center">No mood data yet</Text>
+          <Text size="sm" c="dimmed" ta="center" maw={400}>
+            Add some diary entries with mood ratings to see your mood insights!
+          </Text>
+        </Stack>
+      </Paper>
+    );
+  }
 
   if (isLoading || !moodStats) {
     return (

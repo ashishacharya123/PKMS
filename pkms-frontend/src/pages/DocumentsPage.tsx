@@ -10,6 +10,7 @@ import {
   Stack,
   Button,
   TextInput,
+  TagsInput,
   Badge,
   ActionIcon,
   Menu,
@@ -35,7 +36,6 @@ import {
   IconDots,
   IconFiles,
   IconFolder,
-  IconTag,
   IconAlertTriangle,
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';

@@ -295,6 +295,70 @@ class SearchService {
     this.cacheTimestamps.clear();
   }
 
+  /**
+   * Invalidate cache for specific content types when items are created/updated/deleted
+   */
+  invalidateCacheForContentType(contentType: 'note' | 'document' | 'todo' | 'archive' | 'diary'): void {
+    // Remove all cache entries that include this content type
+    const keysToRemove: string[] = [];
+    
+    for (const [key] of this.cache) {
+      // Parse the cache key to check if it includes this content type
+      try {
+        const parts = key.split(':');
+        if (parts.length >= 3) {
+          const filtersStr = parts[2];
+          const filters = JSON.parse(filtersStr);
+          
+          // If no specific types are filtered (searches all types) or includes this type
+          if (!filters.types || filters.types.includes(contentType)) {
+            keysToRemove.push(key);
+          }
+        }
+      } catch (error) {
+        // If we can't parse the key, remove it to be safe
+        keysToRemove.push(key);
+      }
+    }
+    
+    // Remove the invalid cache entries
+    keysToRemove.forEach(key => {
+      this.cache.delete(key);
+      this.cacheTimestamps.delete(key);
+    });
+  }
+
+  /**
+   * Invalidate cache when tags are modified
+   */
+  invalidateCacheForTags(): void {
+    // Clear all cache since tag changes can affect search results
+    this.clearCache();
+  }
+
+  /**
+   * Invalidate cache for specific search queries (e.g., when content matching query changes)
+   */
+  invalidateCacheForQuery(query: string): void {
+    const keysToRemove: string[] = [];
+    
+    for (const [key] of this.cache) {
+      // Remove cache entries that match this query (case-insensitive)
+      const parts = key.split(':');
+      if (parts.length >= 2) {
+        const cachedQuery = parts[1].toLowerCase();
+        if (cachedQuery.includes(query.toLowerCase()) || query.toLowerCase().includes(cachedQuery)) {
+          keysToRemove.push(key);
+        }
+      }
+    }
+    
+    keysToRemove.forEach(key => {
+      this.cache.delete(key);
+      this.cacheTimestamps.delete(key);
+    });
+  }
+
   getSearchResultsCount(results: SearchResult[], type?: string): number {
     return type ? results.filter(r => r.type === type).length : results.length;
   }

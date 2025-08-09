@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { 
   TextInput, 
-  PasswordInput, 
   Button, 
   Paper, 
   Title, 
@@ -16,7 +15,6 @@ import {
 } from '@mantine/core';
 import { IconAlertCircle, IconUser, IconLock, IconLogin, IconWifi, IconWifiOff } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
-import authService from '../../services/authService';
 import { apiService } from '../../services/api';
 import { API_BASE_URL } from '../../config';
 
@@ -41,7 +39,7 @@ export function LoginForm({ onSwitchToSetup, onShowRecovery }: LoginFormProps) {
   // Perform an initial backend connectivity check when component mounts
   useEffect(() => {
     checkBackendConnectivity();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    
   }, []);
 
   const checkBackendConnectivity = async () => {

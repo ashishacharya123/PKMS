@@ -81,7 +81,7 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
     login_password_hint?: string;
     recovery_questions: string[];
     recovery_answers: string[];
-    diary_password?: string;
+    diary_password: string;
     diary_password_hint?: string;
   }>({
     initialValues: {
@@ -130,7 +130,7 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
         return null;
       },
       diary_password: (value) => {
-        if (value && value.length > 0 && value.length < 8) {
+        if (!value || value.length < 8) {
           return 'Diary password must be at least 8 characters long';
         }
         return null;
@@ -157,7 +157,7 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
         email: values.email,
         recovery_questions: values.recovery_questions,
         recovery_answers: values.recovery_answers,
-        diary_password: values.diary_password || undefined,
+        diary_password: values.diary_password,
         diary_password_hint: values.diary_password_hint || undefined,
         login_password_hint: values.login_password_hint || undefined,
       };
@@ -374,21 +374,21 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
             <Group gap="xs" mb="md">
               <IconLock size={16} color="purple" />
               <Text size="sm" fw={500} c="purple">Diary Encryption</Text>
-              <Badge color="gray" variant="dot">Optional</Badge>
+              <Badge color="red" variant="dot">Required</Badge>
             </Group>
             
             <Alert color="purple" variant="light" mb="md">
               <Text size="sm">
                 Set up a separate password for encrypting your diary entries. This adds an extra layer of privacy.
-                If you skip this now, you can set it up later in the diary section.
               </Text>
             </Alert>
 
             <Stack gap="md">
               <PasswordInput
-                label="Diary Password (Optional)"
+                label="Diary Password"
                 placeholder="Enter a password for diary encryption"
                 description="This will be separate from your login password"
+                required
                 {...form.getInputProps('diary_password')}
               />
               

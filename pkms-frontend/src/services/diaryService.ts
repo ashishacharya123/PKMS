@@ -125,18 +125,16 @@ class DiaryService {
     return response.data;
   }
 
-  async createEntry(payload: DiaryEntryCreatePayload): Promise<DiaryEntrySummary> {
-    const response = await apiService.post<DiaryEntrySummary>(`${this.baseUrl}/entries`, payload);
-    return response.data;
+  async createEntry(payload: DiaryEntryCreatePayload): Promise<void> {
+    await apiService.post(`${this.baseUrl}/entries`, payload);
   }
 
-  async updateEntry(id: number, payload: DiaryEntryCreatePayload): Promise<DiaryEntrySummary> {
-    const response = await apiService.put<DiaryEntrySummary>(`${this.baseUrl}/entries/${id}`, payload);
-    return response.data;
+  async updateEntry(uuid: string, payload: DiaryEntryCreatePayload): Promise<void> {
+    await apiService.put(`${this.baseUrl}/entries/${uuid}`, payload);
   }
 
-  async deleteEntry(id: number): Promise<void> {
-    await apiService.delete(`${this.baseUrl}/entries/${id}`);
+  async deleteEntry(uuid: string): Promise<void> {
+    await apiService.delete(`${this.baseUrl}/entries/${uuid}`);
   }
 
   // --- Calendar Methods ---
@@ -255,6 +253,10 @@ class DiaryService {
     const response = await apiService.get(`${this.baseUrl}/entries/${entryId}/media`);
     return response.data;
   }
+
+  async deleteMedia(mediaId: number): Promise<void> {
+    await apiService.delete(`${this.baseUrl}/media/${mediaId}`);
+  }
 }
 
-export const diaryService = new DiaryService(); 
+export const diaryService = new DiaryService();

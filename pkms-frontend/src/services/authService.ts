@@ -7,7 +7,8 @@ import {
   RecoverySetup,
   RecoveryReset,
   RecoveryKeyResponse,
-  User
+  User,
+  UserSettings
 } from '../types/auth';
 
 class AuthService {
@@ -19,7 +20,10 @@ class AuthService {
 
   // User login
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
-    const response = await apiService.post<AuthResponse>('/auth/login', credentials);
+    const response = await apiService.post<AuthResponse>('/auth/login', {
+      ...credentials,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone // Send client timezone
+    });
     return response.data;
   }
 
@@ -118,7 +122,13 @@ class AuthService {
     const response = await apiService.post<{ hint: string }>('/auth/login-password-hint', { username });
     return response.data.hint;
   }
+
+  // User settings update
+  async updateSettings(settings: UserSettings): Promise<{ message: string }> {
+    const response = await apiService.put<{ message: string }>('/auth/settings', { settings_json: JSON.stringify(settings) });
+    return response.data;
+  }
 }
 
 const authService = new AuthService();
-export default authService; 
+export default authService;

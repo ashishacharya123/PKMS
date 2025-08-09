@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ColorSchemeScript } from '@mantine/core';
 import { useAuthStore } from './stores/authStore';
@@ -53,7 +53,7 @@ function App() {
   useEffect(() => {
     console.log('[APP] Performing single global authentication check');
     checkAuth();
-  }, []); // Empty dependency array - only run once on mount
+  }, [checkAuth]);
 
   return (
     <>

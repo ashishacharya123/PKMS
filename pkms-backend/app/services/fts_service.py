@@ -29,9 +29,7 @@ class FTS5SearchService:
                     tags,
                     user_id UNINDEXED,
                     created_at UNINDEXED,
-                    updated_at UNINDEXED,
-                    content='notes',
-                    content_rowid='id'
+                    updated_at UNINDEXED
                 );
             """))
             
@@ -45,9 +43,7 @@ class FTS5SearchService:
                     description,
                     user_id UNINDEXED,
                     created_at UNINDEXED,
-                    updated_at UNINDEXED,
-                    content='documents',
-                    content_rowid='uuid'
+                    updated_at UNINDEXED
                 );
             """))
             
@@ -62,9 +58,7 @@ class FTS5SearchService:
                     user_id UNINDEXED,
                     folder_uuid UNINDEXED,
                     created_at UNINDEXED,
-                    updated_at UNINDEXED,
-                    content='archive_items',
-                    content_rowid='uuid'
+                    updated_at UNINDEXED
                 );
             """))
             
@@ -77,9 +71,7 @@ class FTS5SearchService:
                     user_id UNINDEXED,
                     project_id UNINDEXED,
                     created_at UNINDEXED,
-                    updated_at UNINDEXED,
-                    content='todos',
-                    content_rowid='id'
+                    updated_at UNINDEXED
                 );
             """))
             
@@ -92,9 +84,7 @@ class FTS5SearchService:
                     metadata_json,
                     user_id UNINDEXED,
                     created_at UNINDEXED,
-                    updated_at UNINDEXED,
-                    content='diary_entries',
-                    content_rowid='id'
+                    updated_at UNINDEXED
                 );
             """))
             
@@ -107,9 +97,7 @@ class FTS5SearchService:
                     parent_uuid UNINDEXED,
                     user_id UNINDEXED,
                     created_at UNINDEXED,
-                    updated_at UNINDEXED,
-                    content='archive_folders',
-                    content_rowid='uuid'
+                    updated_at UNINDEXED
                 );
             """))
             
@@ -128,6 +116,40 @@ class FTS5SearchService:
 
     async def _create_sync_triggers(self, db: AsyncSession):
         """Create triggers to keep FTS tables synchronized with content tables"""
+        # First, drop any existing triggers so we replace stale definitions created by older versions
+        drop_statements = [
+            # Notes
+            "DROP TRIGGER IF EXISTS notes_fts_insert;",
+            "DROP TRIGGER IF EXISTS notes_fts_update;",
+            "DROP TRIGGER IF EXISTS notes_fts_delete;",
+            # Documents
+            "DROP TRIGGER IF EXISTS documents_fts_insert;",
+            "DROP TRIGGER IF EXISTS documents_fts_update;",
+            "DROP TRIGGER IF EXISTS documents_fts_delete;",
+            # Archive items
+            "DROP TRIGGER IF EXISTS archive_items_fts_insert;",
+            "DROP TRIGGER IF EXISTS archive_items_fts_update;",
+            "DROP TRIGGER IF EXISTS archive_items_fts_delete;",
+            # Todos
+            "DROP TRIGGER IF EXISTS todos_fts_insert;",
+            "DROP TRIGGER IF EXISTS todos_fts_update;",
+            "DROP TRIGGER IF EXISTS todos_fts_delete;",
+            # Diary entries
+            "DROP TRIGGER IF EXISTS diary_entries_fts_insert;",
+            "DROP TRIGGER IF EXISTS diary_entries_fts_update;",
+            "DROP TRIGGER IF EXISTS diary_entries_fts_delete;",
+            # Archive folders
+            "DROP TRIGGER IF EXISTS folders_fts_insert;",
+            "DROP TRIGGER IF EXISTS folders_fts_update;",
+            "DROP TRIGGER IF EXISTS folders_fts_delete;",
+        ]
+        for stmt in drop_statements:
+            try:
+                await db.execute(text(stmt))
+            except Exception:
+                # Ignore individual drop errors to keep initialization resilient
+                pass
+
         
         # Notes triggers
         await db.execute(text("""
@@ -135,8 +157,8 @@ class FTS5SearchService:
                 INSERT INTO fts_notes(id, title, content, tags, user_id, created_at, updated_at)
                 VALUES (new.id, new.title, new.content, 
                        COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM note_tags nt 
-                                JOIN tags t ON nt.tag_id = t.id 
-                                WHERE nt.note_id = new.id), ''),
+                                JOIN tags t ON nt.tag_uuid = t.uuid 
+                                WHERE nt.note_uuid = new.uuid), ''),
                        new.user_id, new.created_at, new.updated_at);
             END;
         """))
@@ -147,8 +169,8 @@ class FTS5SearchService:
                     title = new.title,
                     content = new.content,
                     tags = COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM note_tags nt 
-                                    JOIN tags t ON nt.tag_id = t.id 
-                                    WHERE nt.note_id = new.id), ''),
+                                    JOIN tags t ON nt.tag_uuid = t.uuid 
+                                    WHERE nt.note_uuid = new.uuid), ''),
                     updated_at = new.updated_at
                 WHERE id = new.id;
             END;
@@ -251,8 +273,8 @@ class FTS5SearchService:
                 INSERT INTO fts_diary_entries(id, title, tags, metadata_json, user_id, created_at, updated_at)
                 VALUES (new.id, new.title,
                     COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM diary_tags dt 
-                              JOIN tags t ON dt.tag_id = t.id 
-                              WHERE dt.diary_entry_id = new.id), ''),
+                              JOIN tags t ON dt.tag_uuid = t.uuid 
+                              WHERE dt.diary_entry_uuid = new.uuid), ''),
                     new.metadata_json, new.user_id, new.created_at, new.updated_at);
             END;
         """))
@@ -261,8 +283,8 @@ class FTS5SearchService:
                 UPDATE fts_diary_entries SET 
                     title = new.title,
                     tags = COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM diary_tags dt 
-                                     JOIN tags t ON dt.tag_id = t.id 
-                                     WHERE dt.diary_entry_id = new.id), ''),
+                                     JOIN tags t ON dt.tag_uuid = t.uuid 
+                                     WHERE dt.diary_entry_uuid = new.uuid), ''),
                     metadata_json = new.metadata_json,
                     updated_at = new.updated_at
                 WHERE id = new.id;
@@ -302,11 +324,11 @@ class FTS5SearchService:
         try:
             # Populate notes
             await db.execute(text("""
-                INSERT INTO fts_notes(id, title, content, area, tags, user_id, created_at, updated_at)
-                SELECT n.id, n.title, n.content, n.area,
+                INSERT INTO fts_notes(id, title, content, tags, user_id, created_at, updated_at)
+                SELECT n.id, n.title, n.content,
                        COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM note_tags nt 
-                                JOIN tags t ON nt.tag_id = t.id 
-                                WHERE nt.note_id = n.id), '') as tags,
+                                JOIN tags t ON nt.tag_uuid = t.uuid 
+                                WHERE nt.note_uuid = n.uuid), '') as tags,
                        n.user_id, n.created_at, n.updated_at
                 FROM notes n
                 WHERE n.id NOT IN (SELECT id FROM fts_notes);
@@ -346,8 +368,8 @@ class FTS5SearchService:
                 INSERT INTO fts_diary_entries(id, title, tags, metadata_json, user_id, created_at, updated_at)
                 SELECT d.id, d.title,
                        COALESCE((SELECT GROUP_CONCAT(t.name, ' ') FROM diary_tags dt 
-                                JOIN tags t ON dt.tag_id = t.id 
-                                WHERE dt.diary_entry_id = d.id), '') as tags,
+                                JOIN tags t ON dt.tag_uuid = t.uuid 
+                                WHERE dt.diary_entry_uuid = d.uuid), '') as tags,
                        d.metadata_json, d.user_id, d.created_at, d.updated_at
                 FROM diary_entries d
                 WHERE d.id NOT IN (SELECT id FROM fts_diary_entries);
@@ -390,7 +412,7 @@ class FTS5SearchService:
             # Search notes
             if 'notes' in content_types:
                 notes_sql = text("""
-                    SELECT 'note' as type, id, title, content, area, created_at, updated_at,
+                    SELECT 'note' as type, id, title, content, created_at, updated_at,
                            bm25(fts_notes) as rank
                     FROM fts_notes 
                     WHERE fts_notes MATCH :query AND user_id = :user_id
@@ -411,7 +433,6 @@ class FTS5SearchService:
                         'id': row.id,
                         'title': row.title,
                         'content': row.content[:300] + '...' if len(row.content) > 300 else row.content,
-                        'area': row.area,
                         'created_at': row.created_at,
                         'updated_at': row.updated_at,
                         'relevance_score': float(row.rank) if row.rank else 0.0
@@ -522,7 +543,8 @@ class FTS5SearchService:
     def _prepare_fts_query(self, query: str) -> str:
         """Prepare query string for FTS5 with proper escaping and operators"""
         # Remove special characters that could break FTS5
-        cleaned_query = ''.join(c for c in query if c.isalnum() or c.isspace())
+        import re
+        cleaned_query = re.sub(r'[\"\'\^\*\:\(\)\-]', ' ', query)
         
         # Split into terms and add prefix matching
         terms = cleaned_query.strip().split()
@@ -536,6 +558,104 @@ class FTS5SearchService:
                 fts_terms.append(f'"{term}"*')
         
         return ' OR '.join(fts_terms) if fts_terms else '""'
+
+    async def search_archive_items(self, db: AsyncSession, query: str, user_id: int, 
+                                 tag: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[str]:
+        """Search archive items and return UUIDs in relevance order"""
+        if not self.tables_initialized:
+            logger.warning("FTS5 tables not initialized")
+            return []
+        
+        try:
+            # Prepare search query, including tag if provided
+            if tag:
+                combined_query = f"{query} {tag}"
+                search_query = self._prepare_fts_query(combined_query)
+            else:
+                search_query = self._prepare_fts_query(query)
+            
+            fts_sql = text("""
+                SELECT uuid, bm25(fts_archive_items) as rank
+                FROM fts_archive_items
+                WHERE fts_archive_items MATCH :query AND user_id = :user_id
+                ORDER BY rank
+                LIMIT :limit OFFSET :offset
+            """)
+            
+            result = await db.execute(fts_sql, {
+                'query': search_query,
+                'user_id': user_id,
+                'limit': limit,
+                'offset': offset
+            })
+            
+            return [row.uuid for row in result.fetchall()]
+            
+        except Exception as e:
+            logger.error(f"❌ Archive items FTS search failed: {e}")
+            return []
+
+    async def search_archive_folders(self, db: AsyncSession, query: str, user_id: int, 
+                                   limit: int = 50, offset: int = 0) -> List[str]:
+        """Search archive folders and return UUIDs in relevance order"""
+        if not self.tables_initialized:
+            logger.warning("FTS5 tables not initialized")
+            return []
+        
+        try:
+            search_query = self._prepare_fts_query(query)
+            
+            fts_sql = text("""
+                SELECT uuid, bm25(fts_folders) as rank
+                FROM fts_folders
+                WHERE fts_folders MATCH :query AND user_id = :user_id
+                ORDER BY rank
+                LIMIT :limit OFFSET :offset
+            """)
+            
+            result = await db.execute(fts_sql, {
+                'query': search_query,
+                'user_id': user_id,
+                'limit': limit,
+                'offset': offset
+            })
+            
+            return [row.uuid for row in result.fetchall()]
+            
+        except Exception as e:
+            logger.error(f"❌ Archive folders FTS search failed: {e}")
+            return []
+
+    async def search_diary_entries(self, db: AsyncSession, query: str, user_id: int, 
+                                 limit: int = 50, offset: int = 0) -> List[int]:
+        """Search diary entries and return IDs in relevance order"""
+        if not self.tables_initialized:
+            logger.warning("FTS5 tables not initialized")
+            return []
+        
+        try:
+            search_query = self._prepare_fts_query(query)
+            
+            fts_sql = text("""
+                SELECT id, bm25(fts_diary_entries) as rank
+                FROM fts_diary_entries
+                WHERE fts_diary_entries MATCH :query AND user_id = :user_id
+                ORDER BY rank
+                LIMIT :limit OFFSET :offset
+            """)
+            
+            result = await db.execute(fts_sql, {
+                'query': search_query,
+                'user_id': user_id,
+                'limit': limit,
+                'offset': offset
+            })
+            
+            return [row.id for row in result.fetchall()]
+            
+        except Exception as e:
+            logger.error(f"❌ Diary entries FTS search failed: {e}")
+            return []
 
     async def optimize_fts_tables(self, db: AsyncSession) -> bool:
         """Optimize FTS5 tables for better performance"""

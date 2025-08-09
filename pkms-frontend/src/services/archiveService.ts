@@ -1,7 +1,7 @@
 import { apiService } from './api';
 import { coreUploadService, UploadProgress } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
-import type { AxiosError } from 'axios';
+
 import { ArchiveItem, ArchiveFolder } from '../types/archive';
 import { FolderTree } from '../types/archive';
 
@@ -25,22 +25,7 @@ const getBaseName = (filename: string): string => {
   return lastDot === -1 ? filename : filename.substring(0, lastDot);
 };
 
-// Map common Axios errors to user-friendly messages
-const handleAxiosError = (error: AxiosError): never => {
-  const status = error.response?.status;
-  switch (status) {
-    case 404:
-      throw new Error('Folder or item not found.');
-    case 409:
-      throw new Error('A file or folder with this name already exists.');
-    case 413:
-      throw new Error('File is too large. Please try a smaller file.');
-    case 415:
-      throw new Error('Unsupported file type.');
-    default:
-      throw new Error(error.message || 'An unexpected error occurred.');
-  }
-};
+// Removed custom error handling - letting apiService handle all errors consistently
 
 const LARGE_FILE_THRESHOLD = 3 * 1024 * 1024; // 3 MB
 
@@ -55,30 +40,25 @@ const uploadSmallFile = async (
   const formData = new FormData();
   formData.append('file', file);
 
-  try {
-    const data = await coreUploadService.uploadDirect<ArchiveItem>(
-      folderItemsPath(folderUuid),
-      formData,
-      {
-        onProgress: (pct) => {
-          if (onProgress) {
-            onProgress({
-              fileId: '',
-              filename: file.name,
-              bytesUploaded: Math.round((pct / 100) * file.size),
-              totalSize: file.size,
-              status: pct === 100 ? 'completed' : 'uploading',
-              progress: pct,
-            });
-          }
-        },
+  const data = await coreUploadService.uploadDirect<ArchiveItem>(
+    folderItemsPath(folderUuid),
+    formData,
+    {
+      onProgress: (pct) => {
+        if (onProgress) {
+          onProgress({
+            fileId: '',
+            filename: file.name,
+            bytesUploaded: Math.round((pct / 100) * file.size),
+            totalSize: file.size,
+            status: pct === 100 ? 'completed' : 'uploading',
+            progress: pct,
+          });
+        }
       },
-    );
-    return data;
-  } catch (err) {
-    handleAxiosError(err as AxiosError);
-    throw err;
-  }
+    },
+  );
+  return data;
 };
 
 const uploadLargeFile = async (
@@ -86,27 +66,22 @@ const uploadLargeFile = async (
   folderUuid: string,
   onProgress?: (progress: UploadProgress) => void,
 ): Promise<ArchiveItem> => {
-  try {
-    const fileId = await coreUploadService.uploadFile(file, {
-      module: 'archive',
-      additionalMeta: { folder_uuid: folderUuid },
-      onProgress,
-    });
+  const fileId = await coreUploadService.uploadFile(file, {
+    module: 'archive',
+    additionalMeta: { folder_uuid: folderUuid },
+    onProgress,
+  });
 
-    const commitData = {
-      file_id: fileId,
-      original_filename: file.name,
-      mime_type: file.type,
-      folder_uuid: folderUuid,
-      name: getBaseName(file.name),
-    };
+  const commitData = {
+    file_id: fileId,
+    original_filename: file.name,
+    mime_type: file.type,
+    folder_uuid: folderUuid,
+    name: getBaseName(file.name),
+  };
 
-    const response = await apiService.post<ArchiveItem>(UPLOAD_COMMIT_ENDPOINT, commitData);
-    return response.data;
-  } catch (err) {
-    handleAxiosError(err as AxiosError);
-    throw err;
-  }
+  const response = await apiService.post<ArchiveItem>(UPLOAD_COMMIT_ENDPOINT, commitData);
+  return response.data;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -124,45 +99,25 @@ export const archiveService = {
   },
 
   async createFolder(name: string, parentUuid?: string): Promise<ArchiveFolder> {
-    try {
-      const { data } = await apiService.post<ArchiveFolder>(FOLDERS_ENDPOINT, {
-        name,
-        parent_uuid: parentUuid,
-      });
-      return data;
-    } catch (err) {
-      handleAxiosError(err as AxiosError);
-      throw err;
-    }
+    const { data } = await apiService.post<ArchiveFolder>(FOLDERS_ENDPOINT, {
+      name,
+      parent_uuid: parentUuid,
+    });
+    return data;
   },
 
   async updateFolder(uuid: string, data: Partial<ArchiveFolder>): Promise<ArchiveFolder> {
-    try {
-      const resp = await apiService.put<ArchiveFolder>(folderPath(uuid), data);
-      return resp.data;
-    } catch (err) {
-      handleAxiosError(err as AxiosError);
-      throw err;
-    }
+    const resp = await apiService.put<ArchiveFolder>(folderPath(uuid), data);
+    return resp.data;
   },
 
   async deleteFolder(uuid: string): Promise<void> {
-    try {
-      await apiService.delete(folderPath(uuid));
-    } catch (err) {
-      handleAxiosError(err as AxiosError);
-      throw err;
-    }
+    await apiService.delete(folderPath(uuid));
   },
 
   async getFolderItems(folderUuid: string): Promise<ArchiveItem[]> {
-    try {
-      const { data } = await apiService.get<ArchiveItem[]>(folderItemsPath(folderUuid));
-      return data;
-    } catch (err) {
-      handleAxiosError(err as AxiosError);
-      throw err;
-    }
+    const { data } = await apiService.get<ArchiveItem[]>(folderItemsPath(folderUuid));
+    return data;
   },
 
   async uploadFile(

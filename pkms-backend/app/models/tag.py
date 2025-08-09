@@ -1,7 +1,7 @@
 """
 Tag Model for Organizing Content
 """
-
+from uuid import uuid4
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -16,7 +16,8 @@ class Tag(Base):
     
     __tablename__ = "tags"
     
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
     name = Column(String(100), nullable=False, index=True)
     description = Column(Text, nullable=True)
     color = Column(String(7), default="#6c757d")  # Hex color code
@@ -29,7 +30,12 @@ class Tag(Base):
     
     # Relationships
     user = relationship("User", back_populates="tags")
-    notes = relationship("Note", secondary=note_tags, back_populates="tag_objs")
+    notes = relationship(
+        "Note",
+        secondary=note_tags,
+        back_populates="tag_objs",
+        lazy="selectin"
+    )
     documents = relationship("Document", secondary=document_tags, back_populates="tag_objs")
     todos = relationship("Todo", secondary=todo_tags, back_populates="tag_objs")
     archive_items = relationship("ArchiveItem", secondary=archive_tags, back_populates="tag_objs")
@@ -37,4 +43,4 @@ class Tag(Base):
     links = relationship("Link", secondary=link_tags, back_populates="tag_objs")
     
     def __repr__(self):
-        return f"<Tag(id={self.id}, name='{self.name}', user_id={self.user_id})>" 
+        return f"<Tag(id={self.id}, uuid={self.uuid}, name='{self.name}', user_id={self.user_id})>" 

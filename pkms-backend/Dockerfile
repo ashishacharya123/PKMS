@@ -11,33 +11,25 @@ RUN apt-get update && apt-get install -y \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install Python dependencies
+# Install Python dependencies (production only)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Final stage
-FROM python:3.11-slim
+# Final stage - use alpine for smaller size
+FROM python:3.11-alpine
 
-# Install runtime dependencies including Docker CLI
-RUN apt-get update && apt-get install -y \
+# Install runtime dependencies (minimal)
+RUN apk add --no-cache \
     curl \
-    ca-certificates \
-    gnupg \
-    lsb-release \
-    && curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
-    && apt-get update \
-    && apt-get install -y docker-ce-cli \
-    && rm -rf /var/lib/apt/lists/*
+    tzdata \
+    && rm -rf /var/cache/apk/*
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Create non-root user and add to docker group
-RUN useradd --create-home --shell /bin/bash --uid 1000 pkms \
-    && groupadd -g 999 docker \
-    && usermod -aG docker pkms
+# Create non-root user
+RUN adduser -D -u 1000 pkms
 
 # Create data directory and set permissions
 RUN mkdir -p /app/data && chown -R pkms:pkms /app/data
@@ -47,6 +39,9 @@ WORKDIR /app
 
 # Copy application code
 COPY --chown=pkms:pkms . .
+
+# Set timezone to Asia/Kathmandu
+ENV TZ=Asia/Kathmandu
 
 # Switch to non-root user
 USER pkms

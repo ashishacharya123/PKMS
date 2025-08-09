@@ -718,8 +718,8 @@ async def get_sample_rows(
                 junction_query = text("""
                     SELECT nt.*, n.title as note_title, t.name as tag_name 
                     FROM note_tags nt 
-                    JOIN notes n ON nt.note_id = n.id 
-                    JOIN tags t ON nt.tag_id = t.id 
+                    JOIN notes n ON nt.note_uuid = n.uuid 
+                    JOIN tags t ON nt.tag_uuid = t.uuid 
                     WHERE n.user_id = :user_id 
                     LIMIT :limit
                 """)
@@ -728,7 +728,7 @@ async def get_sample_rows(
                     SELECT dt.*, d.title as document_title, t.name as tag_name 
                     FROM document_tags dt 
                     JOIN documents d ON dt.document_id = d.id 
-                    JOIN tags t ON dt.tag_id = t.id 
+                    JOIN tags t ON dt.tag_uuid = t.uuid 
                     WHERE d.user_id = :user_id 
                     LIMIT :limit
                 """)
@@ -737,7 +737,7 @@ async def get_sample_rows(
                     SELECT tt.*, td.title as todo_title, t.name as tag_name 
                     FROM todo_tags tt 
                     JOIN todos td ON tt.todo_id = td.id 
-                    JOIN tags t ON tt.tag_id = t.id 
+                    JOIN tags t ON tt.tag_uuid = t.uuid 
                     WHERE td.user_id = :user_id 
                     LIMIT :limit
                 """)
@@ -746,7 +746,7 @@ async def get_sample_rows(
                     SELECT at.*, ai.name as archive_name, t.name as tag_name 
                     FROM archive_tags at 
                     JOIN archive_items ai ON at.archive_item_id = ai.id 
-                    JOIN tags t ON at.tag_id = t.id 
+                    JOIN tags t ON at.tag_uuid = t.uuid 
                     WHERE ai.user_id = :user_id 
                     LIMIT :limit
                 """)

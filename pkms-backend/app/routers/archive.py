@@ -45,6 +45,7 @@ from app.models.tag import Tag
 from app.models.user import User
 from app.auth.dependencies import get_current_user
 from app.config import get_data_dir
+from app.services.fts_service import fts_service
 # from app.services.ai_service import analyze_content, is_ai_enabled
 from app.utils.security import (
     sanitize_folder_name,
@@ -195,7 +196,6 @@ class FolderCreate(BaseModel):
 class FolderUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=MAX_FOLDER_NAME_LENGTH)
     description: Optional[str] = Field(None, max_length=MAX_FOLDER_DESCRIPTION_LENGTH)
-    is_archived: Optional[bool] = None
 
     @validator('name')
     def validate_name(cls, v):
@@ -214,7 +214,6 @@ class ItemUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     folder_uuid: Optional[str] = None
     tags: Optional[List[str]] = Field(None, max_items=20)
-    is_archived: Optional[bool] = None
     is_favorite: Optional[bool] = None
 
     @validator('name')
@@ -247,7 +246,6 @@ class FolderResponse(BaseModel):
     description: Optional[str]
     parent_uuid: Optional[str]
     path: str
-    is_archived: bool
     created_at: datetime
     updated_at: datetime
     item_count: int
@@ -284,7 +282,6 @@ class ItemSummary(BaseModel):
     original_filename: str
     mime_type: str
     file_size: int
-    is_archived: bool
     is_favorite: bool
     created_at: datetime
     updated_at: datetime
@@ -316,8 +313,8 @@ async def create_folder(
                 and_(
                     ArchiveFolder.parent_uuid == folder_data.parent_uuid,
                     func.lower(ArchiveFolder.name) == func.lower(folder_data.name),
-                    ArchiveFolder.user_id == current_user.id,
-                    ArchiveFolder.is_archived == False
+                    ArchiveFolder.user_id == current_user.id
+                    # Archive folders don't use is_archived flag - all are active by being in archive
                 )
             )
         )
@@ -408,32 +405,15 @@ async def list_folders(
         # Sanitize search query if provided
         if search:
             search = sanitize_search_query(search)
-            # FTS5 search for UUIDs
-            def prepare_fts_query(q: str) -> str:
-                import re
-                q = re.sub(r'[\"\'\^\*\:\(\)\-]', ' ', q)
-                return f'{q.strip()}*'
-            fts_search = prepare_fts_query(search)
-            fts_sql = text("""
-                SELECT uuid, bm25(fts_folders) as rank
-                FROM fts_folders
-                WHERE fts_folders MATCH :query AND user_id = :user_id
-                ORDER BY rank
-            """)
-            result = await db.execute(fts_sql, {
-                'query': fts_search,
-                'user_id': current_user.id
-            })
-            uuid_rank_pairs = result.fetchall()
-            if not uuid_rank_pairs:
+            # Use centralized FTS5 search
+            uuid_list = await fts_service.search_archive_folders(db, search, current_user.id)
+            if not uuid_list:
                 return []
-            uuid_list = [row.uuid for row in uuid_rank_pairs]
             # Fetch full rows, preserving FTS5 order
             query = select(ArchiveFolder).where(ArchiveFolder.uuid.in_(uuid_list))
             if parent_uuid is not None:
                 query = query.where(ArchiveFolder.parent_uuid == parent_uuid)
-            if not archived:
-                query = query.where(ArchiveFolder.is_archived == False)
+            # Archive folders don't use is_archived flag - all are active by being in archive
             query = query.order_by(ArchiveFolder.name)
             result = await db.execute(query)
             folders = result.scalars().all()
@@ -448,8 +428,7 @@ async def list_folders(
             # Build query (simplified for single user)
             query = select(ArchiveFolder)
             query = query.where(ArchiveFolder.parent_uuid == parent_uuid)
-            if not archived:
-                query = query.where(ArchiveFolder.is_archived == False)
+            # Archive folders don't use is_archived flag - all are active by being in archive
             query = query.order_by(ArchiveFolder.name)
             result = await db.execute(query)
             folders = result.scalars().all()
@@ -479,31 +458,14 @@ async def get_folder_tree(
     """Get hierarchical folder tree structure, or flat FTS5 search results if search is provided."""
     from sqlalchemy import text
     if search:
-        # FTS5 search for folders
+        # Use centralized FTS5 search for folders
         search = sanitize_search_query(search)
-        def prepare_fts_query(q: str) -> str:
-            import re
-            q = re.sub(r'[\"\'\^\*\:\(\)\-]', ' ', q)
-            return f'{q.strip()}*'
-        fts_search = prepare_fts_query(search)
-        fts_sql = text("""
-            SELECT uuid, bm25(fts_folders) as rank
-            FROM fts_folders
-            WHERE fts_folders MATCH :query AND user_id = :user_id
-            ORDER BY rank
-        """)
-        result = await db.execute(fts_sql, {
-            'query': fts_search,
-            'user_id': current_user.id
-        })
-        uuid_rank_pairs = result.fetchall()
-        if not uuid_rank_pairs:
+        uuid_list = await fts_service.search_archive_folders(db, search, current_user.id)
+        if not uuid_list:
             return []
-        uuid_list = [row.uuid for row in uuid_rank_pairs]
         # Fetch full rows, preserving FTS5 order
         query = select(ArchiveFolder).where(ArchiveFolder.uuid.in_(uuid_list))
-        if not archived:
-            query = query.where(ArchiveFolder.is_archived == False)
+        # Archive folders don't use is_archived flag - all are active by being in archive
         result = await db.execute(query)
         folders = result.scalars().all()
         folder_map = {f.uuid: f for f in folders}
@@ -522,8 +484,7 @@ async def get_folder_tree(
                     ArchiveFolder.parent_uuid == parent_uuid
                 )
             )
-            if not archived:
-                folder_query = folder_query.where(ArchiveFolder.is_archived == False)
+            # Archive folders don't use is_archived flag - all are active by being in archive
             folder_result = await db.execute(folder_query.order_by(ArchiveFolder.name))
             folders = folder_result.scalars().all()
             tree = []
@@ -537,8 +498,7 @@ async def get_folder_tree(
                         ArchiveItem.user_id == current_user.id
                     )
                 )
-                if not archived:
-                    items_query = items_query.where(ArchiveItem.is_archived == False)
+                # Archive items don't use is_archived flag - all are active by being in archive
                 items_result = await db.execute(items_query.order_by(ArchiveItem.name))
                 items = items_result.scalars().all()
                 item_summaries = []
@@ -623,8 +583,6 @@ async def update_folder(
             folder.name = folder_data.name
         if folder_data.description is not None:
             folder.description = folder_data.description
-        if folder_data.is_archived is not None:
-            folder.is_archived = folder_data.is_archived
         
         await db.commit()
         await db.refresh(folder)
@@ -824,8 +782,8 @@ async def upload_item(
                 and_(
                     ArchiveItem.folder_uuid == folder_uuid,
                     func.lower(ArchiveItem.name) == func.lower(item_name),
-                    ArchiveItem.user_id == current_user.id,
-                    ArchiveItem.is_archived == False
+                    ArchiveItem.user_id == current_user.id
+                    # Archive items don't use is_archived flag - all are active by being in archive
                 )
             )
         )
@@ -984,8 +942,7 @@ async def list_folder_items(
     )
     
     # Filters
-    if not archived:
-        query = query.where(ArchiveItem.is_archived == False)
+    # Archive items don't use is_archived flag - all are active by being in archive
     
     if search:
         search_term = f"%{search}%"
@@ -1066,8 +1023,6 @@ async def update_item(
             item.description = item_data.description
         if item_data.folder_uuid is not None:
             item.folder_uuid = item_data.folder_uuid
-        if item_data.is_archived is not None:
-            item.is_archived = item_data.is_archived
         if item_data.is_favorite is not None:
             item.is_favorite = item_data.is_favorite
         
@@ -1190,42 +1145,21 @@ async def search_items(
     """Search for items with FTS5 (name, filename, description, metadata, tags) and filter by tag/mime type."""
     from sqlalchemy import text
     try:
-        # Sanitize search query
+        # Sanitize search query and use centralized FTS5 search
         search_query = sanitize_search_query(query)
-        # Prepare FTS5 query string (case-insensitive, prefix match)
-        def prepare_fts_query(q: str, tag: Optional[str]=None) -> str:
-            import re
-            q = re.sub(r'[\"\'\^\*\:\(\)\-]', ' ', q)
-            if tag:
-                return f'{q.strip()}* {tag.strip()}*'
-            return f'{q.strip()}*'
-        fts_search = prepare_fts_query(search_query, tag)
-        # FTS5 search for UUIDs
-        fts_sql = text("""
-            SELECT uuid, bm25(fts_archive_items) as rank
-            FROM fts_archive_items
-            WHERE fts_archive_items MATCH :query AND user_id = :user_id
-            ORDER BY rank
-            LIMIT :limit OFFSET :offset
-        """)
-        result = await db.execute(fts_sql, {
-            'query': fts_search,
-            'user_id': current_user.id,
-            'limit': page_size,
-            'offset': (page-1)*page_size
-        })
-        uuid_rank_pairs = result.fetchall()
-        if not uuid_rank_pairs:
+        uuid_list = await fts_service.search_archive_items(
+            db, search_query, current_user.id, tag=tag, 
+            limit=page_size, offset=(page-1)*page_size
+        )
+        if not uuid_list:
             return []
-        uuid_list = [row.uuid for row in uuid_rank_pairs]
         # Fetch full rows, preserving FTS5 order
         item_query = (
             select(ArchiveItem)
             .options(selectinload(ArchiveItem.tag_objs))
             .where(ArchiveItem.uuid.in_(uuid_list))
         )
-        if not include_archived:
-            item_query = item_query.where(ArchiveItem.is_archived == False)
+        # Archive items don't use is_archived flag - all are active by being in archive
         if folder_uuid:
             item_query = item_query.where(ArchiveItem.folder_uuid == folder_uuid)
         # Filter by mime_type after FTS5
@@ -1271,10 +1205,8 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str) -> FolderRe
     # Get item count
     item_count_result = await db.execute(
         select(func.count(ArchiveItem.uuid)).where(
-            and_(
-                ArchiveItem.folder_uuid == folder_uuid,
-                ArchiveItem.is_archived == False
-            )
+            ArchiveItem.folder_uuid == folder_uuid
+            # Archive items don't use is_archived flag - all are active by being in archive
         )
     )
     item_count = item_count_result.scalar() or 0
@@ -1282,10 +1214,8 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str) -> FolderRe
     # Get subfolder count
     subfolder_count_result = await db.execute(
         select(func.count(ArchiveFolder.uuid)).where(
-            and_(
-                ArchiveFolder.parent_uuid == folder_uuid,
-                ArchiveFolder.is_archived == False
-            )
+            ArchiveFolder.parent_uuid == folder_uuid
+            # Archive folders don't use is_archived flag - all are active by being in archive
         )
     )
     subfolder_count = subfolder_count_result.scalar() or 0
@@ -1293,10 +1223,8 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str) -> FolderRe
     # Get total size
     size_result = await db.execute(
         select(func.sum(ArchiveItem.file_size)).where(
-            and_(
-                ArchiveItem.folder_uuid == folder_uuid,
-                ArchiveItem.is_archived == False
-            )
+            ArchiveItem.folder_uuid == folder_uuid
+            # Archive items don't use is_archived flag - all are active by being in archive
         )
     )
     total_size = size_result.scalar() or 0
@@ -1307,7 +1235,6 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str) -> FolderRe
         description=folder.description,
         parent_uuid=folder.parent_uuid,
         path=folder.path,
-        is_archived=folder.is_archived,
         created_at=folder.created_at,
         updated_at=folder.updated_at,
         item_count=item_count,
@@ -1387,7 +1314,6 @@ async def _get_item_summary(db: AsyncSession, item_uuid: str) -> ItemSummary:
         original_filename=item.original_filename,
         mime_type=item.mime_type,
         file_size=item.file_size,
-        is_archived=item.is_archived,
         is_favorite=item.is_favorite,
         created_at=item.created_at,
         updated_at=item.updated_at,
@@ -1433,7 +1359,7 @@ async def _handle_item_tags(db: AsyncSession, item: ArchiveItem, tag_names: List
         await db.execute(
             archive_tags.insert().values(
                 item_uuid=item.uuid,
-                tag_id=tag.id
+                tag_uuid=tag.uuid
             )
         )
 
@@ -1621,7 +1547,7 @@ async def upload_files(
                     await db.execute(
                         archive_tags.insert().values(
                             item_uuid=archive_item.uuid,
-                            tag_id=tag.id
+                            tag_uuid=tag.uuid
                         )
                     )
                 

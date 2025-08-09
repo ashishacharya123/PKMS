@@ -5,14 +5,15 @@
 import { apiService } from './api';
 import { coreUploadService, UploadProgress } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
+import { searchService } from './searchService';
 
-const SMALL_FILE_THRESHOLD = 3 * 1024 * 1024; // 3 MB
+// Removed SMALL_FILE_THRESHOLD since we're using chunked upload consistently
 
 export interface Note {
   id: number;
+  uuid: string;
   title: string;
   content: string;
-  content_type: string;
   file_count: number;
   is_favorite: boolean;
   is_archived: boolean;
@@ -23,6 +24,7 @@ export interface Note {
 
 export interface NoteSummary {
   id: number;
+  uuid: string;
   title: string;
   file_count: number;
   is_favorite: boolean;
@@ -34,8 +36,8 @@ export interface NoteSummary {
 }
 
 export interface NoteFile {
-  id: number;
-  note_id: number;
+  uuid: string;
+  note_uuid: string;
   filename: string;
   original_name: string;
   file_size: number;
@@ -69,6 +71,8 @@ class NotesService {
    */
   async createNote(data: CreateNoteRequest): Promise<Note> {
     const response = await apiService.post<Note>('/notes/', data);
+    // Invalidate search cache for notes
+    searchService.invalidateCacheForContentType('note');
     return response.data;
   }
 
@@ -85,15 +89,18 @@ class NotesService {
    */
   async updateNote(id: number, data: UpdateNoteRequest): Promise<Note> {
     const response = await apiService.put<Note>(`/notes/${id}`, data);
+    // Invalidate search cache for notes
+    searchService.invalidateCacheForContentType('note');
     return response.data;
   }
 
   /**
    * Delete a note
    */
-  async deleteNote(id: number): Promise<{ message: string }> {
-    const response = await apiService.delete<{ message: string }>(`/notes/${id}`);
-    return response.data;
+  async deleteNote(id: number): Promise<void> {
+    await apiService.delete(`/notes/${id}`);
+    // Invalidate search cache for notes
+    searchService.invalidateCacheForContentType('note');
   }
 
   /**
@@ -169,7 +176,7 @@ class NotesService {
    */
   async uploadFile(
     file: File, 
-    noteId: number,
+    noteUuid: string,
     description?: string,
     onProgress?: (progress: UploadProgress) => void
   ): Promise<NoteFile> {
@@ -179,10 +186,10 @@ class NotesService {
       onProgress
     });
 
-    // Commit the upload to the note
+    // Commit the upload to the note using the UUID directly
     const response = await apiService.post<NoteFile>('/notes/files/upload/commit', {
       file_id: fileId,
-      note_id: noteId,
+      note_uuid: noteUuid,
       description
     });
 
@@ -192,23 +199,23 @@ class NotesService {
   /**
    * Download a note file attachment
    */
-  async downloadFile(fileId: number, onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
-    const url = `/notes/files/${fileId}/download`;
-    return coreDownloadService.downloadFile(url, { fileId: String(fileId), onProgress });
+  async downloadFile(fileUuid: string, onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
+    const url = `/notes/files/${fileUuid}/download`;
+    return coreDownloadService.downloadFile(url, { fileId: fileUuid, onProgress });
   }
 
   /**
    * Get download URL for a file attachment
    */
-  getFileDownloadUrl(fileId: number): string {
-    return `${apiService.getAxiosInstance().defaults.baseURL}/notes/files/${fileId}/download`;
+  getFileDownloadUrl(fileUuid: string): string {
+    return `${apiService.getAxiosInstance().defaults.baseURL}/notes/files/${fileUuid}/download`;
   }
 
   /**
    * Delete a file attachment
    */
-  async deleteFile(fileId: number): Promise<{ message: string }> {
-    const response = await apiService.delete<{ message: string }>(`/notes/files/${fileId}`);
+  async deleteFile(fileUuid: string): Promise<{ message: string }> {
+    const response = await apiService.delete<{ message: string }>(`/notes/files/${fileUuid}`);
     return response.data;
   }
 
@@ -220,16 +227,7 @@ class NotesService {
     return response.data;
   }
 
-  /**
-   * Download a note as file (e.g., markdown export)
-   */
-  getDownloadUrl(id: number): string {
-    return `/notes/${id}/download`;
-  }
 
-  async downloadNote(id: number, onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
-    return coreDownloadService.downloadFile(this.getDownloadUrl(id), { fileId: String(id), onProgress });
-  }
 
   /**
    * Get file icon based on MIME type

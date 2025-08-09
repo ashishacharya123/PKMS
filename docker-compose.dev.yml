@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  # PKMS Backend API - Development
+  pkms-backend:
+    build: 
+      context: ./pkms-backend
+      dockerfile: Dockerfile.dev
+    container_name: pkms-backend-dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount data directory for persistence using Docker volume
+      - pkms_db_data:/app/data
+      # Mount source code for development (hot reload)
+      - ./pkms-backend:/app
+      # Mount PKMS_Data for backup operations
+      - ./PKMS_Data:/app/PKMS_Data
+      # Mount Docker socket for backup operations (development only)
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Exclude virtual environment and cache
+      - /app/venv
+      - /app/__pycache__
+      - /app/.pytest_cache
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///app/data/pkm_metadata.db
+      - AUTH_DB_PATH=/app/data/auth.db
+      # Force backend to use the bind-mounted /app/data directory
+      - DATA_DIR=/app/data
+      - LOG_LEVEL=debug
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - REDIS_URL=redis://redis:6379/0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - pkms-network
+
+  # Redis for caching, rate limiting, and session storage
+  redis:
+    image: redis:7-alpine
+    container_name: pkms-redis-dev
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - pkms-network
+
+volumes:
+  redis_data:
+    driver: local
+  pkms_db_data:
+    driver: local
+
+networks:
+  pkms-network:
+    driver: bridge 

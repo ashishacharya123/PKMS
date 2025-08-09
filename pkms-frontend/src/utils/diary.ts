@@ -1,4 +1,5 @@
 import { format } from 'date-fns';
+import NepaliDate from 'nepali-date-converter';
 
 export const getMoodLabel = (mood: number): string => {
   const labels = {
@@ -11,26 +12,37 @@ export const getMoodLabel = (mood: number): string => {
   return labels[mood as keyof typeof labels] || 'Unknown';
 };
 
-export const getMoodColor = (mood: number): string => {
-  const colors = {
-    1: '#F44336', // Red
-    2: '#FF9800', // Orange
-    3: '#757575', // Gray
-    4: '#4CAF50', // Green
-    5: '#2196F3'  // Blue
-  };
-  return colors[mood as keyof typeof colors] || '#757575';
-};
-
 export const getMoodEmoji = (mood: number): string => {
   const emojis = {
     1: '😢',
-    2: '😞',
+    2: '😕',
     3: '😐',
     4: '😊',
     5: '😄'
   };
-  return emojis[mood as keyof typeof emojis] || '😐';
+  return emojis[mood as keyof typeof emojis] || '-';
+};
+
+export const getMoodColor = (mood: number): string => {
+  const colors = {
+    1: 'red',
+    2: 'orange',
+    3: 'yellow',
+    4: 'lime',
+    5: 'green'
+  };
+  return colors[mood as keyof typeof colors] || 'gray';
+};
+
+export const convertToNepaliDate = (englishDate: Date | string): string => {
+  try {
+    const date = typeof englishDate === 'string' ? new Date(englishDate) : englishDate;
+    const nepaliDate = new NepaliDate(date);
+    return nepaliDate.format('YYYY/MM/DD');
+  } catch (error) {
+    console.error('Failed to convert to Nepali date:', error);
+    return '';
+  }
 };
 
 export const formatDate = (date: string): string => {
