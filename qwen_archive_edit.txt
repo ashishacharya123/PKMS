@@ -1,0 +1,43 @@
+# Archive Module Fixes Summary
+
+## Issues Identified and Fixed
+
+### 1. Self-Referential Model Issue
+**Problem**: The `FolderTree` model had a self-referencing type annotation (`children: List['FolderTree']`) that wasn't properly handled by Pydantic, causing validation errors.
+
+**Fix**: Added `from_attributes = True` to the model's Config class to enable postponed evaluation of annotations.
+
+### 2. File Storage Path Inconsistency
+**Problem**: The bulk upload endpoint was storing files directly in the archive directory (`PKMS_Data/archive/`) while the single file upload endpoint was organizing files by folder UUID (`PKMS_Data/archive/{folder_uuid}/`).
+
+**Fix**: Modified the bulk upload endpoint to create folder-specific storage directories:
+- When a folder is specified: `PKMS_Data/archive/{folder_uuid}/`
+- When no folder is specified: `PKMS_Data/archive/unorganized/`
+
+### 3. Temp Upload Directory Mismatch
+**Problem**: The archive router's commit endpoint was looking for assembled chunk files in `get_archive_data_dir()/temp_uploads`, but the chunk service stores them in `get_data_dir()/temp_uploads`.
+
+**Fix**: Updated the commit endpoint to look for assembled files in the correct location: `get_data_dir()/temp_uploads`.
+
+### 4. Duplicate Imports
+**Problem**: The archive router had duplicate imports of `get_data_dir` and `get_archive_data_dir` from `app.config`.
+
+**Fix**: Removed the duplicate import statements.
+
+### 5. Syntax Error
+**Problem**: The file was missing a closing brace at the end, causing a syntax error.
+
+**Fix**: Added the missing closing brace to properly close the debug endpoint function.
+
+## Files Modified
+- `pkms-backend/app/routers/archive.py`
+
+## Impact
+These changes ensure:
+1. Proper Pydantic model validation for folder trees
+2. Consistent file organization across all upload endpoints
+3. Correct file path resolution for chunked uploads
+4. Cleaner import statements
+5. Syntactically correct Python code
+
+The archive module should now function correctly with all endpoints working as expected.

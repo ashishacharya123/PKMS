@@ -1,0 +1,117 @@
+# Detailed Analysis of Document Archive Issue
+
+## Current Problem
+Archived documents are not showing up when filtering by archived status, even though the archive operation reports success.
+
+## Investigation Steps
+
+### 1. Database Verification
+Need to verify if documents are actually being marked as archived in the database:
+- Check if the `is_archived` field is being set to `True` in the `documents` table
+- Check if the `archive_item_uuid` field is being populated correctly
+- Verify the database schema to ensure the fields exist and are of the correct type
+
+### 2. API Endpoint Analysis
+Need to verify the list_documents endpoint behavior:
+- Check if the query is correctly filtering by `is_archived` status
+- Verify if the `archived` query parameter is being properly parsed
+- Check if there are any issues with the FTS5 search path vs. regular query path
+
+### 3. Frontend Integration Check
+Need to verify how the frontend is calling the API:
+- Check if the `archived` parameter is being sent correctly
+- Verify if there are any frontend filters that might be interfering
+- Check browser developer tools to see the actual API requests being made
+
+### 4. Transaction Isolation Issues
+Need to verify if there are any transaction isolation issues:
+- Check if the database commit is actually completing
+- Verify if there are any rollback conditions that might be silently failing
+
+### 5. User Context Issues
+Need to verify if there are any user context issues:
+- Check if the archived documents belong to the correct user
+- Verify if there are any user ID mismatches in the queries
+
+## Potential Root Causes
+
+### 1. Query Parameter Parsing Issue
+The `archived` query parameter might not be correctly parsed as a boolean:
+- If sent as string "true" vs boolean true
+- If the default value is interfering with the query
+
+### 2. Database Transaction Not Committed
+The database transaction might appear to succeed but not actually commit:
+- Silent rollbacks due to exceptions
+- Connection issues preventing commit
+
+### 3. Indexing/Lookup Issues
+There might be issues with how the archived documents are being looked up:
+- FTS5 search might not be indexing archived documents correctly
+- The regular query path might have issues with the boolean comparison
+
+### 4. Caching Issues
+There might be caching issues preventing the updated documents from being returned:
+- Frontend caching
+- Backend caching in the API layer
+
+## Next Steps to Diagnose
+
+### 1. Direct Database Query
+Run a direct SQL query on the database to check the actual values:
+```sql
+SELECT id, uuid, title, is_archived, archive_item_uuid 
+FROM documents 
+WHERE user_id = ? 
+ORDER BY updated_at DESC;
+```
+
+### 2. Add Detailed Logging
+Add logging to the list_documents endpoint to see:
+- What value the `archived` parameter has
+- What query is being executed
+- How many results are being returned
+
+### 3. Test API Directly
+Use curl or Postman to directly test the API endpoint:
+```bash
+# Test non-archived documents
+curl "http://localhost:8000/api/v1/documents?archived=false"
+
+# Test archived documents
+curl "http://localhost:8000/api/v1/documents?archived=true"
+```
+
+### 4. Check Database Schema
+Verify that the `is_archived` column exists and is of the correct type:
+```sql
+PRAGMA table_info(documents);
+```
+
+### 5. Verify Archive Operation
+Add logging to the archive_document function to verify:
+- That the document is being found
+- That the fields are being updated
+- That the commit is successful
+- That no exceptions are being silently caught
+
+## Hypotheses to Test
+
+### Hypothesis 1: Query Parameter Type Issue
+The `archived` parameter might not be correctly converted to a boolean.
+
+### Hypothesis 2: Database Commit Issue
+The database transaction might not be committing correctly.
+
+### Hypothesis 3: User Context Issue
+The archived documents might not belong to the current user.
+
+### Hypothesis 4: FTS5 Search Issue
+The FTS5 search might not be working correctly for archived documents.
+
+## Recommended Debugging Approach
+
+1. Add detailed logging to both the archive_document and list_documents functions
+2. Verify database state directly with SQL queries
+3. Test API endpoints directly with curl/Postman
+4. Check browser developer tools for actual API requests and responses
