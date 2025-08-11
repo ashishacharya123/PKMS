@@ -8,9 +8,9 @@ import { FolderTree } from '../types/archive';
 /* -------------------------------------------------------------------------- */
 /*                               API ENDPOINTS                               */
 /* -------------------------------------------------------------------------- */
-const API_PREFIX = '/api/v1/archive';
+const API_PREFIX = '/archive';
 const FOLDERS_ENDPOINT = `${API_PREFIX}/folders/`;
-const UPLOAD_COMMIT_ENDPOINT = `${API_PREFIX}/upload/commit/`;
+const UPLOAD_COMMIT_ENDPOINT = `${API_PREFIX}/upload/commit`;
 
 // Helper to build folder-scoped routes
 const folderPath = (folderUuid: string) => `${FOLDERS_ENDPOINT}${folderUuid}/`;
@@ -27,45 +27,18 @@ const getBaseName = (filename: string): string => {
 
 // Removed custom error handling - letting apiService handle all errors consistently
 
-const LARGE_FILE_THRESHOLD = 3 * 1024 * 1024; // 3 MB
-
 /* -------------------------------------------------------------------------- */
 /*                               UPLOAD HELPERS                               */
 /* -------------------------------------------------------------------------- */
-const uploadSmallFile = async (
+
+// Unified upload function - uses chunking service for ALL files (no size distinction)
+const uploadFileUnified = async (
   file: File,
   folderUuid: string,
+  tags: string[] = [],
   onProgress?: (progress: UploadProgress) => void,
 ): Promise<ArchiveItem> => {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const data = await coreUploadService.uploadDirect<ArchiveItem>(
-    folderItemsPath(folderUuid),
-    formData,
-    {
-      onProgress: (pct) => {
-        if (onProgress) {
-          onProgress({
-            fileId: '',
-            filename: file.name,
-            bytesUploaded: Math.round((pct / 100) * file.size),
-            totalSize: file.size,
-            status: pct === 100 ? 'completed' : 'uploading',
-            progress: pct,
-          });
-        }
-      },
-    },
-  );
-  return data;
-};
-
-const uploadLargeFile = async (
-  file: File,
-  folderUuid: string,
-  onProgress?: (progress: UploadProgress) => void,
-): Promise<ArchiveItem> => {
+  // Use chunked upload for ALL files
   const fileId = await coreUploadService.uploadFile(file, {
     module: 'archive',
     additionalMeta: { folder_uuid: folderUuid },
@@ -74,22 +47,63 @@ const uploadLargeFile = async (
 
   const commitData = {
     file_id: fileId,
-    original_filename: file.name,
-    mime_type: file.type,
     folder_uuid: folderUuid,
     name: getBaseName(file.name),
+    description: '',
+    tags: tags
   };
 
   const response = await apiService.post<ArchiveItem>(UPLOAD_COMMIT_ENDPOINT, commitData);
   return response.data;
 };
 
+// Multiple files upload function
+const uploadMultipleFiles = async (
+  files: File[],
+  folderUuid: string,
+  tags: string[] = [],
+  onProgress?: (progress: { fileIndex: number; fileName: string; progress: UploadProgress }) => void,
+): Promise<ArchiveItem[]> => {
+  const results: ArchiveItem[] = [];
+  
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    try {
+      const result = await uploadFileUnified(
+        file,
+        folderUuid,
+        tags,
+        (progress) => {
+          onProgress?.({
+            fileIndex: i,
+            fileName: file.name,
+            progress
+          });
+        }
+      );
+      results.push(result);
+    } catch (error) {
+      console.error(`Failed to upload ${file.name}:`, error);
+      // Continue with other files even if one fails
+    }
+  }
+  
+  return results;
+};
+
 /* -------------------------------------------------------------------------- */
 /*                              PUBLIC SERVICE                                */
 /* -------------------------------------------------------------------------- */
 export const archiveService = {
-  async listFolders(): Promise<ArchiveFolder[]> {
-    const { data } = await apiService.get<ArchiveFolder[]>(FOLDERS_ENDPOINT);
+  async listFolders(parentUuid?: string): Promise<ArchiveFolder[]> {
+    const qs = parentUuid ? `?parent_uuid=${encodeURIComponent(parentUuid)}` : '';
+    const { data } = await apiService.get<ArchiveFolder[]>(`${FOLDERS_ENDPOINT}${qs}`);
+    return data;
+  },
+
+  async getFolderTree(rootUuid?: string): Promise<FolderTree[]> {
+    const qs = rootUuid ? `?root_uuid=${encodeURIComponent(rootUuid)}` : '';
+    const { data } = await apiService.get<FolderTree[]>(`${API_PREFIX}/folders/tree${qs}`);
     return data;
   },
 
@@ -98,11 +112,11 @@ export const archiveService = {
     return data;
   },
 
-  async createFolder(name: string, parentUuid?: string): Promise<ArchiveFolder> {
-    const { data } = await apiService.post<ArchiveFolder>(FOLDERS_ENDPOINT, {
-      name,
-      parent_uuid: parentUuid,
-    });
+  async createFolder(name: string, parentUuid?: string, description?: string): Promise<ArchiveFolder> {
+    const payload: any = { name };
+    if (parentUuid) payload.parent_uuid = parentUuid;
+    if (description !== undefined) payload.description = description;
+    const { data } = await apiService.post<ArchiveFolder>(FOLDERS_ENDPOINT, payload);
     return data;
   },
 
@@ -123,12 +137,19 @@ export const archiveService = {
   async uploadFile(
     file: File,
     folderUuid: string,
+    tags: string[] = [],
     onProgress?: (progress: UploadProgress) => void,
   ): Promise<ArchiveItem> {
-    if (file.size < LARGE_FILE_THRESHOLD) {
-      return uploadSmallFile(file, folderUuid, onProgress);
-    }
-    return uploadLargeFile(file, folderUuid, onProgress);
+    return uploadFileUnified(file, folderUuid, tags, onProgress);
+  },
+
+  async uploadMultipleFiles(
+    files: File[],
+    folderUuid: string,
+    tags: string[] = [],
+    onProgress?: (progress: { fileIndex: number; fileName: string; progress: UploadProgress }) => void,
+  ): Promise<ArchiveItem[]> {
+    return uploadMultipleFiles(files, folderUuid, tags, onProgress);
   },
 
   async searchFoldersFTS(query: string): Promise<FolderTree[]> {
@@ -147,5 +168,26 @@ export const archiveService = {
   ): Promise<Blob> {
     const url = this.getDownloadUrl(itemUuid);
     return coreDownloadService.downloadFile(url, { fileId: itemUuid, onProgress });
+  },
+
+  // New management endpoints
+  async renameFolder(folderUuid: string, newName: string): Promise<any> {
+    const formData = new FormData();
+    formData.append('new_name', newName);
+    return apiService.patch(`${API_PREFIX}/folders/${folderUuid}/rename`, formData);
+  },
+
+  async renameItem(itemUuid: string, newName: string): Promise<any> {
+    const formData = new FormData();
+    formData.append('new_name', newName);
+    return apiService.patch(`${API_PREFIX}/items/${itemUuid}/rename`, formData);
+  },
+
+  async deleteItem(itemUuid: string): Promise<any> {
+    return apiService.delete(`${API_PREFIX}/items/${itemUuid}`);
+  },
+
+  async downloadFolder(folderUuid: string): Promise<any> {
+    return apiService.get(`${API_PREFIX}/folders/${folderUuid}/download`);
   },
 }; 

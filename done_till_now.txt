@@ -1,6 +1,63 @@
-## PKMS Development Progress - Updated: 2025-01-28 (Consolidated)
+## PKMS Development Progress - Updated: 2025-01-24 (Archive Bug Fix)
 
-### 🆕 **LATEST COMPLETION** - Comprehensive Log Consolidation & Documentation Update
+### 🆕 **LATEST COMPLETION** - Complete Archive & Cache Fix  
+**Status**: ✅ **COMPLETED** (January 24, 2025 - 19:30 +05:45)  
+**AI Assistant**: Claude Sonnet 3.5 (via Cursor)  
+**Updates**: Fixed multiple critical issues: 1) Archive functionality - Added missing `is_archived` field to backend `DocumentUpdate` model, enabling proper database updates. 2) Window minimize issue - Added visibility change and focus event listeners to reload documents when page becomes visible, preventing cache issues. 3) Type conversion - Enhanced document ID handling to prevent string/integer mismatch errors. Archive now properly updates database and UI correctly refreshes after window minimize/restore.
+
+### ✅ **PREVIOUS COMPLETION** - Complete Archive Management System  
+**Status**: ✅ **COMPLETED** (January 24, 2025 - 00:00 +05:45)  
+**AI Assistant**: Claude Sonnet 3.5 (via Cursor)  
+**Updates**: Comprehensive file management system with full CRUD operations. Implemented rename, delete, download actions for files/folders with professional dark theme. Fixed tree expansion issues, added context menus, secure backend APIs, and enhanced UI. Archive module now features complete file management with proper modals, confirmations, and production-ready functionality.
+
+### ✅ **PREVIOUS COMPLETION** - Refresh Session Button in User Menu  
+**Status**: ✅ **COMPLETED** (August 10, 2025 - 21:55 +05:45)  
+**AI Assistant**: GPT-5 (via Cursor)  
+**Updates**: Added a "Refresh Session" menu item alongside Profile/Settings that triggers silent token renewal via `apiService.extendSession()`. Complements recent CORS adjustments to ensure refresh works reliably over LAN and localhost.
+
+### ✅ **RECENT COMPLETION** - Premium Archive Page Redesign  
+**Status**: ✅ **COMPLETED** (January 23, 2025)  
+**AI Assistant**: Claude Sonnet 3.5 (via Cursor)  
+**Updates**: Complete redesign of Archive page with premium UI, thumbnail support, sidebar layout, and enhanced file management. Fixed file selector issues and implemented modern image preview functionality. Archive module now has professional appearance with improved user experience.
+
+## PKMS Development Progress - Archive Fix Update: 2025-01-23
+
+### 🆕 **LATEST COMPLETION** - Inline Image Viewer for Documents  
+**Status**: ✅ **COMPLETED** (August 10, 2025)  
+**AI Assistant**: GPT-5 (via Cursor)  
+**Updates**: Added an in-page image viewer to the Documents module. Clicking image files now opens a modal/lightbox with contain scaling. Non-image types retain existing behavior. Uses authenticated blob download; object URLs revoked on close.
+
+2025-08-10 21:36:30 +05:45 – Code Quality: Verified and confirmed no typo in `Depends(get_current_user)` for diary/auth password change endpoints. No code changes needed. Files checked: `pkms-backend/app/routers/auth.py`, `pkms-backend/app/routers/diary.py`.
+
+### 🆕 Completion - Dashboard search/navigation + Hybrid search param fix
+**Status**: ✅ COMPLETED (July 16, 2025)
+**AI Assistant**: GPT-5 (via Cursor)
+**Updates**:
+- Dashboard global search now routes to FTS5 page; FTS5 auto-runs when provided `?q=`.
+- Quick Action “New Note” opens `/notes/new`; Documents page opens upload modal with `?action=upload`.
+- Search param fix: no longer sends `modules=undefined`; default fuzzy flag handled safely; diary excluded unless explicitly requested.
+- Todos supports `?overdue=true` deep link.
+  - Documents: Better file type icons and labels across list/grid/detail views and image preview modal.
+  - Dashboard: Added “View overdue/Today” quick links; added a non-blocking Today panel (Due Today/Overdue/Completed Today) that shows if stats are present.
+ - Backend: Dashboard stats now include `due_today` and `completed_today` (Nepal TZ); Today panel shows precise counts.
+  - Documents: Subtle hover elevation and compact action area for list/card items.
+  - Diary: Added modal viewer scaffolding for photos; photo-count badges shown; thumbnails wiring next.
+  - Diary View: If an entry has photo media, the first photo is fetched and shown inline under the content; cleans up URL on unmount.
+  - Notes: Added image attachment upload in editor and in-place preview via modal.
+  - Diary: Added in-place photo upload UI in entry modal with simple status.
+  - Notes/Diary: Insert image into content (notes: markdown link; diary: marker reference).
+
+### **Previous Completion** - Critical Document Archive Bug Fix  
+**Status**: ✅ **COMPLETED** (August 10, 2025)  
+**AI Assistant**: Claude Sonnet 4 (via Cursor)  
+**Critical bug resolution**: Fixed document archiving functionality that was broken due to UUID vs integer ID parameter mismatch. All document operations (archive, download, preview) now work correctly with proper UUID→ID resolution pattern.
+
+### **Previous Completion** - Docker File Storage Investigation & User Education  
+**Status**: ✅ **COMPLETED** (August 10, 2025)  
+**AI Assistant**: Claude Sonnet 4 (via Cursor)  
+**File storage verification & user confusion resolution**: Thoroughly investigated and confirmed Docker bind mount file storage is working perfectly. User educated on file organization and UUID naming system.
+
+### **Previous Completion** - Comprehensive Log Consolidation & Documentation Update  
 **Status**: ✅ **COMPLETED** (January 28, 2025)  
 **AI Assistant**: Claude Sonnet 4 (via Cursor)  
 **Comprehensive documentation organization & historical preservation**: Successfully consolidated all development logs, updated error documentation, and preserved recent development history in organized format.
@@ -1949,3 +2006,23 @@ Pruned `encrypted_content`, `encryption_key_id`, and `is_encrypted` columns from
 
 **Status**: ✅ **COMPLETED** - Note deletion functionality fixed, database reset with clean schema, ready for testing.
 
+
+
+### Favorite Functionality Implementation (2025-01-15)
+- ✅ Added is_favorite field to Todo model in database
+- ✅ Implemented complete favorite filter functionality in Documents page
+- ✅ Added backend API support for is_favorite filtering in Documents router  
+- ✅ Updated frontend store and UI for favorite toggle functionality
+- ✅ All modules now have is_favorite fields: Documents ✅, Notes ✅, Diary ✅, Archive ✅, Links ✅, Todos ✅
+- ✅ Added debug logging for Documents archive functionality
+
+**Status**: ✅ Documents favorite filter completed. Need to implement for Notes and Diary next.
+
+### Archive Upload Fix (2025-01-16)
+- ✅ **Issue**: Archive upload commit endpoint returning 500 Internal Server Error  
+- ✅ **Root Cause**: URL endpoint mismatch - frontend had trailing slash, backend didn't
+- ✅ **Solution**: Fixed frontend archiveService.ts endpoint URL consistency
+- ✅ **Validation**: All upload commit endpoints now consistent across modules
+- ✅ **Files**: pkms-frontend/src/services/archiveService.ts (line 13 fixed)
+
+**Status**: ✅ Archive uploads should now work correctly without 500 errors.
