@@ -15,21 +15,21 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Final stage - use alpine for smaller size
-FROM python:3.11-alpine
+# Final stage - use slim to match builder (avoids musl/glibc wheel incompatibility)
+FROM python:3.11-slim
 
 # Install runtime dependencies (minimal)
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
     curl \
     tzdata \
-    && rm -rf /var/cache/apk/*
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Create non-root user
-RUN adduser -D -u 1000 pkms
+RUN useradd --create-home --shell /bin/bash --uid 1000 pkms
 
 # Create data directory and set permissions
 RUN mkdir -p /app/data && chown -R pkms:pkms /app/data

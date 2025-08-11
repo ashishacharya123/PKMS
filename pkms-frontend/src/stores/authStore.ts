@@ -30,9 +30,7 @@ interface AuthActions {
   updateSettings: (settings: Partial<UserSettings>) => Promise<boolean>;
 }
 
-// Session monitoring interval
-let sessionInterval: number | null = null;
-let warningShown = false;
+// Deprecated local flags (kept for backward compatibility reference)
 
 export const useAuthStore = create<AuthState & AuthActions>()(
   devtools(
@@ -333,10 +331,12 @@ export const useAuthStore = create<AuthState & AuthActions>()(
 
       startSessionMonitoring: () => {
         const timer = setInterval(() => {
-          if (apiService.isTokenExpiringSoon()) {
+          if (apiService.isTokenCriticallyExpiring()) {
+            apiService.showFinalExpiryPrompt();
+          } else if (apiService.isTokenExpiringSoon()) {
             apiService.showExpiryWarning();
           }
-        }, 30000); // Check every 30 seconds
+        }, 15_000); // Check every 15 seconds for more responsive UX near expiry
 
         set({ sessionTimer: timer });
       },

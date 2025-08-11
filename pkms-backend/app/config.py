@@ -153,6 +153,28 @@ def get_data_dir() -> Path:
     return data_dir
 
 
+def get_file_storage_dir() -> Path:
+    """Get the file storage directory path - Always use PKMS_Data for file storage
+    This ensures files are accessible outside Docker and not stored in Docker volumes"""
+    # For file storage, always use the Windows filesystem mount point
+    # This ensures files are accessible outside Docker and not stored in Docker volumes
+    if Path("/app/PKMS_Data").exists():
+        # Docker environment - use mounted Windows filesystem
+        file_storage_dir = Path("/app/PKMS_Data")
+    else:
+        # Native/development environment - use project root
+        repo_root = Path(__file__).resolve().parents[2]
+        file_storage_dir = repo_root / "PKMS_Data"
+    
+    if not file_storage_dir.exists():
+        file_storage_dir.mkdir(parents=True, exist_ok=True)
+    return file_storage_dir
+
+
+# Note: get_archive_data_dir() was removed as it was just a wrapper around get_file_storage_dir()
+# Use get_file_storage_dir() directly instead
+
+
 def get_database_url() -> str:
     """Get the database URL with proper path resolution"""
     if settings.database_url.startswith("sqlite"):

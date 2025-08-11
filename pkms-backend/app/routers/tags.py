@@ -1,13 +1,13 @@
 """Tag utilities router – autocomplete and future tag endpoints"""
 
 # noqa: E501
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 import time
 
 from rapidfuzz import process, fuzz
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -15,24 +15,22 @@ from app.models.tag import Tag
 from app.auth.dependencies import get_current_user
 from app.models.user import User
 
-router = APIRouter(prefix="/tags", tags=["Tags"])
+router = APIRouter(tags=["Tags"])
 
 # Simple in-process cache: {(user_id, query): (timestamp, suggestions)}
 _CACHE: Dict[Tuple[int, str], Tuple[float, List[str]]] = {}
 _CACHE_TTL_S = 5  # seconds
 
 
-@router.get("/autocomplete", response_model=List[str])
+@router.get("/autocomplete")
 async def autocomplete_tags(
-    q: str = Query("", alias="query", min_length=0, max_length=100),
-    limit: int = Query(5, le=20),
+    q: str = Query("", description="Tag search query"),
+    module_type: Optional[str] = Query(None, description="Filter by module type"),
+    limit: int = Query(20, le=100),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Return tag name suggestions for the current user.
-
-    Uses simple prefix+fuzzy matching over the user's existing tag names.
-    """
+    """Get tag autocomplete suggestions for tagging interface."""
     # Check cache first
     cache_key = (current_user.id, q.lower())
     now = time.time()
@@ -86,4 +84,63 @@ async def autocomplete_tags(
     # Save in cache
     _CACHE[cache_key] = (now, final_list)
 
-    return final_list 
+    return final_list
+
+
+@router.get("/autocomplete-enhanced")
+async def autocomplete_tags_enhanced(
+    q: str = Query("", description="Tag search query"),
+    module_type: Optional[str] = Query(None, description="Filter by module type"),
+    limit: int = Query(20, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get tag autocomplete suggestions in the format expected by the frontend."""
+    
+    if len(q.strip()) < 1:
+        return {'tags': []}
+    
+    pattern = f"%{q.lower()}%"
+    
+    try:
+        query = select(Tag.name, Tag.color, Tag.module_type).where(
+            and_(
+                Tag.user_id == current_user.id,
+                Tag.name.ilike(pattern)
+            )
+        )
+        
+        # Don't filter by module_type for better UX - show all user tags
+        # if module_type:
+        #     query = query.where(Tag.module_type == module_type)
+        
+        query = query.distinct().order_by(Tag.name).limit(limit)
+        
+        result = await db.execute(query)
+        tags_data = result.fetchall()
+        
+        tags = [
+            {
+                'name': name,
+                'color': color,
+                'type': tag_module_type
+            }
+            for name, color, tag_module_type in tags_data
+        ]
+        
+        return {'tags': tags}
+        
+    except Exception as e:
+        return {'tags': []}
+
+
+@router.get("/advanced")
+async def autocomplete_tags_advanced(
+    q: str = Query("", description="Tag search query"),
+    module_type: Optional[str] = Query(None, description="Filter by module type"),
+    limit: int = Query(20, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Alias for autocomplete-enhanced to fix frontend routing."""
+    return await autocomplete_tags_enhanced(q, module_type, limit, current_user, db) 

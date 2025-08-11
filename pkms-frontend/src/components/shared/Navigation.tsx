@@ -1,5 +1,5 @@
-import React, { useState, KeyboardEvent, useEffect } from 'react';
-import { useLocation, Link, useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { useLocation, Link } from 'react-router-dom';
 import {
   AppShell,
   ScrollArea,
@@ -8,20 +8,19 @@ import {
   UnstyledButton,
   ThemeIcon,
   Stack,
-  Tooltip,
+  
   Menu,
   Avatar,
   Divider,
   useMantineColorScheme,
-  Box,
-  TextInput
+  Box
 } from '@mantine/core';
 import {
   IconHome,
   IconNotes,
   IconFile,
   IconCheckbox,
-  IconCalendar,
+  
   IconSearch,
   IconArchive,
   IconChevronDown,
@@ -30,12 +29,14 @@ import {
   IconBug,
   IconDatabase,
   IconKey,
+  IconRefresh,
 } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
 import dashboardService from '../../services/dashboardService';
 import { TestingInterface } from './TestingInterface';
 import { BackupRestoreModal } from './BackupRestoreModal';
 import RecoveryViewModal from '../auth/RecoveryViewModal';
+import { apiService } from '../../services/api';
 
 interface NavigationItem {
   label: string;
@@ -108,7 +109,7 @@ export function Navigation({ collapsed = false }: NavigationProps) {
   const [backupModalOpened, setBackupModalOpened] = useState(false);
   const [recoveryViewModalOpened, setRecoveryViewModalOpened] = useState(false);
   const { user, logout } = useAuthStore();
-  const navigate = useNavigate();
+  // const navigate = useNavigate();
   const location = useLocation();
   const { colorScheme } = useMantineColorScheme();
 
@@ -121,21 +122,9 @@ export function Navigation({ collapsed = false }: NavigationProps) {
     return location.pathname.startsWith(path);
   };
 
-  const handleSearch = (query: string) => {
-    if (query.trim()) {
-      navigate(`/search?q=${encodeURIComponent(query.trim())}`);
-    }
-  };
+  // Reserved for future search integration
 
-  const handleSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      const query = e.currentTarget.value.trim();
-      if (query) {
-        handleSearch(query);
-        e.currentTarget.value = ''; // Clear input after search
-      }
-    }
-  };
+  // Reserved for future search input usage
 
   const NavigationLink = ({ item }: { item: NavigationItem }) => (
     <Box
@@ -285,6 +274,20 @@ export function Navigation({ collapsed = false }: NavigationProps) {
           <Menu.Dropdown>
             <Menu.Item leftSection={<IconHome size={14} />}>
               Profile Settings
+            </Menu.Item>
+
+            <Menu.Item 
+              leftSection={<IconRefresh size={14} />}
+              onClick={async () => {
+                try {
+                  await apiService.extendSession();
+                  setUserMenuOpened(false);
+                } catch (e) {
+                  // extendSession already handles notifications
+                }
+              }}
+            >
+              Refresh Session
             </Menu.Item>
 
             <Menu.Item 

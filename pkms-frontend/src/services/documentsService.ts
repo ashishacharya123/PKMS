@@ -3,16 +3,14 @@
  */
 
 import { apiService } from './api';
-import { coreUploadService, UploadProgress } from './shared/coreUploadService';
+import { coreUploadService } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
 import { searchService } from './searchService';
 
-const SMALL_FILE_THRESHOLD = 3 * 1024 * 1024; // 3 MB
+// Using chunked upload for all documents; no small-file direct path
+// (kept here previously; now removed to avoid dead code)
 
-// Map simple percent progress for UI
-const forwardUploadPct = (cb?: (p: number) => void) => {
-  return (pct: number) => cb?.(pct);
-};
+// Removed legacy direct-upload progress mapper
 
 export interface Document {
   id: number;
@@ -75,6 +73,7 @@ export interface SearchResult {
 export interface DocumentsListParams {
   mime_type?: string;
   archived?: boolean;
+  is_favorite?: boolean;
   tag?: string;
   search?: string;
   limit?: number;
@@ -90,36 +89,24 @@ class DocumentsService {
     tags: string[] = [],
     onProgress?: (progress: number) => void
   ): Promise<Document> {
-    const formData = new FormData();
-    formData.append('file', file);
-    if (tags.length > 0) {
-      formData.append('tags', JSON.stringify(tags));
-    }
-
-    if (file.size <= SMALL_FILE_THRESHOLD) {
-      const data = await coreUploadService.uploadDirect<Document>('/documents/', formData, { onProgress: forwardUploadPct(onProgress) });
-      // Invalidate search cache for documents
-      searchService.invalidateCacheForContentType('document');
-      return data;
-    }
-
-    await coreUploadService.uploadFile(file, {
+    // Use chunked upload uniformly to match backend capabilities
+    const fileId = await coreUploadService.uploadFile(file, {
       module: 'documents',
       additionalMeta: { tags },
       onProgress: p => onProgress?.(p.progress)
     });
 
-    // After assembly backend should have created document entry; fetch its metadata
-    // via a dedicated endpoint e.g., /documents/by-upload/{file_id}. For now, re-fetch list.
-    // Simplest: call GET /documents?limit=1&offset=0 and assume newest first.
-    const docs = await this.listDocuments({ limit: 1 });
-    if (docs.length) {
-      const fullDoc = await this.getDocument(docs[0].id);
-      // Invalidate search cache for documents
-      searchService.invalidateCacheForContentType('document');
-      return fullDoc;
-    }
-    throw new Error('Upload completed but document metadata not found');
+    // After assembly, finalize by creating the Document via commit endpoint
+    const commitPayload = {
+      file_id: fileId,
+      title: file.name,
+      description: undefined as string | undefined,
+      tags,
+    };
+    const commitResp = await apiService.post<Document>('/documents/upload/commit', commitPayload);
+    const created = commitResp.data;
+    searchService.invalidateCacheForContentType('document');
+    return created;
   }
 
   /**

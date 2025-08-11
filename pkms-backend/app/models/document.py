@@ -31,7 +31,7 @@ class Document(Base):
     description = Column(Text, nullable=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     is_favorite = Column(Boolean, default=False)
-    is_archived = Column(Boolean, default=False)
+    is_archived = Column(Boolean, default=False, index=True)
     archive_item_uuid = Column(String(36), nullable=True, index=True)  # Reference to ArchiveItem when archived
     upload_status = Column(String(20), default="completed")  # pending, processing, completed, failed
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())

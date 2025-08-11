@@ -1,10 +1,139 @@
+## 2025-08-09 — Archive File Storage Path Fix (by Claude Sonnet 4)
+
+## 2025-08-09 — Documents Upload 405 Fix (by GPT-5)
+
+Issue: Frontend uploads to `POST /api/v1/documents/` returned 405 (Method Not Allowed). Vite console also showed `GET http://localhost:3000/ net::ERR_CONNECTION_REFUSED` intermittently.
+
+Root Cause:
+- Backend exposes shared chunk endpoints under `/api/v1/upload/{chunk|{file_id}/status|{file_id}}` and a documents commit endpoint `POST /api/v1/documents/upload/commit`. There is no `POST /api/v1/documents/` for direct file upload.
+- Frontend `documentsService.uploadDocument()` tried to `POST /documents/` for small files and `coreUploadService` sent chunks to `/<module>/upload/chunk` (module-specific), which does not exist; the actual path is `/upload/chunk`.
+
+Changes Made (by GPT-5):
+- `pkms-frontend/src/services/shared/coreUploadService.ts`
+  - Fixed base path to use shared upload routes: `endpointBase = '/upload'`.
+  - Fixed cancel path to `DELETE /upload/{file_id}`.
+- `pkms-frontend/src/services/documentsService.ts`
+  - Removed small-file direct POST path; use chunked upload for all files.
+  - After chunk assembly, call `POST /documents/upload/commit` with `{ file_id, title, tags }` to create the Document.
+  - Search cache invalidation preserved.
+
+Result:
+- Uploads now use `/api/v1/upload/chunk` and finalize via `/api/v1/documents/upload/commit`, matching backend. 405 errors resolved.
+
+Security/Best Practice:
+- Aligns with backend’s chunked upload design; avoids large multipart posts and supports retries/concurrency.
+
+Removed functionality/files: None.
+
+**Priority:** CRITICAL - File Storage Issue  
+**Issue:** Archive files were being created in Docker volume instead of Windows filesystem, making them inaccessible outside Docker container.
+
+**Root Cause:** When `DATA_DIR=/app/data` environment variable is set in Docker, `get_data_dir()` returns Docker volume path `/app/data`, causing archive files to be stored in `/app/data/archive/` instead of the expected `/app/PKMS_Data/archive/` Windows filesystem mount.
+
+**Impact:** 
+- Archive files disappeared after upload (stored in Docker volume)
+- Database backups worked fine (explicitly used Windows filesystem)
+- Files not accessible for backup or direct manipulation
+
+**Solution:** 
+1. Created new `get_archive_data_dir()` function that always returns Windows filesystem path
+2. Updated archive router to use dedicated archive data directory function
+3. Updated documents router for consistency
+4. Ensures archive files are stored in `D:/Coding/PKMS/PKMS_Data/archive/` as expected
+
+**Files Modified:**
+- `pkms-backend/app/config.py` - Added `get_archive_data_dir()` function
+- `pkms-backend/app/routers/archive.py` - Updated to use new archive data directory
+- `pkms-backend/app/routers/documents.py` - Updated archive functionality
+
+**Removed functionality/files:** None.
+
+## 2025-08-09 — Diary creation partial-save bug fix (by GPT-5)
+
+Issue: Users observed that mood/emotions appeared recorded even when a diary entry itself did not seem to be created. Root cause was a non-atomic create flow: the row was committed before encrypted file write, so failures during file write left a partially-populated entry.
+
+Fix: Made the creation flow transactional by using `await db.flush()` to get the ID without committing, writing the encrypted file, updating file metadata on the entry, then a single `await db.commit()`. On exceptions, rollback is called before returning error. File: `pkms-backend/app/routers/diary.py`.
+
+Removed functionality/files: None.
 # PKMS Error Fix Documentation
 
 This document tracks all error fixes, migrations, and architectural improvements made to the PKMS system.
 
-**Last Updated:** January 29, 2025  
+**Last Updated:** August 9, 2025  
 **Updated By:** Claude Sonnet 4 (via Cursor)  
-**Status:** Fixed critical diary media upload bug
+**Status:** Implemented comprehensive wellness tracking form for diary entries
+
+## 🆕 DIARY UI ENHANCEMENT - WELLNESS TRACKING FORM IMPLEMENTATION
+
+**Date:** 2025-08-09  
+**Priority:** HIGH  
+**Fixed By:** Claude Sonnet 4 (via Cursor)  
+**Issue Type:** UI/UX Inconsistency & Feature Enhancement
+
+### 🚨 **Problem Identified:**
+Major inconsistency between diary entry form UI and actual data structure. The form was missing ALL wellness tracking metadata fields that were defined in the backend and frontend types, but never exposed to users.
+
+### 🔍 **Root Cause Analysis:**
+1. **Data Structure Mismatch**: Backend stored comprehensive wellness metadata in `metadata_json` field, but frontend form only collected basic fields (title, content, mood, tags)
+2. **Incomplete Feature Implementation**: 14 wellness tracking fields were defined but had no UI controls
+3. **Industry Best Practice Violation**: Users couldn't input data that was being stored (always used defaults)
+
+### 🛠️ **Solution Implemented:**
+
+#### **Enhanced Form Structure:**
+- **Organized into logical sections:** Basic Information, Wellness Tracking (collapsible)
+- **Added all missing metadata fields** with appropriate form controls:
+  - **Sleep & Rest:** Sleep duration, legacy sleep hours
+  - **Physical Activity:** Exercise toggle, exercise minutes, time outside, activity level
+  - **Mental Wellness:** Meditation toggle, gratitude practice, energy/stress level sliders
+  - **Daily Habits:** Water intake, reading time, screen time, social interaction
+
+#### **Technical Improvements:**
+- **Form Controls Used:**
+  - `NumberInput` for numeric values (with proper type handling)
+  - `Switch` components for boolean values
+  - `Slider` components for 1-5 scale ratings with visual markers
+  - `SimpleGrid` for organized layout
+  - `Accordion` for collapsible wellness section
+
+#### **TypeScript Safety:**
+- Fixed all NumberInput onChange handlers to handle both string and number types
+- Proper type coercion: `typeof value === 'string' ? parseInt/parseFloat(value) || 0 : value`
+
+#### **UI/UX Enhancements:**
+- **Modal size increased** to `90%` to accommodate new content
+- **Color-coded sections** for better visual organization
+- **Accordion pattern** to keep form manageable while providing full functionality
+- **Proper labels and placeholders** for all new fields
+
+### 📁 **Files Modified:**
+- `pkms-frontend/src/pages/DiaryPage.tsx` (775-1047 lines updated)
+  - Added imports: `NumberInput, Slider, Divider, Accordion, SimpleGrid, Switch`
+  - Replaced entire form section with comprehensive wellness tracking
+  - Updated modal configuration for better UX
+
+### ✅ **Validation:**
+- No TypeScript compilation errors
+- All form fields now map to existing data structure
+- Maintains backward compatibility with existing entries
+- Form submission logic unchanged (handles new fields automatically)
+
+### 🎯 **Industry Best Practices Achieved:**
+- **Data Completeness:** Users can now input all stored data
+- **Progressive Disclosure:** Wellness tracking in collapsible section
+- **Consistent UX:** Form matches data model exactly
+- **Type Safety:** Proper TypeScript typing throughout
+
+### 🔄 **Removed Functionality:**
+None - This is purely additive enhancement.
+
+### 📊 **Impact:**
+- **User Experience:** Users can now track comprehensive wellness data through UI
+- **Data Quality:** Eliminates always-default metadata values
+- **Feature Completeness:** Wellness tracking now fully functional
+- **Maintainability:** Form structure matches backend data model
+
+---
 
 ## 🔧 DIARY MEDIA UPLOAD CRITICAL BUG FIX
 
@@ -75,6 +204,31 @@ if not assembled:
 - Performance optimization (reduced API calls)  
 - Centralized error handling for better UX
 - Type safety maintained throughout
+
+---
+
+## UX/UI Improvements — Notes Module (2025-08-09)
+
+**Updated By:** GPT-5 (via Cursor)
+
+### Enhancements
+- After successful note creation, navigate to the notes list instead of staying on the editor page.
+- Show a success toast on successful note deletion; show an error toast if deletion fails.
+
+### Files Modified
+- `pkms-frontend/src/pages/NoteEditorPage.tsx`
+- `pkms-frontend/src/pages/NotesPage.tsx`
+
+### Reasoning and Best Practices
+- Post-create navigation back to listing is a common pattern that confirms action and returns users to context.
+- Immediate feedback on destructive actions (delete) via toast aligns with UX guidelines.
+
+### Security/Quality
+- No security impact. Type-safe changes with lints passing on modified files.
+
+### Verification
+- Create a new note via `Notes → New Note → Create` and observe navigation to `/notes` with a success toast.
+- Delete a note from the notes grid menu and observe success/error toasts.
 
 ---
 
@@ -1128,12 +1282,12 @@ sqlite3.OperationalError: disk I/O error
 Symptoms:
 - Container refused to start or crashed during high-write operations
 - WAL journal switched to *TRUNCATE* or *DELETE* mode automatically
-- Database became read-only, showing *“database is locked”* or *“attempt to write a readonly database”* errors
+- Database became read-only, showing *"database is locked"* or *"attempt to write a readonly database"* errors
 
 ### Root Cause
 1. **Windows NTFS vs. SQLite WAL:**  
     • Windows file-locking semantics do not perfectly emulate POSIX advisory locks required by SQLite WAL.  
-    • Docker Desktop’s `gcsfs` layer adds additional latency and can break atomic `flock` operations.
+    • Docker Desktop's `gcsfs` layer adds additional latency and can break atomic `flock` operations.
 2. **High I/O Frequency:** Journal mode `WAL` writes two files (`.wal`, `.shm`) on almost every transaction; Windows bind-mount magnifies latency.
 3. **Race Condition:** Rapid successive writes from async drivers (SQLAlchemy + aiosqlite) occasionally hit a state where the WAL file cannot be opened → SQLite raises *disk I/O error*.
 
@@ -1165,6 +1319,45 @@ Symptoms:
 - `docker-compose.yml` – updated volume mapping
 - `pkms-backend/app/routers/backup.py` – new backup implementation (direct `cp`)
 - `done_till_now.txt` & `log.txt` – progress tracking
+
+## ❗ Document Upload Commit Failing on Windows/Docker (RESOLVED 2025-08-10)
+
+### Symptom
+- API returned 500 with `{ "detail": "Failed to commit document upload" }` on `POST /api/v1/documents/upload/commit`.
+- Backend logs showed: `[Errno 18] Invalid cross-device link` when moving assembled file, plus a subsequent Pydantic validation error for `archive_item_uuid` when listing documents.
+
+### Root Cause
+- Assembled file was created under `/app/data/temp_uploads` (Docker volume) while destination path was under `/app/PKMS_Data/assets/documents` (Windows bind mount). Using `Path.rename()` across different devices raises EXDEV (Invalid cross-device link) on Linux.
+- `DocumentResponse` required `archive_item_uuid` but `_convert_doc_to_response()` omitted it, causing 500s on list after a partial create.
+
+### Fix (by GPT-5)
+- Implemented cross-device safe move with fallback to `shutil.move()` when `rename()` raises `EXDEV`.
+- Standardized document file storage on host filesystem using `get_file_storage_dir()` for commit, download, delete, and archive copy paths.
+- Included `archive_item_uuid` in `_convert_doc_to_response()`.
+
+### Files Modified
+- `pkms-backend/app/routers/documents.py`
+  - Import `get_file_storage_dir`
+  - Destination dir: `get_file_storage_dir()/assets/documents`
+  - Move logic: try `rename()`, on `EXDEV` fallback to `shutil.move()`
+  - Persist `file_path` relative to `get_file_storage_dir()`
+  - Use `get_file_storage_dir()` for download/delete/archive copy paths
+  - Add `archive_item_uuid` in `DocumentResponse` conversion
+
+### Verification
+- Upload document via frontend; assembled file found; commit succeeds.
+- File written to `PKMS_Data/assets/documents/` on Windows.
+- Listing documents no longer errors; `archive_item_uuid` present/nullable.
+
+### Security/Best Practice
+- Avoid cross-device `rename()`; use `shutil.move()` fallback.
+- Store large files on host bind mount; keep SQLite on Docker volume per earlier guidance.
+
+### Removed functionality/files
+- None.
+
+### AI Attribution
+- Changes implemented by GPT-5 (via Cursor).
 
 > Resolved on **2025-07-10 21:00 +05:45**. No regressions observed after 1 M write stress-test.
 
@@ -2053,3 +2246,130 @@ DELETE http://localhost:8000/api/v1/notes/3 500 (Internal Server Error)
 - FTS search will work properly with new configuration
 
 This fix represents a complete resolution of the note deletion issue and establishes a solid foundation for future PKMS development with proper database architecture and simplified codebase maintenance. 
+
+---
+## Authentication Refresh Flow Fixes (2025-08-09)
+
+**Updated By:** GPT-5 (via Cursor)
+
+### Issue
+- Frontend token refresh failed because the HttpOnly `pkms_refresh` cookie was not sent with XHR requests.
+- On 401 responses, the app immediately logged out instead of attempting a one-time refresh + retry.
+- No final confirm prompt when 1 minute remained before expiry.
+
+### Root Cause
+- Axios instance missing `withCredentials: true`, so browser omitted cookies on `POST /auth/refresh`.
+- Response interceptor lacked guarded auto-refresh-retry logic.
+
+### Changes Made
+- `pkms-frontend/src/services/api.ts`
+  - Added `withCredentials: true` in axios.create options to include cookies.
+  - Implemented one-time auto refresh on 401 (non-login/refresh requests):
+    - Calls `/auth/refresh`; if successful, updates JWT and retries original request once.
+    - On failure, falls back to existing logout flow.
+  - Added `isTokenCriticallyExpiring()` and `showFinalExpiryPrompt()` using Mantine confirm modal to ask user explicitly to extend when ≤1 minute remains.
+  - Kept existing 5-minute heads-up via `showExpiryWarning()`, made idempotent.
+- `pkms-frontend/src/stores/authStore.ts`
+  - Session monitor now checks every 15s; shows final 1-minute confirm modal, otherwise 5-minute warning.
+  - Removed unused local flags; no functionality removed.
+
+### Behavior
+- Warning frequency: 5-minute warning is shown once (idempotent), then reset after a successful extension. A final confirm modal appears once within the last minute; state resets after extension or after timeout.
+
+### Security & Best Practices
+- Aligns with industry pattern: short-lived JWT + HttpOnly refresh cookie; CORS already allows credentials.
+- Non-intrusive single retry on 401 prevents loops and preserves UX.
+
+### Files Modified
+- `pkms-frontend/src/services/api.ts`
+- `pkms-frontend/src/stores/authStore.ts`
+
+### Removed Files/Functionality
+- None.
+
+### Verification
+- Login returns `Set-Cookie: pkms_refresh=...` and access token; subsequent `POST /auth/refresh` now succeeds in-browser.
+- On 401 to protected endpoints, a single silent refresh occurs and the request retries successfully if cookie valid; otherwise logout flow triggers.
+
+### Notes
+- Consider enhancing backend `/auth/logout` to delete session and clear cookie for defense-in-depth (not changed in this edit).
+
+---
+
+## Search Suggestions Route Conflict Resolution (2025-08-09)
+
+Updated By: GPT-5 (via Cursor)
+
+Issue:
+- Duplicate routes for search suggestions existed in two routers, both mounted under `/api/v1/search`:
+  - `app/routers/search.py` (legacy/global search)
+  - `app/routers/search_enhanced.py` (enhanced/hybrid search)
+- Both defined `@router.get("/suggestions")`, causing route shadowing and ambiguous behavior depending on include order.
+
+Change Implemented:
+- Renamed the legacy endpoint path to avoid collision:
+  - From: `/api/v1/search/suggestions`
+  - To: `/api/v1/search/suggestions-legacy`
+- File edited: `pkms-backend/app/routers/search.py`
+
+Rationale and Best Practices:
+- Avoids ambiguous routing and ensures the enhanced endpoint remains the canonical `/api/v1/search/suggestions`.
+- Maintains backward compatibility for any internal tooling by keeping a legacy endpoint available with a clear name.
+
+Security/Quality:
+- No change to query logic or permissions.
+- Fully backward compatible for callers that update to the new legacy path; primary frontend already uses the enhanced endpoint.
+
+Removed/Deprecated Functionality:
+- Removed: None.
+- Deprecated: Legacy suggestions at original path. Use enhanced `/api/v1/search/suggestions`.
+ 
+## UI Text Cleanup: Search Page Indicators (2025-08-09)
+
+**Updated By:** GPT-5 (via Cursor)
+
+### Change
+- Removed FTS5/Fuzzy search mode indicator text and shortcuts hint from `pkms-frontend/src/pages/SearchResultsPage.tsx`.
+- Removed content-exclusion alert text that stated: "Content search is disabled. Only titles and names will be searched and previewed."
+
+### Files Modified
+- `pkms-frontend/src/pages/SearchResultsPage.tsx`
+
+### Reason
+- Align UI with current search experience and reduce on-screen clutter. Requested removal of:
+  - "🔄 Auto Mode (Intelligent)"
+  - "Press Ctrl+F for FTS5 • Ctrl+Shift+F for Fuzzy Search"
+  - Content search disabled notice line.
+
+### Best Practices
+- Avoid misleading or deprecated hints in UI.
+- Keep UI copy minimal and accurate to current functionality.
+
+### Removed Files/Functionality
+- None. Only text indicators removed; no logic changed.
+
+---
+
+## Session Extension Logout Issue (2025-08-09)
+
+**Updated By:** GPT-5 (via Cursor)
+
+### Symptom
+- Clicking "Extend Session" occasionally logged the user out instead of extending.
+
+### Root Cause
+- Frontend handled refresh failure during manual extension by calling a hard logout flow, even for transient failures (e.g., brief network hiccup or cookie not being sent due to dev host mismatch).
+- Default API base URL used `http://localhost:8000`, which can differ from the actual `window.location.hostname` in dev, causing the HttpOnly refresh cookie to be treated as third-party and omitted.
+
+### Fixes
+- `pkms-frontend/src/services/api.ts`
+  - Do not call forced logout on `extendSession()` failure. Show a warning and keep the session; normal 401 flow will still refresh/redirect when necessary.
+- `pkms-frontend/src/config.ts`
+  - Default `API_BASE_URL` now uses the current hostname: `http://${window.location.hostname}:8000` when `VITE_API_BASE_URL` is not provided. This keeps cookies same-site in dev so the `pkms_refresh` cookie is sent.
+
+### Best Practices
+- Avoid logging users out on transient refresh errors; prefer graceful degradation and rely on subsequent authenticated requests to trigger refresh/re-auth.
+- Ensure frontend and backend share the same site origin (host) in development for cookie-based refresh flows.
+
+### Removed Files/Functionality
+- None.

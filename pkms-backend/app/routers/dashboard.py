@@ -117,6 +117,33 @@ async def get_dashboard_stats(
                 )
             )
         )
+
+        # Due today (not completed): date match in Nepal TZ
+        now_np = datetime.now(NEPAL_TZ)
+        start_today = now_np.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_today = start_today + timedelta(days=1)
+        todos_due_today = await db.scalar(
+            select(func.count(Todo.id)).where(
+                and_(
+                    Todo.user_id == user_id,
+                    Todo.is_completed == False,
+                    Todo.due_date >= start_today,
+                    Todo.due_date < end_today,
+                )
+            )
+        )
+
+        # Completed today: completed_at within today's window
+        todos_completed_today = await db.scalar(
+            select(func.count(Todo.id)).where(
+                and_(
+                    Todo.user_id == user_id,
+                    Todo.is_completed == True,
+                    Todo.completed_at >= start_today,
+                    Todo.completed_at < end_today,
+                )
+            )
+        )
         
         # Diary Statistics
         diary_total = await db.scalar(
@@ -147,7 +174,9 @@ async def get_dashboard_stats(
                 "total": todos_total or 0,
                 "pending": todos_pending or 0,
                 "completed": todos_completed or 0,
-                "overdue": todos_overdue or 0
+                "overdue": todos_overdue or 0,
+                "due_today": todos_due_today or 0,
+                "completed_today": todos_completed_today or 0,
             },
             diary={
                 "entries": diary_total or 0,

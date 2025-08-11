@@ -96,36 +96,156 @@ class SearchService {
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
   private cacheTimestamps = new Map<string, number>();
 
-  async globalSearch(
-    query: string,
-    filters: SearchFilters = {},
-    limit: number = 50,
-    offset: number = 0
-  ): Promise<SearchResponse> {
-    const cacheKey = this.generateCacheKey(query, filters, limit, offset);
+  // Dedicated fuzzy search using the enhanced fuzzy endpoint
+  async fuzzySearch(options: {
+    q: string;
+    modules?: string[];
+    include_tags?: string[];
+    exclude_tags?: string[];
+    sort_by?: string;
+    sort_order?: string;
+    limit?: number;
+    offset?: number;
+    [key: string]: any;
+  }): Promise<SearchResponse> {
+    const searchParams: Record<string, string> = {
+      q: options.q,
+      limit: (options.limit || 50).toString(),
+      offset: (options.offset || 0).toString(),
+      sort_by: options.sort_by || 'relevance',
+      sort_order: options.sort_order || 'desc'
+    };
+
+    if (options.modules?.length) {
+      searchParams.modules = options.modules.join(',');
+    }
+
+    if (options.include_tags?.length) {
+      searchParams.include_tags = options.include_tags.join(',');
+    }
+
+    if (options.exclude_tags?.length) {
+      searchParams.exclude_tags = options.exclude_tags.join(',');
+    }
+
+    const cacheKey = this.generateCacheKey(options.q, searchParams, options.limit || 50, options.offset || 0);
     const cached = this.getFromCache(cacheKey);
     if (cached) return cached;
 
     try {
-      const params = new URLSearchParams({
-        q: query,
+      const params = new URLSearchParams(searchParams);
+      const response = await apiService.get(`/search/fuzzy?${params}`);
+      const backendData = response.data as any;
+      
+      const searchResponse: SearchResponse = {
+        results: this.processSearchResults(backendData.results || []),
+        stats: {
+          totalResults: backendData.total || 0,
+          resultsByType: this.calculateResultsByType(backendData.results || []),
+          searchTime: 0,
+          query: options.q,
+          includeContent: true,
+          appliedFilters: {
+            contentTypes: options.modules || [],
+            tags: options.include_tags || []
+          }
+        }
+      };
+      
+      this.setCache(cacheKey, searchResponse);
+      return searchResponse;
+    } catch (error) {
+      console.error('Fuzzy search failed:', error);
+      throw new Error('Fuzzy search failed');
+    }
+  }
+
+  async globalSearch(
+    optionsOrQuery: string | {
+      q: string;
+      modules?: string;
+      include_content?: boolean;
+      use_fuzzy?: boolean;
+      sort_by?: string;
+      sort_order?: string;
+      limit?: number;
+      offset?: number;
+      [key: string]: any;
+    },
+    filters: SearchFilters = {},
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<SearchResponse> {
+    // Handle both old and new calling patterns
+    let searchParams: any;
+    
+    if (typeof optionsOrQuery === 'string') {
+      // Legacy call pattern
+      searchParams = {
+        q: optionsOrQuery,
         limit: limit.toString(),
         offset: offset.toString(),
         sort_by: filters.sortBy || 'relevance',
-        include_content: (filters.includeContent === true).toString(), // Default to false
-      });
+        include_content: (filters.includeContent === true).toString(),
+      };
 
       if (filters.types?.length) {
-        params.append('content_types', filters.types.join(','));
+        searchParams.content_types = filters.types.join(',');
       }
 
       if (filters.tags?.length) {
-        params.append('tags', filters.tags.join(','));
+        searchParams.tags = filters.tags.join(',');
+      }
+    } else {
+      // New call pattern from AdvancedFuzzySearchPage
+      const tmpParams: Record<string, string> = {
+        q: optionsOrQuery.q,
+        include_content: (optionsOrQuery.include_content ?? false).toString(),
+        use_fuzzy: (optionsOrQuery.use_fuzzy ?? true).toString(),
+        sort_by: optionsOrQuery.sort_by || 'relevance',
+        sort_order: optionsOrQuery.sort_order || 'desc',
+        limit: (optionsOrQuery.limit ?? 50).toString(),
+        offset: (optionsOrQuery.offset ?? 0).toString(),
+      };
+
+      if (optionsOrQuery.modules && optionsOrQuery.modules.length > 0) {
+        tmpParams.modules = optionsOrQuery.modules;
       }
 
-      const response = await apiService.get(`/search/global?${params}`);
-      this.setCache(cacheKey, response);
-      return response;
+      // Allow diary search only if explicitly requested
+      const excludeDiary = !(optionsOrQuery.modules?.includes('diary') ||
+                             (optionsOrQuery as any).content_types?.includes?.('diary'));
+      tmpParams.exclude_diary = excludeDiary.toString();
+
+      searchParams = tmpParams;
+    }
+
+    const cacheKey = this.generateCacheKey(searchParams.q, searchParams, 
+      parseInt(searchParams.limit), parseInt(searchParams.offset));
+    const cached = this.getFromCache(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const params = new URLSearchParams(searchParams);
+      const response = await apiService.get(`/search/hybrid?${params}`);
+      // The response is wrapped in ApiResponse.data
+      const backendData = response.data as any;
+      const searchResponse: SearchResponse = {
+        results: this.processSearchResults(backendData.results || []),
+        stats: {
+          totalResults: backendData.total || 0,
+          resultsByType: this.calculateResultsByType(backendData.results || []),
+          searchTime: 0, // Backend doesn't currently provide this
+          query: searchParams.q,
+          includeContent: searchParams.include_content === 'true',
+          appliedFilters: {
+            contentTypes: searchParams.modules ? searchParams.modules.split(',') : [],
+            tags: []
+          }
+        }
+      };
+      this.setCache(cacheKey, searchResponse);
+      return searchResponse;
     } catch (error) {
       console.error('Global search failed:', error);
       throw new Error('Search failed');
@@ -137,7 +257,7 @@ class SearchService {
 
     try {
       const response = await apiService.get(`/search/suggestions?q=${encodeURIComponent(query)}`);
-      return response.suggestions || [];
+      return (response.data as any)?.suggestions || [];
     } catch (error) {
       console.error('Failed to get search suggestions:', error);
       return [];
@@ -148,7 +268,7 @@ class SearchService {
     try {
       const params = moduleType ? `?module_type=${moduleType}` : '';
       const response = await apiService.get(`/search/popular-tags${params}`);
-      return response.tags || [];
+      return (response.data as any)?.tags || [];
     } catch (error) {
       console.error('Failed to get popular tags:', error);
       return [];
@@ -160,10 +280,11 @@ class SearchService {
 
     try {
       const params = new URLSearchParams({ q: query });
+      // Optionally include module_type when provided
       if (moduleType) params.append('module_type', moduleType);
       
-      const response = await apiService.get(`/search/tags/autocomplete?${params}`);
-      return response.tags || [];
+      const response = await apiService.get(`/tags/autocomplete-enhanced?${params}`);
+      return (response.data as any)?.tags || [];
     } catch (error) {
       console.error('Failed to get tag autocomplete:', error);
       return [];
@@ -179,7 +300,7 @@ class SearchService {
       });
 
       const response = await apiService.post(`/search/tags/create?${params}`);
-      return response;
+      return response.data as TagInfo;
     } catch (error) {
       console.error('Failed to create tag:', error);
       throw new Error('Failed to create tag');
@@ -193,7 +314,7 @@ class SearchService {
       if (updates.color) params.append('color', updates.color);
 
       const response = await apiService.put(`/search/tags/${tagId}?${params}`);
-      return response;
+      return response.data as TagInfo;
     } catch (error) {
       console.error('Failed to update tag:', error);
       throw new Error('Failed to update tag');
@@ -228,20 +349,35 @@ class SearchService {
 
   private processSearchResults(results: any[]): SearchResult[] {
     return results.map(result => ({
-      id: result.id,
-      type: result.type,
+      id: result.uuid || result.id,
+      type: result.module || result.type,
       title: result.title,
       content: result.content || '',
-      preview: result.preview || this.generatePreview(result),
+      preview: result.preview || result.snippet || this.generatePreview(result),
       thumbnail: result.thumbnail,
       path: result.path || this.generatePath(result),
-      score: result.score || 0,
-      relevance: result.relevance || this.calculateRelevance(result.score || 0),
+      score: result.relevance_score || result.combined_score || result.score || 0,
+      relevance: result.relevance_level || this.calculateRelevance(result.relevance_score || result.score || 0),
       tags: result.tags || [],
-      createdAt: result.createdAt,
-      updatedAt: result.updatedAt,
+      createdAt: result.created_at || result.createdAt,
+      updatedAt: result.updated_at || result.updatedAt,
       metadata: result.metadata || {}
     }));
+  }
+
+  private calculateResultsByType(results: any[]): { note: number; document: number; todo: number; archive: number; 'archive-folder': number } {
+    const counts = { note: 0, document: 0, todo: 0, archive: 0, 'archive-folder': 0 };
+    
+    results.forEach(result => {
+      const type = result.module || result.type;
+      if (type === 'notes') counts.note++;
+      else if (type === 'documents') counts.document++;
+      else if (type === 'todos') counts.todo++;
+      else if (type === 'archive' || type === 'archive_items') counts.archive++;
+      else if (type === 'folders' || type === 'archive_folders') counts['archive-folder']++;
+    });
+    
+    return counts;
   }
 
   private generatePreview(result: any): string {

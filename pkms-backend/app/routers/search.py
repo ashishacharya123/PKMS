@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import or_, and_, text, func, select
@@ -25,8 +25,11 @@ logger = logging.getLogger(__name__)
 async def global_search(
     q: str = Query(..., description="Search query"),
     content_types: Optional[str] = Query(None, description="Comma-separated content types: note,document,todo,archive"),
-    tags: Optional[str] = Query(None, description="Comma-separated tags to filter by"),
+    include_tags: Optional[str] = Query(None, description="Comma-separated tags that must be present"),
+    exclude_tags: Optional[str] = Query(None, description="Comma-separated tags to exclude"),
+    tags: Optional[str] = Query(None, description="Legacy: Comma-separated tags to filter by"),
     sort_by: str = Query("relevance", description="Sort by: relevance, date, title"),
+    sort_order: str = Query("desc", description="Sort order: asc, desc"),
     include_content: bool = Query(False, description="Include file content in search results and preview"),
     limit: int = Query(50, le=100, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Offset for pagination"),
@@ -57,32 +60,61 @@ async def global_search(
             query=q,
             user_id=current_user.id,
             content_types=content_type_list,
-            limit=limit,
+            limit=limit * 2,  # Get more results for tag filtering
             offset=offset
         )
         
         if fts_results:
             logger.info(f"✅ FTS5 search returned {len(fts_results)} results")
             
-            # Apply tag filtering if specified
-            if tags:
-                tag_list = [tag.strip().lower() for tag in tags.split(",")]
+            # Apply server-side tag filtering
+            filtered_results = fts_results
+            
+            # Parse tag filters
+            include_tag_list = []
+            exclude_tag_list = []
+            
+            if include_tags:
+                include_tag_list = [tag.strip().lower() for tag in include_tags.split(",")]
+            elif tags:  # Legacy support
+                include_tag_list = [tag.strip().lower() for tag in tags.split(",")]
+            
+            if exclude_tags:
+                exclude_tag_list = [tag.strip().lower() for tag in exclude_tags.split(",")]
+            
+            # Apply tag filtering (using embedded tags from FTS results)
+            if include_tag_list or exclude_tag_list:
                 filtered_results = []
-                
                 for result in fts_results:
-                    # Get item tags based on type
-                    item_tags = await _get_item_tags(db, result['type'], result['id'])
-                    if any(tag in [t.lower() for t in item_tags] for tag in tag_list):
-                        filtered_results.append(result)
+                    result_tags = [tag.lower() for tag in result.get('tags', [])]
+                    
+                    # Check include tags (all must be present)
+                    if include_tag_list:
+                        if not all(inc_tag in result_tags for inc_tag in include_tag_list):
+                            continue
+                    
+                    # Check exclude tags (none must be present)
+                    if exclude_tag_list:
+                        if any(exc_tag in result_tags for exc_tag in exclude_tag_list):
+                            continue
+                    
+                    filtered_results.append(result)
+                
+                logger.info(f"🏷️ Tag filtering: {len(fts_results)} → {len(filtered_results)} results")
                 
                 fts_results = filtered_results
             
-            # Apply sorting
-            if sort_by == "date":
-                fts_results.sort(key=lambda x: x.get('updated_at', datetime.min), reverse=True)
+            # Apply sorting with sort_order support
+            reverse_sort = sort_order.lower() == 'desc'
+            
+            if sort_by == "relevance":
+                # Relevance is already sorted by FTS5 BM25, but respect sort_order
+                if sort_order.lower() == 'asc':
+                    fts_results.reverse()
+            elif sort_by == "date":
+                fts_results.sort(key=lambda x: x.get('updated_at', ''), reverse=reverse_sort)
             elif sort_by == "title":
-                fts_results.sort(key=lambda x: x.get('title', '').lower())
-            # 'relevance' is already sorted by FTS5 ranking
+                fts_results.sort(key=lambda x: x.get('title', '').lower(), reverse=reverse_sort)
             
             # Format results for response
             formatted_results = []
@@ -127,12 +159,31 @@ async def global_search(
                 
                 formatted_results.append(formatted_result)
             
+            # Calculate result stats by type
+            results_by_type = {}
+            for result in formatted_results:
+                result_type = result.get('type', 'unknown')
+                if result_type not in results_by_type:
+                    results_by_type[result_type] = 0
+                results_by_type[result_type] += 1
+            
             return {
                 "results": formatted_results,
                 "total": len(formatted_results),
                 "query": q,
                 "search_type": "fts5",
-                "performance": "high"
+                "performance": "high",
+                "stats": {
+                    "totalResults": len(formatted_results),
+                    "resultsByType": results_by_type,
+                    "searchTime": 0,  # Could add timing if needed
+                    "query": q,
+                    "includeContent": include_content,
+                    "appliedFilters": {
+                        "contentTypes": content_type_list if content_type_list else [],
+                        "tags": tags.split(',') if tags else []
+                    }
+                }
             }
         
         # Fallback to legacy search if FTS5 fails
@@ -425,7 +476,8 @@ async def fts_search(
     
     try:
         # Sanitize and prepare search query
-        query = sanitize_search_query(query)
+        import re
+        query = re.sub(r'[^\w\s]', ' ', query).strip()  # Basic sanitization
         search_query = f"{query}*"  # Enable prefix matching
         
         # Build FTS query for archive items
@@ -484,13 +536,18 @@ async def fts_search(
             detail="Search failed. Please try again."
         )
 
-@router.get("/suggestions")
+@router.get("/suggestions-legacy")
 async def get_search_suggestions(
     q: str = Query(..., description="Partial search query"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get search suggestions based on existing content and user history."""
+    """[DEPRECATED] Legacy search suggestions endpoint.
+
+    This endpoint was renamed from `/search/suggestions` to `/search/suggestions-legacy`
+    to avoid a route conflict with the enhanced search router. Frontend should use
+    the enhanced endpoint `/api/v1/search/suggestions` exposed by `search_enhanced.py`.
+    """
     
     if len(q.strip()) < 2:
         return {'suggestions': []}

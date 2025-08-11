@@ -7,7 +7,7 @@ import { apiService } from '../api';
  * backend can route the chunks appropriately.
  */
 
-const CHUNK_SIZE = 1024 * 1024; // 1 MB
+const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB
 const CONCURRENT_CHUNKS = 3;
 const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000;
@@ -72,7 +72,8 @@ class CoreUploadService {
       chunks
     });
 
-    const endpointBase = `/${opts.module}/upload`;
+    // Use shared upload endpoints; module name is still included in metadata
+    const endpointBase = `/upload`;
 
     try {
       const chunkPromises: Promise<void>[] = [];
@@ -153,6 +154,7 @@ class CoreUploadService {
       chunk_number: chunkNumber,
       total_chunks: totalChunks,
       filename: file.name,
+      total_size: file.size,
       module: opts.module,
       ...opts.additionalMeta
     }));
@@ -163,13 +165,13 @@ class CoreUploadService {
     });
   }
 
-  async cancelUpload(fileId: string, module: string) {
+  async cancelUpload(fileId: string, _module: string) {
     const upload = this.activeUploads.get(fileId);
     if (upload) {
       upload.abort.abort();
       this.activeUploads.delete(fileId);
     }
-    await apiService.delete(`/${module}/upload/${fileId}`);
+    await apiService.delete(`/upload/${fileId}`);
   }
 
   /* ---------------------------------------------------------------------- */
@@ -208,12 +210,14 @@ class CoreUploadService {
   }
 
   private async waitForAssembly(fileId: string, base: string, opts: ChunkUploadOptions) {
-    for (let i = 0; i < 30; i++) {
+    // Allow more time for assembly on slower disks or large files
+    for (let i = 0; i < 180; i++) {
       const resp = await apiService.get<UploadProgress>(`${base}/${fileId}/status`);
       const status = resp.data;
       this.activeUploads.get(fileId)!.status = status;
       opts.onProgress?.(status);
       if (status.status === 'completed') return;
+      if (status.status === 'error') throw new Error('Assembly failed');
       await new Promise(r => setTimeout(r, 1000));
     }
     throw new Error('Assembly timeout');

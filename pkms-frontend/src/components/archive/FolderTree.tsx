@@ -12,7 +12,7 @@ interface FolderNodeProps {
 }
 
 const FolderNode: React.FC<FolderNodeProps> = ({ node, onSelect, selectedId, level }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true); // Default expanded to prevent disappearing
   const [isLoading, setIsLoading] = useState(false);
   const [children, setChildren] = useState<FolderTreeType[]>(node.children || []);
   const loadFolders = useArchiveStore(state => state.loadFolders);
@@ -55,14 +55,14 @@ const FolderNode: React.FC<FolderNodeProps> = ({ node, onSelect, selectedId, lev
           padding: '8px 12px',
           paddingLeft: `${level * 20 + 12}px`,
           cursor: 'pointer',
-          backgroundColor: isSelected ? 'var(--mantine-color-blue-1)' : 'transparent',
+          backgroundColor: isSelected ? 'var(--mantine-color-dark-5)' : 'transparent',
           borderRadius: '4px'
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = isSelected ? 'var(--mantine-color-blue-2)' : 'var(--mantine-color-gray-1)';
+          e.currentTarget.style.backgroundColor = isSelected ? 'var(--mantine-color-dark-4)' : 'var(--mantine-color-dark-6)';
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = isSelected ? 'var(--mantine-color-blue-1)' : 'transparent';
+          e.currentTarget.style.backgroundColor = isSelected ? 'var(--mantine-color-dark-5)' : 'transparent';
         }}
       >
         <Box
@@ -126,10 +126,16 @@ export const FolderTree: React.FC<FolderTreeProps> = ({ onSelect, selectedId }) 
   const isLoading = useArchiveStore(state => state.isLoading);
 
   const [search, setSearch] = useState('');
+  const [lastUpdate, setLastUpdate] = useState(Date.now());
 
   useEffect(() => {
     loadFolders();
   }, [loadFolders]);
+
+  // Force re-render when tree changes
+  useEffect(() => {
+    setLastUpdate(Date.now());
+  }, [folderTree]);
 
   const handleSearch = async () => {
     if (search.trim()) {
@@ -191,9 +197,9 @@ export const FolderTree: React.FC<FolderTreeProps> = ({ onSelect, selectedId }) 
           {isLoading && <Loader size="xs" mt="sm" />}
         </Box>
       ) : (
-        folderTree.map((node: FolderTreeType) => (
+        (folderTree || []).map((node: FolderTreeType, index) => (
           <FolderNode
-            key={node.folder.uuid}
+            key={`${node.folder.uuid}-${lastUpdate}-${index}`}
             node={node}
             onSelect={onSelect}
             selectedId={selectedId}

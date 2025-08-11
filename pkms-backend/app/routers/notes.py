@@ -50,6 +50,7 @@ class NoteUpdate(BaseModel):
     content: Optional[str] = Field(None, min_length=0, max_length=50000)
     tags: Optional[List[str]] = Field(None, max_items=20)
     is_archived: Optional[bool] = None
+    is_favorite: Optional[bool] = None
 
     @validator('title')
     def validate_safe_text(cls, v):
@@ -243,6 +244,7 @@ async def list_notes(
     search: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
     has_files: Optional[bool] = Query(None, description="Filter notes with file attachments"),
+    is_favorite: Optional[bool] = Query(None),
     limit: int = Query(50, le=100),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user),
@@ -266,10 +268,9 @@ async def list_notes(
         if tag:
             query = query.join(Note.tag_objs).where(Tag.name == tag)
         if has_files is not None:
-            if has_files:
-                query = query.where(Note.file_count > 0)
-            else:
-                query = query.where(Note.file_count == 0)
+            query = query.where(Note.file_count > 0 if has_files else Note.file_count == 0)
+        if is_favorite is not None:
+            query = query.where(Note.is_favorite == is_favorite)
         result = await db.execute(query)
         notes = result.scalars().unique().all()
         # Order notes by FTS5 relevance
@@ -286,10 +287,9 @@ async def list_notes(
         if tag:
             query = query.join(Note.tag_objs).where(Tag.name == tag)
         if has_files is not None:
-            if has_files:
-                query = query.where(Note.file_count > 0)
-            else:
-                query = query.where(Note.file_count == 0)
+            query = query.where(Note.file_count > 0 if has_files else Note.file_count == 0)
+        if is_favorite is not None:
+            query = query.where(Note.is_favorite == is_favorite)
         query = query.order_by(Note.updated_at.desc()).offset(offset).limit(limit)
         result = await db.execute(query)
         ordered_notes = result.scalars().unique().all()
@@ -334,9 +334,16 @@ async def create_note(
     await _process_note_links(db, note, note_data.content, current_user.id)
     
     await db.commit()
-    await db.refresh(note)
     
-    return _convert_note_to_response(note)
+    # Reload note with tags to avoid lazy loading issues in response conversion
+    result = await db.execute(
+        select(Note).options(selectinload(Note.tag_objs)).where(
+            Note.id == note.id
+        )
+    )
+    note_with_tags = result.scalar_one()
+    
+    return _convert_note_to_response(note_with_tags)
 
 @router.get("/{note_id}", response_model=NoteResponse)
 async def get_note(
@@ -379,9 +386,16 @@ async def update_note(
         await _process_note_links(db, note, note_data.content, current_user.id)
 
     await db.commit()
-    await db.refresh(note)
     
-    return _convert_note_to_response(note)
+    # Reload note with tags to avoid lazy loading issues in response conversion
+    result = await db.execute(
+        select(Note).options(selectinload(Note.tag_objs)).where(
+            Note.id == note.id
+        )
+    )
+    note_with_tags = result.scalar_one()
+    
+    return _convert_note_to_response(note_with_tags)
 
 @router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_note(
@@ -434,6 +448,43 @@ async def delete_note(
         await db.rollback()
         logger.error(f"❌ Failed to delete note with ID: {note_id}. Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete note due to an internal error: {str(e)}")
+
+@router.patch("/{note_id}/archive", response_model=NoteResponse)
+async def archive_note(
+    note_id: int,
+    archive: bool = True,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Archive or unarchive a note"""
+    try:
+        # Get note
+        result = await db.execute(
+            select(Note).where(and_(Note.id == note_id, Note.user_id == current_user.id))
+        )
+        note = result.scalar_one_or_none()
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        
+        # Update archive status
+        note.is_archived = archive
+        await db.commit()
+        await db.refresh(note)
+        
+        action = "archived" if archive else "unarchived"
+        logger.info(f"✅ Successfully {action} note '{note.title}' for user {current_user.username}")
+        
+        return await _convert_note_to_response(db, note)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"❌ Error archiving note: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to archive note. Please try again."
+        )
 
 # --- File Attachment Endpoints ---
 
@@ -521,6 +572,10 @@ async def commit_note_file_upload(
         # Move assembled file to final location
         assembled.rename(dest_path)
 
+        # Get file info before database operations to avoid sync I/O in async context
+        file_size = dest_path.stat().st_size
+        file_path_relative = str(dest_path.relative_to(get_data_dir()))
+        
         # Detect file type
         detection_result = await file_detector.detect_file_type(
             file_path=dest_path,
@@ -533,8 +588,8 @@ async def commit_note_file_upload(
             user_id=current_user.id,
             filename=stored_filename,
             original_name=assembled.name,
-            file_path=str(dest_path.relative_to(get_data_dir())),
-            file_size=dest_path.stat().st_size,
+            file_path=file_path_relative,
+            file_size=file_size,
             mime_type=detection_result["mime_type"],
             description=payload.description
         )

@@ -1,1 +1,2 @@
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'; 
+// Use current hostname by default to keep cookies same-site in development (prevents refresh cookie from being treated as third-party)
+export const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || `http://${window.location.hostname}:8000`;

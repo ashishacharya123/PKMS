@@ -37,6 +37,7 @@ from app.routers import (
     testing_router,
     advanced_fuzzy,
 )
+from app.routers.search_enhanced import router as search_enhanced_router
 from app.services.chunk_service import chunk_manager
 
 # Import database initialization
@@ -104,6 +105,17 @@ async def lifespan(app: FastAPI):
         await init_db()
         logger.info("✅ Database initialized successfully")
         
+        # Initialize FTS5 tables and triggers
+        logger.info("Initializing FTS5 search tables...")
+        try:
+            from app.services.fts_service import fts_service
+            async with get_db_session() as db:
+                await fts_service.initialize_fts_tables(db)
+            logger.info("✅ FTS5 search tables initialized successfully")
+        except Exception as fts_error:
+            logger.error(f"⚠️ FTS5 initialization failed: {fts_error}")
+            logger.info("Search will fall back to basic queries")
+        
         # Start background tasks
         logger.info("Starting background tasks...")
         global cleanup_task
@@ -150,12 +162,13 @@ app.include_router(diary.router, prefix="/api/v1/diary")
 app.include_router(archive.router, prefix="/api/v1/archive")
 # app.include_router(archive_improvements.router, prefix="/api/v1")  # Temporarily disabled due to import issues
 app.include_router(dashboard.router, prefix="/api/v1/dashboard")
-app.include_router(search.router, prefix="/api/v1/search")
+# app.include_router(search.router, prefix="/api/v1/search")  # Disabled to avoid route collision
+app.include_router(search_enhanced_router, prefix="/api/v1")  # Enhanced search with all endpoints
 app.include_router(backup.router, prefix="/api/v1/backup")
 app.include_router(tags.router, prefix="/api/v1/tags")
 app.include_router(uploads.router, prefix="/api/v1")
 app.include_router(testing_router, prefix="/api/v1/testing")
-app.include_router(advanced_fuzzy.router, prefix="/api/v1")
+app.include_router(advanced_fuzzy.router, prefix="/api/v1")  # Re-enabled for hybrid search
 
 # ------------------------------------------------------------
 # ⛑️  Global middlewares
@@ -172,11 +185,13 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
-        "http://localhost:8000"
+        "http://localhost:8000",
     ],
+    # Allow typical local LAN addresses for development
+    allow_origin_regex=r"http://(localhost|127\\.0\\.0\\.1|192\\.168\\.\\d{1,3}\\.\\d{1,3}|10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|172\\.(1[6-9]|2\\d|3[0-1])\\.\\d{1,3}\\.\\d{1,3})(:\\d+)?",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["*"]
 )
 
 # Add SlowAPI middleware for rate limiting

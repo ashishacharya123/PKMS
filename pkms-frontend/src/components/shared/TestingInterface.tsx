@@ -25,15 +25,15 @@ import {
   ScrollArea,
   Divider,
   ActionIcon,
-  Tooltip,
+  // Tooltip,
   Select,
   TextInput,
   NumberInput,
   Table,
   Accordion,
   PasswordInput,
-  Textarea,
-  JsonInput,
+  // Textarea,
+  // JsonInput,
   Title,
   Paper,
   Container,
@@ -44,7 +44,7 @@ import {
   Box,
   SimpleGrid,
   Progress,
-  Notification,
+  // Notification,
   List,
   Chip,
   Drawer
@@ -62,43 +62,33 @@ import {
   IconTable,
   IconLock,
   IconTerminal,
-  IconClipboard,
   IconChevronDown,
   IconChevronUp,
-  IconPlayerPlay,
   IconShield,
   IconServer,
   IconSettings,
   IconEye,
-  IconFileText,
   IconUsers,
-  IconCalendar,
   IconArchive,
-  IconChecklist,
   IconNote,
-  IconFolder,
   IconSearch,
   IconTag,
   IconKey,
-  IconClockRecord,
   IconDeviceAnalytics,
-  IconLogout,
-  IconLogin,
-  IconFile
+  IconFile,
+  IconRocket,
+  IconActivity,
+  IconBrandPython,
+  IconCodeDots,
+  IconGitBranch,
+  IconCpu,
+  IconChartDots3
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { 
   testingService, 
   DatabaseStats, 
-  SampleRowsResponse, 
-  TableSchema, 
-  DiaryEncryptionTest, 
-  DetailedHealth, 
-  ConsoleCommands,
-  AllTablesResponse,
-  PerformanceMetrics,
-  DataIntegrityValidation,
-  ResourceUsage
+  TableSchema
 } from '../../services/testingService';
 import { API_BASE_URL } from '../../config';
 
@@ -127,6 +117,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   const [activeTab, setActiveTab] = useState<string>('auth');
   const [isLoading, setIsLoading] = useState(false);
   const [isRunningAuthTests, setIsRunningAuthTests] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
   
   // Authentication testing state
   const [authResults, setAuthResults] = useState<any>(null);
@@ -135,7 +126,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   // Database testing state
   const [databaseStats, setDatabaseStats] = useState<DatabaseStats | null>(null);
   const [sampleRows, setSampleRows] = useState<any>(null);
-  const [tableSchema, setTableSchema] = useState<any>(null);
+  // const [tableSchema, setTableSchema] = useState<any>(null);
   const [allTableSchemas, setAllTableSchemas] = useState<any>({});
   const [selectedTableGroup, setSelectedTableGroup] = useState<string>('content');
   const [selectedTable, setSelectedTable] = useState<string>('notes');
@@ -143,13 +134,13 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   const [schemaDrawerOpen, setSchemaDrawerOpen] = useState(false);
   const [allTablesData, setAllTablesData] = useState<any>(null);
   const [allTablesModalOpen, setAllTablesModalOpen] = useState(false);
-  const [allTablesExpanded, setAllTablesExpanded] = useState(false);
+  // const [allTablesExpanded, setAllTablesExpanded] = useState(false);
   
   // FTS5 tables state
-  const [ftsTablesData, setFtsTablesData] = useState<any>(null);
-  const [selectedFtsTable, setSelectedFtsTable] = useState<string>('');
-  const [ftsModalOpen, setFtsModalOpen] = useState(false);
-  const [ftsTableSamples, setFtsTableSamples] = useState<any>(null);
+  // const [ftsTablesData, setFtsTablesData] = useState<any>(null);
+  // const [selectedFtsTable, setSelectedFtsTable] = useState<string>('');
+  // const [ftsModalOpen, setFtsModalOpen] = useState(false);
+  // const [ftsTableSamples, setFtsTableSamples] = useState<any>(null);
   
   // Diary testing state
   const [diaryPassword, setDiaryPassword] = useState('');
@@ -228,11 +219,18 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
       description: 'Tags and cross-references'
     },
     {
-      name: 'Full-Text Search (FTS5)',
+      name: 'FTS5 Enhanced Search',
       icon: <IconSearch size={16} />,
-      color: 'yellow',
-      tables: ['fts_notes', 'fts_documents', 'fts_archive'],
-      description: 'SQLite FTS5 search indexes (view grouped by module)'
+      color: 'red',
+      tables: ['fts_notes_enhanced', 'fts_documents_enhanced', 'fts_archive_enhanced', 'fts_todos_enhanced', 'fts_diary_enhanced'],
+      description: 'Enhanced FTS5 with BM25 ranking, tag integration, cross-module search'
+    },
+    {
+      name: 'FTS5 Basic (Legacy)',
+      icon: <IconSearch size={16} />,
+      color: 'gray',
+      tables: ['fts_notes', 'fts_documents', 'fts_archive', 'fts_todos', 'fts_folders'],
+      description: 'Original FTS5 tables (maintained for compatibility)'
     }
   ];
 
@@ -424,7 +422,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
       
       notifications.show({
         title: 'Database Stats Loaded',
-        message: `Database size: ${testingService.formatBytes(stats.database_size_bytes)}`,
+        message: `Database loaded successfully`,
         color: 'green'
       });
     } catch (error) {
@@ -647,22 +645,22 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
     }
   };
 
-  const loadFtsTablesData = async () => {
-    try {
-      setIsLoading(true);
-      const data = await testingService.getFtsTableDetails();
-      setFtsTablesData(data);
-    } catch (error) {
-      console.error('Failed to load FTS tables data:', error);
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to load FTS5 tables data',
-        color: 'red'
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // const loadFtsTablesData = async () => {
+  //   try {
+  //     setIsLoading(true);
+  //     const data = await testingService.getFtsTableDetails();
+  //     setFtsTablesData(data);
+  //   } catch (error) {
+  //     console.error('Failed to load FTS tables data:', error);
+  //     notifications.show({
+  //       title: 'Error',
+  //       message: 'Failed to load FTS5 tables data',
+  //       color: 'red'
+  //     });
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // };
 
   const loadFtsTableSample = async (tableName: string) => {
     try {
@@ -864,15 +862,26 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   // Render authentication tab with detailed logs
   const renderAuthTab = () => (
     <Stack gap="lg">
-      <Card withBorder>
+      <Card withBorder shadow="sm" style={{ backgroundColor: '#f8f9fa', border: '1px solid #dee2e6' }}>
         <Stack gap="md">
           <Group justify="space-between">
-            <Title order={4}>Authentication Testing</Title>
-            <Badge color="blue" variant="light">Live Monitoring</Badge>
+            <Group>
+              <ThemeIcon size="lg" radius="md" color="blue" variant="light">
+                <IconShield size={20} />
+              </ThemeIcon>
+              <Box>
+                <Title order={4} c="dark">🔐 Authentication Testing</Title>
+                <Badge color="blue" variant="outline" size="sm">Live Monitoring</Badge>
+              </Box>
+            </Group>
+            <ActionIcon size="lg" variant="light" color="blue">
+              <IconActivity size={18} />
+            </ActionIcon>
           </Group>
           
           <Text size="sm" c="dimmed">
-            Comprehensive authentication testing with detailed logging and step-by-step analysis.
+            Comprehensive authentication testing with detailed logging, JWT validation, 
+            session management, and step-by-step security analysis.
           </Text>
           
           <Group>
@@ -1078,34 +1087,49 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   // Enhanced database tab with grouped tables
   const renderDatabaseTab = () => (
     <Stack gap="lg">
-      <Card withBorder>
+      <Card withBorder shadow="sm" style={{ backgroundColor: '#f8f9fa', border: '1px solid #dee2e6' }}>
         <Stack gap="md">
           <Group justify="space-between">
-            <Title order={4}>Database Testing & Analysis</Title>
-            <Badge color="blue" variant="light">Advanced</Badge>
+            <Group>
+              <ThemeIcon size="lg" radius="md" color="green" variant="light">
+                <IconDatabase size={20} />
+              </ThemeIcon>
+              <Box>
+                <Title order={4} c="dark">🗄️ Database Testing & Analysis</Title>
+                <Badge color="green" variant="outline" size="sm">FTS5 Enhanced • 37+ Tables</Badge>
+              </Box>
+            </Group>
+            <ActionIcon size="lg" variant="light" color="green">
+              <IconChartDots3 size={18} />
+            </ActionIcon>
           </Group>
           
           <Text size="sm" c="dimmed">
-            Comprehensive database inspection with grouped table schemas and sample data analysis.
+            Comprehensive database inspection with enhanced FTS5 search tables, grouped schemas, 
+            performance metrics, and sample data analysis across all content modules.
           </Text>
           
-          <Group>
+          <SimpleGrid cols={3} spacing="md">
             <Button
               leftSection={<IconDatabase size={16} />}
               onClick={loadDatabaseStats}
               loading={isLoading}
               type="button"
+              color="blue"
+              fullWidth
             >
-              Load Database Stats
+              Database Overview
             </Button>
             <Button
               leftSection={<IconTable size={16} />}
               onClick={loadAllTableSchemas}
               loading={isLoading}
               variant="outline"
+              color="green"
               type="button"
+              fullWidth
             >
-              View All Table Schemas
+              All Schemas
             </Button>
             <Button
               leftSection={<IconSearch size={16} />}
@@ -1114,10 +1138,18 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
               variant="outline"
               color="orange"
               type="button"
+              fullWidth
             >
-              Explain 37 Tables
+              FTS5 Analysis
             </Button>
-          </Group>
+          </SimpleGrid>
+          
+          <Alert color="blue" variant="light" icon={<IconDatabase size={16} />}>
+            <Text size="sm">
+              <strong>Enhanced Database Features:</strong> FTS5 Enhanced Search, Cross-module indexing, 
+              BM25 ranking, Tag integration, Performance optimization, 37+ tables including virtual FTS tables.
+            </Text>
+          </Alert>
         </Stack>
       </Card>
 
@@ -1145,7 +1177,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
               </Paper>
               <Paper withBorder p="md" ta="center">
                 <Text size="xl" fw={700} color="orange">
-                  {Object.values(databaseStats.table_counts).reduce((a, b) => Number(a) + Number(b), 0)}
+                  {databaseStats.table_counts ? Object.values(databaseStats.table_counts).reduce((a, b) => Number(a) + Number(b), 0) : 0}
                 </Text>
                 <Text size="sm" c="dimmed">Total Rows</Text>
               </Paper>
@@ -1155,7 +1187,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
             
             <Title order={6}>Table Row Counts & Storage Sizes</Title>
             <SimpleGrid cols={1} spacing="sm">
-              {Object.entries(databaseStats.table_counts).map(([table, count]) => {
+              {databaseStats.table_counts && Object.entries(databaseStats.table_counts).map(([table, count]) => {
                 const tableSize = databaseStats.table_sizes?.[table];
                 return (
                   <Group key={table} justify="space-between" p="xs" style={{ borderBottom: '1px solid #e9ecef' }}>
@@ -1435,11 +1467,21 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   // Enhanced diary tab with verbose logging
   const renderDiaryTab = () => (
     <Stack gap="lg">
-      <Card withBorder>
+      <Card withBorder shadow="sm" style={{ backgroundColor: '#f8f9fa', border: '1px solid #dee2e6' }}>
         <Stack gap="md">
           <Group justify="space-between">
-            <Title order={4}>Diary Encryption Testing</Title>
-            <Badge color="orange" variant="light">Security</Badge>
+            <Group>
+              <ThemeIcon size="lg" radius="md" color="orange" variant="light">
+                <IconLock size={20} />
+              </ThemeIcon>
+              <Box>
+                <Title order={4} c="dark">🔒 Diary Encryption Testing</Title>
+                <Badge color="orange" variant="outline" size="sm">AES-GCM Security</Badge>
+              </Box>
+            </Group>
+            <ActionIcon size="lg" variant="light" color="orange">
+              <IconKey size={18} />
+            </ActionIcon>
           </Group>
           
           <Alert color="blue" variant="light">
@@ -1573,16 +1615,26 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   // Enhanced advanced tab with collapsible sections and system health
   const renderAdvancedTab = () => (
     <Stack gap="lg">
-      <Card withBorder>
+      <Card withBorder shadow="sm" style={{ backgroundColor: '#f8f9fa', border: '1px solid #dee2e6' }}>
         <Stack gap="md">
           <Group justify="space-between">
-            <Title order={4}>Advanced Testing & System Monitoring</Title>
-            <Badge color="purple" variant="light">Enhanced</Badge>
+            <Group>
+              <ThemeIcon size="lg" radius="md" color="purple" variant="light">
+                <IconRocket size={20} />
+              </ThemeIcon>
+              <Box>
+                <Title order={4} c="dark">🚀 Advanced Testing & System Monitoring</Title>
+                <Badge color="purple" variant="outline" size="sm">Performance • CRUD • Health</Badge>
+              </Box>
+            </Group>
+            <ActionIcon size="lg" variant="light" color="purple">
+              <IconCpu size={18} />
+            </ActionIcon>
           </Group>
           
           <Text size="sm" c="dimmed">
             Comprehensive system testing including performance monitoring, data integrity validation, 
-            file system operations, CRUD testing, and system health checks.
+            file system operations, CRUD testing, and real-time system health checks.
           </Text>
         </Stack>
       </Card>
@@ -2257,20 +2309,43 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   // Console commands tab with debugging utilities
   const renderConsoleTab = () => (
     <Stack gap="lg">
-      {consoleCommands && (
+                {consoleCommands && (
         <>
           {Object.entries(consoleCommands).map(([categoryKey, category]) => {
             // Handle the category structure properly
             const categoryData = category as { title?: string; description?: string; commands?: Record<string, { description?: string; command?: string }> };
             const commands = categoryData.commands || {};
             
+            const getCategoryIcon = (key: string) => {
+              if (key.includes('frontend') || key.includes('browser')) return <IconCodeDots size={20} />;
+              if (key.includes('backend') || key.includes('cli')) return <IconBrandPython size={20} />;
+              if (key.includes('git')) return <IconGitBranch size={20} />;
+              return <IconTerminal size={20} />;
+            };
+            
+            const getCategoryColor = (key: string) => {
+              if (key.includes('frontend')) return 'blue';
+              if (key.includes('backend')) return 'green';
+              if (key.includes('git')) return 'orange';
+              return 'gray';
+            };
+            
             return (
-              <Card key={categoryKey} withBorder>
+              <Card key={categoryKey} withBorder shadow="sm" style={{ 
+                borderLeft: `4px solid var(--mantine-color-${getCategoryColor(categoryKey)}-6)` 
+              }}>
                 <Stack gap="md">
-                  <Title order={5}>{categoryData.title || categoryKey}</Title>
-                  <Text size="sm" c="dimmed">
-                    {categoryData.description || 'No description available'}
-                  </Text>
+                  <Group>
+                    <ThemeIcon color={getCategoryColor(categoryKey)} variant="light" size="lg">
+                      {getCategoryIcon(categoryKey)}
+                    </ThemeIcon>
+                    <Box>
+                      <Title order={5}>{categoryData.title || categoryKey}</Title>
+                      <Text size="sm" c="dimmed">
+                        {categoryData.description || 'No description available'}
+                      </Text>
+                    </Box>
+                  </Group>
                   
                   <Accordion>
                     {Object.entries(commands).map(([cmdKey, cmd]) => {
@@ -2340,54 +2415,103 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
       <Container 
         size="100%" 
         p={0} 
-        style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+        style={{ 
+          flex: 1, 
+          display: 'flex', 
+          flexDirection: 'column',
+          backgroundColor: isDarkMode ? '#1a1b1e' : '#ffffff',
+          color: isDarkMode ? '#c1c2c5' : '#000000'
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         <LoadingOverlay visible={isLoading && !isRunningAuthTests} />
         
         <Stack gap="lg" style={{ flex: 1 }}>
-          {/* Quick Action Buttons */}
-          <Group>
-            <Button
-              variant="outline"
-              leftSection={<IconTrash size={16} />}
-              onClick={clearAllData}
-              color="red"
-              size="sm"
-              type="button"
-            >
-              Clear All Test Results & Data
-            </Button>
-            <Button
-              variant="outline"
-              leftSection={<IconRefresh size={16} />}
-              onClick={() => window.location.reload()}
-              size="sm"
-              type="button"
-            >
-              Reload Page
-            </Button>
-            <Badge color="gray" size="lg">
-              Testing interface loaded at {new Date().toLocaleString()}
-            </Badge>
-          </Group>
+          {/* Clean Action Bar */}
+          <Card withBorder shadow="sm" style={{ backgroundColor: '#e3f2fd', border: '1px solid #90caf9' }}>
+            <Group justify="space-between">
+              <Group>
+                <Button
+                  variant="outline"
+                  color="red"
+                  leftSection={<IconTrash size={16} />}
+                  onClick={clearAllData}
+                  size="sm"
+                  type="button"
+                >
+                  Clear All Data
+                </Button>
+                <Button
+                  variant="outline"
+                  color="blue"
+                  leftSection={<IconRefresh size={16} />}
+                  onClick={() => window.location.reload()}
+                  size="sm"
+                  type="button"
+                >
+                  Reload Interface
+                </Button>
+                <Button
+                  variant="outline"
+                  color="green"
+                  leftSection={<IconDownload size={16} />}
+                  onClick={downloadTestResults}
+                  size="sm"
+                  type="button"
+                >
+                  Export Results
+                </Button>
+              </Group>
+              <Group>
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  color={isDarkMode ? "yellow" : "blue"}
+                  onClick={() => setIsDarkMode(!isDarkMode)}
+                >
+                  {isDarkMode ? "☀️ Light" : "🌙 Dark"}
+                </Button>
+                <Badge color="blue" variant="light" size="lg">
+                  🧪 Testing Suite v2.1
+                </Badge>
+                <Badge color="gray" variant="outline" size="sm">
+                  {new Date().toLocaleTimeString()}
+                </Badge>
+              </Group>
+            </Group>
+          </Card>
 
           {/* Main Testing Tabs */}
           <Tabs value={activeTab} onChange={(value) => setActiveTab(value || 'auth')} variant="pills">
-            <Tabs.List justify="center" mb="lg">
-              <Tabs.Tab value="auth" leftSection={<IconShield size={16} />}>
+            <Tabs.List justify="center" mb="lg" style={{ padding: '4px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
+              <Tabs.Tab 
+                value="auth" 
+                leftSection={<IconShield size={16} />}
+              >
                 Authentication
               </Tabs.Tab>
-              <Tabs.Tab value="database" leftSection={<IconDatabase size={16} />}>
+              <Tabs.Tab 
+                value="database" 
+                leftSection={<IconDatabase size={16} />}
+              >
                 Database
               </Tabs.Tab>
-              <Tabs.Tab value="diary" leftSection={<IconLock size={16} />}>
+              <Tabs.Tab 
+                value="diary" 
+                leftSection={<IconLock size={16} />}
+              >
                 Diary
               </Tabs.Tab>
-              <Tabs.Tab value="advanced" leftSection={<IconDeviceAnalytics size={16} />}>
-                Advanced & System
+              <Tabs.Tab 
+                value="advanced" 
+                leftSection={<IconRocket size={16} />}
+              >
+                Advanced
               </Tabs.Tab>
-              <Tabs.Tab value="console" leftSection={<IconTerminal size={16} />}>
+              <Tabs.Tab 
+                value="console" 
+                leftSection={<IconTerminal size={16} />}
+              >
                 Console
               </Tabs.Tab>
             </Tabs.List>

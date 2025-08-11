@@ -23,6 +23,7 @@ class Todo(Base):
     description = Column(Text, nullable=True)
     is_completed = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
+    is_favorite = Column(Boolean, default=False, index=True)
     priority = Column(Integer, default=2)  # 1=low, 2=medium, 3=high, 4=urgent
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True)

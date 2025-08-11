@@ -12,6 +12,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any
 import json
+import asyncio
+import logging
 
 from app.services.chunk_service import chunk_manager
 from app.database import get_db
@@ -46,8 +48,18 @@ async def upload_chunk(
 
     # If all chunks received, start assembly in background
     if status["status"] == "assembling":
-        # Fire and forget – assembly runs concurrently
-        _ = chunk_manager.assemble_file(meta["file_id"])
+        # Start assembly as a background task
+        logger = logging.getLogger(__name__)
+        
+        async def assembly_task():
+            try:
+                logger.info(f"Starting assembly for file_id: {meta['file_id']}")
+                await chunk_manager.assemble_file(meta["file_id"])
+                logger.info(f"Assembly completed for file_id: {meta['file_id']}")
+            except Exception as e:
+                logger.error(f"Assembly failed for file_id: {meta['file_id']}: {str(e)}")
+        
+        asyncio.create_task(assembly_task())
 
     return JSONResponse(status)
 

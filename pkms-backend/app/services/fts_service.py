@@ -406,17 +406,24 @@ class FTS5SearchService:
         
         # Determine which content types to search
         if not content_types:
-            content_types = ['notes', 'documents', 'archive_items', 'todos']
+            content_types = ['notes', 'documents', 'archive', 'todos', 'diary', 'folders']
         
         try:
             # Search notes
             if 'notes' in content_types:
                 notes_sql = text("""
-                    SELECT 'note' as type, id, title, content, created_at, updated_at,
-                           bm25(fts_notes) as rank
-                    FROM fts_notes 
-                    WHERE fts_notes MATCH :query AND user_id = :user_id
-                    ORDER BY rank
+                    SELECT 'note' as type, n.id, n.title, n.content, n.created_at, n.updated_at,
+                           bm25(fts_notes) as rank,
+                           snippet(fts_notes, 1, '<mark>', '</mark>', '...', 32) as content_snippet,
+                           snippet(fts_notes, 0, '<mark>', '</mark>', '...', 16) as title_snippet,
+                           COALESCE(GROUP_CONCAT(t.name, ' '), '') as tags_text
+                    FROM fts_notes fn
+                    JOIN notes n ON fn.id = n.id
+                    LEFT JOIN note_tags nt ON n.id = nt.note_id
+                    LEFT JOIN tags t ON nt.tag_id = t.id
+                    WHERE fts_notes MATCH :query AND fn.user_id = :user_id
+                    GROUP BY n.id, n.title, n.content, n.created_at, n.updated_at, rank, content_snippet, title_snippet
+                    ORDER BY rank ASC
                     LIMIT :limit OFFSET :offset
                 """)
                 
@@ -428,25 +435,41 @@ class FTS5SearchService:
                 })
                 
                 for row in result.fetchall():
+                    # Convert BM25 rank (smaller is better) to relevance score (higher is better)
+                    relevance_score = 1.0 / (1.0 + float(row.rank)) if row.rank else 0.0
+                    
                     results.append({
                         'type': row.type,
+                        'module': 'notes',
                         'id': row.id,
                         'title': row.title,
+                        'title_highlighted': row.title_snippet or row.title,
                         'content': row.content[:300] + '...' if len(row.content) > 300 else row.content,
+                        'content_highlighted': row.content_snippet or (row.content[:200] + '...' if len(row.content) > 200 else row.content),
+                        'tags': row.tags_text.split() if row.tags_text else [],
                         'created_at': row.created_at,
                         'updated_at': row.updated_at,
-                        'relevance_score': float(row.rank) if row.rank else 0.0
+                        'relevance_score': relevance_score,
+                        'raw_bm25_rank': float(row.rank) if row.rank else 0.0
                     })
             
             # Search documents
             if 'documents' in content_types:
                 docs_sql = text("""
-                    SELECT 'document' as type, uuid, filename, original_name, 
-                           description, created_at, updated_at,
-                           bm25(fts_documents) as rank
-                    FROM fts_documents 
-                    WHERE fts_documents MATCH :query AND user_id = :user_id
-                    ORDER BY rank
+                    SELECT 'document' as type, d.uuid, d.title, d.filename, d.original_name, 
+                           d.description, d.created_at, d.updated_at, d.mime_type, d.file_size,
+                           bm25(fts_documents) as rank,
+                           snippet(fts_documents, 0, '<mark>', '</mark>', '...', 16) as title_snippet,
+                           snippet(fts_documents, 2, '<mark>', '</mark>', '...', 32) as description_snippet,
+                           COALESCE(GROUP_CONCAT(t.name, ' '), '') as tags_text
+                    FROM fts_documents fd
+                    JOIN documents d ON fd.uuid = d.uuid
+                    LEFT JOIN document_tags dt ON d.uuid = dt.document_uuid
+                    LEFT JOIN tags t ON dt.tag_id = t.id
+                    WHERE fts_documents MATCH :query AND fd.user_id = :user_id
+                    GROUP BY d.uuid, d.title, d.filename, d.original_name, d.description, 
+                             d.created_at, d.updated_at, d.mime_type, d.file_size, rank, title_snippet, description_snippet
+                    ORDER BY rank ASC
                     LIMIT :limit OFFSET :offset
                 """)
                 
@@ -458,26 +481,44 @@ class FTS5SearchService:
                 })
                 
                 for row in result.fetchall():
+                    # Convert BM25 rank (smaller is better) to relevance score (higher is better)
+                    relevance_score = 1.0 / (1.0 + float(row.rank)) if row.rank else 0.0
+                    
                     results.append({
                         'type': row.type,
+                        'module': 'documents',
                         'id': row.uuid,
-                        'title': row.original_name,
-                        'content': '', # Remove extracted_text
+                        'uuid': row.uuid,
+                        'title': row.title or row.original_name,
+                        'title_highlighted': row.title_snippet or (row.title or row.original_name),
                         'filename': row.filename,
+                        'original_name': row.original_name,
+                        'description': row.description,
+                        'description_highlighted': row.description_snippet or row.description,
+                        'mime_type': row.mime_type,
+                        'file_size': row.file_size,
+                        'tags': row.tags_text.split() if row.tags_text else [],
                         'created_at': row.created_at,
                         'updated_at': row.updated_at,
-                        'relevance_score': float(row.rank) if row.rank else 0.0
+                        'relevance_score': relevance_score,
+                        'raw_bm25_rank': float(row.rank) if row.rank else 0.0
                     })
             
             # Search archive items
-            if 'archive_items' in content_types:
+            if 'archive' in content_types or 'archive_items' in content_types:
                 archive_sql = text("""
-                    SELECT 'archive_item' as type, uuid, name, description, 
-                           original_filename, metadata_json, folder_uuid,
-                           created_at, updated_at, bm25(fts_archive_items) as rank
-                    FROM fts_archive_items 
-                    WHERE fts_archive_items MATCH :query AND user_id = :user_id
-                    ORDER BY rank
+                    SELECT 'archive_item' as type, a.uuid, a.name, a.description, 
+                           a.original_filename, a.metadata_json, a.folder_uuid,
+                           a.created_at, a.updated_at, bm25(fts_archive_items) as rank,
+                           COALESCE(GROUP_CONCAT(t.name, ' '), '') as tags_text
+                    FROM fts_archive_items fa
+                    JOIN archive_items a ON fa.uuid = a.uuid
+                    LEFT JOIN archive_tags at ON a.uuid = at.archive_item_uuid
+                    LEFT JOIN tags t ON at.tag_id = t.id
+                    WHERE fts_archive_items MATCH :query AND fa.user_id = :user_id
+                    GROUP BY a.uuid, a.name, a.description, a.original_filename, 
+                             a.metadata_json, a.folder_uuid, a.created_at, a.updated_at, rank
+                    ORDER BY rank ASC
                     LIMIT :limit OFFSET :offset
                 """)
                 
@@ -489,26 +530,42 @@ class FTS5SearchService:
                 })
                 
                 for row in result.fetchall():
+                    # Convert BM25 rank (smaller is better) to relevance score (higher is better)
+                    relevance_score = 1.0 / (1.0 + float(row.rank)) if row.rank else 0.0
+                    
                     results.append({
                         'type': row.type,
+                        'module': 'archive',
                         'id': row.uuid,
+                        'uuid': row.uuid,
                         'title': row.name,
-                        'content': '', # Remove extracted_text
-                        'filename': row.original_filename,
+                        'name': row.name,
+                        'description': row.description,
+                        'original_filename': row.original_filename,
+                        'metadata': row.metadata_json,
                         'folder_uuid': row.folder_uuid,
+                        'tags': row.tags_text.split() if row.tags_text else [],
                         'created_at': row.created_at,
                         'updated_at': row.updated_at,
-                        'relevance_score': float(row.rank) if row.rank else 0.0
+                        'relevance_score': relevance_score,
+                        'raw_bm25_rank': float(row.rank) if row.rank else 0.0
                     })
             
             # Search todos
             if 'todos' in content_types:
                 todos_sql = text("""
-                    SELECT 'todo' as type, id, title, description, project_id,
-                           created_at, updated_at, bm25(fts_todos) as rank
-                    FROM fts_todos 
-                    WHERE fts_todos MATCH :query AND user_id = :user_id
-                    ORDER BY rank
+                    SELECT 'todo' as type, t.id, t.title, t.description, t.project_id,
+                           t.status, t.priority, t.due_date, t.created_at, t.updated_at,
+                           bm25(fts_todos) as rank,
+                           COALESCE(GROUP_CONCAT(tg.name, ' '), '') as tags_text
+                    FROM fts_todos ft
+                    JOIN todos t ON ft.id = t.id
+                    LEFT JOIN todo_tags tt ON t.id = tt.todo_id
+                    LEFT JOIN tags tg ON tt.tag_id = tg.id
+                    WHERE fts_todos MATCH :query AND ft.user_id = :user_id
+                    GROUP BY t.id, t.title, t.description, t.project_id, t.status, t.priority,
+                             t.due_date, t.created_at, t.updated_at, rank
+                    ORDER BY rank ASC
                     LIMIT :limit OFFSET :offset
                 """)
                 
@@ -520,18 +577,115 @@ class FTS5SearchService:
                 })
                 
                 for row in result.fetchall():
+                    # Convert BM25 rank (smaller is better) to relevance score (higher is better)
+                    relevance_score = 1.0 / (1.0 + float(row.rank)) if row.rank else 0.0
+                    
                     results.append({
                         'type': row.type,
+                        'module': 'todos',
                         'id': row.id,
                         'title': row.title,
+                        'description': row.description,
                         'content': row.description or '',
                         'project_id': row.project_id,
+                        'status': row.status,
+                        'priority': row.priority,
+                        'due_date': row.due_date,
+                        'tags': row.tags_text.split() if row.tags_text else [],
                         'created_at': row.created_at,
                         'updated_at': row.updated_at,
-                        'relevance_score': float(row.rank) if row.rank else 0.0
+                        'relevance_score': relevance_score,
+                        'raw_bm25_rank': float(row.rank) if row.rank else 0.0
+                    })
+
+            # Search diary entries
+            if 'diary' in content_types or 'diary_entries' in content_types:
+                diary_sql = text("""
+                    SELECT 'diary_entry' as type, d.id, d.title, d.content, d.mood, d.weather,
+                           d.created_at, d.updated_at, bm25(fts_diary_entries) as rank,
+                           COALESCE(GROUP_CONCAT(t.name, ' '), '') as tags_text,
+                           (SELECT COUNT(*) > 0 FROM diary_media dm WHERE dm.diary_entry_id = d.id) as has_media
+                    FROM fts_diary_entries fd
+                    JOIN diary_entries d ON fd.id = d.id
+                    LEFT JOIN diary_tags dt ON d.id = dt.diary_entry_id
+                    LEFT JOIN tags t ON dt.tag_id = t.id
+                    WHERE fts_diary_entries MATCH :query AND fd.user_id = :user_id
+                    GROUP BY d.id, d.title, d.content, d.mood, d.weather, d.created_at, d.updated_at, rank
+                    ORDER BY rank ASC
+                    LIMIT :limit OFFSET :offset
+                """)
+                
+                result = await db.execute(diary_sql, {
+                    'query': search_query, 
+                    'user_id': user_id, 
+                    'limit': limit, 
+                    'offset': offset
+                })
+                
+                for row in result.fetchall():
+                    # Convert BM25 rank (smaller is better) to relevance score (higher is better)
+                    relevance_score = 1.0 / (1.0 + float(row.rank)) if row.rank else 0.0
+                    
+                    results.append({
+                        'type': row.type,
+                        'module': 'diary',
+                        'id': row.id,
+                        'title': row.title,
+                        'content': row.content[:300] + '...' if row.content and len(row.content) > 300 else (row.content or ''),
+                        'mood': row.mood,
+                        'weather': row.weather,
+                        'has_media': bool(row.has_media),
+                        'tags': row.tags_text.split() if row.tags_text else [],
+                        'created_at': row.created_at,
+                        'updated_at': row.updated_at,
+                        'relevance_score': relevance_score,
+                        'raw_bm25_rank': float(row.rank) if row.rank else 0.0
+                    })
+
+            # Search archive folders
+            if 'folders' in content_types:
+                folders_sql = text("""
+                    SELECT 'folder' as type, f.uuid, f.name, f.description, f.parent_uuid,
+                           f.created_at, f.updated_at, bm25(fts_folders) as rank,
+                           COALESCE(GROUP_CONCAT(t.name, ' '), '') as tags_text
+                    FROM fts_folders ff
+                    JOIN archive_folders f ON ff.uuid = f.uuid
+                    LEFT JOIN folder_tags ft ON f.uuid = ft.folder_uuid
+                    LEFT JOIN tags t ON ft.tag_id = t.id
+                    WHERE fts_folders MATCH :query AND ff.user_id = :user_id
+                    GROUP BY f.uuid, f.name, f.description, f.parent_uuid, f.created_at, f.updated_at, rank
+                    ORDER BY rank ASC
+                    LIMIT :limit OFFSET :offset
+                """)
+                
+                result = await db.execute(folders_sql, {
+                    'query': search_query, 
+                    'user_id': user_id, 
+                    'limit': limit, 
+                    'offset': offset
+                })
+                
+                for row in result.fetchall():
+                    # Convert BM25 rank (smaller is better) to relevance score (higher is better)
+                    relevance_score = 1.0 / (1.0 + float(row.rank)) if row.rank else 0.0
+                    
+                    results.append({
+                        'type': row.type,
+                        'module': 'folders',
+                        'id': row.uuid,
+                        'uuid': row.uuid,
+                        'title': row.name,
+                        'name': row.name,
+                        'description': row.description,
+                        'parent_uuid': row.parent_uuid,
+                        'tags': row.tags_text.split() if row.tags_text else [],
+                        'created_at': row.created_at,
+                        'updated_at': row.updated_at,
+                        'relevance_score': relevance_score,
+                        'raw_bm25_rank': float(row.rank) if row.rank else 0.0
                     })
             
-            # Sort all results by relevance score
+            # Sort all results by relevance score (higher is better now)
             results.sort(key=lambda x: x['relevance_score'], reverse=True)
             
             return results[:limit]
@@ -541,13 +695,26 @@ class FTS5SearchService:
             return []
 
     def _prepare_fts_query(self, query: str) -> str:
-        """Prepare query string for FTS5 with proper escaping and operators"""
-        # Remove special characters that could break FTS5
+        """Prepare query string for FTS5 with proper escaping and hashtag support"""
         import re
-        cleaned_query = re.sub(r'[\"\'\^\*\:\(\)\-]', ' ', query)
+        
+        # Handle hashtag queries (#tag) by extracting them for tag search
+        hashtag_pattern = r'#(\w+)'
+        hashtags = re.findall(hashtag_pattern, query)
+        
+        # Remove hashtags from main query for now (they'll be handled by tag filtering)
+        cleaned_query = re.sub(hashtag_pattern, '', query)
+        
+        # Remove other special characters that could break FTS5
+        cleaned_query = re.sub(r'[\"\'\^\*\:\(\)\-]', ' ', cleaned_query)
         
         # Split into terms and add prefix matching
         terms = cleaned_query.strip().split()
+        
+        # Add hashtags back as tag search terms
+        for hashtag in hashtags:
+            terms.append(hashtag)  # Add hashtag content as search term
+        
         if not terms:
             return '""'
         

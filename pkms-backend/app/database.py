@@ -68,7 +68,7 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def get_db() -> AsyncSession:
-    """Dependency to get database session"""
+    """Dependency to get database session for FastAPI endpoints"""
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -76,8 +76,7 @@ async def get_db() -> AsyncSession:
             await session.rollback()
             logger.error(f"Database session error: {e}")
             raise
-        finally:
-            await session.close()
+        # Note: session.close() is handled by AsyncSessionLocal context manager
 
 
 @asynccontextmanager
@@ -291,8 +290,6 @@ async def init_db():
             data_dir / "assets" / "images",
             data_dir / "archive",
             data_dir / "backups",
-            data_dir / "exports",
-            data_dir / "recovery",
             data_dir / "temp_uploads"
         ]
         

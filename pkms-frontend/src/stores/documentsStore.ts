@@ -27,6 +27,7 @@ interface DocumentsState {
   currentTag: string | null;
   searchQuery: string;
   showArchived: boolean;
+  showFavoritesOnly: boolean;
   
   // Pagination
   limit: number;
@@ -40,7 +41,7 @@ interface DocumentsState {
   uploadDocument: (file: File, tags?: string[]) => Promise<Document | null>;
   updateDocument: (uuid: string, data: UpdateDocumentRequest) => Promise<Document | null>;
   deleteDocument: (uuid: string) => Promise<boolean>;
-  toggleArchive: (uuid: string, archived: boolean) => Promise<Document | null>;
+  toggleArchive: (id: number, archived: boolean) => Promise<Document | null>;
   
   // Actions - Search
   searchDocuments: (query: string) => Promise<void>;
@@ -50,12 +51,14 @@ interface DocumentsState {
   downloadDocument: (uuid: string) => Promise<Blob | null>;
   getDownloadUrl: (uuid: string) => string;
   getPreviewUrl: (uuid: string) => string;
+  previewDocument: (uuid: string) => void;
   
   // Filters
   setMimeType: (mimeType: string | null) => void;
   setTag: (tag: string | null) => void;
   setSearch: (query: string) => void;
   setShowArchived: (show: boolean) => void;
+  setShowFavoritesOnly: (show: boolean) => void;
   
   // UI Actions
   clearError: () => void;
@@ -64,7 +67,7 @@ interface DocumentsState {
   reset: () => void;
 }
 
-const initialState: Omit<DocumentsState, 'reset' | 'setUploadProgress' | 'clearCurrentDocument' | 'clearError' | 'setShowArchived' | 'setSearch' | 'setTag' | 'setMimeType' | 'getPreviewUrl' | 'getDownloadUrl' | 'downloadDocument' | 'clearSearch' | 'searchDocuments' | 'toggleArchive' | 'deleteDocument' | 'updateDocument' | 'uploadDocument' | 'loadDocument' | 'loadMore' | 'loadDocuments'> = {
+const initialState: Omit<DocumentsState, 'reset' | 'setUploadProgress' | 'clearCurrentDocument' | 'clearError' | 'setShowArchived' | 'setShowFavoritesOnly' | 'setSearch' | 'setTag' | 'setMimeType' | 'getPreviewUrl' | 'getDownloadUrl' | 'downloadDocument' | 'previewDocument' | 'clearSearch' | 'searchDocuments' | 'toggleArchive' | 'deleteDocument' | 'updateDocument' | 'uploadDocument' | 'loadDocument' | 'loadMore' | 'loadDocuments'> = {
   documents: [],
   currentDocument: null,
   searchResults: [],
@@ -78,6 +81,7 @@ const initialState: Omit<DocumentsState, 'reset' | 'setUploadProgress' | 'clearC
   currentTag: null,
   searchQuery: '',
   showArchived: false,
+  showFavoritesOnly: false,
   limit: 20,
   offset: 0,
   hasMore: true,
@@ -96,6 +100,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         tag: state.currentTag || undefined,
         search: state.searchQuery || undefined,
         archived: state.showArchived,
+        is_favorite: state.showFavoritesOnly || undefined,
         limit: state.limit,
         offset: 0
       };
@@ -128,6 +133,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         tag: state.currentTag || undefined,
         search: state.searchQuery || undefined,
         archived: state.showArchived,
+        is_favorite: state.showFavoritesOnly || undefined,
         limit: state.limit,
         offset: state.offset
       };
@@ -178,7 +184,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         filename: document.filename,
         original_name: document.original_name,
         mime_type: document.mime_type,
-        size_bytes: document.size_bytes,
+        file_size: document.file_size,
         is_archived: document.is_archived,
         created_at: document.created_at,
         updated_at: document.updated_at,
@@ -216,33 +222,41 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
   
   updateDocument: async (uuid: string, data: UpdateDocumentRequest) => {
     set({ isUpdating: true, error: null });
-    
     try {
-      const updatedDocument = await documentsService.updateDocument(uuid, data);
-      
-      // Convert Document to DocumentSummary for the list
+      const state = get();
+      // Resolve numeric id from uuid present in list state
+      const existing = state.documents.find(d => d.uuid === uuid);
+      if (!existing) {
+        throw new Error('Document not found');
+      }
+      const updatedDocument = await documentsService.updateDocument(existing.id as unknown as number, data);
+
+      // Build full summary
       const documentSummary: DocumentSummary = {
+        id: updatedDocument.id,
         uuid: updatedDocument.uuid,
-        filename: updatedDocument.filename,
+        title: updatedDocument.title,
         original_name: updatedDocument.original_name,
+        filename: updatedDocument.filename,
+        file_path: updatedDocument.file_path,
+        file_size: updatedDocument.file_size,
         mime_type: updatedDocument.mime_type,
-        size_bytes: updatedDocument.size_bytes,
+        description: updatedDocument.description,
+        is_favorite: updatedDocument.is_favorite,
         is_archived: updatedDocument.is_archived,
+        archive_item_uuid: updatedDocument.archive_item_uuid,
+        upload_status: updatedDocument.upload_status,
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
         tags: updatedDocument.tags,
-        preview: updatedDocument.extracted_text?.substring(0, 200) || ''
-      };
-      
-      // Update in documents list
+      } as unknown as DocumentSummary;
+
       set(state => ({
-        documents: state.documents.map(doc => 
-          doc.uuid === uuid ? documentSummary : doc
-        ),
-        currentDocument: state.currentDocument?.uuid === uuid ? updatedDocument : state.currentDocument,
+        documents: state.documents.map(doc => doc.uuid === updatedDocument.uuid ? documentSummary : doc),
+        currentDocument: state.currentDocument?.uuid === updatedDocument.uuid ? updatedDocument : state.currentDocument,
         isUpdating: false
       }));
-      
+
       return updatedDocument;
     } catch (error) {
       set({ 
@@ -257,7 +271,14 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     set({ error: null });
     
     try {
-      await documentsService.deleteDocument(uuid);
+      // Find the document to get its ID
+      const state = get();
+      const document = state.documents.find(doc => doc.uuid === uuid);
+      if (!document) {
+        throw new Error('Document not found');
+      }
+      
+      await documentsService.deleteDocument(document.id);
       
       // Remove from documents list
       set(state => ({
@@ -274,35 +295,48 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     }
   },
   
-  toggleArchive: async (uuid: string, archived: boolean) => {
+  toggleArchive: async (id: number, archived: boolean) => {
     set({ isUpdating: true, error: null });
-    
     try {
-      const updatedDocument = await documentsService.toggleArchive(uuid, archived);
-      
-      // Convert Document to DocumentSummary for the list
+      const updatedDocument = await documentsService.toggleArchive(id, archived);
+      // Build full summary
       const documentSummary: DocumentSummary = {
+        id: updatedDocument.id,
         uuid: updatedDocument.uuid,
-        filename: updatedDocument.filename,
+        title: updatedDocument.title,
         original_name: updatedDocument.original_name,
+        filename: updatedDocument.filename,
+        file_path: updatedDocument.file_path,
+        file_size: updatedDocument.file_size,
         mime_type: updatedDocument.mime_type,
-        size_bytes: updatedDocument.size_bytes,
+        description: updatedDocument.description,
+        is_favorite: updatedDocument.is_favorite,
         is_archived: updatedDocument.is_archived,
+        archive_item_uuid: updatedDocument.archive_item_uuid,
+        upload_status: updatedDocument.upload_status,
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
         tags: updatedDocument.tags,
-        preview: updatedDocument.extracted_text?.substring(0, 200) || ''
-      };
-      
-      // Update in documents list
-      set(state => ({
-        documents: state.documents.map(doc => 
-          doc.uuid === uuid ? documentSummary : doc
-        ),
-        currentDocument: state.currentDocument?.uuid === uuid ? updatedDocument : state.currentDocument,
-        isUpdating: false
-      }));
-      
+      } as unknown as DocumentSummary;
+
+      set(state => {
+        const exists = state.documents.some(d => d.uuid === updatedDocument.uuid);
+        if (!exists) {
+          // Fallback: reload list if local state is out of sync
+          get().loadDocuments();
+          return { isUpdating: false } as any;
+        }
+        const shouldShow = state.showArchived || !documentSummary.is_archived;
+        const updatedDocuments = shouldShow 
+          ? state.documents.map(doc => doc.uuid === updatedDocument.uuid ? documentSummary : doc)
+          : state.documents.filter(doc => doc.uuid !== updatedDocument.uuid);
+        return {
+          documents: updatedDocuments,
+          currentDocument: state.currentDocument?.uuid === updatedDocument.uuid ? updatedDocument : state.currentDocument,
+          isUpdating: false
+        };
+      });
+
       return updatedDocument;
     } catch (error) {
       set({ 
@@ -340,7 +374,14 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
   // Download/Preview Actions
   downloadDocument: async (uuid: string) => {
     try {
-      const blob = await documentsService.downloadDocument(uuid);
+      // Find the document to get its ID
+      const state = get();
+      const document = state.documents.find(doc => doc.uuid === uuid);
+      if (!document) {
+        throw new Error('Document not found');
+      }
+      
+      const blob = await documentsService.downloadDocument(document.id);
       return blob;
     } catch (error) {
       set({ 
@@ -351,11 +392,62 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
   },
   
   getDownloadUrl: (uuid: string) => {
-    return documentsService.getDownloadUrl(uuid);
+    // Find the document to get its ID
+    const state = get();
+    const document = state.documents.find(doc => doc.uuid === uuid);
+    if (!document) {
+      throw new Error('Document not found');
+    }
+    
+    return documentsService.getDownloadUrl(document.id);
   },
   
   getPreviewUrl: (uuid: string) => {
-    return documentsService.getPreviewUrl(uuid);
+    // Find the document to get its ID
+    const state = get();
+    const document = state.documents.find(doc => doc.uuid === uuid);
+    if (!document) {
+      throw new Error('Document not found');
+    }
+    
+    return documentsService.getPreviewUrl(document.id);
+  },
+  
+  previewDocument: (uuid: string) => {
+    const state = get();
+    const document = state.documents.find(doc => doc.uuid === uuid);
+    if (!document) return;
+    
+    // Use authenticated download to get a Blob, then open as object URL for preview
+    (async () => {
+      try {
+        const blob = await documentsService.downloadDocument((document as any).id);
+        if (!blob) return;
+        const objectUrl = URL.createObjectURL(blob);
+        
+        const previewableTypes = [
+          'application/pdf',
+          'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+          'text/plain', 'text/html', 'text/css', 'text/javascript',
+          'application/json'
+        ];
+        
+        if (previewableTypes.includes((document as any).mime_type)) {
+          window.open(objectUrl, '_blank');
+        } else {
+          const a = document.createElement('a');
+          a.href = objectUrl;
+          a.download = (document as any).original_name || 'download';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        }
+        // Revoke later to allow the new tab to read it first
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+      } catch (err) {
+        // Swallow; error handling is done in downloadDocument
+      }
+    })();
   },
   
   // Filter actions
@@ -376,6 +468,11 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
   
   setShowArchived: (show: boolean) => {
     set({ showArchived: show });
+    get().loadDocuments();
+  },
+  
+  setShowFavoritesOnly: (show: boolean) => {
+    set({ showFavoritesOnly: show });
     get().loadDocuments();
   },
   

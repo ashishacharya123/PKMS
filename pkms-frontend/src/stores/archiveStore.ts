@@ -14,16 +14,18 @@ interface ArchiveState {
   uploadProgress: UploadProgress | null;
   error: string | null;
   folderSearchResults: FolderTree[];
+  folderTree: FolderTree[];
   loadFolderSearchFTS: (query: string) => Promise<void>;
   clearFolderSearchResults: () => void;
   // Actions
   setCurrentFolder: (folderId: string | null) => Promise<void>;
-  loadFolders: () => Promise<void>;
+  loadFolders: (rootUuid?: string) => Promise<void>;
   loadItems: (folderId: string) => Promise<void>;
+  loadFolderItems: (folderId: string) => Promise<void>; // Alias for loadItems
   createFolder: (name: string, parentUuid?: string) => Promise<void>;
   updateFolder: (uuid: string, data: Partial<ArchiveFolder>) => Promise<void>;
   deleteFolder: (uuid: string) => Promise<void>;
-  uploadFile: (file: File, folderId: string) => Promise<void>;
+  uploadFile: (file: File, folderId: string, tags?: string[]) => Promise<void>;
   setError: (error: string | null) => void;
 }
 
@@ -37,17 +39,23 @@ export const useArchiveStore = create<ArchiveState>((set, get) => ({
   uploadProgress: null,
   error: null,
   folderSearchResults: [],
+  folderTree: [],
 
   setCurrentFolder: async (folderId) => {
     if (!folderId) {
       set({ currentFolder: null, items: [] });
+      // Load root folders when clearing selection
+      await get().loadFolders(undefined);
       return;
     }
     set({ isLoading: true });
     try {
       const folderDetails = await archiveService.getFolder(folderId);
       set({ currentFolder: folderDetails });
-      await get().loadItems(folderId);
+      await Promise.all([
+        get().loadItems(folderId),
+        get().loadFolders(folderId), // load subfolders for this folder
+      ]);
     } catch (e) {
       set({ error: 'Failed to select folder' });
     } finally {
@@ -55,13 +63,16 @@ export const useArchiveStore = create<ArchiveState>((set, get) => ({
     }
   },
 
-  loadFolders: async () => {
+  loadFolders: async (rootUuid) => {
     set({ isLoading: true, error: null });
     try {
-      const folders = await archiveService.listFolders();
-      set({ folders, isLoading: false });
+      const [folders, tree] = await Promise.all([
+        archiveService.listFolders(rootUuid),
+        archiveService.getFolderTree(undefined)
+      ]);
+      set({ folders, folderTree: tree || [], isLoading: false });
     } catch (error) {
-      set({ error: 'Failed to load folders', isLoading: false });
+      set({ error: 'Failed to load folders', isLoading: false, folderTree: [] });
     }
   },
 
@@ -75,11 +86,20 @@ export const useArchiveStore = create<ArchiveState>((set, get) => ({
     }
   },
 
+  loadFolderItems: async (folderId) => {
+    // Alias for loadItems for consistency
+    return get().loadItems(folderId);
+  },
+
   createFolder: async (name, parentUuid) => {
     set({ isLoading: true, error: null });
     try {
-      await archiveService.createFolder(name, parentUuid);
-      await get().loadFolders();
+      // Support description from temporary state if present
+      const description = (get() as any)._pendingFolderDescription as string | undefined;
+      await archiveService.createFolder(name, parentUuid || undefined, description);
+      // Clear temp description
+      (get() as any)._pendingFolderDescription = undefined;
+      await get().loadFolders(parentUuid || undefined);
     } catch (error) {
       set({ error: 'Failed to create folder', isLoading: false });
     }
@@ -108,10 +128,10 @@ export const useArchiveStore = create<ArchiveState>((set, get) => ({
     }
   },
 
-  uploadFile: async (file, folderId) => {
+  uploadFile: async (file, folderId, tags = []) => {
     set({ isUploading: true, error: null, uploadProgress: null });
     try {
-      const newItem = await archiveService.uploadFile(file, folderId, (progress) => {
+      const newItem = await archiveService.uploadFile(file, folderId, tags, (progress) => {
         set({ uploadProgress: progress });
       });
       // Optimistic update

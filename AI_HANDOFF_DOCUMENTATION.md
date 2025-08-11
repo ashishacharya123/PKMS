@@ -77,6 +77,16 @@ start-full-dev.bat
 - **Build**: Vite serving without errors
 - **Packages**: @mantine/dates@7.17.8, dayjs@1.11.10 compatible
 
+### UX/UI Improvements (Notes) — 2025-08-09
+- Implemented by: GPT-5 (via Cursor)
+- Changes:
+  - After creating a new note, the app now navigates back to the notes list (`/notes`) instead of staying in the editor.
+  - Added success/error notifications on note deletion in `NotesPage`.
+- Files edited:
+  - `pkms-frontend/src/pages/NoteEditorPage.tsx`
+  - `pkms-frontend/src/pages/NotesPage.tsx`
+- Rationale: Improves flow and feedback; aligns with common UX patterns.
+
 ### **Backend (FastAPI + Docker)** ✅
 - **Status**: HEALTHY on port 8000
 - **Database**: SQLite with complete schema
@@ -175,3 +185,9 @@ cd pkms-frontend && npm run dev  # Frontend
 **⚠️ REMEMBER: This documentation prevents repeating expensive mistakes that cost hours of debugging. Always preserve it for the next AI agent!**
 
 **AI Attribution**: Restored by Claude Sonnet 4 via Cursor, January 2025 
+
+### Recent Changes (2025-08-09) — by GPT-5
+- Backend: Made diary entry creation transactional (flush before file write, single commit) to prevent partial entries where mood appears without content. File: `pkms-backend/app/routers/diary.py`.
+- Frontend: Enlarged diary editor (modal size xl, textarea minRows 20 + autosize). Added template support: select a template to prefill content; checkbox to save current entry as a template. File: `pkms-frontend/src/pages/DiaryPage.tsx`.
+- Types/Services: Added `is_template` to diary types, exposed `templates` filter param in list API usage, and allowed store to load templates list for the dropdown. Files: `pkms-frontend/src/types/diary.ts`, `pkms-frontend/src/services/diaryService.ts`, `pkms-frontend/src/stores/diaryStore.ts`.
+- Removed files: None.

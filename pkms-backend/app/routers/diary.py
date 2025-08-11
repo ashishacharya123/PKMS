@@ -21,7 +21,7 @@ import time
 import asyncio
 
 from app.database import get_db
-from app.config import NEPAL_TZ, get_data_dir
+from app.config import NEPAL_TZ, get_data_dir, get_file_storage_dir
 from app.models.diary import DiaryEntry, DiaryMedia
 from app.models.user import User, RecoveryKey
 from app.auth.dependencies import get_current_user
@@ -130,17 +130,17 @@ def _derive_diary_encryption_key(password: str) -> bytes:
     return hashlib.sha256(password.encode("utf-8")).digest()
 
 
-def _generate_diary_file_path(entry_date: date, entry_id: int) -> Path:
-    """Generate readable file path for diary entry.
+def _generate_diary_file_path(entry_uuid: str) -> Path:
+    """Generate stable file path for diary entry using UUID.
     
-    Format: YYYY-MM-DD_diary_ID.dat
-    Example: 2024-01-15_diary_123.dat
+    Format: diary_{UUID}.dat
+    Example: diary_550e8400-e29b-41d4-a716-446655440000.dat
     """
-    data_dir = get_data_dir()
+    data_dir = get_file_storage_dir()
     diary_dir = data_dir / "secure" / "entries" / "text"
     diary_dir.mkdir(parents=True, exist_ok=True)
     
-    filename = f"{entry_date.strftime('%Y-%m-%d')}_diary_{entry_id}.dat"
+    filename = f"diary_{entry_uuid}.dat"
     return diary_dir / filename
 
 
@@ -152,7 +152,7 @@ async def _handle_diary_tags(db: AsyncSession, entry: DiaryEntry, tag_names: Lis
     
     # Clear existing tag associations
     await db.execute(
-        delete(diary_tags).where(diary_tags.c.diary_entry_id == entry.id)
+        delete(diary_tags).where(diary_tags.c.diary_entry_uuid == entry.uuid)
     )
     
     if not tag_names:
@@ -189,13 +189,13 @@ async def _handle_diary_tags(db: AsyncSession, entry: DiaryEntry, tag_names: Lis
         # Create association
         await db.execute(
             diary_tags.insert().values(
-                diary_entry_id=entry.id,
+                diary_entry_uuid=entry.uuid,
                 tag_uuid=tag.uuid
             )
         )
 
 
-async def _get_entry_tags(db: AsyncSession, entry_id: int) -> List[str]:
+async def _get_entry_tags(db: AsyncSession, entry_uuid: str) -> List[str]:
     """Get tag names for a diary entry."""
     from app.models.tag import Tag
     from app.models.tag_associations import diary_tags
@@ -203,7 +203,7 @@ async def _get_entry_tags(db: AsyncSession, entry_id: int) -> List[str]:
     result = await db.execute(
         select(Tag.name)
         .select_from(diary_tags.join(Tag))
-        .where(diary_tags.c.diary_entry_id == entry_id)
+        .where(diary_tags.c.diary_entry_uuid == entry_uuid)
     )
     return [row[0] for row in result.fetchall()]
 
@@ -237,6 +237,7 @@ class DiaryEntryCreate(BaseModel):
     tags: Optional[List[str]] = []
 
 class DiaryEntryResponse(BaseModel):
+    uuid: str
     id: int
     date: date
     nepali_date: Optional[str]
@@ -262,6 +263,7 @@ class DiaryEntryResponse(BaseModel):
         return v
 
 class DiaryEntrySummary(BaseModel):
+    uuid: str
     id: int
     date: date
     nepali_date: Optional[str]
@@ -522,12 +524,15 @@ async def create_diary_entry(
             encryption_tag=entry_data.encryption_tag
         )
         
+        # Add and flush to obtain the primary key without committing the transaction yet.
+        # This prevents partially-created rows (e.g., mood saved but file write failed).
         db.add(entry)
-        await db.commit()
+        await db.flush()
+        # Ensure we have the generated fields available
         await db.refresh(entry)
         
-        # Now generate the readable file path using the entry ID
-        file_path = _generate_diary_file_path(entry_data.date, entry.id)
+        # Now generate a stable file path using the entry UUID
+        file_path = _generate_diary_file_path(entry.uuid)
         
         # Write encrypted file using diary_encryption utility
         # The encrypted_blob contains ciphertext+tag, iv is separate
@@ -542,6 +547,7 @@ async def create_diary_entry(
         entry.content_file_path = str(file_path)
         entry.file_hash = file_result["file_hash"]
         
+        # Commit once after file has been successfully written and entry is fully populated
         await db.commit()
         await db.refresh(entry)
         
@@ -550,12 +556,13 @@ async def create_diary_entry(
             await _handle_diary_tags(db, entry, entry_data.tags, current_user.id)
         
         # Get tags for response
-        tags = await _get_entry_tags(db, entry.id)
+        tags = await _get_entry_tags(db, entry.uuid)
         
         logger.info(f"✅ Diary entry {entry.id} created successfully with file {file_path.name}")
         
         # Create response maintaining API compatibility
         response = DiaryEntryResponse(
+            uuid=entry.uuid,
             id=entry.id,
             date=entry.date.date(),
             nepali_date=entry.nepali_date,
@@ -575,6 +582,7 @@ async def create_diary_entry(
         
     except Exception as e:
         logger.error(f"❌ Error creating diary entry for user {current_user.id}: {str(e)}")
+        # Roll back the unit of work to avoid leaving a partially-created row
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -626,6 +634,7 @@ async def list_diary_entries(
         # Fetch full rows, preserving FTS5 order
         entry_query = (
             select(
+                DiaryEntry.uuid,
                 DiaryEntry.id,
                 DiaryEntry.title,
                 DiaryEntry.date,
@@ -668,6 +677,7 @@ async def list_diary_entries(
             if row in row_map:
                 r = row_map[row]
                 summary = DiaryEntrySummary(
+                    uuid=r.uuid,
                     id=r.id,
                     date=r.date.date() if isinstance(r.date, datetime) else r.date,
                     nepali_date=r.nepali_date,
@@ -688,6 +698,7 @@ async def list_diary_entries(
         # Default: no search, use existing logic
         query = (
             select(
+                DiaryEntry.uuid,
                 DiaryEntry.id,
                 DiaryEntry.title,
                 DiaryEntry.date,
@@ -725,6 +736,7 @@ async def list_diary_entries(
         result = await db.execute(query)
         for row in result.all():
             summary = DiaryEntrySummary(
+                uuid=row.uuid,
                 id=row.id,
                 date=row.date.date() if isinstance(row.date, datetime) else row.date,
                 nepali_date=row.nepali_date,
@@ -764,12 +776,25 @@ async def get_diary_entries_by_date(
     
     response = []
     for entry in entries:
+        # Read encrypted blob from file if available
+        encrypted_blob = ""
+        try:
+            if entry.content_file_path and Path(entry.content_file_path).exists():
+                extension, iv, tag, header_size = read_encrypted_header(Path(entry.content_file_path))
+                with open(entry.content_file_path, "rb") as f:
+                    f.seek(header_size)
+                    ciphertext = f.read()
+                encrypted_blob = base64.b64encode(ciphertext + tag).decode()
+        except Exception:
+            encrypted_blob = ""
+
         res = DiaryEntryResponse(
+            uuid=entry.uuid,
             id=entry.id,
             date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
             nepali_date=entry.nepali_date,
             title=entry.title,
-            encrypted_blob=entry.encrypted_blob,
+            encrypted_blob=encrypted_blob,
             encryption_iv=entry.encryption_iv,
             encryption_tag=entry.encryption_tag,
             mood=entry.mood,
@@ -784,9 +809,9 @@ async def get_diary_entries_by_date(
         
     return response
 
-@router.get("/entries/{entry_id}", response_model=DiaryEntryResponse)
+@router.get("/entries/{entry_ref}", response_model=DiaryEntryResponse)
 async def get_diary_entry_by_id(
-    entry_id: int,
+    entry_ref: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -795,11 +820,18 @@ async def get_diary_entry_by_id(
     Reads encrypted content from file but returns it in API-compatible format.
     """
     try:
+        # Allow lookup by numeric id or uuid
+        try:
+            numeric_id = int(entry_ref)
+            condition = DiaryEntry.id == numeric_id
+        except ValueError:
+            condition = DiaryEntry.uuid == entry_ref
+
         result = await db.execute(
             select(DiaryEntry)
             .options(selectinload(DiaryEntry.media))
             .where(
-                and_(DiaryEntry.id == entry_id, DiaryEntry.user_id == current_user.id)
+                and_(condition, DiaryEntry.user_id == current_user.id)
             )
         )
         entry = result.scalar_one_or_none()
@@ -823,54 +855,55 @@ async def get_diary_entry_by_id(
                 combined = ciphertext + tag
                 encrypted_blob = base64.b64encode(combined).decode()
                 
-                logger.debug(f"📖 Read encrypted content from {file_path.name} for entry {entry_id}")
+                logger.debug(f"📖 Read encrypted content from {file_path.name} for entry {entry_ref}")
                 
             except InvalidPKMSFile as e:
-                logger.error(f"❌ Corrupt diary file for entry {entry_id}: {e}")
+                logger.error(f"❌ Corrupt diary file for entry {entry_ref}: {e}")
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail=f"Diary file is corrupted or has invalid format: {str(e)}"
                 )
             except FileNotFoundError:
-                logger.error(f"❌ Diary file missing for entry {entry_id}: {entry.content_file_path}")
+                logger.error(f"❌ Diary file missing for entry {entry_ref}: {entry.content_file_path}")
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Diary content file not found on disk"
                 )
             except PermissionError:
-                logger.error(f"❌ Permission denied reading diary file for entry {entry_id}: {entry.content_file_path}")
+                logger.error(f"❌ Permission denied reading diary file for entry {entry_ref}: {entry.content_file_path}")
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Permission denied accessing diary file"
                 )
             except OSError as e:
-                logger.error(f"❌ OS error reading diary file for entry {entry_id}: {e}")
+                logger.error(f"❌ OS error reading diary file for entry {entry_ref}: {e}")
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail=f"File system error: {str(e)}"
                 )
             except (UnicodeDecodeError, ValueError) as e:
-                logger.error(f"❌ Encoding error reading diary file for entry {entry_id}: {e}")
+                logger.error(f"❌ Encoding error reading diary file for entry {entry_ref}: {e}")
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="Diary file contains invalid data encoding"
                 )
         else:
             if not entry.content_file_path:
-                logger.warning(f"⚠️ No file path configured for entry {entry_id}")
+                logger.warning(f"⚠️ No file path configured for entry {entry_ref}")
                 # This is okay - entry might be from older version without file storage
                 encrypted_blob = ""
             else:
-                logger.error(f"❌ Diary file not found for entry {entry_id} at {entry.content_file_path}")
+                logger.error(f"❌ Diary file not found for entry {entry_ref} at {entry.content_file_path}")
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="Diary content file not found on disk"
                 )
         
         # Get tags
-        tags = await _get_entry_tags(db, entry.id)
+        tags = await _get_entry_tags(db, entry.uuid)
         
         response = DiaryEntryResponse(
+            uuid=entry.uuid,
             id=entry.id,
             date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
             nepali_date=entry.nepali_date,
@@ -892,30 +925,37 @@ async def get_diary_entry_by_id(
         # Re-raise specific HTTP exceptions (from file operations above)
         raise
     except json.JSONDecodeError as e:
-        logger.error(f"❌ Invalid JSON in metadata for entry {entry_id}: {e}")
+        logger.error(f"❌ Invalid JSON in metadata for entry {entry_ref}: {e}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Diary entry contains invalid metadata format"
         )
     except Exception as e:
         # Catch remaining unexpected errors (like database connection issues)
-        logger.error(f"❌ Unexpected error retrieving diary entry {entry_id}: {str(e)}")
+        logger.error(f"❌ Unexpected error retrieving diary entry {entry_ref}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while retrieving the diary entry"
         )
 
-@router.put("/entries/{entry_id}", response_model=DiaryEntryResponse)
+@router.put("/entries/{entry_ref}", response_model=DiaryEntryResponse)
 async def update_diary_entry(
-    entry_id: int,
+    entry_ref: str,
     entry_data: DiaryEntryCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Update an existing diary entry."""
+    # Allow lookup by numeric id or uuid
+    try:
+        numeric_id = int(entry_ref)
+        condition = DiaryEntry.id == numeric_id
+    except ValueError:
+        condition = DiaryEntry.uuid == entry_ref
+
     result = await db.execute(
         select(DiaryEntry).options(selectinload(DiaryEntry.media)).where(
-            and_(DiaryEntry.id == entry_id, DiaryEntry.user_id == current_user.id)
+            and_(condition, DiaryEntry.user_id == current_user.id)
         )
     )
     entry = result.scalar_one_or_none()
@@ -925,7 +965,6 @@ async def update_diary_entry(
     entry.date = datetime.combine(entry_data.date, datetime.min.time())
     entry.nepali_date = entry_data.nepali_date
     entry.title = entry_data.title
-    entry.encrypted_blob = entry_data.encrypted_blob
     entry.encryption_iv = entry_data.encryption_iv
     entry.encryption_tag = entry_data.encryption_tag
     entry.mood = entry_data.mood
@@ -933,6 +972,22 @@ async def update_diary_entry(
     entry.is_template = entry_data.is_template
     entry.updated_at = datetime.now(NEPAL_TZ)
     
+    # Write updated encrypted content to file and update hash/path (UUID-based stable path)
+    try:
+        file_path = _generate_diary_file_path(entry.uuid)
+        file_result = write_encrypted_file(
+            dest_path=file_path,
+            iv_b64=entry_data.encryption_iv,
+            encrypted_blob_b64=entry_data.encrypted_blob,
+            original_extension=""
+        )
+        entry.content_file_path = str(file_path)
+        entry.file_hash = file_result["file_hash"]
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"❌ Failed to write diary file during update for entry {entry_ref}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to write diary file")
+
     # Update tags if provided
     if entry_data.tags is not None:
         await _handle_diary_tags(db, entry, entry_data.tags, current_user.id)
@@ -941,11 +996,12 @@ async def update_diary_entry(
     await db.refresh(entry)
 
     response = DiaryEntryResponse(
+        uuid=entry.uuid,
         id=entry.id,
         date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
         nepali_date=entry.nepali_date,
         title=entry.title,
-        encrypted_blob=entry.encrypted_blob,
+        encrypted_blob=entry_data.encrypted_blob,
         encryption_iv=entry.encryption_iv,
         encryption_tag=entry.encryption_tag,
         mood=entry.mood,
@@ -958,9 +1014,9 @@ async def update_diary_entry(
     )
     return response
 
-@router.delete("/entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/entries/{entry_ref}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_diary_entry(
-    entry_id: int,
+    entry_ref: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -977,9 +1033,16 @@ async def delete_diary_entry(
                 detail="Diary is locked. Please unlock diary first."
             )
 
+        # Allow lookup by numeric id or uuid
+        try:
+            numeric_id = int(entry_ref)
+            condition = DiaryEntry.id == numeric_id
+        except ValueError:
+            condition = DiaryEntry.uuid == entry_ref
+
         result = await db.execute(
             select(DiaryEntry).where(
-                and_(DiaryEntry.id == entry_id, DiaryEntry.user_id == current_user.id)
+                and_(condition, DiaryEntry.user_id == current_user.id)
             )
         )
         entry = result.scalar_one_or_none()
@@ -1003,7 +1066,7 @@ async def delete_diary_entry(
         await db.delete(entry)
         await db.commit()
         
-        logger.info(f"✅ Diary entry {entry_id} deleted successfully")
+        logger.info(f"✅ Diary entry {entry_ref} deleted successfully")
         return None
         
     except HTTPException:
@@ -1011,7 +1074,7 @@ async def delete_diary_entry(
         raise
     except Exception as e:
         # Catch remaining unexpected errors (like database connection issues)
-        logger.error(f"❌ Unexpected error deleting diary entry {entry_id}: {str(e)}")
+        logger.error(f"❌ Unexpected error deleting diary entry {entry_ref}: {str(e)}")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1121,7 +1184,7 @@ async def commit_diary_media_upload(
             raise HTTPException(status_code=404, detail="Assembled file not found")
 
         # Prepare destination directory
-        media_dir = get_data_dir() / "secure" / "entries" / "media"
+        media_dir = get_file_storage_dir() / "secure" / "entries" / "media"
         media_dir.mkdir(parents=True, exist_ok=True)
         
         encrypted_file_path = media_dir / encrypted_filename
@@ -1161,10 +1224,13 @@ async def commit_diary_media_upload(
             original_extension=file_extension
         )
 
+        # Get file size before database operations
+        assembled_file_size = assembled.stat().st_size
+        
         # Update the DiaryMedia record with proper values
         diary_media.filename = encrypted_filename
         diary_media.file_path = str(encrypted_file_path)
-        diary_media.file_size = assembled.stat().st_size
+        diary_media.file_size = assembled_file_size
         diary_media.mime_type = status_obj.get("mime_type", "application/octet-stream")
 
         # Calculate and update entry media count

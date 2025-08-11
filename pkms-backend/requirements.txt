@@ -56,5 +56,5 @@ aiocache==0.12.2           # Async caching
 magika==0.6.2
 pyfsig==1.1.1
 
-# Performance fuzzy matching
+# Performance fuzzy matching - REQUIRED for enhanced search
 rapidfuzz==3.6.1

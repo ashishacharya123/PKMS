@@ -58,6 +58,7 @@ export function SearchResultsPage() {
   const initialType = searchParams.get('type') || '';
   const initialPage = parseInt(searchParams.get('page') || '1');
   const initialIncludeContent = searchParams.get('include_content') === 'true';
+  const searchMode = searchParams.get('mode') || 'fts5'; // default to fts5 for simple search
   
   // Search state
   const [searchQuery, setSearchQuery] = useState(initialQuery);
@@ -125,7 +126,21 @@ export function SearchResultsPage() {
 
     try {
       const offset = (page - 1) * resultsPerPage;
-      const response = await searchService.globalSearch(query, searchFilters, resultsPerPage, offset);
+      
+      // Determine search method based on mode
+      const useFuzzy = searchMode === 'fuzzy' ? true : searchMode === 'fts5' ? false : true; // default to fuzzy for 'auto'
+      
+      // Call existing searchService with fuzzy parameter
+      const response = await searchService.globalSearch({
+        q: query,
+        modules: searchFilters.types && searchFilters.types.length > 0 ? searchFilters.types.join(',') : undefined,
+        include_content: searchFilters.includeContent,
+        use_fuzzy: useFuzzy,
+        sort_by: searchFilters.sortBy,
+        sort_order: searchFilters.sortOrder,
+        limit: resultsPerPage,
+        offset: offset
+      });
       
       setSearchResponse(response);
       await searchService.saveRecentSearch(query);
@@ -433,6 +448,8 @@ export function SearchResultsPage() {
               </Button>
             </Group>
 
+            {/* Search Mode Indicator removed per UI cleanup request */}
+
             {/* Content Toggle Switch */}
             <Group justify="space-between" align="center">
               <Group gap="xs">
@@ -474,23 +491,7 @@ export function SearchResultsPage() {
           </Stack>
         </Card>
 
-        {/* Content Exclusion Alert */}
-        {filters.includeContent === false && (
-          <Alert color="blue" variant="light">
-            <Group justify="space-between" align="center">
-              <Text size="sm">
-                Content search is disabled. Only titles and names will be searched and previewed.
-              </Text>
-              <Button
-                size="xs"
-                variant="light"
-                onClick={() => handleFilterChange({ includeContent: true })}
-              >
-                Enable Content Search
-              </Button>
-            </Group>
-          </Alert>
-        )}
+        {/* Content Exclusion Alert removed per UI cleanup request */}
 
         {/* Error Alert */}
         {error && (

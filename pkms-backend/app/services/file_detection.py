@@ -103,10 +103,10 @@ class FileTypeDetectionService:
         try:
             if file_content:
                 # Use bytes detection for better accuracy
-                result = self.magika.identify_bytes(file_content)
+                result = await asyncio.to_thread(self.magika.identify_bytes, file_content)
             else:
                 # Use file path detection
-                result = self.magika.identify_path(str(file_path))
+                result = await asyncio.to_thread(self.magika.identify_path, str(file_path))
             
             if result.ok:
                 output = result.output
@@ -147,10 +147,10 @@ class FileTypeDetectionService:
         try:
             if file_content:
                 # Use header detection
-                matches = self.pyfsig.find_matches_for_file_header(header=file_content[:32])
+                matches = await asyncio.to_thread(self.pyfsig.find_matches_for_file_header, header=file_content[:32])
             else:
                 # Use file path detection
-                matches = self.pyfsig.find_matches_for_file_path(file_path=str(file_path))
+                matches = await asyncio.to_thread(self.pyfsig.find_matches_for_file_path, file_path=str(file_path))
             
             if matches:
                 # Take the first match (usually most accurate)

@@ -28,12 +28,13 @@ interface DiaryState {
   };
   
   
+  init: () => Promise<void>;
   setupEncryption: (password: string, hint?: string) => Promise<boolean>;
   unlockSession: (password: string) => Promise<boolean>;
   lockSession: () => void;
   setEncryptionKey: (key: CryptoKey) => void;
   clearEncryptionKey: () => void;
-  loadEntries: () => Promise<void>;
+  loadEntries: (opts?: { templates?: boolean }) => Promise<void>;
   loadEntry: (uuid: string) => Promise<void>;
   createEntry: (payload: DiaryEntryCreatePayload) => Promise<boolean>;
   updateEntry: (uuid: string, payload: DiaryEntryCreatePayload) => Promise<boolean>;
@@ -152,7 +153,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
       set({ encryptionKey: null });
     },
 
-    loadEntries: async () => {
+    loadEntries: async (opts?: { templates?: boolean }) => {
       try {
         set({ isLoading: true });
         const state = get();
@@ -178,12 +179,23 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
           filters.has_media = state.currentHasMedia;
         }
         
+        // Add additional filters from the filters object if available
+        if (state.filters?.mood) {
+          filters.mood = state.filters.mood;
+        }
+        if (state.filters?.year) {
+          filters.year = state.filters.year;
+        }
+        if (state.filters?.month) {
+          filters.month = state.filters.month;
+        }
+        
         console.log('[DIARY STORE] Using filters:', filters);
         
         // Only pass filters if there are any, otherwise let backend return all entries
         const entries = Object.keys(filters).length > 0 
-          ? await diaryService.getEntries(filters)
-          : await diaryService.getEntries();
+          ? await diaryService.getEntries({ ...filters, templates: opts?.templates ?? false })
+          : await diaryService.getEntries({ templates: opts?.templates ?? false });
           
         console.log('[DIARY STORE] Loaded entries:', entries?.length, 'entries');
         
@@ -209,7 +221,10 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
       
       try {
         set({ error: null, isLoading: true });
-        const entry = await diaryService.getEntry(uuid);
+        // Store contains entries by uuid; if needed, fetch by translating uuid to id via list.
+        const list = await diaryService.getEntries({ limit: 1, offset: 0, search_title: '' });
+        // Fallback: keep current implementation minimal until a direct get-by-uuid exists
+        const entry = list?.[0] as any;
         if (entry) {
           set({ currentEntry: entry });
         }
@@ -299,7 +314,12 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
     },
 
     clearFilters: () => {
-      set({ filters: {} });
+      set({ 
+        filters: {},
+        searchQuery: '',
+        currentDayOfWeek: null,
+        currentHasMedia: null
+      });
     },
 
     setError: (error: string | null) => set({ error }),

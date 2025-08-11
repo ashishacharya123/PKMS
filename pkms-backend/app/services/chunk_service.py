@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, Optional, BinaryIO
 import logging
 import shutil
-import hashlib
+import zlib
 from datetime import datetime, timedelta
 
 from app.config import settings, get_data_dir, NEPAL_TZ
@@ -70,10 +70,10 @@ class ChunkUploadManager:
             chunk_dir = Path(get_data_dir()) / "temp_uploads" / file_id
             chunk_dir.mkdir(parents=True, exist_ok=True)
             
-            # Save chunk with hash verification
+            # Save chunk with lightweight checksum verification (CRC32)
             chunk_path = chunk_dir / f"chunk_{chunk_number}"
             chunk_data_bytes = chunk_data.read()
-            chunk_hash = hashlib.sha256(chunk_data_bytes).hexdigest()
+            chunk_hash = zlib.crc32(chunk_data_bytes) & 0xFFFFFFFF
             
             async with aiofiles.open(chunk_path, 'wb') as f:
                 await f.write(chunk_data_bytes)
@@ -123,10 +123,10 @@ class ChunkUploadManager:
                         if not chunk_path.exists():
                             raise ValueError(f"Missing chunk {chunk_num}")
                         
-                        # Verify chunk hash
+                        # Verify chunk checksum
                         async with aiofiles.open(chunk_path, 'rb') as chunk_file:
                             chunk_data = await chunk_file.read()
-                            chunk_hash = hashlib.sha256(chunk_data).hexdigest()
+                            chunk_hash = zlib.crc32(chunk_data) & 0xFFFFFFFF
                             if chunk_hash != upload['chunk_hashes'].get(chunk_num):
                                 raise ValueError(f"Chunk {chunk_num} hash mismatch")
                             

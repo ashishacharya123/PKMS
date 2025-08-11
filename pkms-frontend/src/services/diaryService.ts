@@ -96,6 +96,7 @@ class DiaryService {
     year?: number;
     month?: number;
     mood?: number;
+    templates?: boolean;
     search_title?: string;
     day_of_week?: number;
     has_media?: boolean;
@@ -107,6 +108,7 @@ class DiaryService {
     if (filters?.year) params.append('year', filters.year.toString());
     if (filters?.month) params.append('month', filters.month.toString());
     if (filters?.mood) params.append('mood', filters.mood.toString());
+    if (typeof filters?.templates === 'boolean') params.append('templates', String(filters.templates));
     if (filters?.search_title) params.append('search_title', filters.search_title);
     if (filters?.day_of_week !== undefined) params.append('day_of_week', filters.day_of_week.toString());
     if (filters?.has_media !== undefined) params.append('has_media', filters.has_media.toString());
@@ -122,6 +124,12 @@ class DiaryService {
 
   async getEntryById(id: number): Promise<DiaryEntry> {
     const response = await apiService.get<DiaryEntry>(`${this.baseUrl}/entries/${id}`);
+    return response.data;
+  }
+
+  // Allow lookup by either numeric id or uuid
+  async getEntry(ref: number | string): Promise<DiaryEntry> {
+    const response = await apiService.get<DiaryEntry>(`${this.baseUrl}/entries/${ref}`);
     return response.data;
   }
 

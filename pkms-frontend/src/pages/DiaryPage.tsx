@@ -9,54 +9,98 @@ import {
   Stack,
   Button,
   TextInput,
-  Badge,
   ActionIcon,
   Menu,
   Alert,
   Paper,
-  ThemeIcon,
   Modal,
   Textarea,
   Rating,
-  Select,
   Center,
   Pagination,
-  Tooltip,
   PasswordInput,
   Loader,
   TagsInput,
+  Select,
   Checkbox,
   NumberInput,
+  Slider,
   Divider,
+  Accordion,
+  SimpleGrid,
+  Switch,
+  ScrollArea,
+  Tooltip,
+  Badge,
+  FileInput
 } from '@mantine/core';
+import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
+import ViewModeLayouts, { formatDate } from '../components/common/ViewModeLayouts';
+import { useViewPreferences } from '../hooks/useViewPreferences';
 import { Calendar } from '@mantine/dates';
 import {
   IconBook,
   IconPlus,
-  IconEdit,
   IconTrash,
   IconDots,
   IconAlertTriangle,
   IconLock,
-  IconLockOpen,
-  IconSortAscending,
-  IconSortDescending,
   IconEye,
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useDiaryStore } from '../stores/diaryStore';
 import { useAuthStore } from '../stores/authStore';
 import { diaryService } from '../services/diaryService';
+import { searchService } from '../services/searchService';
 import { format, parseISO } from 'date-fns';
 import { notifications } from '@mantine/notifications';
 import { MoodStatsWidget } from '../components/diary/MoodStatsWidget';
-import { WellnessBadges } from '../components/diary/WellnessBadges';
+import { MoodTrendChart } from '../components/diary/MoodTrendChart';
 import EncryptionStatus from '../components/diary/EncryptionStatus';
+import { SessionTimeoutWarning } from '../components/diary/SessionTimeoutWarning';
+import { AdvancedDiarySearch } from '../components/diary/AdvancedDiarySearch';
+import { KeyboardShortcutsHelp, KeyboardShortcutsButton } from '../components/diary/KeyboardShortcutsHelp';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 import { useForm } from '@mantine/form';
 import { DiaryEntrySummary, DiaryFormValues, DiaryMetadata, SortField, SortOrder, DiaryEntryCreatePayload } from '../types/diary';
-import { useDateTime } from '../hooks/useDateTime';
-import { formatDate, formatDateTime, convertToNepaliDate } from '../utils/diary';
+import { formatDateTime, convertToNepaliDate } from '../utils/diary';
+import '../styles/DiaryPage.css';
+
+// Utility functions for diary entries
+const getDiaryIcon = (entry: any): string => {
+  const mood = entry.mood || 3;
+  if (mood >= 4.5) return '😄';
+  if (mood >= 3.5) return '😊';
+  if (mood >= 2.5) return '😐';
+  if (mood >= 1.5) return '😔';
+  return '😢';
+};
+
+
+
+const getWeatherIcon = (weather: string): string => {
+  if (!weather) return '🌤️';
+  const w = weather.toLowerCase();
+  if (w.includes('sunny') || w.includes('clear')) return '☀️';
+  if (w.includes('cloudy') || w.includes('overcast')) return '☁️';
+  if (w.includes('rain') || w.includes('drizzle')) return '🌧️';
+  if (w.includes('storm') || w.includes('thunder')) return '⛈️';
+  if (w.includes('snow')) return '❄️';
+  if (w.includes('fog') || w.includes('mist')) return '🌫️';
+  if (w.includes('windy')) return '💨';
+  return '🌤️';
+};
+
+const getWordCount = (content: string): number => {
+  if (!content) return 0;
+  return content.trim().split(/\s+/).filter(word => word.length > 0).length;
+};
+
+const truncateText = (text: string, maxLength: number): string => {
+  if (!text || text.length <= maxLength) return text || '';
+  return text.substring(0, maxLength) + '...';
+};
 
 const initialMetadata: DiaryMetadata = {
   // Legacy fields
@@ -82,13 +126,15 @@ const initialMetadata: DiaryMetadata = {
 };
 
 const initialFormValues: DiaryFormValues = {
-  id: null,
+  uuid: null,
   date: new Date(),
   title: '',
   content: '',
   mood: 3,
   metadata: initialMetadata,
-  tags: []
+  tags: [],
+  is_template: false,
+  template_uuid: null,
 };
 
 export function DiaryPage() {
@@ -101,15 +147,28 @@ export function DiaryPage() {
   const [encryptionPassword, setEncryptionPassword] = useState('');
   const [passwordHint, setPasswordHint] = useState('');
   const [showPasswordHint, setShowPasswordHint] = useState(false);
+  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
+  const [templateEntries, setTemplateEntries] = useState<DiaryEntrySummary[]>([]);
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
 
   const [viewMode, setViewMode] = useState<'view' | 'edit'>('view');
+  const { getPreference, updatePreference } = useViewPreferences();
+  const [layoutMode, setLayoutMode] = useState<ViewMode>(getPreference('diary'));
   
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortField, setSortField] = useState<SortField>('date');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [sortField] = useState<SortField>('date');
+  const [sortOrder] = useState<SortOrder>('desc');
   const itemsPerPage = 12;
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+
+  // Inline media preview (photos)
+  const [mediaPreview, setMediaPreview] = useState<{ url: string; name: string } | null>(null);
+
+  // Photo upload state (in-place inside entry modal)
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoStatus, setPhotoStatus] = useState<string>('');
 
   const form = useForm<DiaryFormValues>({
     initialValues: initialFormValues,
@@ -140,7 +199,20 @@ export function DiaryPage() {
     }
   }, [isAuthenticated, debouncedTitleSearch]);
 
-  const [hasLoadedMoodStats, setHasLoadedMoodStats] = useState(false);
+  // Load templates for dropdown (kept separate from main entries list)
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const list = await diaryService.getEntries({ templates: true, limit: 100, offset: 0 });
+        setTemplateEntries(list || []);
+      } catch (e) {
+        console.error('Failed to load templates', e);
+      }
+    };
+    if (isAuthenticated) fetchTemplates();
+  }, [isAuthenticated]);
+
+
 
   // Load calendar data when year/month changes and diary is unlocked
   useEffect(() => {
@@ -155,6 +227,15 @@ export function DiaryPage() {
       store.loadMoodStats();
     }
   }, [isAuthenticated, store.isUnlocked]);
+
+  // Revoke media object URL on unmount/change
+  useEffect(() => {
+    return () => {
+      if (mediaPreview?.url) {
+        try { URL.revokeObjectURL(mediaPreview.url); } catch {}
+      }
+    };
+  }, [mediaPreview]);
 
   // Show unlock modal if encryption is setup but not unlocked, and after initial load
   useEffect(() => {
@@ -198,14 +279,7 @@ export function DiaryPage() {
   const paginatedEntries = sortedEntries.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
   const totalPages = Math.ceil(sortedEntries.length / itemsPerPage);
 
-  const handleSort = (field: SortField) => {
-    if (field === sortField) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortOrder('desc');
-    }
-  };
+
 
   const handleUnlockSession = async () => {
     if (!encryptionPassword) return;
@@ -247,7 +321,7 @@ export function DiaryPage() {
       );
       
       form.setValues({
-        id: entry.id,
+        uuid: entry.uuid,
         date: parseISO(entry.date),
         title: entry.title || '',
         content: decryptedContent,
@@ -256,7 +330,9 @@ export function DiaryPage() {
           ...initialMetadata,
           ...entry.metadata
         },
-        tags: entry.tags || []
+        tags: entry.tags || [],
+        is_template: entry.is_template ?? false,
+        template_uuid: null,
       });
       
       setViewMode('view');
@@ -271,10 +347,7 @@ export function DiaryPage() {
     }
   };
 
-  const handleEditEntry = (entry: DiaryEntrySummary) => {
-    handleViewEntry(entry);
-    setViewMode('edit');
-  };
+
 
   const handleDelete = (uuid: string) => {
     setEntryToDelete(uuid);
@@ -304,6 +377,21 @@ export function DiaryPage() {
     }
   };
 
+  const handleTagSearch = async (query: string) => {
+    if (query.length < 1) {
+      setTagSuggestions([]);
+      return;
+    }
+    
+    try {
+      const tags = await searchService.getTagAutocomplete(query, 'diary');
+      setTagSuggestions(tags.map(tag => tag.name));
+    } catch (error) {
+      console.error('Failed to fetch tag suggestions:', error);
+      setTagSuggestions([]);
+    }
+  };
+
   const handleCreateOrUpdateEntry = async (values: DiaryFormValues) => {
     if (!store.encryptionKey) return;
     
@@ -322,7 +410,8 @@ export function DiaryPage() {
         encryption_tag: tag,
         mood: values.mood,
         metadata: values.metadata,
-        tags: values.tags
+        tags: values.tags,
+        is_template: values.is_template ?? false,
       };
       
       if (values.uuid) {
@@ -430,14 +519,143 @@ export function DiaryPage() {
     }
   };
 
+  const handleUploadPhoto = async () => {
+    try {
+      if (!photoFile) return;
+      if (!store.isUnlocked) {
+        notifications.show({ title: 'Locked', message: 'Unlock diary first', color: 'red' });
+        return;
+      }
+      if (!form.values.uuid) {
+        notifications.show({ title: 'Save Required', message: 'Save the entry before attaching photos', color: 'blue' });
+        return;
+      }
+      setIsUploadingPhoto(true);
+      setPhotoStatus('Uploading...');
+      const full = await diaryService.getEntry(form.values.uuid);
+      await diaryService.uploadMedia((full as any).id, photoFile, 'photo', undefined, (p) => setPhotoStatus(p.status));
+      setPhotoFile(null);
+      setPhotoStatus('Complete');
+      notifications.show({ title: 'Photo Uploaded', message: 'Image attached to entry', color: 'green' });
+    } catch (e) {
+      notifications.show({ title: 'Upload failed', message: 'Could not upload image', color: 'red' });
+    } finally {
+      setIsUploadingPhoto(false);
+      setTimeout(() => setPhotoStatus(''), 1200);
+    }
+  };
+
+  const handleInsertPhotoIntoContent = () => {
+    // After upload, user can insert a placeholder indicating where the photo belongs.
+    // For security, we reference the downloadable endpoint only after upload; here we provide a simple marker.
+    if (!form.values.uuid) {
+      notifications.show({ title: 'Save Required', message: 'Save the entry before inserting photo reference', color: 'blue' });
+      return;
+    }
+    setTimeout(() => {
+      setPhotoStatus('');
+    }, 200);
+    const marker = '\n\n![photo](attached via Media)\n';
+    form.setFieldValue('content', (form.values.content || '') + marker);
+    notifications.show({ title: 'Inserted', message: 'Photo reference added to content', color: 'green' });
+  };
+
+  // Helper to preview a photo media for a given entry (by entry id and media object)
+  // Reserved for future: per-entry media strip with photo click -> inline modal.
+
   useEffect(() => {
     if (unlockModalOpen && !passwordHint) {
       loadPasswordHint();
     }
   }, [unlockModalOpen]);
 
+  // Keyboard shortcuts
+  const shortcuts = [
+    {
+      key: 'n',
+      ctrl: true,
+      action: () => {
+        if (store.isUnlocked) {
+          form.reset();
+          setViewMode('edit');
+          setModalOpen(true);
+        }
+      },
+      description: 'Create new diary entry',
+      category: 'Entry Management'
+    },
+    {
+      key: 'f',
+      ctrl: true,
+      action: () => {
+        const searchInput = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement;
+        if (searchInput) {
+          searchInput.focus();
+        }
+      },
+      description: 'Focus search bar',
+      category: 'Navigation'
+    },
+    {
+      key: 'l',
+      ctrl: true,
+      action: () => {
+        if (store.isUnlocked) {
+          store.lockSession();
+          notifications.show({
+            title: 'Diary Locked',
+            message: 'Your diary has been locked',
+            color: 'blue',
+          });
+        }
+      },
+      description: 'Lock diary',
+      category: 'Security'
+    },
+    {
+      key: 'u',
+      ctrl: true,
+      action: () => {
+        if (!store.isUnlocked) {
+          setUnlockModalOpen(true);
+        }
+      },
+      description: 'Unlock diary',
+      category: 'Security'
+    },
+    {
+      key: 'Escape',
+      action: () => {
+        if (modalOpen) setModalOpen(false);
+        if (unlockModalOpen) setUnlockModalOpen(false);
+        if (deleteConfirmModalOpen) setDeleteConfirmModalOpen(false);
+      },
+      description: 'Close modals',
+      category: 'General'
+    },
+    {
+      key: '?',
+      ctrl: true,
+      action: () => setShowKeyboardShortcuts(true),
+      description: 'Show keyboard shortcuts',
+      category: 'Help'
+    }
+  ];
+
+  useKeyboardShortcuts({
+    shortcuts,
+    enabled: isAuthenticated,
+    showNotifications: false
+  });
+
   return (
     <Container size="xl" py="lg">
+      {/* Session Timeout Warning */}
+      <SessionTimeoutWarning 
+        sessionTimeoutSeconds={900} // 15 minutes
+        warningThresholdSeconds={120} // 2 minutes
+      />
+      
       <Stack gap="xl">
         <Group justify="space-between">
           <Group>
@@ -450,14 +668,16 @@ export function DiaryPage() {
               onLock={store.lockSession}
               onUnlock={() => setUnlockModalOpen(true)}
             />
+            <KeyboardShortcutsButton onOpenHelp={() => setShowKeyboardShortcuts(true)} />
             {store.isUnlocked && (
               <Button
                 leftSection={<IconPlus size={16} />}
-                onClick={() => {
+        onClick={() => {
                   form.reset();
                   setViewMode('edit');
                   setModalOpen(true);
                 }}
+                aria-label="Create new diary entry (Ctrl+N)"
               >
                 New Entry
               </Button>
@@ -478,6 +698,9 @@ export function DiaryPage() {
             {/* Mood Insights */}
             <MoodStatsWidget />
             
+            {/* Mood Trends */}
+            <MoodTrendChart />
+            
             {/* Calendar View */}
             <Grid>
               <Grid.Col span={{ base: 12, md: 4 }}>
@@ -495,71 +718,270 @@ export function DiaryPage() {
               
               <Grid.Col span={{ base: 12, md: 8 }}>
                 <Stack>
-                  <Group justify="space-between">
-                    <TextInput
-                      style={{ flex: 1 }}
-                      placeholder="Search by title..."
-                      value={store.searchQuery}
-                      onChange={(event) => store.setSearchQuery(event.currentTarget.value)}
-                      rightSection={store.isLoading ? <Loader size="xs" /> : null}
+                  {/* Header with ViewMenu */}
+                  <Group justify="space-between" align="center">
+                    <div>
+                      <Title order={3}>Diary Entries</Title>
+                      <Text c="dimmed" size="sm">
+                        {paginatedEntries.length} {paginatedEntries.length === 1 ? 'entry' : 'entries'}
+                      </Text>
+                    </div>
+                    <ViewMenu 
+                      currentView={layoutMode}
+                      onChange={(mode) => {
+                        setLayoutMode(mode);
+                        updatePreference('diary', mode);
+                      }}
+                      disabled={!store.isUnlocked}
                     />
                   </Group>
+                  
+                  {/* Advanced Search Component */}
+                  <AdvancedDiarySearch />
 
-                  {paginatedEntries.length > 0 ? (
-                    <Grid>
-                      {paginatedEntries.map((entry) => (
-                        <Grid.Col span={{ base: 12, sm: 6, lg: 4 }} key={entry.uuid}>
-                          <Card withBorder radius="md" p={0}>
-                            <Group wrap="nowrap" gap={0}>
-                              <Paper bg={getMoodColor(entry.mood || 3)} p="md" radius={0}>
-                                <Stack align="center" gap="xs">
-                                  <Text size="xs" c="white">{formatDateForCard(entry.date).month}</Text>
-                                  <Title order={3} c="white">{formatDateForCard(entry.date).day}</Title>
-                                </Stack>
-                              </Paper>
-                              <Stack p="md" gap="xs" style={{ flex: 1 }}>
-                                <Group justify="space-between">
-                                  <Text fw={500} truncate>{entry.title}</Text>
-                                  <Menu shadow="md" width={200}>
-                                    <Menu.Target>
-                                      <ActionIcon variant="subtle">
-                                        <IconDots />
-                                      </ActionIcon>
-                                    </Menu.Target>
-                                    <Menu.Dropdown>
-                                      <Menu.Item 
-                                        leftSection={<IconEye size={14} />} 
-                                        onClick={() => handleViewEntry(entry)}
-                                      >
-                                        View/Edit
-                                      </Menu.Item>
-                                      <Menu.Item 
-                                        color="red" 
-                                        leftSection={<IconTrash size={14} />} 
-                                        onClick={() => handleDelete(entry.uuid)}
-                                      >
-                                        Delete
-                                      </Menu.Item>
-                                    </Menu.Dropdown>
-                                  </Menu>
-                                </Group>
-                                <Text size="sm" c="dimmed">
-                                  Mood: {getMoodEmoji(entry.mood || 3)}
-                                </Text>
-                                <Text size="xs" c="dimmed">
-                                  Updated: {formatDateTime(entry.updated_at)}
-                                </Text>
-                              </Stack>
+                  {/* Optional media strip per entry (photos only) when available */}
+
+                  <ViewModeLayouts
+                    items={paginatedEntries.map(entry => ({...entry, id: entry.uuid})) as any[]}
+                    viewMode={layoutMode}
+                    isLoading={store.isLoading}
+                    emptyMessage="No diary entries found. Create your first entry to get started."
+                    onItemClick={(entry: any) => {
+                      handleViewEntry(entry);
+                    }}
+                    renderSmallIcon={(entry: any) => (
+                      <Stack gap={2} align="center">
+                        <Text size="lg">{getDiaryIcon(entry)}</Text>
+                        <Group gap={2}>
+                          <Badge size="xs" variant="light" color={getMoodColor(entry.mood || 3)}>
+                            {getMoodLabel(entry.mood || 3).charAt(0)}
+                          </Badge>
+                          {entry.weather && (
+                            <Text size="xs">{getWeatherIcon(entry.weather)}</Text>
+                          )}
+                        </Group>
+                      </Stack>
+                    )}
+                    renderMediumIcon={(entry: any) => (
+                      <Stack gap="xs" align="center">
+                        <Text size="xl">{getDiaryIcon(entry)}</Text>
+                        <Group gap={4}>
+                          <Badge size="xs" variant="light" color={getMoodColor(entry.mood || 3)}>
+                            {getMoodLabel(entry.mood || 3)}
+                          </Badge>
+                          <Badge size="xs" variant="light" color="blue">
+                            {getWordCount(entry.content || '')} words
+                          </Badge>
+                          {entry.media_count > 0 && (
+                            <Badge size="xs" variant="outline" color="teal">📷 {entry.media_count}</Badge>
+                          )}
+                        </Group>
+                        <Group gap={6}>
+                          {entry.nepali_date && (
+                            <Badge size="xs" variant="light" color="grape">NP {entry.nepali_date}</Badge>
+                          )}
+                          {entry.location && (
+                            <Badge size="xs" variant="light" color="indigo">📍 {entry.location}</Badge>
+                          )}
+                          {entry.is_favorite && (
+                            <Badge size="xs" variant="light" color="pink">Favorite</Badge>
+                          )}
+                        </Group>
+                      </Stack>
+                    )}
+                    renderListItem={(entry: any) => (
+                      <Group justify="space-between">
+                        <Group gap="md">
+                          <Paper 
+                            bg={getMoodColor(entry.mood || 3)} 
+                            p="xs" 
+                            radius="sm"
+                            style={{ minWidth: 60 }}
+                          >
+                            <Stack align="center" gap={2}>
+                              <Text size="xs" c="white" fw={500}>
+                                {formatDateForCard(entry.date).month}
+                              </Text>
+                              <Text size="sm" c="white" fw={700}>
+                                {formatDateForCard(entry.date).day}
+                              </Text>
+                            </Stack>
+                          </Paper>
+                          <Stack gap={2}>
+                            <Group gap="xs">
+                              <Text 
+                                fw={600} 
+                                size="sm" 
+                                style={{ cursor: 'pointer', color: '#228be6' }}
+                                onClick={() => handleViewEntry(entry)}
+                              >
+                                {entry.title || 'Untitled Entry'}
+                              </Text>
+                              {entry.is_favorite && (
+                                <Badge size="xs" variant="light" color="pink">Favorite</Badge>
+                              )}
                             </Group>
-                          </Card>
-                        </Grid.Col>
-                      ))}
-                    </Grid>
-                  ) : (
-                    <Center py="xl">
-                      <Text>No diary entries found.</Text>
-                    </Center>
-                  )}
+                            <Group gap="xs">
+                              <Badge size="xs" variant="light" color={getMoodColor(entry.mood || 3)}>
+                                {getMoodEmoji(entry.mood || 3)} {getMoodLabel(entry.mood || 3)}
+                              </Badge>
+                              <Badge size="xs" variant="light" color="blue">
+                                {getWordCount(entry.content || '')} words
+                              </Badge>
+                              {entry.media_count > 0 && (
+                                <Badge size="xs" variant="outline" color="teal">📷 {entry.media_count}</Badge>
+                              )}
+                              {entry.nepali_date && (
+                                <Badge size="xs" variant="light" color="grape">NP {entry.nepali_date}</Badge>
+                              )}
+                              {entry.location && (
+                                <Badge size="xs" variant="light" color="indigo">📍 {entry.location}</Badge>
+                              )}
+                              <Text size="xs" c="dimmed">
+                                {formatDateTime(entry.updated_at)}
+                              </Text>
+                              {(entry.tags || []).slice(0, 2).map((tag: string) => (
+                                <Badge key={tag} size="xs" variant="dot">
+                                  {tag}
+                                </Badge>
+                              ))}
+                              {(entry.tags?.length || 0) > 2 && (
+                                <Badge size="xs" variant="outline">+{(entry.tags?.length || 0) - 2}</Badge>
+                              )}
+                            </Group>
+                            <Text size="xs" c="dimmed" lineClamp={1}>
+                              {truncateText(entry.content || '', 100)}
+                            </Text>
+                          </Stack>
+                        </Group>
+                        <Menu shadow="md" width={200}>
+                          <Menu.Target>
+                            <ActionIcon variant="subtle" color="gray" onClick={(e) => e.stopPropagation()}>
+                              <IconDots size={16} />
+                            </ActionIcon>
+                          </Menu.Target>
+                          <Menu.Dropdown>
+                            <Menu.Item 
+                              leftSection={<IconEye size={14} />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleViewEntry(entry);
+                              }}
+                            >
+                              View/Edit
+                            </Menu.Item>
+                            <Menu.Item 
+                              leftSection={<IconTrash size={14} />}
+                              color="red"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(entry.uuid);
+                              }}
+                            >
+                              Delete
+                            </Menu.Item>
+                          </Menu.Dropdown>
+                        </Menu>
+                      </Group>
+                    )}
+                    renderDetailColumns={(entry: any) => [
+                      <Group key="title" gap="xs">
+                        <Paper 
+                          bg={getMoodColor(entry.mood || 3)} 
+                          p={4} 
+                          radius="sm"
+                          style={{ minWidth: 40 }}
+                        >
+                          <Text size="xs" c="white" fw={700} ta="center">
+                            {formatDateForCard(entry.date).day}
+                          </Text>
+                        </Paper>
+                        <Text 
+                          fw={500} 
+                          size="sm" 
+                          style={{ cursor: 'pointer', color: '#228be6' }}
+                          onClick={() => handleViewEntry(entry)}
+                        >
+                          {entry.title || 'Untitled Entry'}
+                        </Text>
+                      </Group>,
+                      <Group key="mood" gap="xs">
+                        <Badge size="xs" variant="light" color={getMoodColor(entry.mood || 3)}>
+                          {getMoodEmoji(entry.mood || 3)} {getMoodLabel(entry.mood || 3)}
+                        </Badge>
+                      </Group>,
+                      <Group key="weather" gap="xs">
+                        {entry.weather ? (
+                          <Badge size="xs" variant="outline">
+                            {getWeatherIcon(entry.weather)} {entry.weather}
+                          </Badge>
+                        ) : (
+                          <Text size="xs" c="dimmed">No weather</Text>
+                        )}
+                      </Group>,
+                      <Group key="wordcount" gap="xs">
+                        <Badge size="xs" variant="light" color="blue">
+                          {getWordCount(entry.content || '')} words
+                        </Badge>
+                      </Group>,
+                      <Group key="tags" gap={4}>
+                        {(entry.tags || []).slice(0, 3).map((tag: string) => (
+                          <Badge key={tag} size="xs" variant="dot">
+                            {tag}
+                          </Badge>
+                        ))}
+                        {(entry.tags?.length || 0) > 3 && (
+                          <Tooltip label={`${(entry.tags?.length || 0) - 3} more tags`}>
+                            <Badge size="xs" variant="outline">+{(entry.tags?.length || 0) - 3}</Badge>
+                          </Tooltip>
+                        )}
+                      </Group>,
+                      <Text key="date" size="xs" c="dimmed">
+                        {formatDate(entry.date)}
+                      </Text>,
+                      <Text key="updated" size="xs" c="dimmed">
+                        {formatDateTime(entry.updated_at)}
+                      </Text>,
+                      <Menu key="actions" shadow="md" width={200}>
+                        <Menu.Target>
+                          <ActionIcon variant="subtle" color="gray" size="sm" onClick={(e) => e.stopPropagation()}>
+                            <IconDots size={14} />
+                          </ActionIcon>
+                        </Menu.Target>
+                        <Menu.Dropdown>
+                          <Menu.Item 
+                            leftSection={<IconEye size={14} />}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleViewEntry(entry);
+                            }}
+                          >
+                            View/Edit
+                          </Menu.Item>
+                          <Menu.Item 
+                            leftSection={<IconTrash size={14} />}
+                            color="red"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(entry.uuid);
+                            }}
+                          >
+                            Delete
+                          </Menu.Item>
+                        </Menu.Dropdown>
+                      </Menu>
+                    ]}
+                    detailHeaders={[
+                      'Entry', 
+                      'Mood', 
+                      'Weather', 
+                      'Word Count', 
+                      'Tags', 
+                      'Date', 
+                      'Updated', 
+                      'Actions'
+                    ]}
+                  />
                   
                   {totalPages > 1 && (
                     <Group justify="center" mt="md">
@@ -567,6 +989,7 @@ export function DiaryPage() {
                         total={totalPages}
                         value={currentPage}
                         onChange={setCurrentPage}
+                        aria-label="Diary entries pagination"
                       />
                     </Group>
                   )}
@@ -583,6 +1006,31 @@ export function DiaryPage() {
           </Alert>
         )}
       </Stack>
+
+      {/* Media Preview Modal (photos) */}
+      <Modal
+        opened={!!mediaPreview}
+        onClose={() => {
+          if (mediaPreview?.url) {
+            try { URL.revokeObjectURL(mediaPreview.url); } catch {}
+          }
+          setMediaPreview(null);
+        }}
+        title={mediaPreview?.name || 'Photo'}
+        size="auto"
+        centered
+        overlayProps={{ opacity: 0.55, blur: 3 }}
+      >
+        {mediaPreview && (
+          <div style={{ maxWidth: '90vw', maxHeight: '80vh' }}>
+            <img
+              src={mediaPreview.url}
+              alt={mediaPreview.name}
+              style={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain', borderRadius: 8 }}
+            />
+          </div>
+        )}
+      </Modal>
 
       {/* Delete Confirmation Modal */}
       <Modal
@@ -646,43 +1094,291 @@ export function DiaryPage() {
         opened={modalOpen}
         onClose={() => setModalOpen(false)}
         title={viewMode === 'view' ? 'View Entry' : 'Edit Entry'}
-        size="lg"
+        size="90%"
+        centered
+        scrollAreaComponent={ScrollArea.Autosize}
       >
         <form onSubmit={form.onSubmit(handleCreateOrUpdateEntry)}>
           <Stack>
-            <TextInput
-              label="Title"
-              placeholder="Enter a title for your entry"
-              {...form.getInputProps('title')}
-            />
-            <Textarea
-              label="Content"
-              placeholder="Write your diary entry..."
-              minRows={10}
-              {...form.getInputProps('content')}
-            />
-            
-            <TagsInput
-              label="Tags"
-              placeholder="Type and press Enter to add tags"
-              value={form.values.tags}
-              onChange={(value) => form.setFieldValue('tags', value)}
-              clearable
-              description="Organize your entries with tags for easy searching and filtering"
-            />
-            
+            {/* Basic Entry Information */}
             <Stack>
-              <Text size="sm" fw={500}>Mood</Text>
-              <Group>
-                <Rating
-                  value={form.values.mood}
-                  onChange={(value) => form.setFieldValue('mood', value)}
+              <Title order={4}>Basic Information</Title>
+              <Group grow>
+                <Select
+                  label="Start from template"
+                  placeholder="Blank (default)"
+                  data={templateEntries.map((e) => ({ value: e.uuid, label: e.title || 'Untitled template' }))}
+                  value={form.values.template_uuid}
+                  onChange={async (value) => {
+                    form.setFieldValue('template_uuid', value);
+                    if (value && store.encryptionKey) {
+                      const tmpl = templateEntries.find((e) => e.uuid === value);
+                      if (tmpl) {
+                        try {
+                          const decrypted = await diaryService.decryptContent(
+                            tmpl.encrypted_blob,
+                            tmpl.encryption_iv,
+                            tmpl.encryption_tag,
+                            store.encryptionKey
+                          );
+                          // Only replace content and optionally title
+                          form.setFieldValue('content', decrypted);
+                          if (!form.values.title) {
+                            form.setFieldValue('title', tmpl.title || '');
+                          }
+                        } catch (err) {
+                          console.error('Failed to load template', err);
+                          notifications.show({ title: 'Template error', message: 'Failed to load template', color: 'red' });
+                        }
+                      }
+                    }
+                  }}
+                  clearable
+                  searchable
+                  nothingFoundMessage="No templates"
+                  description="Optional: pre-fill from a saved template"
                 />
-                <Text size="sm" c="dimmed">
-                  {getMoodLabel(form.values.mood)} {getMoodEmoji(form.values.mood)}
-                </Text>
+                <Checkbox
+                  mt={24}
+                  label="Save as template"
+                  checked={!!form.values.is_template}
+                  onChange={(e) => form.setFieldValue('is_template', e.currentTarget.checked)}
+                />
               </Group>
+              <TextInput
+                label="Title"
+                placeholder="Enter a title for your entry"
+                {...form.getInputProps('title')}
+              />
+              <Textarea
+                label="Content"
+                placeholder="Write your diary entry..."
+                minRows={15}
+                autosize
+                {...form.getInputProps('content')}
+              />
+              <Card withBorder>
+                <Title order={5} mb="xs">Photos</Title>
+                <Stack gap="xs">
+                  <FileInput
+                    label="Add Photo"
+                    placeholder="Choose an image to upload"
+                    value={photoFile}
+                    onChange={setPhotoFile}
+                    accept="image/*"
+                    clearable
+                  />
+                  <Group justify="flex-end">
+                    <Button size="xs" onClick={handleUploadPhoto} loading={isUploadingPhoto} disabled={!photoFile}>
+                      Upload Photo
+                    </Button>
+                    <Button size="xs" variant="subtle" onClick={handleInsertPhotoIntoContent}>
+                      Insert into Content
+                    </Button>
+                  </Group>
+                  {photoStatus && (
+                    <Text size="xs" c="dimmed">{photoStatus}</Text>
+                  )}
+                </Stack>
+              </Card>
+              
+              <TagsInput
+                label="Tags"
+                placeholder="Type to search and add tags"
+                value={form.values.tags}
+                onChange={(value) => form.setFieldValue('tags', value)}
+                data={tagSuggestions}
+                clearable
+                onSearchChange={handleTagSearch}
+                splitChars={[',', ' ']}
+                description="Organize your entries with tags for easy searching and filtering. Start typing to see suggestions."
+              />
+              
+              <Stack>
+                <Text size="sm" fw={500}>Mood</Text>
+                <Group>
+                  <Rating
+                    value={form.values.mood}
+                    onChange={(value) => form.setFieldValue('mood', value)}
+                  />
+                  <Text size="sm" c="dimmed">
+                    {getMoodLabel(form.values.mood)} {getMoodEmoji(form.values.mood)}
+                  </Text>
+                </Group>
+              </Stack>
             </Stack>
+
+            <Divider />
+
+            {/* Wellness Tracking Section */}
+            <Accordion defaultValue="wellness" variant="contained">
+              <Accordion.Item value="wellness">
+                <Accordion.Control>
+                  <Title order={4}>Wellness Tracking</Title>
+                </Accordion.Control>
+                <Accordion.Panel>
+                  <Stack gap="lg">
+                    {/* Sleep & Rest */}
+                    <Stack>
+                      <Text size="sm" fw={500} c="blue">Sleep & Rest</Text>
+                      <SimpleGrid cols={2}>
+                        <NumberInput
+                          label="Sleep Duration (hours)"
+                          placeholder="8"
+                          min={0}
+                          max={24}
+                          step={0.5}
+                          value={form.values.metadata.sleep_duration}
+                          onChange={(value) => form.setFieldValue('metadata.sleep_duration', typeof value === 'string' ? parseFloat(value) || 0 : value)}
+                        />
+                        <NumberInput
+                          label="Sleep Hours (legacy)"
+                          placeholder="0"
+                          min={0}
+                          max={24}
+                          value={form.values.metadata.sleep_hours}
+                          onChange={(value) => form.setFieldValue('metadata.sleep_hours', typeof value === 'string' ? parseInt(value) || 0 : value)}
+                        />
+                      </SimpleGrid>
+                    </Stack>
+
+                    {/* Physical Activity */}
+                    <Stack>
+                      <Text size="sm" fw={500} c="green">Physical Activity</Text>
+                      <SimpleGrid cols={2}>
+                        <Switch
+                          label="Did Exercise Today"
+                          checked={form.values.metadata.did_exercise}
+                          onChange={(event) => form.setFieldValue('metadata.did_exercise', event.currentTarget.checked)}
+                        />
+                        <NumberInput
+                          label="Exercise Minutes"
+                          placeholder="0"
+                          min={0}
+                          max={1440}
+                          value={form.values.metadata.exercise_minutes}
+                          onChange={(value) => form.setFieldValue('metadata.exercise_minutes', typeof value === 'string' ? parseInt(value) || 0 : value)}
+                        />
+                      </SimpleGrid>
+                      <SimpleGrid cols={2}>
+                        <NumberInput
+                          label="Time Outside (minutes)"
+                          placeholder="0"
+                          min={0}
+                          max={1440}
+                          value={form.values.metadata.time_outside}
+                          onChange={(value) => form.setFieldValue('metadata.time_outside', typeof value === 'string' ? parseInt(value) || 0 : value)}
+                        />
+                        <NumberInput
+                          label="Activity Level (0-10)"
+                          placeholder="0"
+                          min={0}
+                          max={10}
+                          value={form.values.metadata.activity_level}
+                          onChange={(value) => form.setFieldValue('metadata.activity_level', typeof value === 'string' ? parseInt(value) || 0 : value)}
+                        />
+                      </SimpleGrid>
+                    </Stack>
+
+                    {/* Mental Wellness */}
+                    <Stack>
+                      <Text size="sm" fw={500} c="purple">Mental Wellness</Text>
+                      <SimpleGrid cols={2}>
+                        <Switch
+                          label="Did Meditation"
+                          checked={form.values.metadata.did_meditation}
+                          onChange={(event) => form.setFieldValue('metadata.did_meditation', event.currentTarget.checked)}
+                        />
+                        <Switch
+                          label="Gratitude Practice"
+                          checked={form.values.metadata.gratitude_practice}
+                          onChange={(event) => form.setFieldValue('metadata.gratitude_practice', event.currentTarget.checked)}
+                        />
+                      </SimpleGrid>
+                      <SimpleGrid cols={2}>
+                        <Stack>
+                          <Text size="xs" c="dimmed">Energy Level: {form.values.metadata.energy_level}/5</Text>
+                          <Slider
+                            value={form.values.metadata.energy_level}
+                            onChange={(value) => form.setFieldValue('metadata.energy_level', value)}
+                            min={1}
+                            max={5}
+                            step={1}
+                            marks={[
+                              { value: 1, label: 'Very Low' },
+                              { value: 3, label: 'Moderate' },
+                              { value: 5, label: 'High' }
+                            ]}
+                          />
+                        </Stack>
+                        <Stack>
+                          <Text size="xs" c="dimmed">Stress Level: {form.values.metadata.stress_level}/5</Text>
+                          <Slider
+                            value={form.values.metadata.stress_level}
+                            onChange={(value) => form.setFieldValue('metadata.stress_level', value)}
+                            min={1}
+                            max={5}
+                            step={1}
+                            marks={[
+                              { value: 1, label: 'Very Low' },
+                              { value: 3, label: 'Moderate' },
+                              { value: 5, label: 'High' }
+                            ]}
+                          />
+                        </Stack>
+                      </SimpleGrid>
+                    </Stack>
+
+                    {/* Daily Habits */}
+                    <Stack>
+                      <Text size="sm" fw={500} c="orange">Daily Habits</Text>
+                      <SimpleGrid cols={2}>
+                        <NumberInput
+                          label="Water Intake (glasses)"
+                          placeholder="8"
+                          min={0}
+                          max={50}
+                          value={form.values.metadata.water_intake}
+                          onChange={(value) => form.setFieldValue('metadata.water_intake', typeof value === 'string' ? parseInt(value) || 0 : value)}
+                        />
+                        <NumberInput
+                          label="Reading Time (minutes)"
+                          placeholder="0"
+                          min={0}
+                          max={1440}
+                          value={form.values.metadata.reading_time}
+                          onChange={(value) => form.setFieldValue('metadata.reading_time', typeof value === 'string' ? parseInt(value) || 0 : value)}
+                        />
+                      </SimpleGrid>
+                      <SimpleGrid cols={2}>
+                        <NumberInput
+                          label="Screen Time (hours)"
+                          placeholder="0"
+                          min={0}
+                          max={24}
+                          step={0.5}
+                          value={form.values.metadata.screen_time}
+                          onChange={(value) => form.setFieldValue('metadata.screen_time', typeof value === 'string' ? parseFloat(value) || 0 : value)}
+                        />
+                        <NumberInput
+                          label="Phone Hours (legacy)"
+                          placeholder="0"
+                          min={0}
+                          max={24}
+                          value={form.values.metadata.phone_hours}
+                          onChange={(value) => form.setFieldValue('metadata.phone_hours', typeof value === 'string' ? parseInt(value) || 0 : value)}
+                        />
+                      </SimpleGrid>
+                      <Switch
+                        label="Social Interaction"
+                        checked={form.values.metadata.social_interaction}
+                        onChange={(event) => form.setFieldValue('metadata.social_interaction', event.currentTarget.checked)}
+                      />
+                    </Stack>
+                  </Stack>
+                </Accordion.Panel>
+              </Accordion.Item>
+            </Accordion>
 
             <Group justify="flex-end">
               <Button variant="light" onClick={() => setModalOpen(false)}>
@@ -695,6 +1391,12 @@ export function DiaryPage() {
           </Stack>
         </form>
       </Modal>
+
+      {/* Keyboard Shortcuts Help */}
+      <KeyboardShortcutsHelp
+        opened={showKeyboardShortcuts}
+        onClose={() => setShowKeyboardShortcuts(false)}
+      />
     </Container>
   );
 }

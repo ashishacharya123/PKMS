@@ -57,6 +57,7 @@ export interface UpdateNoteRequest {
   content?: string;
   tags?: string[];
   is_archived?: boolean;
+  is_favorite?: boolean;
 }
 
 export interface UploadFileRequest {
@@ -137,7 +138,8 @@ class NotesService {
    * Archive/unarchive a note
    */
   async toggleArchive(id: number, archived: boolean): Promise<Note> {
-    return await this.updateNote(id, { is_archived: archived });
+    const response = await apiService.patch<Note>(`/notes/${id}/archive?archive=${archived}`);
+    return response.data;
   }
 
   /**

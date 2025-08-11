@@ -20,7 +20,7 @@ import logging
 import uuid as uuid_lib
 
 from app.database import get_db
-from app.config import NEPAL_TZ, get_data_dir
+from app.config import NEPAL_TZ, get_data_dir, get_file_storage_dir
 from app.models.document import Document
 from app.models.tag import Tag
 from app.models.user import User
@@ -54,6 +54,7 @@ class DocumentUpdate(BaseModel):
     description: Optional[str] = None
     tags: Optional[List[str]] = Field(None, max_items=20)
     is_favorite: Optional[bool] = None
+    is_archived: Optional[bool] = None
 
 class DocumentResponse(BaseModel):
     id: int
@@ -67,7 +68,7 @@ class DocumentResponse(BaseModel):
     description: Optional[str]
     is_favorite: bool
     is_archived: bool
-    archive_item_uuid: Optional[str]  # Reference to ArchiveItem if archived
+    archive_item_uuid: Optional[str] = None  # Reference to ArchiveItem if archived
     upload_status: str
     created_at: datetime
     updated_at: datetime
@@ -99,7 +100,7 @@ async def _handle_document_tags(db: AsyncSession, doc: Document, tag_names: List
     
     # Clear existing tag associations
     await db.execute(
-        delete(document_tags).where(document_tags.c.document_id == doc.id)
+        delete(document_tags).where(document_tags.c.document_uuid == doc.uuid)
     )
     
     if not tag_names:
@@ -136,7 +137,7 @@ async def _handle_document_tags(db: AsyncSession, doc: Document, tag_names: List
         # Create association
         await db.execute(
             document_tags.insert().values(
-                document_id=doc.id,
+                document_uuid=doc.uuid,
                 tag_uuid=tag.uuid
             )
         )
@@ -155,6 +156,7 @@ def _convert_doc_to_response(doc: Document) -> DocumentResponse:
         description=doc.description,
         is_favorite=doc.is_favorite,
         is_archived=doc.is_archived,
+        archive_item_uuid=doc.archive_item_uuid,
         upload_status=doc.upload_status,
         created_at=doc.created_at,
         updated_at=doc.updated_at,
@@ -178,28 +180,58 @@ async def commit_document_upload(
         
         # Check assembled file status
         status_obj = await chunk_manager.get_upload_status(payload.file_id)
+        logger.info(f"File status: {status_obj}")
         if not status_obj or status_obj.get("status") != "completed":
-            raise HTTPException(status_code=400, detail="File not yet assembled")
+            logger.warning(f"File not ready - status: {status_obj.get('status') if status_obj else 'None'}")
+            raise HTTPException(status_code=400, detail=f"File not yet assembled - status: {status_obj.get('status') if status_obj else 'None'}")
 
         # Locate assembled file path
         temp_dir = Path(get_data_dir()) / "temp_uploads"
+        logger.info(f"Looking for assembled file in: {temp_dir}")
         assembled = next(temp_dir.glob(f"complete_{payload.file_id}_*"), None)
         if not assembled:
-            raise HTTPException(status_code=404, detail="Assembled file not found")
+            # List what files are actually in temp_dir for debugging
+            available_files = list(temp_dir.glob("*"))
+            logger.error(f"Assembled file not found. Available files: {available_files}")
+            raise HTTPException(status_code=404, detail=f"Assembled file not found in {temp_dir}")
 
-        # Prepare destination directory
-        docs_dir = get_data_dir() / "assets" / "documents"
+        # Prepare destination directory on Windows bind mount for accessibility
+        docs_dir = get_file_storage_dir() / "assets" / "documents"
         docs_dir.mkdir(parents=True, exist_ok=True)
 
-        # Generate unique filename
+        # Generate human-readable filename: originalname_UUID.ext
         file_uuid = str(uuid_lib.uuid4())
         file_extension = assembled.suffix
-        stored_filename = f"{file_uuid}{file_extension}"
+        
+        # Extract original filename from assembled filename (remove chunk prefixes)
+        original_name = assembled.name.replace(f"complete_{payload.file_id}_", "")
+        # Remove file extension from original name if present
+        if original_name.endswith(file_extension):
+            original_name = original_name[:-len(file_extension)]
+        # Sanitize filename for filesystem safety
+        safe_original = "".join(c for c in original_name if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
+        # Limit filename length to prevent filesystem issues
+        if len(safe_original) > 100:
+            safe_original = safe_original[:100]
+        
+        stored_filename = f"{safe_original}_{file_uuid}{file_extension}"
         dest_path = docs_dir / stored_filename
 
-        # Move assembled file to final location
-        assembled.rename(dest_path)
+        # Move assembled file to final location; handle cross-device moves (EXDEV)
+        try:
+            assembled.rename(dest_path)
+        except OSError as move_err:
+            import errno as _errno
+            if getattr(move_err, 'errno', None) == _errno.EXDEV:
+                # Fallback to shutil.move which copies across devices, then unlinks
+                shutil.move(str(assembled), str(dest_path))
+            else:
+                raise
 
+        # Get file size before database operations
+        file_size = dest_path.stat().st_size
+        file_path_relative = str(dest_path.relative_to(get_file_storage_dir()))
+        
         # Detect file type and extract metadata
         detection_result = await file_detector.detect_file_type(
             file_path=dest_path,
@@ -210,10 +242,10 @@ async def commit_document_upload(
         document = Document(
             uuid=file_uuid,
             title=payload.title,
-            original_name=assembled.name,
+            original_name=original_name + file_extension,  # Use the cleaned original name
             filename=stored_filename,
-            file_path=str(dest_path.relative_to(get_data_dir())),
-            file_size=dest_path.stat().st_size,
+            file_path=file_path_relative,
+            file_size=file_size,
             mime_type=detection_result["mime_type"],
             description=payload.description,
             upload_status="completed",
@@ -228,7 +260,14 @@ async def commit_document_upload(
             await _handle_document_tags(db, document, payload.tags, current_user.id)
 
         await db.commit()
-        await db.refresh(document)
+        
+        # Reload document with tags to avoid lazy loading issues in response conversion
+        result = await db.execute(
+            select(Document).options(selectinload(Document.tag_objs)).where(
+                Document.id == document.id
+            )
+        )
+        document_with_tags = result.scalar_one()
 
         # Clean up temporary file tracking
         if payload.file_id in chunk_manager.uploads:
@@ -236,7 +275,7 @@ async def commit_document_upload(
 
         logger.info(f"✅ Document committed successfully: {stored_filename}")
         
-        return _convert_doc_to_response(document)
+        return _convert_doc_to_response(document_with_tags)
         
     except HTTPException:
         await db.rollback()
@@ -244,9 +283,12 @@ async def commit_document_upload(
     except Exception as e:
         await db.rollback()
         logger.error(f"❌ Error committing document upload: {str(e)}")
+        logger.error(f"❌ Full exception details: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to commit document upload"
+            detail=f"Failed to commit document upload: {str(e)}"
         )
 
 @router.get("/", response_model=List[DocumentResponse])
@@ -255,16 +297,21 @@ async def list_documents(
     tag: Optional[str] = Query(None),
     mime_type: Optional[str] = Query(None),
     archived: Optional[bool] = Query(False),
+    is_favorite: Optional[bool] = Query(None),
     limit: int = Query(50, le=100),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """List documents with filtering and pagination. Uses FTS5 for text search."""
+    logger.info(f"📄 Listing documents for user {current_user.id} - archived: {archived}, search: {search}, tag: {tag}")
+    
     if search:
         # Use FTS5 for full-text search
         fts_results = await fts_service.search_all(db, search, current_user.id, content_types=["documents"], limit=limit, offset=offset)
         doc_uuids = [r["id"] for r in fts_results if r["type"] == "document"]
+        logger.info(f"🔍 FTS5 search returned {len(doc_uuids)} document UUIDs")
+        
         if not doc_uuids:
             return []
         # Fetch documents by UUIDs, preserving FTS5 order
@@ -279,13 +326,19 @@ async def list_documents(
             query = query.join(Document.tag_objs).where(Tag.name == tag)
         if mime_type:
             query = query.where(Document.mime_type.like(f"{mime_type}%"))
+        if is_favorite is not None:
+            query = query.where(Document.is_favorite == is_favorite)
         result = await db.execute(query)
         documents = result.scalars().unique().all()
+        logger.info(f"📚 FTS5 query returned {len(documents)} documents")
+        
         # Order documents by FTS5 relevance
         docs_by_uuid = {d.uuid: d for d in documents}
         ordered_docs = [docs_by_uuid[uuid] for uuid in doc_uuids if uuid in docs_by_uuid]
+        logger.info(f"📊 Final ordered result: {len(ordered_docs)} documents")
     else:
         # Fallback to regular query
+        logger.info(f"📂 Using regular query for archived={archived}")
         query = select(Document).options(selectinload(Document.tag_objs)).where(
             and_(
                 Document.user_id == current_user.id,
@@ -296,10 +349,16 @@ async def list_documents(
             query = query.join(Document.tag_objs).where(Tag.name == tag)
         if mime_type:
             query = query.where(Document.mime_type.like(f"{mime_type}%"))
+        if is_favorite is not None:
+            query = query.where(Document.is_favorite == is_favorite)
         query = query.order_by(Document.created_at.desc()).offset(offset).limit(limit)
         result = await db.execute(query)
         ordered_docs = result.scalars().unique().all()
-    return [_convert_doc_to_response(d) for d in ordered_docs]
+        logger.info(f"📚 Regular query returned {len(ordered_docs)} documents")
+        
+    response = [_convert_doc_to_response(d) for d in ordered_docs]
+    logger.info(f"✅ Returning {len(response)} documents in response")
+    return response
 
 @router.get("/{document_id}", response_model=DocumentResponse)
 async def get_document(
@@ -334,7 +393,7 @@ async def download_document(
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     
-    file_path = get_data_dir() / doc.file_path
+    file_path = get_file_storage_dir() / doc.file_path
     if not file_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found on disk")
     
@@ -391,7 +450,7 @@ async def archive_document(
     User can safely delete the original document later if desired.
     """
     try:
-        logger.info(f"📦 Archiving document {document_id} to folder {archive_request.folder_uuid}")
+        logger.info(f"📦 Archiving document {document_id} to folder {archive_request.folder_uuid} for user {current_user.id}")
         
         # Get document
         doc_result = await db.execute(
@@ -401,9 +460,13 @@ async def archive_document(
         )
         document = doc_result.scalar_one_or_none()
         if not document:
+            logger.warning(f"❌ Document {document_id} not found for user {current_user.id}")
             raise HTTPException(status_code=404, detail="Document not found")
         
+        logger.info(f"📄 Found document: {document.title} (is_archived: {document.is_archived})")
+        
         if document.is_archived:
+            logger.warning(f"⚠️ Document {document_id} is already archived")
             raise HTTPException(status_code=400, detail="Document is already archived")
         
         # Verify archive folder exists and belongs to user
@@ -417,15 +480,17 @@ async def archive_document(
         )
         archive_folder = folder_result.scalar_one_or_none()
         if not archive_folder:
+            logger.warning(f"❌ Archive folder {archive_request.folder_uuid} not found for user {current_user.id}")
             raise HTTPException(status_code=404, detail="Archive folder not found")
         
         # Check if document file exists
-        original_file_path = get_data_dir() / document.file_path
+        original_file_path = get_file_storage_dir() / document.file_path
         if not original_file_path.exists():
+            logger.error(f"❌ Document file not found on disk: {original_file_path}")
             raise HTTPException(status_code=404, detail="Document file not found on disk")
         
         # Prepare archive storage location
-        archive_dir = get_data_dir() / "archive" / str(current_user.id)
+        archive_dir = get_file_storage_dir() / "archive" / archive_request.folder_uuid
         archive_dir.mkdir(parents=True, exist_ok=True)
         
         # Generate unique filename for archive
@@ -447,7 +512,7 @@ async def archive_document(
             folder_uuid=archive_request.folder_uuid,
             original_filename=document.original_name,
             stored_filename=archive_filename,
-            file_path=str(archive_file_path.relative_to(get_data_dir())),
+            file_path=str(archive_file_path.relative_to(get_file_storage_dir())),
             file_size=document.file_size,
             mime_type=document.mime_type,
             extracted_text=document.extracted_text,
@@ -502,12 +567,14 @@ async def archive_document(
                 )
         
         # Update document to mark as archived
+        logger.info(f"✏️ Updating document {document_id} to archived status")
         document.is_archived = True
         document.archive_item_uuid = archive_item.uuid
         
         await db.commit()
+        await db.refresh(document)
         
-        logger.info(f"✅ Document {document_id} archived successfully to {archive_request.folder_uuid}")
+        logger.info(f"✅ Document {document_id} archived successfully - is_archived: {document.is_archived}, archive_item_uuid: {document.archive_item_uuid}")
         
         return {
             "success": True,
@@ -557,7 +624,7 @@ async def delete_document(
     
     # Delete the physical file
     try:
-        file_to_delete = get_data_dir() / doc.file_path
+        file_to_delete = get_file_storage_dir() / doc.file_path
         if file_to_delete.exists():
             file_to_delete.unlink()
             logger.info(f"🗑️ Deleted document file: {file_to_delete}")

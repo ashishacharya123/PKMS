@@ -67,7 +67,7 @@ const quickActions: QuickAction[] = [
   {
     label: 'New Note',
     icon: IconFileText,
-    path: '/notes?action=new',
+    path: '/notes/new',
     color: 'blue',
     description: 'Create a new note'
   },
@@ -216,7 +216,9 @@ export function DashboardPage() {
     stats: any;
     path: string;
     description: string;
-  }) => (
+  }) => {
+    const [hovered, setHovered] = useState(false);
+    return (
     <Card
       component={Link}
       to={path}
@@ -225,10 +227,14 @@ export function DashboardPage() {
       withBorder
       style={{ 
         textDecoration: 'none',
-        transition: 'all 0.2s ease',
+        transition: 'all 150ms ease',
         height: '100%',
         cursor: 'pointer',
+        boxShadow: hovered ? '0 8px 24px rgba(0,0,0,0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
+        transform: hovered ? 'translateY(-2px)' : 'none'
       }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
       <Group justify="space-between" mb="md">
         <ThemeIcon size="xl" variant="light" color={color} radius="md">
@@ -341,7 +347,7 @@ export function DashboardPage() {
         )}
       </Stack>
     </Card>
-  );
+  ); };
 
   const QuickActionButton = ({ action }: { action: QuickAction }) => (
     <Button
@@ -414,7 +420,8 @@ export function DashboardPage() {
                 if (e.key === 'Enter') {
                   const query = e.currentTarget.value.trim();
                   if (query) {
-                    navigate(`/search?q=${encodeURIComponent(query)}`);
+                    // Route to simple FTS5 search by default
+                    navigate(`/search/fts5?q=${encodeURIComponent(query)}`);
                   }
                 }
               }}
@@ -467,6 +474,14 @@ export function DashboardPage() {
                 <Text fw={600} size="lg" c={(stats?.todos?.overdue || 0) > 0 ? 'red' : 'green'}>
                   {stats?.todos?.overdue || 0}
                 </Text>
+                <Group gap={6} mt={6} wrap="wrap">
+                  <Button size="xs" variant="light" color="red" onClick={() => navigate('/todos?overdue=true')}>
+                    View overdue
+                  </Button>
+                  <Button size="xs" variant="light" onClick={() => navigate('/todos')}>
+                    View today
+                  </Button>
+                </Group>
               </div>
               <div>
                 <Text size="sm" c="dimmed">Diary Streak</Text>
@@ -480,6 +495,35 @@ export function DashboardPage() {
                   <IconDatabase size={16} />
                   <Text fw={600} size="lg">-</Text>
                 </Group>
+              </div>
+            </SimpleGrid>
+          </Card>
+        )}
+
+        {/* Today Panel (conditional fields) */}
+        {stats && (
+          <Card padding="sm" radius="md" withBorder>
+            <Group justify="space-between" mb="md">
+              <Text fw={600} size="lg">Today</Text>
+            </Group>
+            <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="md">
+              <div>
+                <Text size="sm" c="dimmed">Due Today</Text>
+                <Text fw={600} size="lg" c={(stats as any)?.todos?.due_today > 0 ? 'orange' : undefined}>
+                  {(stats as any)?.todos?.due_today ?? '-'}
+                </Text>
+              </div>
+              <div>
+                <Text size="sm" c="dimmed">Overdue</Text>
+                <Text fw={600} size="lg" c={(stats?.todos?.overdue || 0) > 0 ? 'red' : 'green'}>
+                  {stats?.todos?.overdue || 0}
+                </Text>
+              </div>
+              <div>
+                <Text size="sm" c="dimmed">Completed Today</Text>
+                <Text fw={600} size="lg" c={(stats as any)?.todos?.completed_today > 0 ? 'green' : undefined}>
+                  {(stats as any)?.todos?.completed_today ?? '-'}
+                </Text>
               </div>
             </SimpleGrid>
           </Card>

@@ -549,41 +549,60 @@ async def refresh_access_token(
     if not session_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing refresh token")
 
-    # Lookup session
-    result = await db.execute(select(Session).where(Session.session_token == session_token))
-    session = result.scalar_one_or_none()
-    if not session or session.expires_at < datetime.now(NEPAL_TZ):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+    try:
+        # Lookup session
+        result = await db.execute(select(Session).where(Session.session_token == session_token))
+        session = result.scalar_one_or_none()
+        if not session:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
-    # Get user
-    result = await db.execute(select(User).where(User.id == session.user_id))
-    user = result.scalar_one_or_none()
-    if not user or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account disabled")
+        # Handle potential naive datetimes from legacy records
+        now = datetime.now(NEPAL_TZ)
+        expires_at = session.expires_at
+        if expires_at is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session state")
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=NEPAL_TZ)
 
-    # Issue new access token
-    access_token = create_access_token(data={"sub": str(user.id)})
+        if expires_at < now:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
 
-    # Slide session expiry by another 7 days
-    session.expires_at = datetime.now(NEPAL_TZ) + timedelta(days=7)
-    await db.commit()
+        # Get user
+        result = await db.execute(select(User).where(User.id == session.user_id))
+        user = result.scalar_one_or_none()
+        if not user or not user.is_active:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account disabled")
 
-    # refresh cookie max-age
-    response.set_cookie(
-        key="pkms_refresh",
-        value=session_token,
-        httponly=True,
-        samesite="lax",
-        secure=settings.environment == "production",
-        max_age=7*24*60*60
-    )
+        # Issue new access token
+        access_token = create_access_token(data={"sub": str(user.id)})
 
-    return TokenResponse(
-        access_token=access_token,
-        expires_in=settings.access_token_expire_minutes * 60,
-        user_id=user.id,
-        username=user.username
-    ) 
+        # Slide session expiry by another 7 days
+        session.expires_at = now + timedelta(days=7)
+        await db.commit()
+
+        # refresh cookie max-age
+        response.set_cookie(
+            key="pkms_refresh",
+            value=session_token,
+            httponly=True,
+            samesite="lax",
+            secure=settings.environment == "production",
+            max_age=7*24*60*60
+        )
+
+        return TokenResponse(
+            access_token=access_token,
+            expires_in=settings.access_token_expire_minutes * 60,
+            user_id=user.id,
+            username=user.username
+        )
+    except HTTPException:
+        # Pass through expected auth errors
+        raise
+    except Exception as e:
+        logger.exception("/auth/refresh unexpected failure")
+        # Return 401 to allow client to handle gracefully rather than surfacing as network error
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh failed")
 
 # Master recovery system removed - using security questions only
 

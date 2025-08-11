@@ -32,6 +32,7 @@ export interface DiaryEntry {
   encryption_tag: string;
   mood?: number;
   metadata: DiaryMetadata;
+  is_template?: boolean;
   created_at: string;
   updated_at: string;
   media_count: number;
@@ -48,6 +49,7 @@ export interface DiaryEntrySummary {
   encryption_tag: string;
   mood?: number;
   metadata: DiaryMetadata;
+  is_template?: boolean;
   created_at: string;
   updated_at: string;
   media_count: number;
@@ -62,6 +64,8 @@ export interface DiaryFormValues {
   mood: number;
   metadata: DiaryMetadata;
   tags: string[];
+  is_template?: boolean;
+  template_uuid?: string | null;
 }
 
 export interface DiaryEntryCreatePayload {
@@ -74,6 +78,7 @@ export interface DiaryEntryCreatePayload {
   mood?: number;
   metadata?: DiaryMetadata;
   tags?: string[];
+  is_template?: boolean;
 }
 
 export interface DiaryEntryUpdatePayload extends DiaryEntryCreatePayload {

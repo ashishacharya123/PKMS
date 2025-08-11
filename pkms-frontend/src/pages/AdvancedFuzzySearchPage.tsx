@@ -33,12 +33,11 @@ interface FuzzyResult {
 }
 
 const MODULE_OPTIONS = [
-  { label: 'Todos', value: 'todo' },
-  { label: 'Projects', value: 'project' },
-  { label: 'Notes', value: 'note' },
-  { label: 'Documents', value: 'document' },
-  { label: 'Diary', value: 'diary' },
+  { label: 'Todos', value: 'todos' },
+  { label: 'Notes', value: 'notes' },
+  { label: 'Documents', value: 'documents' },
   { label: 'Archive', value: 'archive' },
+  { label: 'Folders', value: 'folders' },
 ];
 
 const SORT_OPTIONS = [
@@ -64,16 +63,34 @@ export default function AdvancedFuzzySearchPage() {
     setError(null);
     setResults([]);
     try {
-      const params = new URLSearchParams({
-        query: query.trim(),
-        modules: modules.join(','),
+      // Use the enhanced search endpoint with proper API service
+      const { searchService } = await import('../services/searchService');
+      
+      const searchResults = await searchService.fuzzySearch({
+        q: query.trim(),
+        modules: modules,
+        sort_by: sortBy === 'score' ? 'relevance' : sortBy,
+        sort_order: sortOrder,
+        limit: 100
       });
-      const resp = await fetch(`/api/v1/advanced-fuzzy-search?${params.toString()}`);
-      if (!resp.ok) throw new Error('Search failed');
-      const data = await resp.json();
-      setResults(data);
+      
+      // Transform results to match expected format
+      const transformedResults = searchResults.results.map((result: any) => ({
+        type: result.type,
+        title: result.title,
+        tags: result.tags || [],
+        description: result.preview || result.description,
+        module: result.module,
+        created_at: result.created_at,
+        media_count: result.media_count || null,
+        type_info: result.module,
+        score: result.relevance_score || result.combined_score || 0
+      }));
+      
+      setResults(transformedResults);
     } catch (e: any) {
-      setError(e.message || 'Unknown error');
+      setError(e.message || 'Search failed');
+      console.error('Search error:', e);
     } finally {
       setLoading(false);
     }

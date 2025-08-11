@@ -1,4 +1,5 @@
-import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import axios, { AxiosInstance } from 'axios';
+import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { API_BASE_URL } from '../config';
 
@@ -24,12 +25,14 @@ class ApiService {
       headers: {
         'Content-Type': 'application/json',
       },
+      // Ensure HttpOnly refresh cookie is sent/received for cross-origin requests
+      withCredentials: true,
     });
 
     // Add response interceptor to handle errors intelligently
     this.instance.interceptors.response.use(
       (response) => response,
-      (error) => {
+      async (error) => {
         // Check if this is a network error (backend not running)
         if (error.request && !error.response) {
           // The request was made but no response was received
@@ -52,18 +55,45 @@ class ApiService {
 
         // Check if this is a 401 response
         if (error.response?.status === 401) {
-          const isLoginAttempt = error.config?.url?.includes('/auth/login') || 
-                                error.config?.url?.includes('/auth/setup');
+          const url: string = error.config?.url || '';
+          const isLoginAttempt = url.includes('/auth/login') || url.includes('/auth/setup');
+          const isRefreshAttempt = url.includes('/auth/refresh');
           const hasStoredToken = !!localStorage.getItem('pkms_token');
 
-          // Only trigger session expiry handling if:
-          // 1. User has a stored token (was previously authenticated)
-          // 2. This is NOT a login attempt
-          if (hasStoredToken && !isLoginAttempt) {
-            this.handleTokenExpiry();
+          // Attempt a one-time silent refresh and retry the original request
+          if (hasStoredToken && !isLoginAttempt && !isRefreshAttempt) {
+            const originalRequest = error.config || {};
+            if (!(originalRequest as any)._retry) {
+              (originalRequest as any)._retry = true;
+              try {
+                if (!this.tokenRefreshPromise) {
+                  this.tokenRefreshPromise = this.refreshToken();
+                }
+                const newToken = await this.tokenRefreshPromise;
+                this.tokenRefreshPromise = null;
+
+                if (newToken) {
+                  localStorage.setItem('pkms_token', newToken);
+                  this.setAuthToken(newToken);
+                  // Retry the original request with new token
+                  return this.instance.request(originalRequest);
+                }
+              } catch (e) {
+                // fall through to expiry handling below
+              } finally {
+                this.tokenRefreshPromise = null;
+              }
+
+              // If we reach here, refresh failed
+              this.handleTokenExpiry();
+              const message = error.response.data?.detail || error.response.data?.message || 'Authentication failed';
+              const authError = new Error(message);
+              (authError as any).response = error.response;
+              throw authError;
+            }
           }
-          
-          // For login attempts, just pass through the backend error message
+
+          // For login attempts or refresh attempts, just pass through the backend error message
           const message = error.response.data?.detail || 
                          error.response.data?.message || 
                          'Authentication failed';
@@ -186,6 +216,26 @@ class ApiService {
   }
 
   /**
+   * Check if JWT token is critically close to expiry (<= 1 minute)
+   */
+  isTokenCriticallyExpiring(): boolean {
+    const token = localStorage.getItem('pkms_token');
+    if (!token) return false;
+
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const expiryTime = payload.exp * 1000;
+      const currentTime = Date.now();
+      const oneMinute = 1 * 60 * 1000;
+      const timeRemaining = expiryTime - currentTime;
+      return timeRemaining > 0 && timeRemaining <= oneMinute;
+    } catch (error) {
+      console.error('Error parsing token:', error);
+      return false;
+    }
+  }
+
+  /**
    * Show expiry warning notification with extend button
    */
   showExpiryWarning(): void {
@@ -233,6 +283,42 @@ class ApiService {
   }
 
   /**
+   * Show a final 1-minute remaining confirmation modal with Yes/No
+   */
+  showFinalExpiryPrompt(): void {
+    // Use a separate flag to avoid repeated prompts
+    if ((this as any).finalExpiryPromptShown) return;
+    (this as any).finalExpiryPromptShown = true;
+
+    // Close any previous notifications to reduce noise
+    notifications.hide('token-expiry-warning');
+    notifications.hide('session-extend-button');
+
+    modals.openConfirmModal({
+      title: 'Session expiring in 1 minute',
+      children: 'Do you want to extend your session?',
+      labels: { confirm: 'Yes, extend', cancel: 'No' },
+      confirmProps: { color: 'blue' },
+      onConfirm: async () => {
+        try {
+          await this.extendSession();
+        } finally {
+          (this as any).finalExpiryPromptShown = false;
+        }
+      },
+      onCancel: () => {
+        // allow it to show again next cycle only if still within 1 minute
+        setTimeout(() => {
+          (this as any).finalExpiryPromptShown = false;
+        }, 65_000);
+      },
+      closeOnEscape: true,
+      withCloseButton: true,
+      centered: true,
+    });
+  }
+
+  /**
    * Extend the current session by making a request to refresh the token
    */
   async extendSession(): Promise<void> {
@@ -258,18 +344,21 @@ class ApiService {
         });
 
         this.tokenExpiryWarningShown = false;
+        (this as any).finalExpiryPromptShown = false;
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to extend session:', error);
       
+      // Do not force logout on transient failure; let normal 401 handling take over if needed
+      const detail = error?.response?.data?.detail || error?.message || 'Session extension failed';
       notifications.show({
         title: '❌ Session Extension Failed',
-        message: 'Please log in again to continue.',
-        color: 'red',
+        message: `${detail}. We will keep you signed in and retry automatically when needed.`,
+        color: 'orange',
         autoClose: 5000,
       });
 
-      this.handleTokenExpiry();
+      // Intentionally avoid handleTokenExpiry() here to prevent unexpected logout
     } finally {
       this.tokenRefreshPromise = null;
     }

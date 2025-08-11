@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Modal,
   Stack,
   Tabs,
   Button,
   Text,
+  TextInput,
+  Textarea,
   Group,
   Badge,
   Table,
@@ -14,15 +16,16 @@ import {
   Divider,
   Card,
   Tooltip,
+  CopyButton,
   Select,
   Switch,
 } from '@mantine/core';
 import {
   IconDatabase,
-  IconDownload,
+  
   IconTrash,
   IconReload,
-  IconClock,
+  
   IconCheck,
   IconX,
   IconAlertTriangle,
@@ -35,11 +38,7 @@ import {
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { 
-  backupService, 
-  type BackupListResponse,
-  type BackupCreateResponse,
-  type BackupRestoreResponse,
-  type BackupDeleteResponse,
+  backupService,
   type BackupFile 
 } from '../../services/backupService';
 
@@ -58,6 +57,23 @@ export function BackupRestoreModal({ opened, onClose }: BackupRestoreModalProps)
   const [lastOperation, setLastOperation] = useState<any>(null);
   const [walStatus, setWalStatus] = useState<any>(null);
   const [walLoading, setWalLoading] = useState(false);
+  const [projectDir, setProjectDir] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('pkms_project_dir');
+      if (saved) return saved;
+      const isWindows = navigator.userAgent.toLowerCase().includes('windows');
+      return isWindows ? 'C\\\\path\\to\\PKMS' : '/path/to/PKMS';
+    }
+    return '';
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pkms_project_dir', projectDir);
+    }
+  }, [projectDir]);
+
+  const bashProjectDir = useMemo(() => projectDir.replace(/\\\\/g, '/'), [projectDir]);
 
   // Load backups when modal opens or when switching to restore/list tabs
   useEffect(() => {
@@ -555,6 +571,60 @@ export function BackupRestoreModal({ opened, onClose }: BackupRestoreModalProps)
             >
               Restore Database
             </Button>
+
+            {selectedBackup && (
+              <Card withBorder>
+                <Stack gap="sm">
+                  <Group>
+                    <IconInfoCircle size={16} />
+                    <Text fw={500}>Restore via command/script</Text>
+                  </Group>
+                  <Text size="sm" c="dimmed">
+                    Use these commands if you prefer restoring via script. Update the project folder if needed.
+                  </Text>
+                  <TextInput
+                    label="Project folder"
+                    placeholder={navigator.userAgent.toLowerCase().includes('windows') ? 'D\\Coding\\PKMS' : '/path/to/PKMS'}
+                    value={projectDir}
+                    onChange={(e) => setProjectDir(e.currentTarget.value)}
+                  />
+                  {/* Windows CMD/PowerShell */}
+                  <Stack gap={4}>
+                    <Group justify="space-between" align="center">
+                      <Text fw={500} size="sm">Windows CMD/PowerShell</Text>
+                      <CopyButton value={`cd /d ${projectDir}\nscripts\\restore_db.bat ${selectedBackup}`}>
+                        {({ copied, copy }) => (
+                          <Button size="xs" variant="light" onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button>
+                        )}
+                      </CopyButton>
+                    </Group>
+                    <Textarea
+                      value={`cd /d ${projectDir}\r\nscripts\\restore_db.bat ${selectedBackup}`}
+                      autosize
+                      minRows={2}
+                      readOnly
+                    />
+                  </Stack>
+                  {/* Git Bash */}
+                  <Stack gap={4}>
+                    <Group justify="space-between" align="center">
+                      <Text fw={500} size="sm">Git Bash</Text>
+                      <CopyButton value={`cd "${bashProjectDir}" && cmd.exe /c scripts\\restore_db.bat ${selectedBackup}`}>
+                        {({ copied, copy }) => (
+                          <Button size="xs" variant="light" onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button>
+                        )}
+                      </CopyButton>
+                    </Group>
+                    <Textarea
+                      value={`cd "${bashProjectDir}" && cmd.exe /c scripts\\restore_db.bat ${selectedBackup}`}
+                      autosize
+                      minRows={2}
+                      readOnly
+                    />
+                  </Stack>
+                </Stack>
+              </Card>
+            )}
           </Stack>
         </Card>
       )}

@@ -3,18 +3,23 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { ColorSchemeScript } from '@mantine/core';
 import { useAuthStore } from './stores/authStore';
 import { Layout } from './components/shared/Layout';
+import { useGlobalKeyboardShortcuts } from './hooks/useGlobalKeyboardShortcuts';
 
 // Pages
 import { AuthPage } from './pages/AuthPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { NotesPage } from './pages/NotesPage';
 import { NoteEditorPage } from './pages/NoteEditorPage';
+import NoteViewPage from './pages/NoteViewPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { TodosPage } from './pages/TodosPage';
 import { DiaryPage } from './pages/DiaryPage';
-import { ArchivePage } from './pages/ArchivePage';
+import DiaryViewPage from './pages/DiaryViewPage';
+import ArchivePage from './pages/ArchivePage';
 import { SearchResultsPage } from './pages/SearchResultsPage';
 import AdvancedFuzzySearchPage from './pages/AdvancedFuzzySearchPage';
+import FTS5SearchPage from './pages/FTS5SearchPage';
+import FuzzySearchPage from './pages/FuzzySearchPage';
 
 // Auth Guard Component
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -48,6 +53,9 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   const { checkAuth } = useAuthStore();
+  
+  // Initialize global keyboard shortcuts
+  useGlobalKeyboardShortcuts();
 
   // Single global authentication check
   useEffect(() => {
@@ -101,7 +109,7 @@ function App() {
             path="/notes/:id" 
             element={
               <AuthGuard>
-                <NoteEditorPage />
+                <NoteViewPage />
               </AuthGuard>
             } 
           />
@@ -142,6 +150,14 @@ function App() {
               </AuthGuard>
             } 
           />
+          <Route 
+            path="/diary/:id" 
+            element={
+              <AuthGuard>
+                <DiaryViewPage />
+              </AuthGuard>
+            } 
+          />
           
           <Route 
             path="/archive" 
@@ -166,6 +182,24 @@ function App() {
             element={
               <AuthGuard>
                 <AdvancedFuzzySearchPage />
+              </AuthGuard>
+            } 
+          />
+
+          <Route 
+            path="/search/fts5" 
+            element={
+              <AuthGuard>
+                <FTS5SearchPage />
+              </AuthGuard>
+            } 
+          />
+
+          <Route 
+            path="/search/fuzzy" 
+            element={
+              <AuthGuard>
+                <FuzzySearchPage />
               </AuthGuard>
             } 
           />

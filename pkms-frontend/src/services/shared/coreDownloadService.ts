@@ -5,7 +5,8 @@
 // Keeps the last 10 files or up to 100 MB in an in-memory LRU cache to avoid
 // re-downloading frequently accessed blobs.
 
-import axios, { AxiosRequestConfig } from 'axios';
+import { AxiosRequestConfig } from 'axios';
+import { apiService } from '../../services/api';
 
 export interface DownloadProgress {
   fileId: string;
@@ -75,6 +76,7 @@ export const coreDownloadService = {
       url,
       method: 'GET',
       responseType: 'blob',
+      withCredentials: true,
       onDownloadProgress: (evt) => {
         if (evt.total) {
           onProgress?.({
@@ -88,7 +90,8 @@ export const coreDownloadService = {
       },
     };
 
-    const response = await axios(config);
+    // Use the shared API instance so Authorization and interceptors are applied
+    const response = await apiService.getAxiosInstance().request(config);
     const blob = response.data as Blob;
 
     cache.set(fileId, blob);

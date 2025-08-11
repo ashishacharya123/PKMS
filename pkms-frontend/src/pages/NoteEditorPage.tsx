@@ -9,16 +9,15 @@ import {
   Stack,
   Card,
   Title,
-  Select,
   TagsInput,
-  ActionIcon,
-  Tabs,
   Alert,
   Skeleton,
   Badge,
   Paper,
   Text,
-  Divider
+  FileInput,
+  Modal,
+  Image
 } from '@mantine/core';
 import {
   IconDeviceFloppy,
@@ -26,15 +25,13 @@ import {
   IconEye,
   IconEdit,
   IconMarkdown,
-  IconTag,
-  IconFolder,
-  IconLink,
-  IconTrash
+  IconFolder
 } from '@tabler/icons-react';
 import MDEditor from '@uiw/react-md-editor';
 import { notifications } from '@mantine/notifications';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { notesService, Note } from '../services/notesService';
+import { notesService, Note, type NoteFile } from '../services/notesService';
+import { searchService } from '../services/searchService';
 
 export function NoteEditorPage() {
   const navigate = useNavigate();
@@ -44,8 +41,15 @@ export function NoteEditorPage() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [tags, setTags] = useState<string[]>([]);
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Attachments state (images for preview)
+  const [noteFiles, setNoteFiles] = useState<NoteFile[]>([]);
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [imagePreview, setImagePreview] = useState<{ url: string; name: string } | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -58,7 +62,7 @@ export function NoteEditorPage() {
     queryFn: () => notesService.getNote(parseInt(id!)),
     enabled: isEditing && id !== undefined,
     staleTime: 5 * 60 * 1000, // 5 minutes
-    cacheTime: 30 * 60 * 1000, // 30 minutes
+    gcTime: 30 * 60 * 1000, // 30 minutes
   });
 
   const createNoteMutation = useMutation({
@@ -70,8 +74,8 @@ export function NoteEditorPage() {
         message: 'Your note has been created successfully',
         color: 'green'
       });
-      // After creating a new note, return to the notes listing for clearer UX
-      navigate('/notes');
+      // After creating a new note, return to the notes listing and highlight the new item
+      navigate('/notes', { state: { highlightNoteId: newNote.id } });
     },
     onError: () => {
       notifications.show({
@@ -109,11 +113,15 @@ export function NoteEditorPage() {
       setContent(currentNote.content);
       setTags(currentNote.tags);
       setHasUnsavedChanges(false);
+      // Load attachments for this note
+      notesService.getNoteFiles(currentNote.id).then(setNoteFiles).catch(() => setNoteFiles([]));
     } else if (!isEditing) {
       setTitle('');
       setContent('');
       setTags([]);
       setHasUnsavedChanges(false); // Reset for new note
+      setNoteFiles([]);
+      setAttachmentFile(null);
     }
   }, [currentNote, isEditing]);
 
@@ -130,6 +138,21 @@ export function NoteEditorPage() {
       setHasUnsavedChanges(hasChanges);
     }
   }, [title, content, tags, currentNote, isEditing]);
+
+  const handleTagSearch = async (query: string) => {
+    if (query.length < 1) {
+      setTagSuggestions([]);
+      return;
+    }
+    
+    try {
+      const tags = await searchService.getTagAutocomplete(query, 'note');
+      setTagSuggestions(tags.map(tag => tag.name));
+    } catch (error) {
+      console.error('Failed to fetch tag suggestions:', error);
+      setTagSuggestions([]);
+    }
+  };
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -170,7 +193,83 @@ export function NoteEditorPage() {
     }
   };
 
-  
+  const handleUploadImage = async () => {
+    if (!isEditing || !currentNote || !attachmentFile) return;
+    try {
+      setIsUploadingAttachment(true);
+      await notesService.uploadFile(attachmentFile, currentNote.uuid);
+      const files = await notesService.getNoteFiles(currentNote.id);
+      setNoteFiles(files);
+      setAttachmentFile(null);
+      notifications.show({ title: 'Uploaded', message: 'Image attached to note', color: 'green' });
+    } catch (e) {
+      notifications.show({ title: 'Upload failed', message: 'Could not upload image', color: 'red' });
+    } finally {
+      setIsUploadingAttachment(false);
+    }
+  };
+
+  const handlePreviewImage = async (file: NoteFile) => {
+    try {
+      const blob = await notesService.downloadFile(file.uuid);
+      const url = URL.createObjectURL(blob);
+      setImagePreview({ url, name: file.original_name || 'image' });
+    } catch (e) {
+      notifications.show({ title: 'Preview failed', message: 'Could not load image', color: 'red' });
+    }
+  };
+
+  const handleInsertImageIntoContent = (file: NoteFile) => {
+    // Insert markdown image referencing authenticated download endpoint
+    const url = notesService.getFileDownloadUrl(file.uuid);
+    const toInsert = `\n\n![${file.original_name || 'image'}](${url})\n`;
+    setContent((prev) => (prev || '') + toInsert);
+    notifications.show({ title: 'Inserted', message: 'Image reference added to content', color: 'green' });
+  };
+
+  // Ctrl+S to save
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [title, content, tags, isEditing, id]);
+
+  // Autosave for edit mode
+  useEffect(() => {
+    if (!isEditing || !currentNote) return;
+    if (!hasUnsavedChanges) return;
+
+    const timer = setTimeout(() => {
+      const noteData = {
+        title: title.trim(),
+        content: content.trim(),
+        tags
+      };
+      // Do not autosave empty titles
+      if (!noteData.title) return;
+      // Silent autosave without user-facing notification
+      notesService
+        .updateNote(parseInt(id!), noteData)
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ['note', id] });
+          queryClient.invalidateQueries({ queryKey: ['notes'] });
+          setHasUnsavedChanges(false);
+        })
+        .catch(() => {
+          // Optional: surface a subtle warning; keeping silent per UX minimalism
+        });
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, [title, content, tags, hasUnsavedChanges, isEditing, currentNote, id]);
+
+  const previewName = imagePreview?.name ?? 'Image';
+  const previewUrl = imagePreview?.url;
 
   if (isLoading && isEditing) {
     return (
@@ -211,6 +310,7 @@ export function NoteEditorPage() {
   }
 
   return (
+    <>
     <Container size="xl">
       <Stack gap="lg">
         {/* Header */}
@@ -292,14 +392,71 @@ export function NoteEditorPage() {
                 </Title>                  <Stack gap="sm">
                   <TagsInput
                     label="Tags"
-                    placeholder="Type and press Enter to add tags"
+                    placeholder="Type to search and add tags"
                     value={tags}
                     onChange={setTags}
-                    splitChars={[',', ' ']}
+                    data={tagSuggestions}
                     clearable
-                    description="Add multiple tags separated by comma or space"
+                    onSearchChange={handleTagSearch}
+                    splitChars={[',', ' ']}
+                    description="Add multiple tags separated by comma or space. Start typing to see suggestions."
                   />
                 </Stack>
+              </Card>
+
+              {/* Attachments (Images) */}
+              <Card shadow="sm" padding="md" radius="md" withBorder>
+                <Title order={4} mb="md">
+                  <Group gap="xs">
+                    Image Attachments
+                    {isEditing && (
+                      <Badge size="xs" variant="light">{noteFiles.length}</Badge>
+                    )}
+                  </Group>
+                </Title>
+                {isEditing ? (
+                  <Stack gap="sm">
+                    <FileInput
+                      label="Add Image"
+                      placeholder="Choose an image to attach"
+                      value={attachmentFile}
+                      onChange={setAttachmentFile}
+                      accept="image/*"
+                      clearable
+                    />
+                    <Group justify="flex-end">
+                      <Button size="xs" onClick={handleUploadImage} loading={isUploadingAttachment} disabled={!attachmentFile}>
+                        Upload Image
+                      </Button>
+                    </Group>
+                    {noteFiles.length > 0 && (
+                      <Stack gap="xs">
+                        {noteFiles.map((f) => (
+                          <Group key={f.uuid} justify="space-between" gap="xs" wrap="nowrap">
+                            <Text size="sm" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>
+                              {f.original_name}
+                            </Text>
+                            <Group gap="xs" wrap="nowrap">
+                              {f.mime_type.startsWith('image/') && (
+                                <>
+                                  <Button size="xs" variant="light" onClick={() => handlePreviewImage(f)}>Preview</Button>
+                                  <Button size="xs" variant="subtle" onClick={() => handleInsertImageIntoContent(f)}>Insert</Button>
+                                </>
+                              )}
+                              {!f.mime_type.startsWith('image/') && (
+                                <a href={notesService.getFileDownloadUrl(f.uuid)} target="_blank" rel="noreferrer">
+                                  <Button size="xs" variant="subtle">Download</Button>
+                                </a>
+                              )}
+                            </Group>
+                          </Group>
+                        ))}
+                      </Stack>
+                    )}
+                  </Stack>
+                ) : (
+                  <Text size="sm" c="dimmed">Attachments are available after creating the note.</Text>
+                )}
               </Card>
 
               {/* Preview */}
@@ -378,5 +535,21 @@ export function NoteEditorPage() {
         </Grid>
       </Stack>
     </Container>
+
+    {/* Image Preview Modal for attachments */}
+    <Modal
+      opened={!!imagePreview}
+      onClose={() => setImagePreview(null)}
+      title={previewName}
+      size="auto"
+      centered
+    >
+      {previewUrl && (
+        <div style={{ maxWidth: '90vw', maxHeight: '80vh' }}>
+          <Image src={previewUrl} alt={previewName} fit="contain" h={400} radius="md" />
+        </div>
+      )}
+    </Modal>
+    </>
   );
 } 

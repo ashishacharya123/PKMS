@@ -1,15 +1,15 @@
 import { useEffect, useState, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   Container,
   Grid,
-  Card,
   Title,
   Text,
   Group,
   Stack,
   Button,
   TextInput,
+  TagsInput,
   Badge,
   ActionIcon,
   Menu,
@@ -22,8 +22,12 @@ import {
   Textarea,
   Select,
   NumberInput,
-  Checkbox
+  Checkbox,
+  Tooltip
 } from '@mantine/core';
+import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
+import ViewModeLayouts, { formatDate } from '../components/common/ViewModeLayouts';
+import { useViewPreferences } from '../hooks/useViewPreferences';
 import {
   IconPlus,
   IconSearch,
@@ -36,22 +40,60 @@ import {
   IconDots,
   IconChecklist,
   IconCalendar,
-  IconFlag,
   IconAlertTriangle,
-  IconX,
   IconFolder,
   IconArchive,
   IconArchiveOff
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
+import { modals } from '@mantine/modals';
+import { notifications } from '@mantine/notifications';
+import { searchService } from '../services/searchService';
 import { useTodosStore } from '../stores/todosStore';
-import { todosService } from '../services/todosService';
+// import { todosService } from '../services/todosService';
 
 type SortField = 'title' | 'created_at' | 'due_date' | 'priority';
 type SortOrder = 'asc' | 'desc';
 
+// Utility functions for todos
+const getTodoIcon = (todo: any): string => {
+  if (todo.is_completed) return '✅';
+  if (todo.priority >= 4) return '🚨';
+  if (todo.priority >= 3) return '🔥';
+  if (todo.priority >= 2) return '⚡';
+  return '📝';
+};
+
+
+
+const formatDueDate = (dueDate: string): string => {
+  if (!dueDate) return 'No due date';
+  const date = new Date(dueDate);
+  const now = new Date();
+  const diffTime = date.getTime() - now.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (diffDays < 0) return `Overdue by ${Math.abs(diffDays)} days`;
+  if (diffDays === 0) return 'Due today';
+  if (diffDays === 1) return 'Due tomorrow';
+  if (diffDays <= 7) return `Due in ${diffDays} days`;
+  return formatDate(dueDate);
+};
+
+const getProjectColorDot = (color?: string) => (
+  <span style={{
+    display: 'inline-block',
+    width: 10,
+    height: 10,
+    borderRadius: '50%',
+    backgroundColor: color || '#ccc',
+    border: '1px solid rgba(0,0,0,0.1)'
+  }} />
+);
+
+const formatCompletedAt = (completedAt?: string) => completedAt ? formatDate(completedAt) : '';
+
 export function TodosPage() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
   // Local state
@@ -60,6 +102,8 @@ export function TodosPage() {
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [currentPage, setCurrentPage] = useState(1);
+  const { getPreference, updatePreference } = useViewPreferences();
+  const [viewMode, setViewMode] = useState<ViewMode>(getPreference('todos'));
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [editingTodo, setEditingTodo] = useState<any>(null);
@@ -72,8 +116,10 @@ export function TodosPage() {
     project_id: null as number | null,
     due_date: '',
     priority: 1,
-    tags: ''
+    tags: [] as string[]
   });
+
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
 
   const [projectForm, setProjectForm] = useState({
     name: '',
@@ -93,19 +139,19 @@ export function TodosPage() {
     currentPriority,
     currentProjectId,
     showOverdue,
-    isArchivedFilter,
+    // isArchivedFilter, // unused
     loadTodos,
     loadProjects,
     loadStats,
     createTodo,
-    updateTodo,
+    // updateTodo, // unused
     completeTodo,
     deleteTodo,
     createProject,
     archiveTodo,
     unarchiveTodo,
     setStatus,
-    setPriority,
+    // setPriority, // unused
     setProjectFilter,
     setSearch,
     setShowOverdue,
@@ -128,6 +174,14 @@ export function TodosPage() {
       // Clear the action from URL
       const newParams = new URLSearchParams(searchParams);
       newParams.delete('action');
+      setSearchParams(newParams, { replace: true });
+    }
+    // Optional: open Overdue filter directly via ?overdue=true
+    const overdue = searchParams.get('overdue');
+    if (overdue === 'true') {
+      setShowOverdue(true);
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('overdue');
       setSearchParams(newParams, { replace: true });
     }
   }, [searchParams, setSearchParams]);
@@ -180,6 +234,21 @@ export function TodosPage() {
 
   const totalPages = Math.ceil(sortedTodos.length / itemsPerPage);
 
+  const handleTagSearch = async (query: string) => {
+    if (query.length < 1) {
+      setTagSuggestions([]);
+      return;
+    }
+    
+    try {
+      const tags = await searchService.getTagAutocomplete(query, 'todos');
+      setTagSuggestions(tags.map(tag => tag.name));
+    } catch (error) {
+      console.error('Failed to fetch tag suggestions:', error);
+      setTagSuggestions([]);
+    }
+  };
+
   const resetTodoForm = () => {
     setTodoForm({
       title: '',
@@ -187,7 +256,7 @@ export function TodosPage() {
       project_id: null,
       due_date: '',
       priority: 1,
-      tags: ''
+      tags: []
     });
     setEditingTodo(null);
   };
@@ -201,11 +270,10 @@ export function TodosPage() {
   };
 
   const handleCreateTodo = async () => {
-    const tags = todoForm.tags.split(',').map(tag => tag.trim()).filter(tag => tag);
     const success = await createTodo({
       ...todoForm,
       due_date: todoForm.due_date || undefined,
-      tags,
+      tags: todoForm.tags,
       project_id: todoForm.project_id === null ? undefined : todoForm.project_id
     });
     
@@ -229,10 +297,23 @@ export function TodosPage() {
     await completeTodo(id);
   };
 
-  const handleDeleteTodo = async (id: number, title: string) => {
-    if (window.confirm(`Are you sure you want to delete "${title}"?`)) {
-      await deleteTodo(id);
-    }
+  const handleDeleteTodo = (id: number, title: string) => {
+    modals.openConfirmModal({
+      title: 'Delete Todo',
+      children: (
+        <Text size="sm">Are you sure you want to delete "{title}"? This action cannot be undone.</Text>
+      ),
+      labels: { confirm: 'Delete', cancel: 'Cancel' },
+      confirmProps: { color: 'red' },
+      onConfirm: async () => {
+        const success = await deleteTodo(id);
+        if (success) {
+          notifications.show({ title: 'Todo Deleted', message: 'The todo was deleted successfully', color: 'green' });
+        } else {
+          notifications.show({ title: 'Delete Failed', message: 'Could not delete the todo. Please try again.', color: 'red' });
+        }
+      }
+    });
   };
 
   const handleSort = (field: SortField) => {
@@ -441,6 +522,15 @@ export function TodosPage() {
               </div>
               
               <Group gap="xs">
+                <ViewMenu 
+                  currentView={viewMode}
+                  onChange={(mode) => {
+                    setViewMode(mode);
+                    updatePreference('todos', mode);
+                  }}
+                  disabled={isLoading}
+                />
+                
                 <Button
                   variant={sortField === 'title' ? 'filled' : 'subtle'}
                   size="xs"
@@ -507,148 +597,366 @@ export function TodosPage() {
               </Stack>
             )}
 
-            {/* Todos List */}
-            {!isLoading && paginatedTodos.length > 0 && (
-              <>
-                <Stack gap="sm">
-                  {paginatedTodos.map((todo) => (
-                    <Card 
-                      key={todo.id}
-                      shadow="sm" 
-                      padding="md" 
-                      radius="md" 
-                      withBorder
-                    >
-                      <Group justify="space-between" align="flex-start">
-                        <Group align="flex-start" gap="md" style={{ flex: 1 }}>
-                          <Checkbox
-                            checked={todo.status === 'completed'}
-                            onChange={() => handleCompleteTodo(todo.id)}
-                            disabled={todo.status === 'completed'}
-                          />
-                          
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <Group gap="xs" mb="xs">
-                              <Text 
-                                fw={600} 
-                                size="sm"
-                                style={{ 
-                                  textDecoration: todo.status === 'completed' ? 'line-through' : 'none',
-                                  opacity: todo.status === 'completed' ? 0.6 : 1
-                                }}
-                              >
-                                {todo.project_name ? `${todo.project_name}_${todo.title}` : todo.title}
-                              </Text>
-                              
-                              <Badge 
-                                variant="light" 
-                                color={getPriorityColor(Number(todo.priority))} 
-                                size="sm"
-                              >
-                                {getPriorityLabel(Number(todo.priority))}
-                              </Badge>
-                              
-                              <Badge 
-                                variant="light" 
-                                color={getStatusColor(String(todo.status))} 
-                                size="sm"
-                              >
-                                {String(todo.status).replace('_', ' ')}
-                              </Badge>
-                              
-                              {todo.due_date && (
-                                <Badge 
-                                  variant="light" 
-                                  color={isOverdue(todo.due_date) ? 'red' : 'blue'} 
-                                  size="sm"
-                                >
-                                  {isOverdue(todo.due_date) ? 'Overdue' : formatDate(todo.due_date)}
-                                </Badge>
-                              )}
-                            </Group>
-                            
-                            <Group gap="xs">
-                              {todo.project_name && (
-                                <Badge variant="dot" color="gray" size="sm">
-                                  {todo.project_name}
-                                </Badge>
-                              )}
-                              
-                              {(todo.tags || []).map((tag: string) => (
-                                <Badge key={tag} variant="outline" size="sm">
-                                  {tag}
-                                </Badge>
-                              ))}
-                            </Group>
-                          </div>
-                        </Group>
-                        
-                        <Menu withinPortal position="bottom-end">
-                          <Menu.Target>
-                            <ActionIcon variant="subtle" color="gray">
-                              <IconDots size={16} />
-                            </ActionIcon>
-                          </Menu.Target>
-                          
-                          <Menu.Dropdown>
-                            <Menu.Item 
-                              leftSection={<IconEdit size={14} />}
-                              onClick={() => {
-                                setEditingTodo(todo);
-                                setTodoForm({
-                                  title: todo.title,
-                                  description: '',
-                                  project_id: null,
-                                  due_date: todo.due_date || '',
-                                  priority: todo.priority,
-                                  tags: (todo.tags || []).join(', ')
-                                });
-                                setTodoModalOpen(true);
-                              }}
-                            >
-                              Edit
-                            </Menu.Item>
-                            {todo.status !== 'completed' && (
-                              <Menu.Item 
-                                leftSection={<IconCheck size={14} />}
-                                onClick={() => handleCompleteTodo(todo.id)}
-                              >
-                                Complete
-                              </Menu.Item>
-                            )}
-                            <Menu.Divider />
-                            <Menu.Item 
-                              leftSection={todo.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
-                              onClick={() => todo.is_archived ? unarchiveTodo(todo.id) : archiveTodo(todo.id)}
-                            >
-                              {todo.is_archived ? 'Unarchive' : 'Archive'}
-                            </Menu.Item>
-                            <Menu.Item 
-                              leftSection={<IconTrash size={14} />}
-                              color="red"
-                              onClick={() => handleDeleteTodo(todo.id, todo.title)}
-                            >
-                              Delete
-                            </Menu.Item>
-                          </Menu.Dropdown>
-                        </Menu>
-                      </Group>
-                    </Card>
-                  ))}
-                </Stack>
-
-                {/* Pagination */}
-                {totalPages > 1 && (
-                  <Group justify="center">
-                    <Pagination
-                      value={currentPage}
-                      onChange={setCurrentPage}
-                      total={totalPages}
-                      size="sm"
-                    />
+            {/* Todos View */}
+            <ViewModeLayouts
+              items={paginatedTodos.map(todo => ({...todo, id: todo.id})) as any[]}
+              viewMode={viewMode}
+              isLoading={isLoading}
+              emptyMessage={
+                searchQuery || currentStatus || currentPriority || currentProjectId
+                  ? 'No todos found. Try adjusting your filters or search.'
+                  : 'No todos yet. Create your first todo to get started.'
+              }
+              onItemClick={(todo: any) => {
+                // Handle todo click - could open edit modal
+                setEditingTodo(todo);
+                setTodoForm({
+                  title: todo.title,
+                  description: '',
+                  project_id: todo.project_id,
+                  due_date: todo.due_date || '',
+                  priority: todo.priority,
+                  tags: todo.tags || []
+                });
+                setTodoModalOpen(true);
+              }}
+              renderSmallIcon={(todo: any) => (
+                <Stack gap={2} align="center">
+                  <Text size="lg">{getTodoIcon(todo)}</Text>
+                  <Group gap={2}>
+                    <Badge size="xs" variant="light" color={getPriorityColor(todo.priority)}>
+                      {getPriorityLabel(todo.priority).charAt(0)}
+                    </Badge>
+                    {todo.is_completed && (
+                      <Badge size="xs" color="green" variant="light">✓</Badge>
+                    )}
                   </Group>
-                )}
-              </>
+                </Stack>
+              )}
+              renderMediumIcon={(todo: any) => (
+                <Stack gap="xs" align="center">
+                  <Text size="xl">{getTodoIcon(todo)}</Text>
+                  <Group gap={4}>
+                    <Badge size="xs" variant="light" color={getPriorityColor(todo.priority)}>
+                      {getPriorityLabel(todo.priority)}
+                    </Badge>
+                    <Badge size="xs" variant="light" color={getStatusColor(todo.status)}>
+                      {String(todo.status).replace('_', ' ')}
+                    </Badge>
+                    {todo.due_date && (
+                      <Badge 
+                        size="xs" 
+                        variant="light" 
+                        color={isOverdue(todo.due_date) ? 'red' : 'blue'}
+                      >
+                        {isOverdue(todo.due_date) ? 'Overdue' : 'Due'}
+                      </Badge>
+                    )}
+                  </Group>
+                </Stack>
+              )}
+              renderListItem={(todo: any) => (
+                <Group justify="space-between">
+                  <Group gap="md">
+                    <Checkbox
+                      checked={todo.status === 'completed'}
+                      onChange={() => handleCompleteTodo(todo.id)}
+                      disabled={todo.status === 'completed'}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                    <Text size="lg">{getTodoIcon(todo)}</Text>
+                    <Stack gap={2}>
+                      <Group gap="xs">
+                        {todo.project && (
+                          <Tooltip label={todo.project.name}>
+                            <span>{getProjectColorDot(todo.project.color)}</span>
+                          </Tooltip>
+                        )}
+                        <Text 
+                          fw={600} 
+                          size="sm" 
+                          style={{ 
+                            cursor: 'pointer', 
+                            color: '#228be6',
+                            textDecoration: todo.status === 'completed' ? 'line-through' : 'none',
+                            opacity: todo.status === 'completed' ? 0.6 : 1
+                          }}
+                          onClick={() => {
+                            setEditingTodo(todo);
+                            setTodoForm({
+                              title: todo.title,
+                              description: '',
+                              project_id: todo.project_id,
+                              due_date: todo.due_date || '',
+                              priority: todo.priority,
+                              tags: todo.tags || []
+                            });
+                            setTodoModalOpen(true);
+                          }}
+                        >
+                          {todo.title}
+                        </Text>
+                        {todo.is_archived && (
+                          <Badge size="xs" color="orange" variant="light">Archived</Badge>
+                        )}
+                      </Group>
+                      <Group gap="xs">
+                        <Badge size="xs" variant="light" color={getPriorityColor(todo.priority)}>
+                          {getPriorityLabel(todo.priority)}
+                        </Badge>
+                        {todo.status && (
+                          <Badge size="xs" variant="light" color={getStatusColor(todo.status)}>
+                            {String(todo.status).replace('_', ' ')}
+                          </Badge>
+                        )}
+                        {todo.due_date && (
+                          <Badge 
+                            size="xs" 
+                            variant="light" 
+                            color={isOverdue(todo.due_date) ? 'red' : 'blue'}
+                          >
+                            {isOverdue(todo.due_date) ? 'Overdue' : 'Due'}: {formatDueDate(todo.due_date)}
+                          </Badge>
+                        )}
+                        {todo.completed_at && (
+                          <Tooltip label={`Completed: ${formatCompletedAt(todo.completed_at)}`}>
+                            <Badge size="xs" variant="light" color="green">Completed</Badge>
+                          </Tooltip>
+                        )}
+                        {todo.project && (
+                          <Badge size="xs" variant="light" color="gray">
+                            {todo.project.name}
+                          </Badge>
+                        )}
+                        {Array.isArray(todo.tags) && todo.tags.slice(0, 2).map((tag: string) => (
+                          <Badge key={tag} size="xs" variant="dot">{tag}</Badge>
+                        ))}
+                        {Array.isArray(todo.tags) && todo.tags.length > 2 && (
+                          <Badge size="xs" variant="outline">+{todo.tags.length - 2}</Badge>
+                        )}
+                      </Group>
+                    </Stack>
+                  </Group>
+                  <Menu shadow="md" width={200}>
+                    <Menu.Target>
+                      <ActionIcon variant="subtle" color="gray" onClick={(e) => e.stopPropagation()}>
+                        <IconDots size={16} />
+                      </ActionIcon>
+                    </Menu.Target>
+                    <Menu.Dropdown>
+                      <Menu.Item 
+                        leftSection={<IconEdit size={14} />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingTodo(todo);
+                          setTodoForm({
+                            title: todo.title,
+                            description: '',
+                            project_id: todo.project_id,
+                            due_date: todo.due_date || '',
+                            priority: todo.priority,
+                            tags: todo.tags || []
+                          });
+                          setTodoModalOpen(true);
+                        }}
+                      >
+                        Edit
+                      </Menu.Item>
+                      {todo.status !== 'completed' && (
+                        <Menu.Item 
+                          leftSection={<IconCheck size={14} />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCompleteTodo(todo.id);
+                          }}
+                        >
+                          Complete
+                        </Menu.Item>
+                      )}
+                      <Menu.Divider />
+                      <Menu.Item 
+                        leftSection={todo.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          todo.is_archived ? unarchiveTodo(todo.id) : archiveTodo(todo.id);
+                        }}
+                      >
+                        {todo.is_archived ? 'Unarchive' : 'Archive'}
+                      </Menu.Item>
+                      <Menu.Item 
+                        leftSection={<IconTrash size={14} />}
+                        color="red"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteTodo(todo.id, todo.title);
+                        }}
+                      >
+                        Delete
+                      </Menu.Item>
+                    </Menu.Dropdown>
+                  </Menu>
+                </Group>
+              )}
+              renderDetailColumns={(todo: any) => [
+                <Group key="title" gap="xs">
+                  <Checkbox
+                    checked={todo.status === 'completed'}
+                    onChange={() => handleCompleteTodo(todo.id)}
+                    disabled={todo.status === 'completed'}
+                    size="sm"
+                  />
+                  <Text size="sm">{getTodoIcon(todo)}</Text>
+                  <Text 
+                    fw={500} 
+                    size="sm" 
+                    style={{ 
+                      cursor: 'pointer', 
+                      color: '#228be6',
+                      textDecoration: todo.status === 'completed' ? 'line-through' : 'none',
+                      opacity: todo.status === 'completed' ? 0.6 : 1
+                    }}
+                    onClick={() => {
+                      setEditingTodo(todo);
+                      setTodoForm({
+                        title: todo.title,
+                        description: '',
+                        project_id: todo.project_id,
+                        due_date: todo.due_date || '',
+                        priority: todo.priority,
+                        tags: todo.tags || []
+                      });
+                      setTodoModalOpen(true);
+                    }}
+                  >
+                    {todo.title}
+                  </Text>
+                </Group>,
+                <Group key="priority" gap="xs">
+                  <Badge size="xs" variant="light" color={getPriorityColor(todo.priority)}>
+                    {getPriorityLabel(todo.priority)}
+                  </Badge>
+                </Group>,
+                <Group key="status" gap="xs">
+                  <Badge size="xs" variant="light" color={getStatusColor(todo.status)}>
+                    {String(todo.status).replace('_', ' ')}
+                  </Badge>
+                </Group>,
+                <Text key="duedate" size="xs" c="dimmed">
+                  {todo.due_date ? (
+                    <Badge 
+                      size="xs" 
+                      variant="light" 
+                      color={isOverdue(todo.due_date) ? 'red' : 'blue'}
+                    >
+                      {formatDueDate(todo.due_date)}
+                    </Badge>
+                  ) : (
+                    'No due date'
+                  )}
+                </Text>,
+                <Group key="project" gap="xs">
+                  {todo.project_name && (
+                    <Badge size="xs" variant="dot" color="gray">
+                      {todo.project_name}
+                    </Badge>
+                  )}
+                </Group>,
+                <Group key="tags" gap={4}>
+                  {(todo.tags || []).slice(0, 3).map((tag: string) => (
+                    <Badge key={tag} size="xs" variant="outline">
+                      {tag}
+                    </Badge>
+                  ))}
+                  {(todo.tags?.length || 0) > 3 && (
+                    <Tooltip label={`${(todo.tags?.length || 0) - 3} more tags`}>
+                      <Badge size="xs" variant="outline">+{(todo.tags?.length || 0) - 3}</Badge>
+                    </Tooltip>
+                  )}
+                </Group>,
+                <Text key="created" size="xs" c="dimmed">
+                  {formatDate(todo.created_at)}
+                </Text>,
+                <Menu key="actions" shadow="md" width={200}>
+                  <Menu.Target>
+                    <ActionIcon variant="subtle" color="gray" size="sm" onClick={(e) => e.stopPropagation()}>
+                      <IconDots size={14} />
+                    </ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Item 
+                      leftSection={<IconEdit size={14} />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingTodo(todo);
+                        setTodoForm({
+                          title: todo.title,
+                          description: '',
+                          project_id: todo.project_id,
+                          due_date: todo.due_date || '',
+                          priority: todo.priority,
+                          tags: todo.tags || []
+                        });
+                        setTodoModalOpen(true);
+                      }}
+                    >
+                      Edit
+                    </Menu.Item>
+                    {todo.status !== 'completed' && (
+                      <Menu.Item 
+                        leftSection={<IconCheck size={14} />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCompleteTodo(todo.id);
+                        }}
+                      >
+                        Complete
+                      </Menu.Item>
+                    )}
+                    <Menu.Divider />
+                    <Menu.Item 
+                      leftSection={todo.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        todo.is_archived ? unarchiveTodo(todo.id) : archiveTodo(todo.id);
+                      }}
+                    >
+                      {todo.is_archived ? 'Unarchive' : 'Archive'}
+                    </Menu.Item>
+                    <Menu.Item 
+                      leftSection={<IconTrash size={14} />}
+                      color="red"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteTodo(todo.id, todo.title);
+                      }}
+                    >
+                      Delete
+                    </Menu.Item>
+                  </Menu.Dropdown>
+                </Menu>
+              ]}
+              detailHeaders={[
+                'Task', 
+                'Priority', 
+                'Status', 
+                'Due Date', 
+                'Project', 
+                'Tags', 
+                'Created', 
+                'Actions'
+              ]}
+            />
+
+            {/* Pagination */}
+            {!isLoading && paginatedTodos.length > 0 && totalPages > 1 && (
+              <Group justify="center">
+                <Pagination
+                  value={currentPage}
+                  onChange={setCurrentPage}
+                  total={totalPages}
+                  size="sm"
+                />
+              </Group>
             )}
 
             {/* Empty State */}
@@ -724,8 +1032,8 @@ export function TodosPage() {
               label="Priority"
               min={1}
               max={3}
-              value={todoForm.priority}
-              onChange={(value) => setTodoForm({ ...todoForm, priority: value || 1 })}
+              value={Number(todoForm.priority)}
+              onChange={(value) => setTodoForm({ ...todoForm, priority: Number(value) || 1 })}
             />
           </Group>
           
@@ -738,12 +1046,14 @@ export function TodosPage() {
           
           <TagsInput
             label="Tags"
-            placeholder="Type and press Enter to add tags"
-            value={todoForm.tags ? todoForm.tags.split(',').map(t => t.trim()).filter(Boolean) : []}
-            onChange={(value) => setTodoForm({ ...todoForm, tags: value.join(', ') })}
-            splitChars={[',', ' ']}
+            placeholder="Type to search and add tags"
+            value={todoForm.tags}
+            onChange={(tags) => setTodoForm({ ...todoForm, tags })}
+            data={tagSuggestions}
             clearable
-            description="Add multiple tags separated by comma or space"
+            onSearchChange={handleTagSearch}
+            splitChars={[',', ' ']}
+            description="Add tags separated by comma or space. Start typing to see suggestions."
           />
           
           <Group justify="flex-end">
