@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { diaryService } from '../services/diaryService';
+import { apiService } from '../services/api';
 import { DiaryEntry, DiaryEntrySummary, DiaryMetadata, DiaryEntryCreatePayload, DiaryCalendarData, MoodStats } from '../types/diary';
+import { logger } from '../utils/logger';
 
 interface DiaryState {
   entries: DiaryEntrySummary[];
@@ -18,6 +20,7 @@ interface DiaryState {
   searchQuery: string;
   currentDayOfWeek: number | null;
   currentHasMedia: boolean | null;
+  unlockStatusInterval: NodeJS.Timeout | null;
   filters: {
     year?: number;
     month?: number;
@@ -41,6 +44,9 @@ interface DiaryState {
   deleteEntry: (uuid: string) => Promise<boolean>;
   loadCalendarData: (year: number, month: number) => Promise<void>;
   loadMoodStats: () => Promise<void>;
+  checkUnlockStatus: () => Promise<boolean>;
+  startUnlockStatusMonitoring: () => void;
+  stopUnlockStatusMonitoring: () => void;
   setFilter: (filter: Partial<DiaryState['filters']>) => void;
   clearFilters: () => void;
   setError: (error: string | null) => void;
@@ -55,6 +61,8 @@ interface DiaryState {
 export const useDiaryStore = create<DiaryState>((set, get) => {
   // Set up logout listener
   window.addEventListener('auth:logout', () => {
+    // Stop monitoring unlock status
+    get().stopUnlockStatusMonitoring();
     // Clear diary state on logout
     set({
       entries: [],
@@ -67,6 +75,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
       calendarData: [],
       moodStats: null,
       error: null,
+      unlockStatusInterval: null,
       filters: {}
     });
   });
@@ -87,15 +96,40 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
     searchQuery: '',
     currentDayOfWeek: null,
     currentHasMedia: null,
+    unlockStatusInterval: null,
     filters: {},
 
     init: async () => {
       try {
-        set({ error: null, isLoading: true }); // Set loading while checking
-        console.log('[DIARY STORE] Initializing...');
-        // Since diary password is now mandatory, encryption is always set up.
-        // We start in a locked state, requiring the user to unlock.
-        set({ isEncryptionSetup: true, isUnlocked: false, error: null, isLoading: false });
+        set({ error: null, isLoading: true });
+        logger.info('Initializing...');
+        
+        // Check actual encryption status from backend
+        const isSetup = await diaryService.isEncryptionSetup();
+        logger.info('Encryption setup status:', isSetup);
+        
+        // Check if session is already unlocked (for returning users)
+        let isUnlocked = false;
+        if (isSetup) {
+          try {
+            // Try to get encryption status to see if already unlocked
+            const response = await apiService.get<{ is_setup: boolean; is_unlocked: boolean }>('/diary/encryption/status');
+            isUnlocked = response.data.is_unlocked || false;
+            logger.info('Session unlock status:', isUnlocked);
+          } catch (error) {
+            // If status check fails, assume locked
+            logger.warn('Could not check unlock status, assuming locked');
+            isUnlocked = false;
+          }
+        }
+        
+        set({ 
+          isEncryptionSetup: isSetup, 
+          isUnlocked: isUnlocked, 
+          error: null, 
+          isLoading: false 
+        });
+        
       } catch (error: any) {
         console.error('Failed to initialize diary:', error);
         // Handle authentication errors gracefully
@@ -130,6 +164,8 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         const { key, success } = await diaryService.unlockSession(password);
         if (success) {
           set({ encryptionKey: key, isUnlocked: true, error: null });
+          // Start monitoring unlock status
+          get().startUnlockStatusMonitoring();
         }
         return success;
       } catch (error) {
@@ -142,6 +178,8 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
     },
 
     lockSession: () => {
+      // Stop monitoring unlock status
+      get().stopUnlockStatusMonitoring();
       set({ encryptionKey: null, isUnlocked: false });
     },
 
@@ -155,6 +193,16 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
 
     loadEntries: async (opts?: { templates?: boolean }) => {
       try {
+        const stateAtStart = get();
+        if (!stateAtStart.isUnlocked) {
+          // Avoid loading entries while locked to prevent spurious errors
+          return;
+        }
+        
+        // Check if diary is still unlocked on backend
+        const isStillUnlocked = await get().checkUnlockStatus();
+        if (!isStillUnlocked) return;
+        
         set({ isLoading: true });
         const state = get();
         
@@ -209,7 +257,10 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         set({ entries: processedEntries, error: null });
       } catch (error) {
         console.error('[DIARY STORE] Failed to load entries:', error);
-        set({ error: 'Failed to load entries' });
+        // Only surface the error if unlocked; otherwise keep the locked view clean
+        if (get().isUnlocked) {
+          set({ error: 'Failed to load entries' });
+        }
       } finally {
         set({ isLoading: false });
       }
@@ -238,9 +289,16 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
 
     createEntry: async (payload: DiaryEntryCreatePayload) => {
       try {
+        // Check if diary is still unlocked on backend
+        const isStillUnlocked = await get().checkUnlockStatus();
+        if (!isStillUnlocked) return false;
+        
         set({ error: null, isLoading: true });
         await diaryService.createEntry(payload);
         await get().loadEntries();
+        // Refresh derived data so widgets reflect latest state
+        await get().loadMoodStats();
+        await get().loadCalendarData(get().currentYear, get().currentMonth);
         return true;
       } catch (error) {
         console.error('Failed to create entry:', error);
@@ -253,9 +311,16 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
 
     updateEntry: async (uuid: string, payload: DiaryEntryCreatePayload) => {
       try {
+        // Check if diary is still unlocked on backend
+        const isStillUnlocked = await get().checkUnlockStatus();
+        if (!isStillUnlocked) return false;
+        
         set({ error: null, isLoading: true });
         await diaryService.updateEntry(uuid, payload);
         await get().loadEntries();
+        // Refresh derived data so widgets reflect latest state
+        await get().loadMoodStats();
+        await get().loadCalendarData(get().currentYear, get().currentMonth);
         return true;
       } catch (error) {
         console.error('Failed to update entry:', error);
@@ -268,9 +333,16 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
 
     deleteEntry: async (uuid: string) => {
       try {
+        // Check if diary is still unlocked on backend
+        const isStillUnlocked = await get().checkUnlockStatus();
+        if (!isStillUnlocked) return false;
+        
         set({ error: null, isLoading: true });
         await diaryService.deleteEntry(uuid);
         await get().loadEntries();
+        // Refresh derived data so widgets reflect latest state
+        await get().loadMoodStats();
+        await get().loadCalendarData(get().currentYear, get().currentMonth);
         return true;
       } catch (error) {
         console.error('Failed to delete entry:', error);
@@ -283,12 +355,18 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
 
     loadCalendarData: async (year: number, month: number) => {
       try {
+        if (!get().isUnlocked) return;
+        
+        // Check if diary is still unlocked on backend
+        const isStillUnlocked = await get().checkUnlockStatus();
+        if (!isStillUnlocked) return;
+        
         set({ isLoading: true });
         const data = await diaryService.getCalendarData(year, month);
         set({ calendarData: data });
       } catch (error) {
         console.error('Failed to load calendar data:', error);
-        set({ error: 'Failed to load calendar data' });
+        if (get().isUnlocked) set({ error: 'Failed to load calendar data' });
       } finally {
         set({ isLoading: false });
       }
@@ -296,14 +374,62 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
 
     loadMoodStats: async () => {
       try {
+        if (!get().isUnlocked) return;
+        
+        // Check if diary is still unlocked on backend
+        const isStillUnlocked = await get().checkUnlockStatus();
+        if (!isStillUnlocked) return;
+        
         set({ isLoading: true });
         const stats = await diaryService.getMoodStats();
         set({ moodStats: stats });
       } catch (error) {
         console.error('Failed to load mood stats:', error);
-        set({ error: 'Failed to load mood stats' });
+        if (get().isUnlocked) set({ error: 'Failed to load mood stats' });
       } finally {
         set({ isLoading: false });
+      }
+    },
+
+    checkUnlockStatus: async () => {
+      try {
+        // Try to make a simple request to check if diary is still unlocked
+        await diaryService.getPasswordHint();
+        return true;
+      } catch (error: any) {
+        if (error.response?.status === 403) {
+          // Diary is locked, update frontend state
+          set({ 
+            isUnlocked: false, 
+            encryptionKey: null,
+            error: 'Diary session expired. Please unlock again.'
+          });
+          return false;
+        }
+        return true; // Other errors don't necessarily mean locked
+      }
+    },
+
+    startUnlockStatusMonitoring: () => {
+      // Check unlock status every 5 minutes
+      const interval = setInterval(async () => {
+        if (get().isUnlocked) {
+          const isStillUnlocked = await get().checkUnlockStatus();
+          if (!isStillUnlocked) {
+            console.log('[DIARY STORE] Diary session expired during monitoring');
+          }
+        }
+      }, 5 * 60 * 1000); // 5 minutes
+      
+      // Store the interval ID for cleanup
+      set({ unlockStatusInterval: interval });
+    },
+
+    stopUnlockStatusMonitoring: () => {
+      const state = get();
+      if (state.unlockStatusInterval) {
+        clearInterval(state.unlockStatusInterval);
+        set({ unlockStatusInterval: null });
       }
     },
 

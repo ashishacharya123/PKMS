@@ -1,4 +1,4 @@
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import NepaliDate from 'nepali-date-converter';
 
 export const getMoodLabel = (mood: number): string => {
@@ -45,12 +45,45 @@ export const convertToNepaliDate = (englishDate: Date | string): string => {
   }
 };
 
-export const formatDate = (date: string): string => {
-  return format(new Date(date), 'MMM d, yyyy');
+export const formatDate = (dateInput: string | Date | number): string => {
+  try {
+    let date: Date;
+    if (dateInput instanceof Date) {
+      date = dateInput;
+    } else if (typeof dateInput === 'number') {
+      date = new Date(dateInput);
+    } else {
+      const trimmed = (dateInput || '').toString().trim();
+      if (!trimmed) return 'N/A';
+      const parsed = parseISO(trimmed);
+      date = isNaN(parsed.getTime()) ? new Date(trimmed) : parsed;
+    }
+    if (isNaN(date.getTime())) return 'N/A';
+    return format(date, 'MMM d, yyyy');
+  } catch {
+    return 'N/A';
+  }
 };
 
-export const formatDateTime = (dateTime: string): string => {
-  return format(new Date(dateTime), 'MMM d, yyyy h:mm a');
+export const formatDateTime = (dateTime?: string | Date | number): string => {
+  try {
+    if (dateTime === undefined || dateTime === null) return 'N/A';
+    let date: Date;
+    if (dateTime instanceof Date) {
+      date = dateTime;
+    } else if (typeof dateTime === 'number') {
+      date = new Date(dateTime);
+    } else {
+      const trimmed = (dateTime || '').toString().trim();
+      if (!trimmed) return 'N/A';
+      const parsed = parseISO(trimmed);
+      date = isNaN(parsed.getTime()) ? new Date(trimmed) : parsed;
+    }
+    if (isNaN(date.getTime())) return 'N/A';
+    return format(date, 'MMM d, yyyy h:mm a');
+  } catch {
+    return 'N/A';
+  }
 };
 
 export const isToday = (date: string): boolean => {

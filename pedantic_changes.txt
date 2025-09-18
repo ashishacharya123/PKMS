@@ -1,0 +1,63 @@
+Pydantic Models Refactoring and camelCase Conversion
+
+This document tracks the progress of refactoring the Pydantic models to address the frontend-backend type mismatches (snake_case vs camelCase).
+
+## Work Completed:
+
+The following modules have been refactored:
+
+1.  **Notes Module:**
+    *   **Models changed:** `NoteCreate`, `NoteUpdate`, `NoteResponse`, `NoteSummary`, `NoteFileResponse`, `CommitNoteFileRequest`
+    *   **Files created:** `pkms-backend/app/schemas/note.py`
+    *   **Files modified:** `pkms-backend/app/routers/notes.py`
+
+2.  **Archive Module:**
+    *   **Models changed:** `FolderCreate`, `FolderUpdate`, `ItemUpdate`, `FolderResponse`, `ItemResponse`, `ItemSummary`, `FolderTree`, `BulkMoveRequest`, `CommitUploadRequest`
+    *   **Files created:** `pkms-backend/app/schemas/archive.py`, `pkms-backend/app/schemas/__init__.py`
+    *   **Files modified:** `pkms-backend/app/routers/archive.py`
+
+3.  **Diary Module:**
+    *   **Models changed:** `EncryptionSetupRequest`, `EncryptionUnlockRequest`, `DiaryEntryCreate`, `DiaryEntryResponse`, `DiaryEntrySummary`, `DiaryCalendarData`, `MoodStats`, `DiaryMediaResponse`, `DiaryMediaUpload`, `CommitDiaryMediaRequest`
+    *   **Files created:** `pkms-backend/app/schemas/diary.py`
+    *   **Files modified:** `pkms-backend/app/routers/diary.py`
+
+4.  **Documents Module:**
+    *   **Models changed:** `DocumentCreate`, `DocumentUpdate`, `DocumentResponse`, `CommitDocumentUploadRequest`, `ArchiveDocumentRequest`
+    *   **Files created:** `pkms-backend/app/schemas/document.py`
+    *   **Files modified:** `pkms-backend/app/routers/documents.py`
+
+5.  **Links Module:**
+    *   **Models changed:** `LinkResponse`, `LinkCreate`, and `LinkUpdate`
+    *   **Files created:** `pkms-backend/app/schemas/link.py`
+    *   **Files modified:** `pkms-backend/app/routers/notes.py`
+
+6.  **Tags Module:**
+    *   **Models changed:** `TagResponse`, `TagAutocompleteResponse`
+    *   **Files created:** `pkms-backend/app/schemas/tag.py`
+    *   **Files modified:** `pkms-backend/app/routers/tags.py`
+
+7.  **Todos Module:**
+    *   **Models changed:** `TodoCreate`, `TodoUpdate`, `TodoResponse`, `ProjectCreate`, `ProjectResponse`
+    *   **Files created:** `pkms-backend/app/schemas/todo.py`
+    *   **Files modified:** `pkms-backend/app/routers/todos.py`
+
+8.  **User Module:**
+    *   **Models changed:** `UserSetup`, `UserLogin`, `PasswordChange`, `RecoveryReset`, `RecoveryKeyResponse`, `TokenResponse`, `UserResponse`, `RefreshTokenRequest`, `UsernameBody`, `LoginPasswordHintUpdate`
+    *   **Files created:** `pkms-backend/app/schemas/auth.py`
+    *   **Files modified:** `pkms-backend/app/routers/auth.py`
+
+## All modules have been refactored.
+
+## Testing
+
+Now that the refactoring is complete, I will run the test suite to ensure that the changes have not introduced any regressions.
+
+To do this, I will need to set the `PYTHONPATH` environment variable to include the `pkms-backend` directory so that the test files can correctly import the application modules. The command I will use is:
+
+`set PYTHONPATH=D:\Coding\PKMS\pkms-backend && pytest D:\Coding\PKMS\pkms-backend`
+
+After completing the Pydantic refactoring, the following high-priority issues will be addressed:
+
+*   **Authentication Race Conditions:** Investigate and fix the frontend authentication flow.
+*   **Database Schema Management:** Introduce a proper database migration tool like Alembic.
+*   **Overly Complex Search System:** Refactor the search implementations into a single, unified service.

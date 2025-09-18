@@ -1,3 +1,11 @@
+## 2025-09-07 – Fixes by AI Agent: GPT-5 (Cursor)
+
+- Updated `src/pages/FTS5SearchPage.tsx` notification to avoid relying on missing `modules_searched` from backend. Now computes module count from selected filters or unique modules in results.
+- Adjusted diary session timeout indicator in `src/pages/DiaryPage.tsx` to 1800 seconds (30 minutes) and warning threshold to 180 seconds to match backend TTL.
+- Extended FTS5 update triggers across all enhanced modules in `app/services/fts_service_enhanced.py` so that `UPDATE` on main tables also updates corresponding FTS rows for: notes, documents, diary entries, todos, archive_items, archive_folders, and projects. Previously only notes/documents had update triggers.
+
+No functionality was removed in this change set.
+
 ## 2025-08-09 — Archive File Storage Path Fix (by Claude Sonnet 4)
 
 ## 2025-08-09 — Documents Upload 405 Fix (by GPT-5)

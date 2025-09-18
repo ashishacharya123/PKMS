@@ -39,7 +39,7 @@ const moodEmojis = {
   5: '😄'
 };
 
-export function MoodStatsWidget() {
+export function MoodStatsWidget({ compact = false }: { compact?: boolean }) {
   const { moodStats, loadMoodStats, error, isLoading, isUnlocked } = useDiaryStore();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const hasLoadedRef = useRef(false);
@@ -60,8 +60,8 @@ export function MoodStatsWidget() {
 
   if (moodStats && moodStats.total_entries === 0) {
     return (
-      <Paper p="lg" withBorder>
-        <Stack gap="md" align="center" py="xl">
+      <Paper p={compact ? 'md' : 'lg'} withBorder>
+        <Stack gap={compact ? 'sm' : 'md'} align="center" py={compact ? 'md' : 'xl'}>
           <Text size="xl">😊</Text>
           <Text fw={500} ta="center">No mood data yet</Text>
           <Text size="sm" c="dimmed" ta="center" maw={400}>
@@ -74,7 +74,7 @@ export function MoodStatsWidget() {
 
   if (isLoading || !moodStats) {
     return (
-      <Paper p="md" withBorder>
+      <Paper p={compact ? 'sm' : 'md'} withBorder>
         <Group>
           <IconMoodHappy size={20} />
           <Text c="dimmed">{isLoading ? "Loading mood statistics..." : "No mood data available yet"}</Text>
@@ -136,10 +136,10 @@ export function MoodStatsWidget() {
   };
 
   return (
-    <Paper p="lg" withBorder>
-      <Stack gap="md">
+    <Paper p={compact ? 'md' : 'lg'} withBorder>
+      <Stack gap={compact ? 'sm' : 'md'}>
         <Group justify="space-between" align="center">
-          <Title order={3} size="h4">
+          <Title order={compact ? 4 : 3} size={compact ? 'h5' : 'h4'}>
             <Group gap="xs">
               <IconMoodHappy size={20} />
               Mood Insights
@@ -164,21 +164,21 @@ export function MoodStatsWidget() {
         <Grid>
           {/* Average Mood */}
           <Grid.Col span={{ base: 12, sm: 6 }}>
-            <Card withBorder p="md">
-              <Stack gap="xs">
+            <Card withBorder p={compact ? 'sm' : 'md'}>
+              <Stack gap={compact ? 4 : 'xs'}>
                 <Text size="sm" c="dimmed">Average Mood</Text>
                 <Group justify="space-between">
-                  <Text size="xl" fw={600}>
+                  <Text size={compact ? 'lg' : 'xl'} fw={600}>
                     {average_mood ? average_mood.toFixed(1) : '—'}/5
                   </Text>
-                  <Text size="lg">
+                  <Text size={compact ? 'md' : 'lg'}>
                     {average_mood ? moodEmojis[Math.round(average_mood) as keyof typeof moodEmojis] : '😐'}
                   </Text>
                 </Group>
                 <Progress 
                   value={average_mood ? (average_mood / 5) * 100 : 0} 
                   color={getProgressColor()}
-                  size="sm"
+                  size={compact ? 'xs' : 'sm'}
                 />
                 <Text size="xs" c="dimmed">
                   {getTrendMessage()}
@@ -189,21 +189,21 @@ export function MoodStatsWidget() {
 
           {/* Dominant Mood */}
           <Grid.Col span={{ base: 12, sm: 6 }}>
-            <Card withBorder p="md">
-              <Stack gap="xs">
+            <Card withBorder p={compact ? 'sm' : 'md'}>
+              <Stack gap={compact ? 4 : 'xs'}>
                 <Text size="sm" c="dimmed">Most Common Mood</Text>
                 <Group justify="space-between">
-                  <Text size="lg" fw={500}>
+                  <Text size={compact ? 'md' : 'lg'} fw={500}>
                     {moodLabels[dominantMood.mood as keyof typeof moodLabels]}
                   </Text>
-                  <Text size="lg">
+                  <Text size={compact ? 'md' : 'lg'}>
                     {moodEmojis[dominantMood.mood as keyof typeof moodEmojis]}
                   </Text>
                 </Group>
                 <Progress 
                   value={dominantMood.percentage} 
                   color={moodColors[dominantMood.mood as keyof typeof moodColors]}
-                  size="sm"
+                  size={compact ? 'xs' : 'sm'}
                 />
                 <Text size="xs" c="dimmed">
                   {dominantMood.percentage.toFixed(1)}% of your entries
@@ -214,8 +214,8 @@ export function MoodStatsWidget() {
         </Grid>
 
         {/* Mood Distribution */}
-        <Card withBorder p="md">
-          <Stack gap="md">
+        <Card withBorder p={compact ? 'sm' : 'md'}>
+          <Stack gap={compact ? 'sm' : 'md'}>
             <Text size="sm" fw={500}>Mood Distribution</Text>
             
             <Grid>
@@ -225,16 +225,16 @@ export function MoodStatsWidget() {
                 const percentage = data?.percentage || 0;
                 
                 return (
-                  <Grid.Col span={{ base: 12, xs: 6, sm: 2.4 }} key={mood}>
+                  <Grid.Col span={{ base: 6, xs: 4, sm: 2.4 }} key={mood}>
                     <Tooltip label={`${count} entries (${percentage.toFixed(1)}%)`}>
-                      <Card withBorder p="xs" style={{ textAlign: 'center', cursor: 'help' }}>
-                        <Stack gap={4}>
-                          <Text size="lg">{moodEmojis[mood as keyof typeof moodEmojis]}</Text>
+                      <Card withBorder p={compact ? 6 : 'xs'} style={{ textAlign: 'center', cursor: 'help' }}>
+                        <Stack gap={compact ? 2 : 4}>
+                          <Text size={compact ? 'md' : 'lg'}>{moodEmojis[mood as keyof typeof moodEmojis]}</Text>
                           <Text size="xs" c="dimmed">{moodLabels[mood as keyof typeof moodLabels]}</Text>
                           <Progress
                             value={percentage}
                             color={moodColors[mood as keyof typeof moodColors]}
-                            size="xs"
+                            size={compact ? 'xs' : 'xs'}
                           />
                           <Text size="xs" fw={500}>{count}</Text>
                         </Stack>
@@ -247,15 +247,16 @@ export function MoodStatsWidget() {
           </Stack>
         </Card>
 
-        {/* Encouraging Message */}
-        <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-blue-0)' }}>
-          <Group>
-            <IconTrendingUp size={16} color="var(--mantine-color-blue-6)" />
-            <Text size="sm" c="blue.7">
-              <strong>Remember:</strong> Every day is different, and tracking your mood can help you identify patterns and celebrate your good days. Take care of yourself! 💙
-            </Text>
-          </Group>
-        </Card>
+        {!compact && (
+          <Card withBorder p="md" style={{ backgroundColor: 'var(--mantine-color-blue-0)' }}>
+            <Group>
+              <IconTrendingUp size={16} color="var(--mantine-color-blue-6)" />
+              <Text size="sm" c="blue.7">
+                <strong>Remember:</strong> Every day is different, and tracking your mood can help you identify patterns and celebrate your good days. Take care of yourself! 💙
+              </Text>
+            </Group>
+          </Card>
+        )}
 
         {error && (
           <Text size="sm" c="red">

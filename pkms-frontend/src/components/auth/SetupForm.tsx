@@ -166,7 +166,15 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
       
       if (success) {
         // Success! User is now logged in and everything is set up
-        // No need for additional modals or flows
+        // Show success message and the auth store will handle the redirect
+        notifications.show({
+          title: 'Welcome to PKMS!',
+          message: 'Your account has been created successfully. You are now logged in.',
+          color: 'green',
+        });
+        
+        // The auth store has already set isAuthenticated = true
+        // The parent component should detect this and redirect accordingly
       }
     } finally {
       setIsLoading(false);

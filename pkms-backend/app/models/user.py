@@ -50,7 +50,6 @@ class User(Base):
     diary_media = relationship("DiaryMedia", back_populates="user", cascade="all, delete-orphan")
     archive_folders = relationship("ArchiveFolder", back_populates="user", cascade="all, delete-orphan")
     archive_items = relationship("ArchiveItem", back_populates="user", cascade="all, delete-orphan")
-    tags = relationship("Tag", back_populates="user", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}')>"

@@ -1,69 +1,77 @@
 """
-Archive Model for File and Folder Management
+Archive Models for File Organization
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-import uuid as uuid_lib
+from uuid import uuid4
 
 from app.models.base import Base
 from app.config import nepal_now
-from app.models.tag_associations import archive_tags
+from app.models.tag_associations import archive_folder_tags, archive_item_tags
 
 
 class ArchiveFolder(Base):
-    """Archive folder model for organizing files"""
+    """Archive folder for organizing files"""
     
     __tablename__ = "archive_folders"
     
-    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid_lib.uuid4()), index=True)
+    id = Column(Integer, primary_key=True, index=True)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
-    path = Column(String(1000), nullable=False, index=True)  # Full path for hierarchy
     parent_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
+    is_archived = Column(Boolean, default=False, index=True)
+    is_favorite = Column(Boolean, default=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    
+    # FTS5 Search Support
+    tags_text = Column(Text, nullable=True, default="")  # Denormalized tags for FTS5 search
     
     # Relationships
     user = relationship("User", back_populates="archive_folders")
-    parent = relationship("ArchiveFolder", remote_side=[uuid], back_populates="children")
-    children = relationship("ArchiveFolder", back_populates="parent", cascade="all, delete-orphan")
+    parent = relationship("ArchiveFolder", remote_side=[uuid], backref="children")
     items = relationship("ArchiveItem", back_populates="folder", cascade="all, delete-orphan")
+    tag_objs = relationship("Tag", secondary=archive_folder_tags, back_populates="archive_folders")
     
     def __repr__(self):
-        return f"<ArchiveFolder(uuid={self.uuid}, name='{self.name}', path='{self.path}')>"
+        return f"<ArchiveFolder(id={self.id}, name='{self.name}', parent_uuid='{self.parent_uuid}')>"
 
 
 class ArchiveItem(Base):
-    """Archive item model for files within folders"""
+    """Archive item (file) stored in folders"""
     
     __tablename__ = "archive_items"
     
-    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid_lib.uuid4()), index=True)
+    id = Column(Integer, primary_key=True, index=True)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
-    folder_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=False, index=True)
     original_filename = Column(String(255), nullable=False)
     stored_filename = Column(String(255), nullable=False)
-    file_path = Column(String(1000), nullable=False)
+    file_path = Column(String(500), nullable=False)
     file_size = Column(BigInteger, nullable=False)
-    mime_type = Column(String(100), nullable=False, index=True)
-    thumbnail_path = Column(String(1000), nullable=True)
-    metadata_json = Column(Text, default="{}")  # Additional metadata as JSON
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    mime_type = Column(String(100), nullable=False)
+    folder_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
+    is_archived = Column(Boolean, default=False, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
-    version = Column(String(50), default="1.0")
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    
+    # Additional metadata as JSON
+    metadata_json = Column(Text, default="{}")  # Additional metadata as JSON
+    
+    # FTS5 Search Support
+    tags_text = Column(Text, nullable=True, default="")  # Denormalized tags for FTS5 search
     
     # Relationships
     user = relationship("User", back_populates="archive_items")
     folder = relationship("ArchiveFolder", back_populates="items")
-    tag_objs = relationship("Tag", secondary=archive_tags, back_populates="archive_items")
+    tag_objs = relationship("Tag", secondary=archive_item_tags, back_populates="archive_items")
     
     def __repr__(self):
-        return f"<ArchiveItem(uuid={self.uuid}, name='{self.name}', mime_type='{self.mime_type}')>" 
+        return f"<ArchiveItem(id={self.id}, name='{self.name}', folder_uuid='{self.folder_uuid}')>" 

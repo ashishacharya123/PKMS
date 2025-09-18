@@ -100,6 +100,19 @@ class FTS5SearchService:
                     updated_at UNINDEXED
                 );
             """))
+
+            # Create FTS5 virtual table for projects
+            await db.execute(text("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS fts_projects USING fts5(
+                    id UNINDEXED,
+                    name,
+                    description,
+                    tags_text,
+                    user_id UNINDEXED,
+                    created_at UNINDEXED,
+                    updated_at UNINDEXED
+                );
+            """))
             
             # Create triggers to keep FTS tables in sync
             await self._create_sync_triggers(db)
@@ -142,6 +155,10 @@ class FTS5SearchService:
             "DROP TRIGGER IF EXISTS folders_fts_insert;",
             "DROP TRIGGER IF EXISTS folders_fts_update;",
             "DROP TRIGGER IF EXISTS folders_fts_delete;",
+            # Projects
+            "DROP TRIGGER IF EXISTS projects_fts_insert;",
+            "DROP TRIGGER IF EXISTS projects_fts_update;",
+            "DROP TRIGGER IF EXISTS projects_fts_delete;",
         ]
         for stmt in drop_statements:
             try:
@@ -319,6 +336,45 @@ class FTS5SearchService:
             END;
         """))
 
+        # Projects triggers
+        await db.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS projects_fts_insert AFTER INSERT ON projects BEGIN
+                INSERT INTO fts_projects(
+                    id, name, description, tags_text, user_id, created_at, updated_at
+                )
+                VALUES (
+                    new.id,
+                    new.name,
+                    new.description,
+                    COALESCE((SELECT GROUP_CONCAT(t.name, ' ')
+                              FROM project_tags pt
+                              JOIN tags t ON pt.tag_uuid = t.uuid
+                              WHERE pt.project_uuid = new.uuid), ''),
+                    new.user_id,
+                    new.created_at,
+                    new.updated_at
+                );
+            END;
+        """))
+        await db.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS projects_fts_update AFTER UPDATE ON projects BEGIN
+                UPDATE fts_projects SET
+                    name = new.name,
+                    description = new.description,
+                    tags_text = COALESCE((SELECT GROUP_CONCAT(t.name, ' ')
+                                          FROM project_tags pt
+                                          JOIN tags t ON pt.tag_uuid = t.uuid
+                                          WHERE pt.project_uuid = new.uuid), ''),
+                    updated_at = new.updated_at
+                WHERE id = new.id;
+            END;
+        """))
+        await db.execute(text("""
+            CREATE TRIGGER IF NOT EXISTS projects_fts_delete AFTER DELETE ON projects BEGIN
+                DELETE FROM fts_projects WHERE id = old.id;
+            END;
+        """))
+
     async def populate_fts_tables(self, db: AsyncSession) -> bool:
         """Populate FTS tables with existing data"""
         try:
@@ -382,6 +438,19 @@ class FTS5SearchService:
                 FROM archive_folders
                 WHERE uuid NOT IN (SELECT uuid FROM fts_folders);
             """))
+
+            # Populate projects
+            await db.execute(text("""
+                INSERT INTO fts_projects(id, name, description, tags_text, user_id, created_at, updated_at)
+                SELECT p.id, p.name, p.description,
+                       COALESCE((SELECT GROUP_CONCAT(t.name, ' ')
+                                 FROM project_tags pt
+                                 JOIN tags t ON pt.tag_uuid = t.uuid
+                                 WHERE pt.project_uuid = p.uuid), ''),
+                       p.user_id, p.created_at, p.updated_at
+                FROM projects p
+                WHERE p.id NOT IN (SELECT id FROM fts_projects);
+            """))
             
             await db.commit()
             logger.info("✅ FTS5 tables populated with existing data")
@@ -419,8 +488,8 @@ class FTS5SearchService:
                            COALESCE(GROUP_CONCAT(t.name, ' '), '') as tags_text
                     FROM fts_notes fn
                     JOIN notes n ON fn.id = n.id
-                    LEFT JOIN note_tags nt ON n.id = nt.note_id
-                    LEFT JOIN tags t ON nt.tag_id = t.id
+                    LEFT JOIN note_tags nt ON n.uuid = nt.note_uuid
+                    LEFT JOIN tags t ON nt.tag_uuid = t.uuid
                     WHERE fts_notes MATCH :query AND fn.user_id = :user_id
                     GROUP BY n.id, n.title, n.content, n.created_at, n.updated_at, rank, content_snippet, title_snippet
                     ORDER BY rank ASC
@@ -465,7 +534,7 @@ class FTS5SearchService:
                     FROM fts_documents fd
                     JOIN documents d ON fd.uuid = d.uuid
                     LEFT JOIN document_tags dt ON d.uuid = dt.document_uuid
-                    LEFT JOIN tags t ON dt.tag_id = t.id
+                    LEFT JOIN tags t ON dt.tag_uuid = t.uuid
                     WHERE fts_documents MATCH :query AND fd.user_id = :user_id
                     GROUP BY d.uuid, d.title, d.filename, d.original_name, d.description, 
                              d.created_at, d.updated_at, d.mime_type, d.file_size, rank, title_snippet, description_snippet
@@ -513,8 +582,8 @@ class FTS5SearchService:
                            COALESCE(GROUP_CONCAT(t.name, ' '), '') as tags_text
                     FROM fts_archive_items fa
                     JOIN archive_items a ON fa.uuid = a.uuid
-                    LEFT JOIN archive_tags at ON a.uuid = at.archive_item_uuid
-                    LEFT JOIN tags t ON at.tag_id = t.id
+                    LEFT JOIN archive_tags at ON a.uuid = at.item_uuid
+                    LEFT JOIN tags t ON at.tag_uuid = t.uuid
                     WHERE fts_archive_items MATCH :query AND fa.user_id = :user_id
                     GROUP BY a.uuid, a.name, a.description, a.original_filename, 
                              a.metadata_json, a.folder_uuid, a.created_at, a.updated_at, rank
@@ -555,15 +624,15 @@ class FTS5SearchService:
             if 'todos' in content_types:
                 todos_sql = text("""
                     SELECT 'todo' as type, t.id, t.title, t.description, t.project_id,
-                           t.status, t.priority, t.due_date, t.created_at, t.updated_at,
+                           t.priority, t.due_date, t.created_at, t.updated_at,
                            bm25(fts_todos) as rank,
                            COALESCE(GROUP_CONCAT(tg.name, ' '), '') as tags_text
                     FROM fts_todos ft
                     JOIN todos t ON ft.id = t.id
-                    LEFT JOIN todo_tags tt ON t.id = tt.todo_id
-                    LEFT JOIN tags tg ON tt.tag_id = tg.id
+                    LEFT JOIN todo_tags tt ON t.uuid = tt.todo_uuid
+                    LEFT JOIN tags tg ON tt.tag_uuid = tg.uuid
                     WHERE fts_todos MATCH :query AND ft.user_id = :user_id
-                    GROUP BY t.id, t.title, t.description, t.project_id, t.status, t.priority,
+                    GROUP BY t.id, t.title, t.description, t.project_id, t.priority,
                              t.due_date, t.created_at, t.updated_at, rank
                     ORDER BY rank ASC
                     LIMIT :limit OFFSET :offset
@@ -601,16 +670,16 @@ class FTS5SearchService:
             # Search diary entries
             if 'diary' in content_types or 'diary_entries' in content_types:
                 diary_sql = text("""
-                    SELECT 'diary_entry' as type, d.id, d.title, d.content, d.mood, d.weather,
+                    SELECT 'diary_entry' as type, d.id, d.title, d.content, d.mood,
                            d.created_at, d.updated_at, bm25(fts_diary_entries) as rank,
                            COALESCE(GROUP_CONCAT(t.name, ' '), '') as tags_text,
-                           (SELECT COUNT(*) > 0 FROM diary_media dm WHERE dm.diary_entry_id = d.id) as has_media
+                           (SELECT COUNT(*) > 0 FROM diary_media dm WHERE dm.diary_entry_uuid = d.uuid) as has_media
                     FROM fts_diary_entries fd
                     JOIN diary_entries d ON fd.id = d.id
-                    LEFT JOIN diary_tags dt ON d.id = dt.diary_entry_id
-                    LEFT JOIN tags t ON dt.tag_id = t.id
+                    LEFT JOIN diary_tags dt ON d.uuid = dt.diary_entry_uuid
+                    LEFT JOIN tags t ON dt.tag_uuid = t.uuid
                     WHERE fts_diary_entries MATCH :query AND fd.user_id = :user_id
-                    GROUP BY d.id, d.title, d.content, d.mood, d.weather, d.created_at, d.updated_at, rank
+                    GROUP BY d.id, d.title, d.content, d.created_at, d.updated_at, rank
                     ORDER BY rank ASC
                     LIMIT :limit OFFSET :offset
                 """)
@@ -647,13 +716,10 @@ class FTS5SearchService:
                 folders_sql = text("""
                     SELECT 'folder' as type, f.uuid, f.name, f.description, f.parent_uuid,
                            f.created_at, f.updated_at, bm25(fts_folders) as rank,
-                           COALESCE(GROUP_CONCAT(t.name, ' '), '') as tags_text
+                           '' as tags_text
                     FROM fts_folders ff
                     JOIN archive_folders f ON ff.uuid = f.uuid
-                    LEFT JOIN folder_tags ft ON f.uuid = ft.folder_uuid
-                    LEFT JOIN tags t ON ft.tag_id = t.id
                     WHERE fts_folders MATCH :query AND ff.user_id = :user_id
-                    GROUP BY f.uuid, f.name, f.description, f.parent_uuid, f.created_at, f.updated_at, rank
                     ORDER BY rank ASC
                     LIMIT :limit OFFSET :offset
                 """)
@@ -685,6 +751,39 @@ class FTS5SearchService:
                         'raw_bm25_rank': float(row.rank) if row.rank else 0.0
                     })
             
+            # Search projects
+            if 'projects' in content_types:
+                projects_sql = text("""
+                    SELECT 'project' as type, p.id, p.name, p.description,
+                           p.created_at, p.updated_at, bm25(fts_projects) as rank,
+                           fp.tags_text
+                    FROM fts_projects fp
+                    JOIN projects p ON fp.id = p.id
+                    WHERE fts_projects MATCH :query AND fp.user_id = :user_id
+                    ORDER BY rank ASC
+                    LIMIT :limit OFFSET :offset
+                """)
+                result = await db.execute(projects_sql, {
+                    'query': search_query,
+                    'user_id': user_id,
+                    'limit': limit,
+                    'offset': offset
+                })
+                for row in result.fetchall():
+                    relevance_score = 1.0 / (1.0 + float(row.rank)) if row.rank else 0.0
+                    results.append({
+                        'type': row.type,
+                        'module': 'projects',
+                        'id': row.id,
+                        'title': row.name,
+                        'description': row.description,
+                        'tags': row.tags_text.split() if row.tags_text else [],
+                        'created_at': row.created_at,
+                        'updated_at': row.updated_at,
+                        'relevance_score': relevance_score,
+                        'raw_bm25_rank': float(row.rank) if row.rank else 0.0
+                    })
+
             # Sort all results by relevance score (higher is better now)
             results.sort(key=lambda x: x['relevance_score'], reverse=True)
             

@@ -153,6 +153,23 @@ app = FastAPI(
 # Attach limiter to app state for SlowAPI middleware
 app.state.limiter = limiter
 
+# ------------------------------------------------------------
+# ⛑️  Global middlewares - CORS MUST BE FIRST
+# ------------------------------------------------------------
+# CORS middleware for frontend communication - MUST BE FIRST
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173", "http://127.0.0.1:5173"],  # Specific origins for security
+    allow_credentials=True,  # Enable credentials for proper authentication
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # Specific methods
+    allow_headers=["*"],  # Allow all headers
+    expose_headers=["*"]  # Expose all headers
+)
+
+# 2. Query-string sanitisation (defence-in-depth)
+from app.middleware.sanitization import SanitizationMiddleware
+app.add_middleware(SanitizationMiddleware)
+
 # Add routers
 app.include_router(auth.router, prefix="/api/v1/auth")
 app.include_router(notes.router, prefix="/api/v1/notes")
@@ -170,29 +187,7 @@ app.include_router(uploads.router, prefix="/api/v1")
 app.include_router(testing_router, prefix="/api/v1/testing")
 app.include_router(advanced_fuzzy.router, prefix="/api/v1")  # Re-enabled for hybrid search
 
-# ------------------------------------------------------------
-# ⛑️  Global middlewares
-# ------------------------------------------------------------
-# 1. Query-string sanitisation (defence-in-depth)
-from app.middleware.sanitization import SanitizationMiddleware
-app.add_middleware(SanitizationMiddleware)
-
-# CORS middleware for frontend communication
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-        "http://localhost:8000",
-    ],
-    # Allow typical local LAN addresses for development
-    allow_origin_regex=r"http://(localhost|127\\.0\\.0\\.1|192\\.168\\.\\d{1,3}\\.\\d{1,3}|10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|172\\.(1[6-9]|2\\d|3[0-1])\\.\\d{1,3}\\.\\d{1,3})(:\\d+)?",
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"]
-)
+# Add SlowAPI middleware for rate limiting
 
 # Add SlowAPI middleware for rate limiting
 app.add_middleware(SlowAPIMiddleware)
@@ -294,18 +289,13 @@ async def add_security_headers(request: Request, call_next):
     
     return response
 
-# Trusted Host Middleware - Updated for local development
+# Trusted Host Middleware - Only in production for security
 if settings.environment == "production":
     app.add_middleware(
         TrustedHostMiddleware, 
         allowed_hosts=["localhost", "127.0.0.1", "0.0.0.0", "localhost:8000", "127.0.0.1:8000"]
     )
-else:
-    # In development, be more permissive with hosts
-    app.add_middleware(
-        TrustedHostMiddleware, 
-        allowed_hosts=["*"]  # Allow all hosts in development
-    )
+# In development, skip TrustedHostMiddleware to avoid CORS conflicts
 
 # Health check endpoints
 @app.get("/")
@@ -324,6 +314,42 @@ async def health_check():
         "timestamp": datetime.now(NEPAL_TZ).isoformat(),
         "environment": settings.environment
     }
+
+# Test CORS endpoint
+@app.get("/test-cors")
+async def test_cors():
+    return {
+        "message": "CORS is working!",
+        "timestamp": datetime.now(NEPAL_TZ).isoformat(),
+        "cors_headers": "Should include Access-Control-Allow-Origin"
+    }
+
+# Test todos endpoint (without authentication for debugging)
+@app.get("/test-todos")
+async def test_todos():
+    try:
+        from app.database import get_db_session
+        from app.models.todo import Todo
+        from sqlalchemy import select
+        
+        async with get_db_session() as db:
+            # Just test if we can query todos without errors
+            result = await db.execute(select(Todo).limit(1))
+            todo_count = result.scalars().all()
+            
+            return {
+                "message": "Todos endpoint test successful",
+                "timestamp": datetime.now(NEPAL_TZ).isoformat(),
+                "todo_count": len(todo_count),
+                "database_accessible": True
+            }
+    except Exception as e:
+        return {
+            "message": "Todos endpoint test failed",
+            "timestamp": datetime.now(NEPAL_TZ).isoformat(),
+            "error": str(e),
+            "database_accessible": False
+        }
 
 if __name__ == "__main__":
     print(f"🌐 Starting server on {settings.host}:{settings.port}")

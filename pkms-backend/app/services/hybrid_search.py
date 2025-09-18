@@ -47,7 +47,7 @@ class HybridSearchService:
         # Step 1: Fast FTS5 search for candidates
         logger.info(f"🔍 Starting hybrid search for: '{query}'")
         
-        fts_results = await enhanced_fts_service.enhanced_search_all(
+        fts_results = await enhanced_fts_service.search_enhanced(
             db=db,
             query=query,
             user_id=user_id,
@@ -222,7 +222,7 @@ class HybridSearchService:
         # Get a larger candidate set from FTS5 with relaxed matching
         relaxed_query = ' OR '.join(query.split())  # OR instead of AND
         
-        fts_results = await enhanced_fts_service.enhanced_search_all(
+        fts_results = await enhanced_fts_service.search_enhanced(
             db=db,
             query=relaxed_query,
             user_id=user_id,
@@ -262,7 +262,7 @@ class HybridSearchService:
             return []
         
         # Get recent titles/names that might match
-        fts_results = await enhanced_fts_service.enhanced_search_all(
+        fts_results = await enhanced_fts_service.search_enhanced(
             db=db,
             query=partial_query + "*",  # Prefix matching
             user_id=user_id,

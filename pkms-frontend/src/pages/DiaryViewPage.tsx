@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Container, Stack, Group, Button, Title, Text, Badge, Card, Skeleton, Alert, Paper, Image } from '@mantine/core';
 import { IconEdit, IconArrowLeft, IconTrash, IconAlertTriangle, IconLock } from '@tabler/icons-react';
@@ -18,7 +19,7 @@ export default function DiaryViewPage() {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
   // Ensure entries are loaded
-  useEffect(() => {
+  useAuthenticatedEffect(() => {
     if (!store.entries || store.entries.length === 0) {
       store.loadEntries();
     }

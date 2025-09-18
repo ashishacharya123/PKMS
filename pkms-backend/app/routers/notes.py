@@ -7,7 +7,8 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, text, delete
 from sqlalchemy.orm import selectinload
-from pydantic import BaseModel, Field, validator
+from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFileResponse, CommitNoteFileRequest
+from app.schemas.link import LinkResponse
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from pathlib import Path
@@ -26,7 +27,7 @@ from app.auth.dependencies import get_current_user
 from app.utils.security import sanitize_text_input, sanitize_tags
 from app.services.chunk_service import chunk_manager
 from app.services.file_detection import FileTypeDetectionService
-from app.services.fts_service import fts_service
+from app.services.fts_service_enhanced import enhanced_fts_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["notes"])
@@ -34,76 +35,7 @@ router = APIRouter(tags=["notes"])
 # Initialize file type detection service
 file_detector = FileTypeDetectionService()
 
-# --- Pydantic Models ---
 
-class NoteCreate(BaseModel):
-    title: str = Field(..., min_length=1, max_length=200)
-    content: str = Field(..., min_length=0, max_length=50000)
-    tags: Optional[List[str]] = Field(default=[], max_items=20)
-
-    @validator('title')
-    def validate_safe_text(cls, v):
-        return sanitize_text_input(v, max_length=200)
-
-class NoteUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1, max_length=200)
-    content: Optional[str] = Field(None, min_length=0, max_length=50000)
-    tags: Optional[List[str]] = Field(None, max_items=20)
-    is_archived: Optional[bool] = None
-    is_favorite: Optional[bool] = None
-
-    @validator('title')
-    def validate_safe_text(cls, v):
-        return sanitize_text_input(v, max_length=200) if v else v
-
-class NoteResponse(BaseModel):
-    id: int
-    uuid: str
-    title: str
-    content: str
-    file_count: int
-    is_favorite: bool
-    is_archived: bool
-    created_at: datetime
-    updated_at: datetime
-    tags: List[str]
-
-    class Config:
-        from_attributes = True
-
-class NoteSummary(BaseModel):
-    id: int
-    uuid: str
-    title: str
-    file_count: int
-    is_favorite: bool
-    is_archived: bool
-    created_at: datetime
-    updated_at: datetime
-    tags: List[str]
-    preview: str  # First 200 chars of content
-
-    class Config:
-        from_attributes = True
-
-class NoteFileResponse(BaseModel):
-    uuid: str
-    note_uuid: str
-    filename: str
-    original_name: str
-    file_size: int
-    mime_type: str
-    description: Optional[str]
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-class CommitNoteFileRequest(BaseModel):
-    """Request model for committing chunked note file upload"""
-    file_id: str
-    note_uuid: str
-    description: Optional[str] = Field(None, max_length=500)
 
 # --- Helper Functions ---
 
@@ -209,17 +141,7 @@ async def _get_note_with_relations(db: AsyncSession, note_id: int, user_id: int)
     
     return _convert_note_to_response(note)
 
-def _format_link(link: Link) -> Dict[str, Any]:
-    """Format link for API response."""
-    return {
-        "id": link.id,
-        "title": link.title,
-        "url": link.url,
-        "description": link.description,
-        "created_at": link.created_at.isoformat() if link.created_at else None,
-        "is_favorite": link.is_favorite,
-        "is_archived": link.is_archived
-    }
+
 
 def _convert_note_to_response(note: Note) -> NoteResponse:
     """Convert Note model to NoteResponse."""
@@ -253,7 +175,7 @@ async def list_notes(
     """List notes with filtering and pagination. Uses FTS5 for text search."""
     if search:
         # Use FTS5 for full-text search
-        fts_results = await fts_service.search_all(db, search, current_user.id, content_types=["notes"], limit=limit, offset=offset)
+        fts_results = await enhanced_fts_service.search_all(db, search, current_user.id, content_types=["notes"], limit=limit, offset=offset)
         note_ids = [r["id"] for r in fts_results if r["type"] == "note"]
         if not note_ids:
             return []
@@ -720,7 +642,7 @@ async def delete_note_file(
     
     return {"message": "File deleted successfully"}
 
-@router.get("/{note_id}/links")
+@router.get("/{note_id}/links", response_model=List[LinkResponse])
 async def get_note_links(
     note_id: int,
     current_user: User = Depends(get_current_user),
@@ -750,6 +672,6 @@ async def get_note_links(
             )
         )
         existing_links = result.scalars().all()
-        return [_format_link(link) for link in existing_links]
+        return existing_links
     
     return [] 

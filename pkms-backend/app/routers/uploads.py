@@ -17,13 +17,22 @@ import logging
 
 from app.services.chunk_service import chunk_manager
 from app.database import get_db
+from app.auth.dependencies import get_current_user
+from app.models.user import User
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from app.utils.security import validate_file_size
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
+MAX_CHUNK_SIZE = 5 * 1024 * 1024  # 5MB per chunk
 
 @router.post("/upload/chunk")
+@limiter.limit("60/minute")
 async def upload_chunk(
     file: UploadFile = File(...),
     chunk_data: str = Form(...),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)  # placeholder – modules may need DB later
 ):
     """Receive a single chunk and store it via ChunkUploadManager."""
@@ -35,6 +44,14 @@ async def upload_chunk(
     required = {"file_id", "chunk_number", "total_chunks", "filename"}
     if not required.issubset(meta):
         raise HTTPException(status_code=400, detail="Missing fields in chunk_data")
+
+    # Optional: enforce per-chunk size limit
+    try:
+        data = await file.read()
+        validate_file_size(len(data), MAX_CHUNK_SIZE)
+    finally:
+        # Reset pointer for downstream file-like consumption
+        await file.seek(0)
 
     # Save chunk
     status = await chunk_manager.save_chunk(

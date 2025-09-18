@@ -19,6 +19,7 @@ from ..models.todo import Todo
 from ..models.archive import ArchiveItem, ArchiveFolder
 from ..models.diary import DiaryEntry
 from ..models.tag import Tag
+from ..models.todo import Project
 
 logger = logging.getLogger(__name__)
 
@@ -36,919 +37,325 @@ class EnhancedFTS5SearchService:
             'archive': 0.7,
             'folders': 0.6
         }
+        
+        # FTS5 table configurations - eliminates redundancy
+        self.fts_tables = {
+            'notes': {
+                'table_name': 'fts_notes_enhanced',
+                'model': Note,
+                'columns': ['id', 'title', 'content', 'tags_text', 'user_id', 'created_at', 'updated_at', 'is_favorite'],
+                'search_columns': ['id', 'title', 'content', 'tags_text', 'raw_score'],
+                'id_column': 'id'
+            },
+            'documents': {
+                'table_name': 'fts_documents_enhanced',
+                'model': Document,
+                'columns': ['uuid', 'title', 'filename', 'original_name', 'description', 'tags_text', 'user_id', 'mime_type', 'file_size', 'created_at', 'updated_at', 'is_favorite', 'is_archived'],
+                'search_columns': ['uuid', 'title', 'filename', 'original_name', 'description', 'tags_text', 'raw_score'],
+                'id_column': 'uuid'
+            },
+            'todos': {
+                'table_name': 'fts_todos_enhanced',
+                'model': Todo,
+                'columns': ['id', 'title', 'description', 'tags_text', 'status', 'priority', 'user_id', 'project_id', 'created_at', 'updated_at', 'is_archived'],
+                'search_columns': ['id', 'title', 'description', 'tags_text', 'status', 'priority', 'raw_score'],
+                'id_column': 'id'
+            },
+            'diary': {
+                'table_name': 'fts_diary_entries_enhanced',
+                'model': DiaryEntry,
+                'columns': ['id', 'title', 'content', 'tags_text', 'mood', 'weather', 'location', 'user_id', 'created_at', 'updated_at', 'is_encrypted'],
+                'search_columns': ['id', 'title', 'content', 'tags_text', 'mood', 'weather', 'location', 'raw_score'],
+                'id_column': 'id'
+            },
+            'archive_items': {
+                'table_name': 'fts_archive_items_enhanced',
+                'model': ArchiveItem,
+                'columns': ['uuid', 'name', 'description', 'original_filename', 'metadata_json', 'tags_text', 'user_id', 'folder_uuid', 'created_at', 'updated_at', 'is_favorite'],
+                'search_columns': ['uuid', 'name', 'description', 'original_filename', 'metadata_json', 'tags_text', 'raw_score'],
+                'id_column': 'uuid'
+            },
+            'archive_folders': {
+                'table_name': 'fts_folders_enhanced',
+                'model': ArchiveFolder,
+                'columns': ['uuid', 'name', 'description', 'tags_text', 'user_id', 'parent_uuid', 'created_at', 'updated_at', 'is_archived'],
+                'search_columns': ['uuid', 'name', 'description', 'tags_text', 'raw_score'],
+                'id_column': 'uuid'
+            },
+            'projects': {
+                'table_name': 'fts_projects_enhanced',
+                'model': Project,
+                'columns': ['uuid', 'name', 'description', 'tags_text', 'user_id', 'created_at', 'updated_at', 'is_archived'],
+                'search_columns': ['uuid', 'name', 'description', 'tags_text', 'raw_score'],
+                'id_column': 'uuid'
+            }
+        }
 
     async def initialize_enhanced_fts_tables(self, db: AsyncSession) -> bool:
         """Initialize enhanced FTS5 virtual tables with embedded tags"""
         try:
-            # Enhanced FTS5 virtual table for notes with embedded tags
-            await db.execute(text("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS fts_notes_enhanced USING fts5(
-                    id UNINDEXED,
-                    title,
-                    content,
-                    tags_text,
-                    area UNINDEXED,
-                    user_id UNINDEXED,
-                    created_at UNINDEXED,
-                    updated_at UNINDEXED,
-                    is_favorite UNINDEXED
-                );
-            """))
+            # Create all FTS5 tables using configuration
+            for table_key, config in self.fts_tables.items():
+                await self._create_fts_table(db, config)
             
-            # Enhanced FTS5 virtual table for documents with embedded tags
-            await db.execute(text("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS fts_documents_enhanced USING fts5(
-                    uuid UNINDEXED,
-                    title,
-                    filename,
-                    original_name,
-                    description,
-                    tags_text,
-                    user_id UNINDEXED,
-                    mime_type UNINDEXED,
-                    file_size UNINDEXED,
-                    created_at UNINDEXED,
-                    updated_at UNINDEXED,
-                    is_favorite UNINDEXED,
-                    is_archived UNINDEXED
-                );
-            """))
+            # Create triggers to keep FTS5 tables in sync
+            await self._create_fts_triggers(db)
             
-            # Enhanced FTS5 virtual table for archive items with embedded tags
-            await db.execute(text("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS fts_archive_items_enhanced USING fts5(
-                    uuid UNINDEXED,
-                    name,
-                    description,
-                    original_filename,
-                    metadata_json,
-                    tags_text,
-                    user_id UNINDEXED,
-                    folder_uuid UNINDEXED,
-                    created_at UNINDEXED,
-                    updated_at UNINDEXED,
-                    is_favorite UNINDEXED
-                );
-            """))
-            
-            # Enhanced FTS5 virtual table for todos with embedded tags
-            await db.execute(text("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS fts_todos_enhanced USING fts5(
-                    id UNINDEXED,
-                    title,
-                    description,
-                    tags_text,
-                    user_id UNINDEXED,
-                    project_id UNINDEXED,
-                    status UNINDEXED,
-                    priority UNINDEXED,
-                    due_date UNINDEXED,
-                    created_at UNINDEXED,
-                    updated_at UNINDEXED
-                );
-            """))
-            
-            # Enhanced FTS5 virtual table for diary entries with embedded tags
-            await db.execute(text("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS fts_diary_entries_enhanced USING fts5(
-                    id UNINDEXED,
-                    title,
-                    content,
-                    tags_text,
-                    mood UNINDEXED,
-                    weather UNINDEXED,
-                    user_id UNINDEXED,
-                    created_at UNINDEXED,
-                    updated_at UNINDEXED,
-                    has_media UNINDEXED
-                );
-            """))
-            
-            # Enhanced FTS5 virtual table for archive folders
-            await db.execute(text("""
-                CREATE VIRTUAL TABLE IF NOT EXISTS fts_folders_enhanced USING fts5(
-                    uuid UNINDEXED,
-                    name,
-                    description,
-                    tags_text,
-                    parent_uuid UNINDEXED,
-                    user_id UNINDEXED,
-                    created_at UNINDEXED,
-                    updated_at UNINDEXED,
-                    is_favorite UNINDEXED
-                );
-            """))
-            
-            # Create enhanced sync triggers
-            await self._create_enhanced_sync_triggers(db)
-            
-            await db.commit()
             self.tables_initialized = True
             logger.info("✅ Enhanced FTS5 virtual tables initialized successfully")
             return True
             
         except Exception as e:
             logger.error(f"❌ Failed to initialize enhanced FTS5 tables: {e}")
+            return False
+
+    async def _create_fts_table(self, db: AsyncSession, config: Dict[str, Any]) -> None:
+        """Create a single FTS5 table using configuration"""
+        table_name = config['table_name']
+        columns = config['columns']
+        
+        # Build column definitions
+        column_defs = []
+        for col in columns:
+            if col in ['user_id', 'created_at', 'updated_at', 'id', 'uuid', 'mime_type', 'file_size', 
+                      'is_favorite', 'is_archived', 'status', 'priority', 'project_id', 'folder_uuid', 
+                      'parent_uuid', 'mood', 'weather', 'location', 'is_encrypted']:
+                column_defs.append(f"{col} UNINDEXED")
+            else:
+                column_defs.append(col)
+        
+        columns_sql = ",\n                    ".join(column_defs)
+        
+        await db.execute(text(f"""
+            CREATE VIRTUAL TABLE IF NOT EXISTS {table_name} USING fts5(
+                {columns_sql}
+            );
+        """))
+
+    async def _create_fts_triggers(self, db: AsyncSession) -> None:
+        """Create triggers to keep FTS5 tables synchronized with main tables"""
+        try:
+            # Table name mappings for triggers
+            table_mappings = {
+                'notes': 'notes',
+                'documents': 'documents', 
+                'todos': 'todos',
+                'diary': 'diary_entries',
+                'archive_items': 'archive_items',
+                'archive_folders': 'archive_folders',
+                'projects': 'projects'
+            }
+            
+            for table_key, config in self.fts_tables.items():
+                main_table = table_mappings[table_key]
+                fts_table = config['table_name']
+                columns = config['columns']
+                id_column = config['id_column']
+                
+                # Create INSERT trigger
+                columns_list = ", ".join(columns)
+                values_list = ", ".join([f"NEW.{col}" for col in columns])
+                
+                await db.execute(text(f"""
+                    CREATE TRIGGER IF NOT EXISTS {main_table}_ai AFTER INSERT ON {main_table} BEGIN
+                        INSERT INTO {fts_table} ({columns_list}) VALUES ({values_list});
+                    END;
+                """))
+                
+                # Create DELETE trigger
+                await db.execute(text(f"""
+                    CREATE TRIGGER IF NOT EXISTS {main_table}_ad AFTER DELETE ON {main_table} BEGIN
+                        DELETE FROM {fts_table} WHERE {id_column} = OLD.{id_column};
+                    END;
+                """))
+                
+                # Create UPDATE trigger for all configured modules to keep FTS rows in sync
+                update_set = ", ".join([f"{col} = NEW.{col}" for col in columns if col != id_column])
+                await db.execute(text(f"""
+                    CREATE TRIGGER IF NOT EXISTS {main_table}_au AFTER UPDATE ON {main_table} BEGIN
+                        UPDATE {fts_table} SET {update_set} WHERE {id_column} = OLD.{id_column};
+                    END;
+                """))
+            
+            logger.info("✅ FTS5 triggers created successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to create FTS5 triggers: {e}")
+            raise
+
+    async def populate_enhanced_fts_tables(self, db: AsyncSession) -> bool:
+        """Populate enhanced FTS5 tables with existing data"""
+        try:
+            if not self.tables_initialized:
+                await self.initialize_enhanced_fts_tables(db)
+            
+            logger.info("🔄 Populating enhanced FTS5 tables with existing data...")
+            
+            # Populate all tables using configuration
+            for table_key, config in self.fts_tables.items():
+                await self._populate_table(db, config)
+            
+            await db.commit()
+            logger.info("✅ Enhanced FTS5 tables populated with existing data")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to populate enhanced FTS5 tables: {e}")
             await db.rollback()
             return False
 
-    async def _create_enhanced_sync_triggers(self, db: AsyncSession):
-        """Create enhanced triggers to keep FTS tables synchronized with content tables"""
+    async def _populate_table(self, db: AsyncSession, config: Dict[str, Any]) -> None:
+        """Populate a single FTS5 table with existing data"""
+        model = config['model']
+        table_name = config['table_name']
+        columns = config['columns']
         
-        # Notes triggers with tag embedding
-        await db.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS notes_fts_enhanced_insert AFTER INSERT ON notes
-            BEGIN
-                INSERT INTO fts_notes_enhanced (
-                    id, title, content, tags_text, area, user_id, created_at, updated_at, is_favorite
-                )
-                VALUES (
-                    NEW.id, NEW.title, NEW.content,
-                    (SELECT COALESCE(GROUP_CONCAT(t.name, ' '), '') FROM tags t 
-                     JOIN note_tags nt ON t.id = nt.tag_id 
-                     WHERE nt.note_id = NEW.id),
-                    NEW.area, NEW.user_id, NEW.created_at, NEW.updated_at, NEW.is_favorite
-                );
-            END;
-        """))
+        # Get all records with tags
+        records = await db.execute(
+            select(model).options(selectinload(model.tag_objs))
+        )
         
-        await db.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS notes_fts_enhanced_update AFTER UPDATE ON notes
-            BEGIN
-                UPDATE fts_notes_enhanced SET
-                    title = NEW.title,
-                    content = NEW.content,
-                    tags_text = (SELECT COALESCE(GROUP_CONCAT(t.name, ' '), '') FROM tags t 
-                                 JOIN note_tags nt ON t.id = nt.tag_id 
-                                 WHERE nt.note_id = NEW.id),
-                    area = NEW.area,
-                    updated_at = NEW.updated_at,
-                    is_favorite = NEW.is_favorite
-                WHERE id = NEW.id;
-            END;
-        """))
-        
-        await db.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS notes_fts_enhanced_delete AFTER DELETE ON notes
-            BEGIN
-                DELETE FROM fts_notes_enhanced WHERE id = OLD.id;
-            END;
-        """))
+        for record in records.scalars():
+            # Extract tags
+            tag_names = [tag.name for tag in record.tag_objs]
+            tags_text = " ".join(tag_names)
+            
+            # Build values list
+            values = []
+            placeholders = []
+            for col in columns:
+                if col == 'tags_text':
+                    values.append(tags_text)
+                else:
+                    values.append(getattr(record, col))
+                placeholders.append('?')
+            
+            # Insert into FTS5 table
+            columns_list = ", ".join(columns)
+            placeholders_list = ", ".join(placeholders)
+            
+            await db.execute(text(f"""
+                INSERT OR REPLACE INTO {table_name} ({columns_list}) VALUES ({placeholders_list})
+            """), values)
 
-        # Documents triggers with tag embedding
-        await db.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS documents_fts_enhanced_insert AFTER INSERT ON documents
-            BEGIN
-                INSERT INTO fts_documents_enhanced (
-                    uuid, title, filename, original_name, description, tags_text,
-                    user_id, mime_type, file_size, created_at, updated_at, is_favorite, is_archived
-                )
-                VALUES (
-                    NEW.uuid, NEW.title, NEW.filename, NEW.original_name, NEW.description,
-                    (SELECT COALESCE(GROUP_CONCAT(t.name, ' '), '') FROM tags t 
-                     JOIN document_tags dt ON t.id = dt.tag_id 
-                     WHERE dt.document_uuid = NEW.uuid),
-                    NEW.user_id, NEW.mime_type, NEW.file_size, NEW.created_at, NEW.updated_at, 
-                    NEW.is_favorite, NEW.is_archived
-                );
-            END;
-        """))
-
-        await db.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS documents_fts_enhanced_update AFTER UPDATE ON documents
-            BEGIN
-                UPDATE fts_documents_enhanced SET
-                    title = NEW.title,
-                    filename = NEW.filename,
-                    original_name = NEW.original_name,
-                    description = NEW.description,
-                    tags_text = (SELECT COALESCE(GROUP_CONCAT(t.name, ' '), '') FROM tags t 
-                                 JOIN document_tags dt ON t.id = dt.tag_id 
-                                 WHERE dt.document_uuid = NEW.uuid),
-                    mime_type = NEW.mime_type,
-                    file_size = NEW.file_size,
-                    updated_at = NEW.updated_at,
-                    is_favorite = NEW.is_favorite,
-                    is_archived = NEW.is_archived
-                WHERE uuid = NEW.uuid;
-            END;
-        """))
-
-        await db.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS documents_fts_enhanced_delete AFTER DELETE ON documents
-            BEGIN
-                DELETE FROM fts_documents_enhanced WHERE uuid = OLD.uuid;
-            END;
-        """))
-
-        # Similar triggers for other tables...
-        # Archive items triggers
-        await db.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS archive_items_fts_enhanced_insert AFTER INSERT ON archive_items
-            BEGIN
-                INSERT INTO fts_archive_items_enhanced (
-                    uuid, name, description, original_filename, metadata_json, tags_text,
-                    user_id, folder_uuid, created_at, updated_at, is_favorite
-                )
-                VALUES (
-                    NEW.uuid, NEW.name, NEW.description, NEW.original_filename, NEW.metadata_json,
-                    (SELECT COALESCE(GROUP_CONCAT(t.name, ' '), '') FROM tags t 
-                     JOIN archive_tags at ON t.id = at.tag_id 
-                     WHERE at.archive_item_uuid = NEW.uuid),
-                    NEW.user_id, NEW.folder_uuid, NEW.created_at, NEW.updated_at, NEW.is_favorite
-                );
-            END;
-        """))
-
-        # Todos triggers
-        await db.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS todos_fts_enhanced_insert AFTER INSERT ON todos
-            BEGIN
-                INSERT INTO fts_todos_enhanced (
-                    id, title, description, tags_text, user_id, project_id,
-                    status, priority, due_date, created_at, updated_at
-                )
-                VALUES (
-                    NEW.id, NEW.title, NEW.description,
-                    (SELECT COALESCE(GROUP_CONCAT(t.name, ' '), '') FROM tags t 
-                     JOIN todo_tags tt ON t.id = tt.tag_id 
-                     WHERE tt.todo_id = NEW.id),
-                    NEW.user_id, NEW.project_id, NEW.status, NEW.priority, NEW.due_date,
-                    NEW.created_at, NEW.updated_at
-                );
-            END;
-        """))
-
-        # Diary entries triggers
-        await db.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS diary_entries_fts_enhanced_insert AFTER INSERT ON diary_entries
-            BEGIN
-                INSERT INTO fts_diary_entries_enhanced (
-                    id, title, content, tags_text, mood, weather, user_id,
-                    created_at, updated_at, has_media
-                )
-                VALUES (
-                    NEW.id, NEW.title, NEW.content,
-                    (SELECT COALESCE(GROUP_CONCAT(t.name, ' '), '') FROM tags t 
-                     JOIN diary_tags dt ON t.id = dt.tag_id 
-                     WHERE dt.diary_entry_id = NEW.id),
-                    NEW.mood, NEW.weather, NEW.user_id, NEW.created_at, NEW.updated_at,
-                    (SELECT COUNT(*) > 0 FROM diary_media WHERE diary_entry_id = NEW.id)
-                );
-            END;
-        """))
-
-        # Archive folders triggers
-        await db.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS archive_folders_fts_enhanced_insert AFTER INSERT ON archive_folders
-            BEGIN
-                INSERT INTO fts_folders_enhanced (
-                    uuid, name, description, tags_text, parent_uuid, user_id,
-                    created_at, updated_at, is_favorite
-                )
-                VALUES (
-                    NEW.uuid, NEW.name, NEW.description,
-                    (SELECT COALESCE(GROUP_CONCAT(t.name, ' '), '') FROM tags t 
-                     JOIN folder_tags ft ON t.id = ft.tag_id 
-                     WHERE ft.folder_uuid = NEW.uuid),
-                    NEW.parent_uuid, NEW.user_id, NEW.created_at, NEW.updated_at, NEW.is_favorite
-                );
-            END;
-        """))
-
-    def _prepare_fts_query(self, query: str) -> str:
-        """Prepare FTS5 query with proper sanitization and optimization"""
-        if not query or not query.strip():
-            return ""
-        
-        # Clean the query
-        query = query.strip()
-        
-        # Handle quoted phrases
-        if '"' in query:
-            return query  # Let FTS5 handle quoted phrases directly
-        
-        # Split into terms and add prefix matching
-        terms = re.findall(r'\w+', query.lower())
-        if not terms:
-            return ""
-        
-        # Create FTS5 query with prefix matching
-        fts_terms = []
-        for term in terms:
-            if len(term) >= 2:
-                fts_terms.append(f"{term}*")  # Prefix matching
-        
-        return " AND ".join(fts_terms) if fts_terms else ""
-
-    async def enhanced_search_all(self, db: AsyncSession, query: str, user_id: int,
-                                 modules: Optional[List[str]] = None,
-                                 include_tags: Optional[List[str]] = None,
-                                 exclude_tags: Optional[List[str]] = None,
-                                 date_from: Optional[date] = None,
-                                 date_to: Optional[date] = None,
-                                 favorites_only: bool = False,
-                                 include_archived: bool = True,
-                                 sort_by: str = "relevance",
-                                 sort_order: str = "desc",
-                                 limit: int = 50, 
-                                 offset: int = 0) -> Dict[str, Any]:
-        """Enhanced search with proper BM25 ranking, normalization, and filtering"""
-        
-        if not self.tables_initialized:
-            logger.warning("Enhanced FTS5 tables not initialized")
-            return {"results": [], "total": 0, "modules_searched": []}
-        
-        # Determine modules to search
-        if not modules:
-            modules = ['notes', 'documents', 'archive_items', 'todos', 'diary_entries', 'folders']
-        
-        search_query = self._prepare_fts_query(query)
-        if not search_query:
-            return {"results": [], "total": 0, "modules_searched": modules}
-        
-        all_results = []
-        modules_searched = []
-        
+    async def search_enhanced(self, db: AsyncSession, query: str, user_id: int, 
+                             module_filter: Optional[str] = None, 
+                             limit: int = 50) -> List[Dict[str, Any]]:
+        """Search across all content types using enhanced FTS5 with proper ranking"""
         try:
-            # Search each module with proper BM25 ranking (ORDER BY rank ASC)
-            if 'notes' in modules:
-                notes_results = await self._search_notes_enhanced(
-                    db, search_query, user_id, include_tags, exclude_tags,
-                    date_from, date_to, favorites_only, limit
-                )
-                all_results.extend(notes_results)
-                modules_searched.append('notes')
+            if not self.tables_initialized:
+                logger.warning("FTS5 tables not initialized, falling back to regular search")
+                return []
             
-            if 'documents' in modules:
-                docs_results = await self._search_documents_enhanced(
-                    db, search_query, user_id, include_tags, exclude_tags,
-                    date_from, date_to, favorites_only, include_archived, limit
-                )
-                all_results.extend(docs_results)
-                modules_searched.append('documents')
+            # Prepare query for FTS5
+            prepared_query = self._prepare_fts_query(query)
             
-            if 'archive_items' in modules:
-                archive_results = await self._search_archive_items_enhanced(
-                    db, search_query, user_id, include_tags, exclude_tags,
-                    date_from, date_to, favorites_only, limit
-                )
-                all_results.extend(archive_results)
-                modules_searched.append('archive_items')
+            all_results = []
             
-            if 'todos' in modules:
-                todos_results = await self._search_todos_enhanced(
-                    db, search_query, user_id, include_tags, exclude_tags,
-                    date_from, date_to, limit
-                )
-                all_results.extend(todos_results)
-                modules_searched.append('todos')
-            
-            if 'diary_entries' in modules or 'diary' in modules:
-                diary_results = await self._search_diary_enhanced(
-                    db, search_query, user_id, include_tags, exclude_tags,
-                    date_from, date_to, limit
-                )
-                all_results.extend(diary_results)
-                modules_searched.append('diary_entries')
-            
-            if 'folders' in modules:
-                folders_results = await self._search_folders_enhanced(
-                    db, search_query, user_id, include_tags, exclude_tags,
-                    date_from, date_to, favorites_only, limit
-                )
-                all_results.extend(folders_results)
-                modules_searched.append('folders')
-            
-            # Apply cross-module normalization
-            normalized_results = self._normalize_cross_module_scores(all_results)
-            
-            # Apply sorting
-            sorted_results = self._apply_sorting(normalized_results, sort_by, sort_order)
-            
-            # Apply pagination
-            total_results = len(sorted_results)
-            paginated_results = sorted_results[offset:offset + limit]
-            
-            return {
-                "results": paginated_results,
-                "total": total_results,
-                "modules_searched": modules_searched,
-                "query": query,
-                "search_type": "enhanced_fts5"
+            # Search all modules using configuration
+            module_mappings = {
+                'notes': ('notes', 'note'),
+                'documents': ('documents', 'document'),
+                'todos': ('todos', 'todo'),
+                'diary': ('diary', 'diary_entry'),
+                'archive': ('archive_items', 'archive_item'),
+                'archive_folders': ('archive', 'archive_folder'),
+                'projects': ('todos', 'project')
             }
+            
+            for table_key, config in self.fts_tables.items():
+                module_name, type_name = module_mappings[table_key]
+                
+                # Check if this module should be searched
+                if not module_filter or module_filter == module_name:
+                    results = await self._search_table(db, config, prepared_query, user_id, limit)
+                    all_results.extend([{**r, 'module': module_name, 'type': type_name} for r in results])
+            
+            # Normalize scores across modules and sort by relevance
+            normalized_results = self._normalize_scores(all_results)
+            sorted_results = sorted(normalized_results, key=lambda x: x['normalized_score'], reverse=True)
+            
+            logger.info(f"🔍 Enhanced FTS5 search completed: '{query}' - {len(sorted_results)} results for user {user_id}")
+            return sorted_results[:limit]
             
         except Exception as e:
             logger.error(f"❌ Enhanced FTS5 search failed: {e}")
-            return {"results": [], "total": 0, "modules_searched": []}
-
-    async def _search_notes_enhanced(self, db: AsyncSession, search_query: str, user_id: int,
-                                   include_tags: Optional[List[str]], exclude_tags: Optional[List[str]],
-                                   date_from: Optional[date], date_to: Optional[date],
-                                   favorites_only: bool, limit: int) -> List[Dict[str, Any]]:
-        """Search notes with enhanced filtering"""
-        
-        # Build SQL with proper filtering
-        base_sql = """
-            SELECT 'note' as type, id, title, content, tags_text, area,
-                   created_at, updated_at, is_favorite,
-                   bm25(fts_notes_enhanced) as raw_score
-            FROM fts_notes_enhanced 
-            WHERE fts_notes_enhanced MATCH :query AND user_id = :user_id
-        """
-        
-        # Add filtering conditions
-        conditions = []
-        params = {'query': search_query, 'user_id': user_id}
-        
-        if include_tags:
-            for i, tag in enumerate(include_tags):
-                conditions.append(f"tags_text LIKE :include_tag_{i}")
-                params[f'include_tag_{i}'] = f'%{tag}%'
-        
-        if exclude_tags:
-            for i, tag in enumerate(exclude_tags):
-                conditions.append(f"tags_text NOT LIKE :exclude_tag_{i}")
-                params[f'exclude_tag_{i}'] = f'%{tag}%'
-        
-        if date_from:
-            conditions.append("date(created_at) >= :date_from")
-            params['date_from'] = date_from.isoformat()
-        
-        if date_to:
-            conditions.append("date(created_at) <= :date_to")
-            params['date_to'] = date_to.isoformat()
-        
-        if favorites_only:
-            conditions.append("is_favorite = 1")
-        
-        if conditions:
-            base_sql += " AND " + " AND ".join(conditions)
-        
-        base_sql += " ORDER BY raw_score ASC LIMIT :limit"  # Fixed BM25 ordering
-        params['limit'] = limit
-        
-        try:
-            result = await db.execute(text(base_sql), params)
-            results = []
-            
-            for row in result.fetchall():
-                results.append({
-                    'type': row.type,
-                    'module': 'notes',
-                    'id': row.id,
-                    'title': row.title,
-                    'content': row.content[:300] + '...' if len(row.content) > 300 else row.content,
-                    'tags': row.tags_text.split() if row.tags_text else [],
-                    'area': row.area,
-                    'created_at': row.created_at,
-                    'updated_at': row.updated_at,
-                    'is_favorite': bool(row.is_favorite),
-                    'raw_score': float(row.raw_score) if row.raw_score else 0.0,
-                    'url': f"/notes/{row.id}"
-                })
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"❌ Enhanced notes search failed: {e}")
             return []
 
-    async def _search_documents_enhanced(self, db: AsyncSession, search_query: str, user_id: int,
-                                       include_tags: Optional[List[str]], exclude_tags: Optional[List[str]],
-                                       date_from: Optional[date], date_to: Optional[date],
-                                       favorites_only: bool, include_archived: bool, limit: int) -> List[Dict[str, Any]]:
-        """Search documents with enhanced filtering"""
-        
-        base_sql = """
-            SELECT 'document' as type, uuid, title, filename, original_name, description, tags_text,
-                   mime_type, file_size, created_at, updated_at, is_favorite, is_archived,
-                   bm25(fts_documents_enhanced) as raw_score
-            FROM fts_documents_enhanced 
-            WHERE fts_documents_enhanced MATCH :query AND user_id = :user_id
-        """
-        
-        conditions = []
-        params = {'query': search_query, 'user_id': user_id}
-        
-        if include_tags:
-            for i, tag in enumerate(include_tags):
-                conditions.append(f"tags_text LIKE :include_tag_{i}")
-                params[f'include_tag_{i}'] = f'%{tag}%'
-        
-        if exclude_tags:
-            for i, tag in enumerate(exclude_tags):
-                conditions.append(f"tags_text NOT LIKE :exclude_tag_{i}")
-                params[f'exclude_tag_{i}'] = f'%{tag}%'
-        
-        if date_from:
-            conditions.append("date(created_at) >= :date_from")
-            params['date_from'] = date_from.isoformat()
-        
-        if date_to:
-            conditions.append("date(created_at) <= :date_to")
-            params['date_to'] = date_to.isoformat()
-        
-        if favorites_only:
-            conditions.append("is_favorite = 1")
-        
-        if not include_archived:
-            conditions.append("is_archived = 0")
-        
-        if conditions:
-            base_sql += " AND " + " AND ".join(conditions)
-        
-        base_sql += " ORDER BY raw_score ASC LIMIT :limit"  # Fixed BM25 ordering
-        params['limit'] = limit
-        
+    async def _search_table(self, db: AsyncSession, config: Dict[str, Any], query: str, user_id: int, limit: int) -> List[Dict[str, Any]]:
+        """Generic search method for any FTS5 table"""
         try:
-            result = await db.execute(text(base_sql), params)
-            results = []
+            table_name = config['table_name']
+            search_columns = config['search_columns']
             
-            for row in result.fetchall():
-                results.append({
-                    'type': row.type,
-                    'module': 'documents',
-                    'uuid': row.uuid,
-                    'title': row.title,
-                    'filename': row.filename,
-                    'original_name': row.original_name,
-                    'description': row.description,
-                    'tags': row.tags_text.split() if row.tags_text else [],
-                    'mime_type': row.mime_type,
-                    'file_size': row.file_size,
-                    'created_at': row.created_at,
-                    'updated_at': row.updated_at,
-                    'is_favorite': bool(row.is_favorite),
-                    'is_archived': bool(row.is_archived),
-                    'raw_score': float(row.raw_score) if row.raw_score else 0.0,
-                    'url': f"/documents/{row.uuid}"
-                })
+            # Build SELECT clause
+            select_columns = ", ".join(search_columns[:-1])  # Exclude raw_score
+            select_columns += f", bm25({table_name}) as raw_score"
             
-            return results
+            result = await db.execute(text(f"""
+                SELECT {select_columns}
+                FROM {table_name}
+                WHERE {table_name} MATCH :query AND user_id = :user_id
+                ORDER BY raw_score DESC
+                LIMIT :limit
+            """), {"query": query, "user_id": user_id, "limit": limit})
+            
+            return [dict(row._mapping) for row in result]
             
         except Exception as e:
-            logger.error(f"❌ Enhanced documents search failed: {e}")
+            logger.error(f"Failed to search {config['table_name']}: {e}")
             return []
 
-    async def _search_archive_items_enhanced(self, db: AsyncSession, search_query: str, user_id: int,
-                                           include_tags: Optional[List[str]], exclude_tags: Optional[List[str]],
-                                           date_from: Optional[date], date_to: Optional[date],
-                                           favorites_only: bool, limit: int) -> List[Dict[str, Any]]:
-        """Search archive items with enhanced filtering"""
+    def _prepare_fts_query(self, query: str) -> str:
+        """Prepare query string for FTS5 with proper escaping and hashtag support"""
+        # Remove special characters that could break FTS5
+        cleaned_query = re.sub(r'[^\w\s#]', ' ', query)
         
-        base_sql = """
-            SELECT 'archive_item' as type, uuid, name, description, original_filename, 
-                   metadata_json, tags_text, folder_uuid, created_at, updated_at, is_favorite,
-                   bm25(fts_archive_items_enhanced) as raw_score
-            FROM fts_archive_items_enhanced 
-            WHERE fts_archive_items_enhanced MATCH :query AND user_id = :user_id
-        """
+        # Handle hashtags (convert #tag to tag)
+        cleaned_query = re.sub(r'#(\w+)', r'\1', cleaned_query)
         
-        conditions = []
-        params = {'query': search_query, 'user_id': user_id}
+        # Remove extra whitespace
+        cleaned_query = ' '.join(cleaned_query.split())
         
-        if include_tags:
-            for i, tag in enumerate(include_tags):
-                conditions.append(f"tags_text LIKE :include_tag_{i}")
-                params[f'include_tag_{i}'] = f'%{tag}%'
-        
-        if exclude_tags:
-            for i, tag in enumerate(exclude_tags):
-                conditions.append(f"tags_text NOT LIKE :exclude_tag_{i}")
-                params[f'exclude_tag_{i}'] = f'%{tag}%'
-        
-        if date_from:
-            conditions.append("date(created_at) >= :date_from")
-            params['date_from'] = date_from.isoformat()
-        
-        if date_to:
-            conditions.append("date(created_at) <= :date_to")
-            params['date_to'] = date_to.isoformat()
-        
-        if favorites_only:
-            conditions.append("is_favorite = 1")
-        
-        if conditions:
-            base_sql += " AND " + " AND ".join(conditions)
-        
-        base_sql += " ORDER BY raw_score ASC LIMIT :limit"  # Fixed BM25 ordering
-        params['limit'] = limit
-        
-        try:
-            result = await db.execute(text(base_sql), params)
-            results = []
-            
-            for row in result.fetchall():
-                results.append({
-                    'type': row.type,
-                    'module': 'archive',
-                    'uuid': row.uuid,
-                    'name': row.name,
-                    'description': row.description,
-                    'original_filename': row.original_filename,
-                    'metadata': json.loads(row.metadata_json) if row.metadata_json else {},
-                    'tags': row.tags_text.split() if row.tags_text else [],
-                    'folder_uuid': row.folder_uuid,
-                    'created_at': row.created_at,
-                    'updated_at': row.updated_at,
-                    'is_favorite': bool(row.is_favorite),
-                    'raw_score': float(row.raw_score) if row.raw_score else 0.0,
-                    'url': f"/archive/items/{row.uuid}"
-                })
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"❌ Enhanced archive items search failed: {e}")
-            return []
+        return cleaned_query
 
-    async def _search_todos_enhanced(self, db: AsyncSession, search_query: str, user_id: int,
-                                   include_tags: Optional[List[str]], exclude_tags: Optional[List[str]],
-                                   date_from: Optional[date], date_to: Optional[date],
-                                   limit: int) -> List[Dict[str, Any]]:
-        """Search todos with enhanced filtering"""
-        
-        base_sql = """
-            SELECT 'todo' as type, id, title, description, tags_text, status, priority,
-                   due_date, created_at, updated_at,
-                   bm25(fts_todos_enhanced) as raw_score
-            FROM fts_todos_enhanced 
-            WHERE fts_todos_enhanced MATCH :query AND user_id = :user_id
-        """
-        
-        conditions = []
-        params = {'query': search_query, 'user_id': user_id}
-        
-        if include_tags:
-            for i, tag in enumerate(include_tags):
-                conditions.append(f"tags_text LIKE :include_tag_{i}")
-                params[f'include_tag_{i}'] = f'%{tag}%'
-        
-        if exclude_tags:
-            for i, tag in enumerate(exclude_tags):
-                conditions.append(f"tags_text NOT LIKE :exclude_tag_{i}")
-                params[f'exclude_tag_{i}'] = f'%{tag}%'
-        
-        if date_from:
-            conditions.append("date(created_at) >= :date_from")
-            params['date_from'] = date_from.isoformat()
-        
-        if date_to:
-            conditions.append("date(created_at) <= :date_to")
-            params['date_to'] = date_to.isoformat()
-        
-        if conditions:
-            base_sql += " AND " + " AND ".join(conditions)
-        
-        base_sql += " ORDER BY raw_score ASC LIMIT :limit"  # Fixed BM25 ordering
-        params['limit'] = limit
-        
-        try:
-            result = await db.execute(text(base_sql), params)
-            results = []
-            
-            for row in result.fetchall():
-                results.append({
-                    'type': row.type,
-                    'module': 'todos',
-                    'id': row.id,
-                    'title': row.title,
-                    'description': row.description,
-                    'tags': row.tags_text.split() if row.tags_text else [],
-                    'status': row.status,
-                    'priority': row.priority,
-                    'due_date': row.due_date,
-                    'created_at': row.created_at,
-                    'updated_at': row.updated_at,
-                    'raw_score': float(row.raw_score) if row.raw_score else 0.0,
-                    'url': f"/todos/{row.id}"
-                })
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"❌ Enhanced todos search failed: {e}")
-            return []
-
-    async def _search_diary_enhanced(self, db: AsyncSession, search_query: str, user_id: int,
-                                   include_tags: Optional[List[str]], exclude_tags: Optional[List[str]],
-                                   date_from: Optional[date], date_to: Optional[date],
-                                   limit: int) -> List[Dict[str, Any]]:
-        """Search diary entries with enhanced filtering"""
-        
-        base_sql = """
-            SELECT 'diary_entry' as type, id, title, content, tags_text, mood, weather,
-                   created_at, updated_at, has_media,
-                   bm25(fts_diary_entries_enhanced) as raw_score
-            FROM fts_diary_entries_enhanced 
-            WHERE fts_diary_entries_enhanced MATCH :query AND user_id = :user_id
-        """
-        
-        conditions = []
-        params = {'query': search_query, 'user_id': user_id}
-        
-        if include_tags:
-            for i, tag in enumerate(include_tags):
-                conditions.append(f"tags_text LIKE :include_tag_{i}")
-                params[f'include_tag_{i}'] = f'%{tag}%'
-        
-        if exclude_tags:
-            for i, tag in enumerate(exclude_tags):
-                conditions.append(f"tags_text NOT LIKE :exclude_tag_{i}")
-                params[f'exclude_tag_{i}'] = f'%{tag}%'
-        
-        if date_from:
-            conditions.append("date(created_at) >= :date_from")
-            params['date_from'] = date_from.isoformat()
-        
-        if date_to:
-            conditions.append("date(created_at) <= :date_to")
-            params['date_to'] = date_to.isoformat()
-        
-        if conditions:
-            base_sql += " AND " + " AND ".join(conditions)
-        
-        base_sql += " ORDER BY raw_score ASC LIMIT :limit"  # Fixed BM25 ordering
-        params['limit'] = limit
-        
-        try:
-            result = await db.execute(text(base_sql), params)
-            results = []
-            
-            for row in result.fetchall():
-                results.append({
-                    'type': row.type,
-                    'module': 'diary',
-                    'id': row.id,
-                    'title': row.title,
-                    'content': row.content[:300] + '...' if row.content and len(row.content) > 300 else row.content or '',
-                    'tags': row.tags_text.split() if row.tags_text else [],
-                    'mood': row.mood,
-                    'weather': row.weather,
-                    'created_at': row.created_at,
-                    'updated_at': row.updated_at,
-                    'has_media': bool(row.has_media),
-                    'raw_score': float(row.raw_score) if row.raw_score else 0.0,
-                    'url': f"/diary/{row.id}"
-                })
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"❌ Enhanced diary search failed: {e}")
-            return []
-
-    async def _search_folders_enhanced(self, db: AsyncSession, search_query: str, user_id: int,
-                                     include_tags: Optional[List[str]], exclude_tags: Optional[List[str]],
-                                     date_from: Optional[date], date_to: Optional[date],
-                                     favorites_only: bool, limit: int) -> List[Dict[str, Any]]:
-        """Search archive folders with enhanced filtering"""
-        
-        base_sql = """
-            SELECT 'folder' as type, uuid, name, description, tags_text, parent_uuid,
-                   created_at, updated_at, is_favorite,
-                   bm25(fts_folders_enhanced) as raw_score
-            FROM fts_folders_enhanced 
-            WHERE fts_folders_enhanced MATCH :query AND user_id = :user_id
-        """
-        
-        conditions = []
-        params = {'query': search_query, 'user_id': user_id}
-        
-        if include_tags:
-            for i, tag in enumerate(include_tags):
-                conditions.append(f"tags_text LIKE :include_tag_{i}")
-                params[f'include_tag_{i}'] = f'%{tag}%'
-        
-        if exclude_tags:
-            for i, tag in enumerate(exclude_tags):
-                conditions.append(f"tags_text NOT LIKE :exclude_tag_{i}")
-                params[f'exclude_tag_{i}'] = f'%{tag}%'
-        
-        if date_from:
-            conditions.append("date(created_at) >= :date_from")
-            params['date_from'] = date_from.isoformat()
-        
-        if date_to:
-            conditions.append("date(created_at) <= :date_to")
-            params['date_to'] = date_to.isoformat()
-        
-        if favorites_only:
-            conditions.append("is_favorite = 1")
-        
-        if conditions:
-            base_sql += " AND " + " AND ".join(conditions)
-        
-        base_sql += " ORDER BY raw_score ASC LIMIT :limit"  # Fixed BM25 ordering
-        params['limit'] = limit
-        
-        try:
-            result = await db.execute(text(base_sql), params)
-            results = []
-            
-            for row in result.fetchall():
-                results.append({
-                    'type': row.type,
-                    'module': 'folders',
-                    'uuid': row.uuid,
-                    'name': row.name,
-                    'description': row.description,
-                    'tags': row.tags_text.split() if row.tags_text else [],
-                    'parent_uuid': row.parent_uuid,
-                    'created_at': row.created_at,
-                    'updated_at': row.updated_at,
-                    'is_favorite': bool(row.is_favorite),
-                    'raw_score': float(row.raw_score) if row.raw_score else 0.0,
-                    'url': f"/archive/folders/{row.uuid}"
-                })
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"❌ Enhanced folders search failed: {e}")
-            return []
-
-    def _normalize_cross_module_scores(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Apply cross-module score normalization for fair ranking"""
-        
+    def _normalize_scores(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Normalize scores across different modules for fair comparison"""
         if not results:
             return results
         
-        # Group results by module
-        module_groups = {}
-        for result in results:
-            module = result.get('module', 'unknown')
-            if module not in module_groups:
-                module_groups[module] = []
-            module_groups[module].append(result)
+        # Find min and max scores for normalization
+        min_score = min(r.get('raw_score', 0) for r in results)
+        max_score = max(r.get('raw_score', 0) for r in results)
+        score_range = max_score - min_score if max_score != min_score else 1
         
         normalized_results = []
-        
-        for module, module_results in module_groups.items():
-            if not module_results:
-                continue
+        for result in results:
+            raw_score = result.get('raw_score', 0)
             
-            # Get raw scores for this module
-            raw_scores = [r['raw_score'] for r in module_results if r.get('raw_score') is not None]
+            # Normalize score to 0-1 range
+            normalized_score = (raw_score - min_score) / score_range if score_range > 0 else 0
             
-            if not raw_scores:
-                # No scores, assign default
-                for result in module_results:
-                    result['relevance_score'] = 0.5
-                    normalized_results.extend(module_results)
-                continue
+            # Apply module weight
+            module = result.get('module', 'general')
+            weight = self.module_weights.get(module, 1.0)
+            final_score = normalized_score * weight
             
-            # Normalize BM25 scores (smaller is better) to 0-1 range (larger is better)
-            min_score = min(raw_scores)
-            max_score = max(raw_scores)
-            score_range = max_score - min_score if max_score > min_score else 1.0
-            
-            module_weight = self.module_weights.get(module, 0.5)
-            
-            for result in module_results:
-                raw_score = result.get('raw_score', max_score)
-                # Invert BM25 score and normalize to 0-1
-                normalized_score = 1.0 - ((raw_score - min_score) / score_range)
-                # Apply module weight
-                result['relevance_score'] = normalized_score * module_weight
-                result['normalized_score'] = normalized_score  # Keep original normalized score
-                
-            normalized_results.extend(module_results)
+            result['normalized_score'] = final_score
+            normalized_results.append(result)
         
         return normalized_results
-
-    def _apply_sorting(self, results: List[Dict[str, Any]], sort_by: str, sort_order: str) -> List[Dict[str, Any]]:
-        """Apply sorting to search results"""
-        
-        reverse = sort_order.lower() == 'desc'
-        
-        if sort_by == 'relevance':
-            return sorted(results, key=lambda x: x.get('relevance_score', 0), reverse=reverse)
-        elif sort_by == 'date':
-            return sorted(results, key=lambda x: x.get('created_at', ''), reverse=reverse)
-        elif sort_by == 'title':
-            return sorted(results, key=lambda x: (x.get('title') or x.get('name', '')).lower(), reverse=reverse)
-        elif sort_by == 'module':
-            return sorted(results, key=lambda x: x.get('module', ''), reverse=reverse)
-        else:
-            # Default to relevance
-            return sorted(results, key=lambda x: x.get('relevance_score', 0), reverse=True)
 
     async def optimize_enhanced_fts_tables(self, db: AsyncSession) -> bool:
         """Optimize enhanced FTS5 tables for better performance"""
         try:
-            tables = [
-                'fts_notes_enhanced', 
-                'fts_documents_enhanced', 
-                'fts_archive_items_enhanced', 
-                'fts_todos_enhanced',
-                'fts_diary_entries_enhanced',
-                'fts_folders_enhanced'
-            ]
+            if not self.tables_initialized:
+                return False
             
-            for table in tables:
-                await db.execute(text(f"INSERT INTO {table}({table}) VALUES('optimize');"))
+            # Optimize all FTS5 tables using configuration
+            for config in self.fts_tables.values():
+                table_name = config['table_name']
+                await db.execute(text(f"INSERT INTO {table_name}({table_name}) VALUES('optimize')"))
             
             await db.commit()
             logger.info("✅ Enhanced FTS5 tables optimized")
@@ -956,8 +363,152 @@ class EnhancedFTS5SearchService:
             
         except Exception as e:
             logger.error(f"❌ Failed to optimize enhanced FTS5 tables: {e}")
-            await db.rollback()
             return False
 
-# Create global enhanced instance
+    async def get_enhanced_fts_stats(self, db: AsyncSession) -> Dict[str, Any]:
+        """Get statistics about enhanced FTS5 tables"""
+        try:
+            if not self.tables_initialized:
+                return {}
+            
+            stats = {}
+            
+            # Get stats for all tables using configuration
+            for config in self.fts_tables.values():
+                table_name = config['table_name']
+                try:
+                    # Get row count
+                    result = await db.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
+                    count = result.scalar()
+                    
+                    # Get table size info
+                    result = await db.execute(text(f"SELECT * FROM {table_name} LIMIT 1"))
+                    columns = result.keys() if result.rowcount > 0 else []
+                    
+                    stats[table_name] = {
+                        'row_count': count,
+                        'columns': list(columns),
+                        'status': 'active'
+                    }
+                except Exception as e:
+                    stats[table_name] = {
+                        'row_count': 0,
+                        'columns': [],
+                        'status': f'error: {str(e)}'
+                    }
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get enhanced FTS5 stats: {e}")
+            return {}
+
+
+    async def search_archive_items(self, db: AsyncSession, query: str, user_id: int, 
+                                 tag: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[str]:
+        """Search archive items and return UUIDs in relevance order"""
+        if not self.tables_initialized:
+            logger.warning("FTS5 tables not initialized")
+            return []
+        
+        try:
+            # Prepare search query, including tag if provided
+            if tag:
+                combined_query = f"{query} {tag}"
+                search_query = self._prepare_fts_query(combined_query)
+            else:
+                search_query = self._prepare_fts_query(query)
+            
+            fts_sql = text("""
+                SELECT uuid, bm25(fts_archive_items_enhanced) as rank
+                FROM fts_archive_items_enhanced
+                WHERE fts_archive_items_enhanced MATCH :query AND user_id = :user_id
+                ORDER BY rank
+                LIMIT :limit OFFSET :offset
+            """)
+            
+            result = await db.execute(fts_sql, {
+                "query": search_query,
+                "user_id": user_id,
+                "limit": limit,
+                "offset": offset
+            })
+            
+            return [row[0] for row in result.fetchall()]
+            
+        except Exception as e:
+            logger.error(f"Error searching archive items: {e}")
+            return []
+
+    async def search_archive_folders(self, db: AsyncSession, query: str, user_id: int, 
+                                   limit: int = 50, offset: int = 0) -> List[str]:
+        """Search archive folders and return UUIDs in relevance order"""
+        if not self.tables_initialized:
+            logger.warning("FTS5 tables not initialized")
+            return []
+        
+        try:
+            search_query = self._prepare_fts_query(query)
+            
+            fts_sql = text("""
+                SELECT uuid, bm25(fts_folders_enhanced) as rank
+                FROM fts_folders_enhanced
+                WHERE fts_folders_enhanced MATCH :query AND user_id = :user_id
+                ORDER BY rank
+                LIMIT :limit OFFSET :offset
+            """)
+            
+            result = await db.execute(fts_sql, {
+                "query": search_query,
+                "user_id": user_id,
+                "limit": limit,
+                "offset": offset
+            })
+            
+            return [row[0] for row in result.fetchall()]
+            
+        except Exception as e:
+            logger.error(f"Error searching archive folders: {e}")
+            return []
+
+    async def search_diary_entries(self, db: AsyncSession, query: str, user_id: int, 
+                                 limit: int = 50, offset: int = 0) -> List[int]:
+        """Search diary entries and return IDs in relevance order"""
+        if not self.tables_initialized:
+            logger.warning("FTS5 tables not initialized")
+            return []
+        
+        try:
+            search_query = self._prepare_fts_query(query)
+            
+            fts_sql = text("""
+                SELECT id, bm25(fts_diary_entries_enhanced) as rank
+                FROM fts_diary_entries_enhanced
+                WHERE fts_diary_entries_enhanced MATCH :query AND user_id = :user_id
+                ORDER BY rank
+                LIMIT :limit OFFSET :offset
+            """)
+            
+            result = await db.execute(fts_sql, {
+                "query": search_query,
+                "user_id": user_id,
+                "limit": limit,
+                "offset": offset
+            })
+            
+            return [row[0] for row in result.fetchall()]
+            
+        except Exception as e:
+            logger.error(f"Error searching diary entries: {e}")
+            return []
+
+    async def search_all(self, db: AsyncSession, query: str, user_id: int, 
+                        content_types: Optional[List[str]] = None, 
+                        limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+        """Search across all content types - compatibility method"""
+        return await self.search_enhanced(db, query, user_id, 
+                                        module_filter=content_types[0] if content_types else None, 
+                                        limit=limit)
+
+# Global instance
 enhanced_fts_service = EnhancedFTS5SearchService()

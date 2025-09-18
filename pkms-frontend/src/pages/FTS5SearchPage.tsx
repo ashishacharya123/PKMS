@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -110,7 +111,7 @@ export default function FTS5SearchPage() {
   }, []);
 
   // If navigated with ?q=, populate and run search
-  useEffect(() => {
+  useAuthenticatedEffect(() => {
     const url = new URL(window.location.href);
     const q = url.searchParams.get('q') || '';
     if (q) {
@@ -168,9 +169,12 @@ export default function FTS5SearchPage() {
       setResults(searchResponse.results);
       setTotal(searchResponse.total);
 
+      const moduleCount = selectedModules.length > 0
+        ? selectedModules.length
+        : Array.from(new Set(searchResponse.results.map(r => r.module))).length;
       notifications.show({
         title: 'FTS5 Search Complete',
-        message: `Found ${searchResponse.total} results in ${searchResponse.modules_searched.length} modules`,
+        message: `Found ${searchResponse.total} results across ${moduleCount} modules`,
         color: 'green'
       });
 

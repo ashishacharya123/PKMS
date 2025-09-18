@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Container, Title, Text, Box, useMantineTheme, ThemeIcon, useMantineColorScheme } from '@mantine/core';
 import { IconBrain } from '@tabler/icons-react';
 import { LoginForm } from '../components/auth/LoginForm';
 import { SetupForm } from '../components/auth/SetupForm';
 import RecoveryModal from '../components/auth/RecoveryModal';
 import { useAuthStore } from '../stores/authStore';
+import { useNavigate } from 'react-router-dom';
 
 type AuthMode = 'login' | 'setup';
 
@@ -13,7 +14,15 @@ export function AuthPage() {
   const [recoveryModalOpened, setRecoveryModalOpened] = useState(false);
   const theme = useMantineTheme();
   const { colorScheme } = useMantineColorScheme();
-  const { clearError } = useAuthStore();
+  const { clearError, isAuthenticated } = useAuthStore();
+  const navigate = useNavigate();
+
+  // Redirect to dashboard when user becomes authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/dashboard');
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleSwitchMode = (mode: AuthMode) => {
     clearError();

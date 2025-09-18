@@ -8,7 +8,17 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_, desc, delete, text
 from sqlalchemy.orm import selectinload
-from pydantic import BaseModel, Field, validator
+from app.schemas.archive import (
+    FolderCreate,
+    FolderUpdate,
+    ItemUpdate,
+    FolderResponse,
+    ItemResponse,
+    ItemSummary,
+    FolderTree,
+    BulkMoveRequest,
+    CommitUploadRequest,
+)
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from pathlib import Path
@@ -44,7 +54,7 @@ from app.models.tag_associations import archive_tags
 from app.models.tag import Tag
 from app.models.user import User
 from app.auth.dependencies import get_current_user
-from app.services.fts_service import fts_service
+from app.services.fts_service_enhanced import enhanced_fts_service
 # from app.services.ai_service import analyze_content, is_ai_enabled
 from app.utils.security import (
     sanitize_folder_name,
@@ -166,138 +176,7 @@ VALID_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx"
 }
 
-# Pydantic models with enhanced validation
-
-class FolderCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=MAX_FOLDER_NAME_LENGTH)
-    description: Optional[str] = Field(None, max_length=MAX_FOLDER_DESCRIPTION_LENGTH)
-    parent_uuid: Optional[str] = None
-
-    @validator('name')
-    def validate_name(cls, v):
-        # Use security function for validation and sanitization
-        return sanitize_folder_name(v)
-
-    @validator('description')
-    def validate_description(cls, v):
-        if v is None:
-            return v
-        # Use security function for validation and sanitization
-        return sanitize_description(v)
-
-    @validator('parent_uuid')
-    def validate_parent_uuid(cls, v):
-        if v is None:
-            return v
-        # Validate UUID format
-        return validate_uuid_format(v)
-
-class FolderUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=MAX_FOLDER_NAME_LENGTH)
-    description: Optional[str] = Field(None, max_length=MAX_FOLDER_DESCRIPTION_LENGTH)
-
-    @validator('name')
-    def validate_name(cls, v):
-        if v is None:
-            return v
-        return sanitize_folder_name(v)
-
-    @validator('description')
-    def validate_description(cls, v):
-        if v is None:
-            return v
-        return sanitize_description(v)
-
-class ItemUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = Field(None, max_length=1000)
-    folder_uuid: Optional[str] = None
-    tags: Optional[List[str]] = Field(None, max_items=20)
-    is_favorite: Optional[bool] = None
-
-    @validator('name')
-    def validate_name(cls, v):
-        if v is None:
-            return v
-        return sanitize_filename(v)
-
-    @validator('description')
-    def validate_description(cls, v):
-        if v is None:
-            return v
-        return sanitize_description(v)
-
-    @validator('folder_uuid')
-    def validate_folder_uuid(cls, v):
-        if v is None:
-            return v
-        return validate_uuid_format(v)
-
-    @validator('tags')
-    def validate_tags(cls, v):
-        if v is None:
-            return v
-        return sanitize_tags(v)
-
-class FolderResponse(BaseModel):
-    uuid: str
-    name: str
-    description: Optional[str]
-    parent_uuid: Optional[str]
-    path: str
-    created_at: datetime
-    updated_at: datetime
-    item_count: int
-    subfolder_count: int
-    total_size: int
-
-    class Config:
-        from_attributes = True
-
-class ItemResponse(BaseModel):
-    uuid: str
-    name: str
-    description: Optional[str]
-    folder_uuid: str
-    original_filename: str
-    stored_filename: str
-    mime_type: str
-    file_size: int
-    metadata: Dict[str, Any]
-    thumbnail_path: Optional[str]
-    is_favorite: bool
-    version: str
-    created_at: datetime
-    updated_at: datetime
-    tags: List[str]
-
-    class Config:
-        from_attributes = True
-
-class ItemSummary(BaseModel):
-    uuid: str
-    name: str
-    folder_uuid: str
-    original_filename: str
-    mime_type: str
-    file_size: int
-    is_favorite: bool
-    created_at: datetime
-    updated_at: datetime
-    tags: List[str]
-    preview: str
-
-    class Config:
-        from_attributes = True
-
-class FolderTree(BaseModel):
-    folder: FolderResponse
-    children: List['FolderTree']
-    items: List[ItemSummary]
-    
-    class Config:
-        # Enable postponed evaluation of annotations for self-referencing models
-        from_attributes = True
+# Pydantic models are now in app/schemas/archive.py
 
 # Folder Management Endpoints
 
@@ -409,7 +288,7 @@ async def list_folders(
         if search:
             search = sanitize_search_query(search)
             # Use centralized FTS5 search
-            uuid_list = await fts_service.search_archive_folders(db, search, current_user.id)
+            uuid_list = await enhanced_fts_service.search_archive_folders(db, search, current_user.id)
             if not uuid_list:
                 return []
             # Fetch full rows, preserving FTS5 order
@@ -463,7 +342,7 @@ async def get_folder_tree(
     if search:
         # Use centralized FTS5 search for folders
         search = sanitize_search_query(search)
-        uuid_list = await fts_service.search_archive_folders(db, search, current_user.id)
+        uuid_list = await enhanced_fts_service.search_archive_folders(db, search, current_user.id)
         if not uuid_list:
             return []
         # Fetch full rows, preserving FTS5 order
@@ -669,9 +548,7 @@ async def delete_folder(
 # Bulk operations
 # ---------------------------
 
-class BulkMoveRequest(BaseModel):
-    items: List[str] = Field(..., description="List of archive item UUIDs to move")
-    target_folder: str = Field(..., description="Destination folder UUID")
+
 
 @router.post("/bulk/move")
 async def bulk_move_items(
@@ -1126,7 +1003,7 @@ async def search_items(
     try:
         # Sanitize search query and use centralized FTS5 search
         search_query = sanitize_search_query(query)
-        uuid_list = await fts_service.search_archive_items(
+        uuid_list = await enhanced_fts_service.search_archive_items(
             db, search_query, current_user.id, tag=tag, 
             limit=page_size, offset=(page-1)*page_size
         )
@@ -1636,12 +1513,7 @@ async def upload_files(
         logger.error(f"❌ Archive upload failed: {e}")
         raise HTTPException(status_code=500, detail="Upload failed") 
 
-class CommitUploadRequest(BaseModel):
-    file_id: str
-    folder_uuid: str
-    name: Optional[str] = None
-    description: Optional[str] = None
-    tags: Optional[List[str]] = []
+
 
 @router.post("/upload/commit", response_model=ItemResponse)
 async def commit_uploaded_file(
@@ -1785,7 +1657,7 @@ async def debug_fts_status(
         
         # Test a simple search
         try:
-            search_result = await fts_service.search_archive_items(db, "test", current_user.id, limit=5)
+            search_result = await enhanced_fts_service.search_archive_items(db, "test", current_user.id, limit=5)
             search_working = True
             search_results_count = len(search_result)
         except Exception as e:
@@ -1797,7 +1669,7 @@ async def debug_fts_status(
             "fts_items_count": fts_count,
             "fts_search_working": search_working,
             "test_search_results": search_results_count,
-            "fts_tables_initialized": fts_service.tables_initialized
+            "fts_tables_initialized": enhanced_fts_service.tables_initialized
         }
         
     except Exception as e:

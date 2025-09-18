@@ -52,7 +52,7 @@ const moodEmojis = {
   5: '😄'
 };
 
-export function MoodTrendChart() {
+export function MoodTrendChart({ compact = false }: { compact?: boolean }) {
   const { entries, isUnlocked, loadEntries } = useDiaryStore();
   const [selectedPeriod, setSelectedPeriod] = useState('30');
 
@@ -149,8 +149,8 @@ export function MoodTrendChart() {
 
   if (!trendData.length) {
     return (
-      <Paper p="lg" withBorder>
-        <Stack gap="md" align="center" py="xl">
+      <Paper p={compact ? 'md' : 'lg'} withBorder>
+        <Stack gap={compact ? 'sm' : 'md'} align="center" py={compact ? 'md' : 'xl'}>
           <Text size="xl">📈</Text>
           <Text fw={500} ta="center">No mood trend data</Text>
           <Text size="sm" c="dimmed" ta="center" maw={400}>
@@ -181,10 +181,10 @@ export function MoodTrendChart() {
   };
 
   return (
-    <Paper p="lg" withBorder>
-      <Stack gap="lg">
+    <Paper p={compact ? 'md' : 'lg'} withBorder>
+      <Stack gap={compact ? 'md' : 'lg'}>
         <Group justify="space-between" align="center">
-          <Title order={3} size="h4">
+          <Title order={compact ? 4 : 3} size={compact ? 'h5' : 'h4'}>
             <Group gap="xs">
               {getTrendIcon()}
               Mood Trends
@@ -195,8 +195,8 @@ export function MoodTrendChart() {
               value={selectedPeriod}
               onChange={(value) => setSelectedPeriod(value || '30')}
               data={trendPeriods}
-              size="xs"
-              w={120}
+              size={compact ? 'xs' : 'xs'}
+              w={compact ? 110 : 120}
             />
             <ActionIcon
               variant="light"
@@ -209,7 +209,7 @@ export function MoodTrendChart() {
         </Group>
 
         {/* Trend Summary */}
-        {trendAnalysis && (
+        {trendAnalysis && !compact && (
           <Card withBorder p="md">
             <Stack gap="xs">
               <Group justify="space-between">
@@ -244,8 +244,9 @@ export function MoodTrendChart() {
         <Card withBorder p="md">
           <Stack gap="md">
             <Text size="sm" fw={500}>Mood Over Time</Text>
-            <div style={{ display: 'flex', alignItems: 'end', gap: '2px', height: '120px' }}>
-              {trendData.map((point, index) => {
+            {trendData.length > 0 ? (
+              <div style={{ display: 'flex', alignItems: 'end', gap: '2px', height: compact ? '80px' : '120px' }}>
+                {trendData.map((point, index) => {
                 const height = (point.mood / 5) * 100;
                 const movingAvgHeight = (point.movingAverage / 5) * 100;
                 
@@ -285,31 +286,38 @@ export function MoodTrendChart() {
                     </div>
                   </Tooltip>
                 );
-              })}
-            </div>
-            <Group justify="space-between">
-              <Text size="xs" c="dimmed">
-                {format(parseISO(trendData[0].date), 'MMM d')}
+                              })}
+              </div>
+            ) : (
+              <Text size="sm" c="dimmed" ta="center" py="md">
+                No mood data available for the selected period
               </Text>
-              <Group gap="xs">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <div style={{ width: '12px', height: '8px', backgroundColor: '#339af0', borderRadius: '2px' }} />
-                  <Text size="xs" c="dimmed">Mood</Text>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <div style={{ width: '12px', height: '8px', backgroundColor: 'rgba(34, 139, 34, 0.5)', borderRadius: '2px' }} />
-                  <Text size="xs" c="dimmed">Trend</Text>
-                </div>
+            )}
+            {trendData.length > 0 && (
+              <Group justify="space-between">
+                <Text size="xs" c="dimmed">
+                  {format(parseISO(trendData[0].date), 'MMM d')}
+                </Text>
+                <Group gap="xs">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <div style={{ width: '12px', height: '8px', backgroundColor: '#339af0', borderRadius: '2px' }} />
+                    <Text size="xs" c="dimmed">Mood</Text>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <div style={{ width: '12px', height: '8px', backgroundColor: 'rgba(34, 139, 34, 0.5)', borderRadius: '2px' }} />
+                    <Text size="xs" c="dimmed">Trend</Text>
+                  </div>
+                </Group>
+                <Text size="xs" c="dimmed">
+                  {format(parseISO(trendData[trendData.length - 1].date), 'MMM d')}
+                </Text>
               </Group>
-              <Text size="xs" c="dimmed">
-                {format(parseISO(trendData[trendData.length - 1].date), 'MMM d')}
-              </Text>
-            </Group>
+            )}
           </Stack>
         </Card>
 
         {/* Weekly Pattern */}
-        {weeklyPattern.length > 0 && (
+        {weeklyPattern.length > 0 && trendData.length > 0 && !compact && (
           <Card withBorder p="md">
             <Stack gap="md">
               <Text size="sm" fw={500}>Weekly Pattern</Text>

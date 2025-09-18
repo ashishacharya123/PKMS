@@ -1,4 +1,5 @@
 import React from 'react';
+import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { 
   Group, 
   Title, 
@@ -182,7 +183,7 @@ export default function ArchivePage() {
   const [newName, setNewName] = React.useState('');
 
 
-  React.useEffect(() => {
+  useAuthenticatedEffect(() => {
     // Load root folders on initial mount
     const loadInitialData = async () => {
       try {

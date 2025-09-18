@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.tag import Tag
 from app.auth.dependencies import get_current_user
+from app.schemas.tag import TagAutocompleteResponse, TagResponse
 from app.models.user import User
 
 router = APIRouter(tags=["Tags"])
@@ -87,7 +88,7 @@ async def autocomplete_tags(
     return final_list
 
 
-@router.get("/autocomplete-enhanced")
+@router.get("/autocomplete-enhanced", response_model=TagAutocompleteResponse)
 async def autocomplete_tags_enhanced(
     q: str = Query("", description="Tag search query"),
     module_type: Optional[str] = Query(None, description="Filter by module type"),
@@ -98,7 +99,7 @@ async def autocomplete_tags_enhanced(
     """Get tag autocomplete suggestions in the format expected by the frontend."""
     
     if len(q.strip()) < 1:
-        return {'tags': []}
+        return TagAutocompleteResponse(tags=[])
     
     pattern = f"%{q.lower()}%"
     
@@ -110,31 +111,27 @@ async def autocomplete_tags_enhanced(
             )
         )
         
-        # Don't filter by module_type for better UX - show all user tags
-        # if module_type:
-        #     query = query.where(Tag.module_type == module_type)
-        
         query = query.distinct().order_by(Tag.name).limit(limit)
         
         result = await db.execute(query)
         tags_data = result.fetchall()
         
         tags = [
-            {
-                'name': name,
-                'color': color,
-                'type': tag_module_type
-            }
+            TagResponse(
+                name=name,
+                color=color,
+                module_type=tag_module_type
+            )
             for name, color, tag_module_type in tags_data
         ]
         
-        return {'tags': tags}
+        return TagAutocompleteResponse(tags=tags)
         
     except Exception as e:
-        return {'tags': []}
+        return TagAutocompleteResponse(tags=[])
 
 
-@router.get("/advanced")
+@router.get("/advanced", response_model=TagAutocompleteResponse)
 async def autocomplete_tags_advanced(
     q: str = Query("", description="Tag search query"),
     module_type: Optional[str] = Query(None, description="Filter by module type"),

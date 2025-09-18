@@ -25,14 +25,31 @@ import FuzzySearchPage from './pages/FuzzySearchPage';
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore();
 
+  // Show loading while authentication is being verified
   if (isLoading) {
-    return <div>Loading...</div>;
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        flexDirection: 'column',
+        gap: '16px'
+      }}>
+        <div>Loading...</div>
+        <div style={{ fontSize: '14px', color: '#666' }}>
+          Verifying authentication...
+        </div>
+      </div>
+    );
   }
 
+  // Redirect to auth if not authenticated
   if (!isAuthenticated) {
     return <Navigate to="/auth" replace />;
   }
 
+  // Only render layout and children when fully authenticated
   return <Layout>{children}</Layout>;
 }
 
@@ -52,7 +69,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
-  const { checkAuth } = useAuthStore();
+  const { checkAuth, isLoading: authLoading } = useAuthStore();
   
   // Initialize global keyboard shortcuts
   useGlobalKeyboardShortcuts();
@@ -62,6 +79,25 @@ function App() {
     console.log('[APP] Performing single global authentication check');
     checkAuth();
   }, [checkAuth]);
+
+  // Show loading screen while authentication is being checked
+  if (authLoading) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        flexDirection: 'column',
+        gap: '16px'
+      }}>
+        <div>Loading...</div>
+        <div style={{ fontSize: '14px', color: '#666' }}>
+          Checking authentication...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -206,7 +242,18 @@ function App() {
 
           {/* Default redirects */}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          
+          {/* Catch-all route that tries to preserve the current path */}
+          <Route path="*" element={
+            <AuthGuard>
+              <div>
+                <h2>Page Not Found</h2>
+                <p>The page you're looking for doesn't exist.</p>
+                <button onClick={() => window.history.back()}>Go Back</button>
+                <button onClick={() => window.location.href = '/dashboard'}>Go to Dashboard</button>
+              </div>
+            </AuthGuard>
+          } />
         </Routes>
     </>
   );

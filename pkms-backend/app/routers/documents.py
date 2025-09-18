@@ -13,7 +13,6 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select, and_, or_, func, desc
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, Field, validator
 from datetime import datetime
 import json
 import logging
@@ -31,7 +30,7 @@ from app.auth.dependencies import get_current_user
 from app.utils.security import sanitize_text_input, sanitize_tags
 from app.services.chunk_service import chunk_manager
 from app.services.file_detection import FileTypeDetectionService
-from app.services.fts_service import fts_service
+from app.services.fts_service_enhanced import enhanced_fts_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["documents"])
@@ -40,58 +39,7 @@ router = APIRouter(tags=["documents"])
 file_detector = FileTypeDetectionService()
 
 # Pydantic Models
-class DocumentCreate(BaseModel):
-    title: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = Field(None, max_length=1000)
-    tags: Optional[List[str]] = Field(default=[], max_items=20)
-    
-    @validator('tags')
-    def validate_tags(cls, v):
-        return sanitize_tags(v or [])
-
-class DocumentUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1)
-    description: Optional[str] = None
-    tags: Optional[List[str]] = Field(None, max_items=20)
-    is_favorite: Optional[bool] = None
-    is_archived: Optional[bool] = None
-
-class DocumentResponse(BaseModel):
-    id: int
-    uuid: str
-    title: str
-    original_name: str
-    filename: str
-    file_path: str
-    file_size: int
-    mime_type: str
-    description: Optional[str]
-    is_favorite: bool
-    is_archived: bool
-    archive_item_uuid: Optional[str] = None  # Reference to ArchiveItem if archived
-    upload_status: str
-    created_at: datetime
-    updated_at: datetime
-    tags: List[str]
-
-    class Config:
-        from_attributes = True
-
-class CommitDocumentUploadRequest(BaseModel):
-    """Request model for committing chunked document upload"""
-    file_id: str
-    title: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = Field(None, max_length=1000)
-    tags: Optional[List[str]] = Field(default=[], max_items=20)
-
-    @validator('tags')
-    def validate_tags(cls, v):
-        return sanitize_tags(v or [])
-
-class ArchiveDocumentRequest(BaseModel):
-    """Request model for archiving a document to the archive module"""
-    folder_uuid: str = Field(..., description="UUID of the archive folder to store the document")
-    copy_tags: bool = Field(True, description="Whether to copy document tags to the archive item")
+# Models are now in app/schemas/document.py
 
 # Helper Functions
 async def _handle_document_tags(db: AsyncSession, doc: Document, tag_names: List[str], user_id: int):
@@ -156,6 +104,7 @@ def _convert_doc_to_response(doc: Document) -> DocumentResponse:
         description=doc.description,
         is_favorite=doc.is_favorite,
         is_archived=doc.is_archived,
+        project_id=doc.project_id,
         archive_item_uuid=doc.archive_item_uuid,
         upload_status=doc.upload_status,
         created_at=doc.created_at,
@@ -249,7 +198,8 @@ async def commit_document_upload(
             mime_type=detection_result["mime_type"],
             description=payload.description,
             upload_status="completed",
-            user_id=current_user.id
+            user_id=current_user.id,
+            project_id=payload.project_id
         )
         
         db.add(document)
@@ -298,6 +248,9 @@ async def list_documents(
     mime_type: Optional[str] = Query(None),
     archived: Optional[bool] = Query(False),
     is_favorite: Optional[bool] = Query(None),
+    project_id: Optional[int] = Query(None, description="Filter documents by project_id"),
+    project_only: Optional[bool] = Query(False, description="Only documents attached to a project"),
+    unassigned_only: Optional[bool] = Query(False, description="Only documents without a project_id"),
     limit: int = Query(50, le=100),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user),
@@ -308,7 +261,7 @@ async def list_documents(
     
     if search:
         # Use FTS5 for full-text search
-        fts_results = await fts_service.search_all(db, search, current_user.id, content_types=["documents"], limit=limit, offset=offset)
+        fts_results = await enhanced_fts_service.search_all(db, search, current_user.id, content_types=["documents"], limit=limit, offset=offset)
         doc_uuids = [r["id"] for r in fts_results if r["type"] == "document"]
         logger.info(f"🔍 FTS5 search returned {len(doc_uuids)} document UUIDs")
         
@@ -322,12 +275,19 @@ async def list_documents(
                 Document.uuid.in_(doc_uuids)
             )
         )
+        # Apply filters
         if tag:
             query = query.join(Document.tag_objs).where(Tag.name == tag)
         if mime_type:
             query = query.where(Document.mime_type.like(f"{mime_type}%"))
         if is_favorite is not None:
             query = query.where(Document.is_favorite == is_favorite)
+        if project_id is not None:
+            query = query.where(Document.project_id == project_id)
+        elif project_only:
+            query = query.where(Document.project_id.is_not(None))
+        elif unassigned_only:
+            query = query.where(Document.project_id.is_(None))
         result = await db.execute(query)
         documents = result.scalars().unique().all()
         logger.info(f"📚 FTS5 query returned {len(documents)} documents")
@@ -345,12 +305,19 @@ async def list_documents(
                 Document.is_archived == archived
             )
         )
+        # Apply filters
         if tag:
             query = query.join(Document.tag_objs).where(Tag.name == tag)
         if mime_type:
             query = query.where(Document.mime_type.like(f"{mime_type}%"))
         if is_favorite is not None:
             query = query.where(Document.is_favorite == is_favorite)
+        if project_id is not None:
+            query = query.where(Document.project_id == project_id)
+        elif project_only:
+            query = query.where(Document.project_id.is_not(None))
+        elif unassigned_only:
+            query = query.where(Document.project_id.is_(None))
         query = query.order_by(Document.created_at.desc()).offset(offset).limit(limit)
         result = await db.execute(query)
         ordered_docs = result.scalars().unique().all()
@@ -583,6 +550,59 @@ async def archive_document(
             "archive_folder": archive_folder.name,
             "archive_path": archive_folder.path,
             "tags_copied": len(document.tag_objs) if archive_request.copy_tags else 0
+        }
+        
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"❌ Error archiving document {document_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to archive document"
+        )
+
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a document and its associated file.
+    
+    Note: If the document was archived, this only deletes the original document.
+    The archived copy in the Archive module remains intact and accessible.
+    """
+    result = await db.execute(
+        select(Document).where(
+            and_(Document.id == document_id, Document.user_id == current_user.id)
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    
+    # Log archive status for clarity
+    if doc.is_archived:
+        logger.info(f"🗑️ Deleting archived document {document_id} (archive copy preserved: {doc.archive_item_uuid})")
+    else:
+        logger.info(f"🗑️ Deleting document {document_id} (not archived)")
+    
+    # Delete the physical file
+    try:
+        file_to_delete = get_file_storage_dir() / doc.file_path
+        if file_to_delete.exists():
+            file_to_delete.unlink()
+            logger.info(f"🗑️ Deleted document file: {file_to_delete}")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not delete file {doc.file_path}: {e}")
+        # Continue with database deletion even if file deletion fails
+        
+    await db.delete(doc)
+    await db.commit()
+    
+    logger.info(f"✅ Document {document_id} deleted successfully")ent.tag_objs) if archive_request.copy_tags else 0
         }
         
     except HTTPException:

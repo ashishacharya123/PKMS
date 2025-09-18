@@ -18,34 +18,9 @@ from app.models.document import Document
 from app.models.todo import Todo, Project
 from app.models.diary import DiaryEntry
 from app.models.archive import ArchiveFolder, ArchiveItem
-from pydantic import BaseModel
+from app.schemas.dashboard import DashboardStats, ModuleActivity, QuickStats
 
 router = APIRouter()
-
-class DashboardStats(BaseModel):
-    """Dashboard statistics model"""
-    notes: Dict[str, int]
-    documents: Dict[str, int] 
-    todos: Dict[str, int]
-    diary: Dict[str, int]
-    archive: Dict[str, int]
-    last_updated: datetime
-
-class ModuleActivity(BaseModel):
-    """Recent activity across modules"""
-    recent_notes: int
-    recent_documents: int
-    recent_todos: int
-    recent_diary_entries: int
-    recent_archive_items: int
-
-class QuickStats(BaseModel):
-    """Quick overview statistics"""
-    total_items: int
-    active_projects: int
-    overdue_todos: int
-    current_diary_streak: int
-    storage_used_mb: float
 
 @router.get("/stats", response_model=DashboardStats)
 async def get_dashboard_stats(

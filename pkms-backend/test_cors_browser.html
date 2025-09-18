@@ -1,0 +1,118 @@
+<!-- Claude Sonnet 4 -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CORS Test - PKMS Backend</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        pre { background-color: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🧪 CORS Test - PKMS Backend</h1>
+    
+    <div class="test-section">
+        <h3>Test 1: Basic CORS Test</h3>
+        <button onclick="testBasicCORS()">Test Basic CORS</button>
+        <div id="basic-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 2: Todos API Test</h3>
+        <button onclick="testTodosAPI()">Test Todos API</button>
+        <div id="todos-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 3: Projects API Test</h3>
+        <button onclick="testProjectsAPI()">Test Projects API</button>
+        <div id="projects-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>Test 4: Todos Database Test</h3>
+        <button onclick="testTodosDatabase()">Test Todos Database</button>
+        <div id="todos-db-result"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        
+        function displayResult(elementId, success, message, data = null) {
+            const element = document.getElementById(elementId);
+            element.className = success ? 'test-section success' : 'test-section error';
+            element.innerHTML = `
+                <h3>${success ? '✅ Success' : '❌ Error'}</h3>
+                <p><strong>Message:</strong> ${message}</p>
+                ${data ? `<pre><strong>Data:</strong> ${JSON.stringify(data, null, 2)}</pre>` : ''}
+            `;
+        }
+        
+        async function testBasicCORS() {
+            try {
+                const response = await fetch(`${API_BASE}/test-cors`);
+                const data = await response.json();
+                
+                displayResult('basic-result', true, 'CORS is working!', {
+                    status: response.status,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    data: data
+                });
+            } catch (error) {
+                displayResult('basic-result', false, `CORS Error: ${error.message}`);
+            }
+        }
+        
+        async function testTodosAPI() {
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/todos/?limit=20&offset=0`);
+                const data = await response.json();
+                
+                displayResult('todos-result', true, 'Todos API CORS is working!', {
+                    status: response.status,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    data: data
+                });
+            } catch (error) {
+                displayResult('todos-result', false, `Todos API CORS Error: ${error.message}`);
+            }
+        }
+        
+        async function testProjectsAPI() {
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/todos/projects`);
+                const data = await response.json();
+                
+                displayResult('projects-result', true, 'Projects API CORS is working!', {
+                    status: response.status,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    data: data
+                });
+            } catch (error) {
+                displayResult('projects-result', false, `Projects API CORS Error: ${error.message}`);
+            }
+        }
+        
+        async function testTodosDatabase() {
+            try {
+                const response = await fetch(`${API_BASE}/test-todos`);
+                const data = await response.json();
+                
+                displayResult('todos-db-result', true, 'Todos Database Test', {
+                    status: response.status,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    data: data
+                });
+            } catch (error) {
+                displayResult('todos-db-result', false, `Todos Database Test Error: ${error.message}`);
+            }
+        }
+    </script>
+</body>
+</html>

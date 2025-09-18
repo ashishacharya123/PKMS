@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi';
 import {
   Container,
   Title,
@@ -57,8 +58,16 @@ export default function AdvancedFuzzySearchPage() {
   const [sortBy, setSortBy] = useState('score');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
+  const api = useAuthenticatedApi();
+
   const handleSearch = async () => {
     if (!query.trim()) return;
+    
+    if (!api.isReady) {
+      setError('Authentication required. Please wait...');
+      return;
+    }
+    
     setLoading(true);
     setError(null);
     setResults([]);

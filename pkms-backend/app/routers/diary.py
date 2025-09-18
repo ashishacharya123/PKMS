@@ -7,7 +7,6 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, extract, or_, text
 from sqlalchemy.orm import selectinload, aliased
-from pydantic import BaseModel, Field, validator
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date, timedelta
 from pathlib import Path
@@ -30,19 +29,19 @@ from app.utils.diary_encryption import write_encrypted_file, read_encrypted_head
 from app.models.tag import Tag
 from app.models.tag_associations import diary_tags
 from app.services.chunk_service import chunk_manager
-from app.services.fts_service import fts_service
+from app.services.fts_service_enhanced import enhanced_fts_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["diary"])
 
-# Secure in-memory session store for diary passwords
-# Format: {user_id: {"password": str, "timestamp": float, "expires_at": float}}
+# Secure in-memory session store for diary encryption material
+# Format: {user_id: {"key": bytes, "timestamp": float, "expires_at": float}}
 _diary_sessions: Dict[int, Dict[str, any]] = {}
-DIARY_SESSION_TIMEOUT = 900  # 15 minutes in seconds (shorter than system timeout)
+DIARY_SESSION_TIMEOUT = 1800  # 30 minutes in seconds (aligned with app session)
 
-def _get_diary_password_from_session(user_id: int) -> Optional[str]:
-    """Get diary password from session if valid and not expired."""
+def _get_diary_password_from_session(user_id: int) -> Optional[bytes]:
+    """Get diary derived key from session if valid and not expired."""
     if user_id not in _diary_sessions:
         return None
     
@@ -55,13 +54,13 @@ def _get_diary_password_from_session(user_id: int) -> Optional[str]:
         _clear_diary_session(user_id)
         return None
     
-    return session["password"]
+    return session["key"]
 
 def _store_diary_password_in_session(user_id: int, password: str):
-    """Store diary password in secure session with expiry."""
+    """Store derived diary key in secure session with expiry."""
     current_time = time.time()
     _diary_sessions[user_id] = {
-        "password": password,
+        "key": _derive_diary_encryption_key(password),
         "timestamp": current_time,
         "expires_at": current_time + DIARY_SESSION_TIMEOUT
     }
@@ -70,9 +69,13 @@ def _store_diary_password_in_session(user_id: int, password: str):
 def _clear_diary_session(user_id: int):
     """Clear diary session and password from memory."""
     if user_id in _diary_sessions:
-        # Securely overwrite password in memory before deletion
-        if "password" in _diary_sessions[user_id]:
-            _diary_sessions[user_id]["password"] = "x" * len(_diary_sessions[user_id]["password"])
+        # Securely overwrite key in memory before deletion
+        if "key" in _diary_sessions[user_id]:
+            try:
+                key_len = len(_diary_sessions[user_id]["key"]) if _diary_sessions[user_id]["key"] else 0
+                _diary_sessions[user_id]["key"] = b"\x00" * key_len
+            except Exception:
+                _diary_sessions[user_id]["key"] = None
         del _diary_sessions[user_id]
         logger.info(f"🗑️ Diary session cleared for user {user_id}")
 
@@ -216,126 +219,7 @@ def _calculate_day_of_week(entry_date: date) -> int:
     return entry_date.weekday()
 
 # --- Pydantic Models ---
-
-class EncryptionSetupRequest(BaseModel):
-    password: str
-    hint: Optional[str] = None
-
-class EncryptionUnlockRequest(BaseModel):
-    password: str
-
-class DiaryEntryCreate(BaseModel):
-    date: date
-    nepali_date: Optional[str] = None
-    title: Optional[str] = Field(None, max_length=255)
-    encrypted_blob: str
-    encryption_iv: str
-    encryption_tag: str
-    mood: Optional[int] = Field(None, ge=1, le=5)
-    metadata: Optional[Dict[str, Any]] = {}
-    is_template: Optional[bool] = False
-    tags: Optional[List[str]] = []
-
-class DiaryEntryResponse(BaseModel):
-    uuid: str
-    id: int
-    date: date
-    nepali_date: Optional[str]
-    title: Optional[str]
-    encrypted_blob: str
-    encryption_iv: str
-    encryption_tag: str
-    mood: Optional[int]
-    metadata: Dict[str, Any]
-    is_template: bool
-    created_at: datetime
-    updated_at: datetime
-    media_count: int
-    tags: List[str] = []
-
-    class Config:
-        from_attributes = True
-
-    @validator('metadata', pre=True)
-    def parse_metadata_json(cls, v):
-        if isinstance(v, str):
-            return json.loads(v)
-        return v
-
-class DiaryEntrySummary(BaseModel):
-    uuid: str
-    id: int
-    date: date
-    nepali_date: Optional[str]
-    title: Optional[str]
-    mood: Optional[int]
-    is_template: bool
-    created_at: datetime
-    media_count: int
-    encrypted_blob: str
-    encryption_iv: str
-    encryption_tag: str
-    metadata: Dict[str, Any]
-    tags: List[str] = []
-    
-    class Config:
-        from_attributes = True
-        
-    @validator('metadata', pre=True)
-    def parse_metadata_json(cls, v):
-        if isinstance(v, str):
-            return json.loads(v)
-        return v
-        
-class DiaryCalendarData(BaseModel):
-    date: str
-    mood: Optional[int]
-    has_entry: bool
-    media_count: int
-
-class MoodStats(BaseModel):
-    average_mood: Optional[float]
-    mood_distribution: Dict[int, int]
-    total_entries: int
-
-class DiaryMediaResponse(BaseModel):
-    uuid: str
-    entry_id: int
-    filename_encrypted: str
-    mime_type: str
-    size_bytes: int
-    media_type: str
-    duration_seconds: Optional[int]
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-class DiaryMediaUpload(BaseModel):
-    """Request model for diary media upload"""
-    caption: Optional[str] = Field(None, max_length=500)
-    media_type: str = Field(..., description="Type: photo, video, voice")
-    
-    @validator('media_type')
-    def validate_media_type(cls, v):
-        allowed_types = ['photo', 'video', 'voice']
-        if v not in allowed_types:
-            raise ValueError(f"Media type must be one of: {', '.join(allowed_types)}")
-        return v
-
-class CommitDiaryMediaRequest(BaseModel):
-    """Request model for committing chunked diary media upload"""
-    file_id: str
-    entry_id: int
-    caption: Optional[str] = None
-    media_type: str = Field(..., description="Type: photo, video, voice")
-    
-    @validator('media_type')
-    def validate_media_type(cls, v):
-        allowed_types = ['photo', 'video', 'voice']
-        if v not in allowed_types:
-            raise ValueError(f"Media type must be one of: {', '.join(allowed_types)}")
-        return v
+# Models are now in app/schemas/diary.py
 
 # --- Encryption Endpoints ---
 
@@ -618,15 +502,15 @@ async def list_diary_entries(
     
     # Subquery to count media per entry
     media_count_subquery = (
-        select(DiaryMedia.diary_entry_id, func.count(DiaryMedia.id).label("media_count"))
-        .group_by(DiaryMedia.diary_entry_id)
+        select(DiaryMedia.diary_entry_uuid, func.count(DiaryMedia.id).label("media_count"))
+        .group_by(DiaryMedia.diary_entry_uuid)
         .subquery()
     )
 
     summaries = []
     if search_title:
         # Use centralized FTS5 for full-text search (title, tags, metadata)
-        id_list = await fts_service.search_diary_entries(
+        id_list = await enhanced_fts_service.search_diary_entries(
             db, search_title, current_user.id, limit=limit, offset=offset
         )
         if not id_list:
@@ -638,6 +522,7 @@ async def list_diary_entries(
                 DiaryEntry.id,
                 DiaryEntry.title,
                 DiaryEntry.date,
+                DiaryEntry.nepali_date,
                 DiaryEntry.mood,
                 DiaryEntry.is_template,
                 DiaryEntry.created_at,
@@ -648,7 +533,7 @@ async def list_diary_entries(
                 DiaryEntry.encryption_tag,
                 func.coalesce(media_count_subquery.c.media_count, 0).label("media_count")
             )
-            .outerjoin(media_count_subquery, DiaryEntry.id == media_count_subquery.c.diary_entry_id)
+            .outerjoin(media_count_subquery, DiaryEntry.uuid == media_count_subquery.c.diary_entry_uuid)
             .where(DiaryEntry.id.in_(id_list))
         )
         # Apply other filters
@@ -702,6 +587,7 @@ async def list_diary_entries(
                 DiaryEntry.id,
                 DiaryEntry.title,
                 DiaryEntry.date,
+                DiaryEntry.nepali_date,
                 DiaryEntry.mood,
                 DiaryEntry.is_template,
                 DiaryEntry.created_at,
@@ -712,7 +598,7 @@ async def list_diary_entries(
                 DiaryEntry.encryption_tag,
                 func.coalesce(media_count_subquery.c.media_count, 0).label("media_count")
             )
-            .outerjoin(media_count_subquery, DiaryEntry.id == media_count_subquery.c.diary_entry_id)
+            .outerjoin(media_count_subquery, DiaryEntry.uuid == media_count_subquery.c.diary_entry_uuid)
             .where(DiaryEntry.user_id == current_user.id)
         )
         if year:
@@ -1109,7 +995,7 @@ async def get_entry_media(
         )
 
     media_res = await db.execute(
-        select(DiaryMedia).where(DiaryMedia.diary_entry_id == entry_id)
+        select(DiaryMedia).where(DiaryMedia.diary_entry_uuid == entry_id)
     )
     media_items = media_res.scalars().all()
     return media_items
@@ -1153,7 +1039,7 @@ async def commit_diary_media_upload(
         # Create DiaryMedia record first to get the ID for filename
         diary_media = DiaryMedia(
             uuid=str(uuid_lib.uuid4()),
-            diary_entry_id=payload.entry_id,
+            diary_entry_uuid=payload.entry_id,
             user_id=current_user.id,
             filename="temp",  # Will be updated with proper name
             original_name="",
@@ -1200,8 +1086,8 @@ async def commit_diary_media_upload(
         # Generate random IV for this media file
         iv = os.urandom(12)
         
-        # Derive encryption key from user's diary password (same as standalone script)
-        encryption_key = _derive_diary_encryption_key(diary_password)
+        # Use already-derived encryption key from session
+        encryption_key = diary_password
         aesgcm = AESGCM(encryption_key)
         
         # Encrypt the file content using user's unique key
@@ -1235,7 +1121,7 @@ async def commit_diary_media_upload(
 
         # Calculate and update entry media count
         media_count_result = await db.execute(
-            select(func.count(DiaryMedia.id)).where(DiaryMedia.diary_entry_id == payload.entry_id)
+            select(func.count(DiaryMedia.id)).where(DiaryMedia.diary_entry_uuid == payload.entry_id)
         )
         new_media_count = media_count_result.scalar() or 0
         entry.media_count = new_media_count
@@ -1258,7 +1144,7 @@ async def commit_diary_media_upload(
         
         return DiaryMediaResponse(
             uuid=str(diary_media.id),
-            entry_id=diary_media.diary_entry_id,
+            entry_id=diary_media.diary_entry_uuid,
             filename_encrypted=diary_media.filename,
             mime_type=diary_media.mime_type,
             size_bytes=diary_media.file_size,
@@ -1331,7 +1217,7 @@ async def download_diary_media(
             # Decrypt using user's diary password
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
             
-            encryption_key = _derive_diary_encryption_key(diary_password)
+            encryption_key = diary_password
             aesgcm = AESGCM(encryption_key)
             
             # Decrypt the content

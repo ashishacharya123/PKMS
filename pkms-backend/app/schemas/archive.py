@@ -1,0 +1,146 @@
+from pydantic import BaseModel, Field, validator, ConfigDict
+from pydantic.alias_generators import to_camel
+from typing import List, Optional, Dict, Any
+from datetime import datetime
+
+class CamelCaseModel(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        from_attributes=True
+    )
+
+class FolderCreate(CamelCaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=1000)
+    parent_uuid: Optional[str] = None
+
+    @validator('name')
+    def validate_name(cls, v):
+        from app.utils.security import sanitize_folder_name
+        return sanitize_folder_name(v)
+
+    @validator('description')
+    def validate_description(cls, v):
+        if v is None:
+            return v
+        from app.utils.security import sanitize_description
+        return sanitize_description(v)
+
+    @validator('parent_uuid')
+    def validate_parent_uuid(cls, v):
+        if v is None:
+            return v
+        from app.utils.security import validate_uuid_format
+        return validate_uuid_format(v)
+
+class FolderUpdate(CamelCaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=1000)
+
+    @validator('name')
+    def validate_name(cls, v):
+        if v is None:
+            return v
+        from app.utils.security import sanitize_folder_name
+        return sanitize_folder_name(v)
+
+    @validator('description')
+    def validate_description(cls, v):
+        if v is None:
+            return v
+        from app.utils.security import sanitize_description
+        return sanitize_description(v)
+
+class ItemUpdate(CamelCaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=1000)
+    folder_uuid: Optional[str] = None
+    tags: Optional[List[str]] = Field(None, max_items=20)
+    is_favorite: Optional[bool] = None
+
+    @validator('name')
+    def validate_name(cls, v):
+        if v is None:
+            return v
+        from app.utils.security import sanitize_filename
+        return sanitize_filename(v)
+
+    @validator('description')
+    def validate_description(cls, v):
+        if v is None:
+            return v
+        from app.utils.security import sanitize_description
+        return sanitize_description(v)
+
+    @validator('folder_uuid')
+    def validate_folder_uuid(cls, v):
+        if v is None:
+            return v
+        from app.utils.security import validate_uuid_format
+        return validate_uuid_format(v)
+
+    @validator('tags')
+    def validate_tags(cls, v):
+        if v is None:
+            return v
+        from app.utils.security import sanitize_tags
+        return sanitize_tags(v)
+
+class FolderResponse(CamelCaseModel):
+    uuid: str
+    name: str
+    description: Optional[str]
+    parent_uuid: Optional[str]
+    path: str
+    created_at: datetime
+    updated_at: datetime
+    item_count: int
+    subfolder_count: int
+    total_size: int
+
+class ItemResponse(CamelCaseModel):
+    uuid: str
+    name: str
+    description: Optional[str]
+    folder_uuid: str
+    original_filename: str
+    stored_filename: str
+    mime_type: str
+    file_size: int
+    metadata: Dict[str, Any]
+    thumbnail_path: Optional[str]
+    is_favorite: bool
+    version: str
+    created_at: datetime
+    updated_at: datetime
+    tags: List[str]
+
+class ItemSummary(CamelCaseModel):
+    uuid: str
+    name: str
+    folder_uuid: str
+    original_filename: str
+    mime_type: str
+    file_size: int
+    is_favorite: bool
+    created_at: datetime
+    updated_at: datetime
+    tags: List[str]
+    preview: str
+
+class FolderTree(CamelCaseModel):
+    folder: FolderResponse
+    children: List['FolderTree']
+    items: List[ItemSummary]
+
+class BulkMoveRequest(CamelCaseModel):
+    items: List[str] = Field(..., description="List of archive item UUIDs to move")
+    target_folder: str = Field(..., description="Destination folder UUID")
+
+class CommitUploadRequest(CamelCaseModel):
+    file_id: str
+    folder_uuid: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    tags: Optional[List[str]] = []

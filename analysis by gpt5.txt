@@ -1,0 +1,141 @@
+PKMS – Deep, Blunt, and Unforgiving Analysis (by GPT-5)
+
+Scope
+- Backend: FastAPI app under `pkms-backend/app`, routers, services, models, middleware, config.
+- Frontend: React + Vite under `pkms-frontend`, API service, auth store, search pages.
+- Data: `PKMS_Data` convention via `get_file_storage_dir()` and `get_data_dir()`.
+- Ops: Docker compose, scripts, logging docs.
+
+High-level Verdict
+- Core architecture is solid: modular routers, DI auth, async SQLAlchemy, consistent TZ (+05:45), and a coherent search stack (FTS5 + fuzzy + hybrid). The local-first stance with proper file storage separation is good.
+- But you have drift, duplicates, and some foot-guns. Multiple search services coexist, some legacy routes are disabled but referenced elsewhere, and a few “temporary” debug/testing paths look suspicious for prod. The auth/session scheme is acceptable for a single-user/self-hosted app but cuts corners against stricter industry practice. File uploads are correctly chunked, but cleanups and lifecycles can be tightened.
+- Frontend is reasonably defensive with token refresh, but still leans on localStorage and manual refresh orchestration; good UX touches (warnings, sound), but a bit noisy and fragile.
+
+Backend – The Good
+- Authentication
+  - Bcrypt via Passlib; JWT with exp; refresh handled via HttpOnly cookie `pkms_refresh` and DB `Session` table.
+  - Nepal timezone normalized everywhere (`NEPAL_TZ`), logging formatter honors it.
+  - Rate limiting (SlowAPI) wired globally; CORS middleware first.
+- Search
+  - Enhanced FTS5 service with cross-module normalization and ranking; hybrid fuzzy layer for deep matches.
+  - Dedicated router `search_enhanced` with `/fts5`, `/fuzzy`, `/global`, `/suggestions`, `/health`, `/optimize`.
+- Chunked Uploads
+  - Shared upload endpoints; CRC32 per-chunk verification; throttle limit; async assembly with semaphore.
+  - Central `chunk_manager` with cleanup loop; consistent temp dir strategy.
+- Diary Encryption
+  - Standardized PKMS header format; clear split between header pack/unpack and AES-GCM handling; avoids backend key handling for text files, and uses session-derived key for media paths where needed.
+- Middleware & Security
+  - Query sanitization middleware; explicit security headers; trusted host in production.
+  - Input validation patterns on auth; password strength checks.
+- Config/Paths
+  - `get_file_storage_dir()` prefers mounted `PKMS_Data`; `nepal_now()` SQL function compiled across SQLite/Postgres/MySQL.
+
+Backend – The Bad
+- Session Lifecycle Inconsistencies
+  - `login` deletes all prior sessions for the user (hard reset). `get_current_user` silently extends the newest session by 7 days on every request without coordinating with refresh rotation policy (sliding forever). Logout does not invalidate server-side `Session` records.
+  - Risk: Long-lived refresh cookie plus auto-extension ≈ indefinite sessions if token keeps being used; OK for local app, not great security posture.
+- Duplicated/Confusing Search Surface
+  - Both `fts_service.py` and `fts_service_enhanced.py` exist. `search_enhanced` relies on `enhanced_fts_service.search_all`, while some legacy routers still import prior services. There’s an old `search.py` router commented out in `main.py` yet parts of code and docs still reference it.
+  - Risk: Route/API drift and maintenance complexity.
+- Testing/Debug Endpoints in App Mount
+  - `testing_router` is included under `/api/v1/testing`. Ensure it’s fully auth-guarded with the same role model; otherwise, it is an attack surface.
+  - There are also “test-cors” and “test-todos” public endpoints in `main.py`. They are harmless locally but should be gated off in production.
+- Upload Lifecycle Edge Cases
+  - Cancel endpoint only drops in-memory tracking; doesn’t eagerly delete chunk files.
+  - Assembled files are left under `temp_uploads` until per-module commit moves them; errors during commit paths can orphan files. Cleanup loop is time-based (24h), not event-based.
+  - No per-upload integrity finalization token beyond CRC32; OK for local use, but stronger hashes and signed manifests would be better.
+- Inconsistent Tagging Conventions
+  - Multiple routers reimplement per-module tag handling (`notes`, `todos`, `documents`, `archive`), with slightly different color defaults and semantics. Duplication increases drift risk.
+- Error Handling
+  - Some broad `except Exception` that return generic messages (e.g., `/auth/refresh` converts unexpected errors to 401). Better: preserve error classes in logs, return typed errors to client.
+
+Backend – The Ugly (Blunt)
+- Mixed Legacy Artifacts
+  - Disabled routers are still imported or referenced; FTS services exist in multiple versions; comments say “temporarily disabled” but code paths still call them. This is tech debt.
+- Diary Media AES-GCM Key Handling
+  - At least one path references using the in-memory derived key directly within the backend flow for media commits. If the philosophy is “frontend encrypts,” enforce it consistently. Mixing models invites logic bugs or partial exposure of crypto primitives.
+- Security Optics
+  - Local-first is fine, but: localStorage for access token on FE, sliding 7-day refresh with indefinite refresh, auto-extension in `get_current_user`, and public test endpoints – the combination is not industry-grade.
+
+Backend – Missing/Weak Spots
+- Role/Permissions
+  - Everything is single-user-oriented. There’s no role/permission model. Even if single-user, stubbing a role enum avoids future rewrites.
+- Audit Trails
+  - No centralized audit table/emitters (logins, password changes, file uploads, tag changes). You rely on logs, which is less queryable.
+- Config Validation
+  - `Settings` is good, but some derived rules (e.g., cookie flags, CORS origins, upload size thresholds) could be validated/hardened per env.
+- Backup/Restore Contracts
+  - Backups exist, but there’s no clearly enforced schema versioning/migration gating for restores.
+
+Frontend – The Good
+- API Service
+  - Axios instance with `withCredentials` for refresh cookie; robust interceptor that retries once after refresh; user-friendly notifications; health check API.
+- Auth Store
+  - Zustand state management; checkAuth sets token, fetches user, parses `settings_json`; session monitoring with expiry warnings and extension flow.
+- Search Pages
+  - Dedicated FTS5 and fuzzy pages; advanced fuzzy capable of module mapping.
+- Config
+  - `API_BASE_URL` defaults to current host; avoids third-party cookie pitfalls in dev.
+
+Frontend – The Bad
+- Access Token in localStorage
+  - This is common for SPAs but not best practice. HttpOnly cookie for access token avoids XSS exfiltration. You do use HttpOnly cookie for refresh, which is good, but the access token exposure remains.
+- Interceptor Complexity
+  - A lot of branching/hard-coded URL checks; error recovery is verbose. Easier: dedicated auth client wrapper with strong type contracts for `/auth/*` endpoints.
+- API Typing
+  - `ApiResponse<T>` is thin; many endpoints pass `any`. Types for core routes would reduce runtime surprises.
+
+Frontend – The Ugly (Blunt)
+- UX Noise
+  - Sound alerts on expiry warnings can be intrusive; OK for power users, but consider mute/setting.
+- Race Hardening
+  - `useAuthenticatedApi` throws if `isLoading` or not `isAuthenticated` – good, but some pages still fire calls without gating or without consulting it.
+
+Back/Front Contract Mismatches (Potential)
+- Search module names vs type names are mapped in the FE (e.g., `notes` -> `note`, `documents` -> `document`). Backend tables/types also use slightly different keys. Works today, brittle tomorrow.
+- Legacy routes referenced in FE may 404 if disabled (e.g., older `/api/v1/search` vs `/api/v1/search/*`). The FE mostly uses `/search_enhanced` endpoints correctly, but double-check all search pages and services to be consistent.
+
+Modularity & Architecture – Improvements
+- Consolidate Search
+  - Keep only `fts_service_enhanced.py` and the enhanced router. Remove/alias legacy service and router. Provide a compatibility endpoint that forwards to the new implementation.
+- Centralize Tags
+  - Provide a single tag service/util with typed helpers. Eliminate per-router duplication.
+- Session Strategy
+  - Decide: fixed refresh window with rotation vs sliding sessions. If sliding: tie extension only to `/auth/refresh`. If fixed: stop extending in `get_current_user`. Add logout that invalidates session record.
+- Upload Lifecycle
+  - Add immediate cleanup for `DELETE /upload/{file_id}` to remove chunk dir. On commit, delete assembled temp file after move, and always untrack upload id.
+- Testing/Debug
+  - Gate `testing_router` and ad-hoc test endpoints behind `settings.debug` or `environment != 'production'`.
+- Types & Docs
+  - Strengthen Pydantic response models where missing; document every mounted route in a single file. Generate OpenAPI and consume on FE for types.
+- Security Best Practice (Local-first pragmatic)
+  - Keep refresh in HttpOnly cookie (good). Consider short-lived access token also in cookie with SameSite=Lax, eliminating localStorage. Or, at least add a “secure mode” toggle.
+
+Risk Calls (Blunt)
+- Public/non-auth test endpoints in production are a “no”. Remove or guard.
+- Auto-extending sessions in `get_current_user` is a quiet security foot-gun. Move extension to refresh flow only.
+- Leaving duplicate search services will bite you when schemas drift. Consolidate now; your future self will thank you.
+
+Quick Wins (Low Effort)
+- Add `if settings.environment == 'production':` guards to `test-cors`, `test-todos`, and mount `testing_router` only in non-prod.
+- Implement hard cleanup on `DELETE /upload/{file_id}` to remove files immediately.
+- Unify module/type keys across FE/BE via constants.
+- Add `X-Request-ID` header middleware for correlation; log it in every warning/error.
+- Tighten error granularity on `/auth/refresh` (don’t blanket 401 unexpected failures – still log, but differentiate).
+
+Bigger Wins (Medium Effort)
+- Replace localStorage token with cookie-based access token; adjust CORS and CSRF (double-submit or header token) as needed.
+- Centralize tags service; migrate routers to it.
+- Formalize search API: one router, one service, one set of types; remove legacy.
+- Add audit logging table and emitters for auth/file operations.
+
+Files/Areas Needing Attention
+- `pkms-backend/main.py`: remove/gate test endpoints, ensure consistent router mounts, keep CORS/SlowAPI order.
+- `pkms-backend/app/auth/dependencies.py`: stop auto-extending sessions here; do it in `/auth/refresh` only.
+- `pkms-backend/app/routers/uploads.py`: implement hard cleanup on cancel; assert assembled cleanup on commit.
+- `pkms-backend/app/routers/search_enhanced.py`: rely solely on enhanced service; remove legacy fallbacks; verify consistent module/type keys.
+- `pkms-backend/app/services/fts_service_enhanced.py` vs `fts_service.py`: consolidate.
+- `pkms-frontend/src/services/api.ts`: consider cookie-based access tokens; reduce interceptor complexity and centralize auth logic.
+
+Final Take
+- The project is strong and thoughtfully engineered, but it carries legacy baggage and security shortcuts. Clean up the search stack, tighten session semantics, gate debug endpoints, and centralize repetitive logic. You’ll reduce risk and cognitive load while improving maintainability.

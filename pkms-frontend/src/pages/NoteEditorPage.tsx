@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Container,
@@ -29,7 +30,7 @@ import {
 } from '@tabler/icons-react';
 import MDEditor from '@uiw/react-md-editor';
 import { notifications } from '@mantine/notifications';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { notesService, Note, type NoteFile } from '../services/notesService';
 import { searchService } from '../services/searchService';
 
@@ -53,17 +54,30 @@ export function NoteEditorPage() {
 
   const queryClient = useQueryClient();
 
-  const {
-    data: currentNote,
-    isLoading,
-    error,
-  } = useQuery<Note, Error>({
-    queryKey: ['note', id],
-    queryFn: () => notesService.getNote(parseInt(id!)),
-    enabled: isEditing && id !== undefined,
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 30 * 60 * 1000, // 30 minutes
-  });
+  const [currentNote, setCurrentNote] = useState<Note | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  // Load note for editing using consistent pattern
+  useAuthenticatedEffect(() => {
+    if (!isEditing || !id) return;
+    
+    const loadNote = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const noteData = await notesService.getNote(parseInt(id));
+        setCurrentNote(noteData);
+      } catch (err) {
+        setError(err as Error);
+        setCurrentNote(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadNote();
+  }, [isEditing, id]);
 
   const createNoteMutation = useMutation({
     mutationFn: notesService.createNote,
@@ -107,7 +121,7 @@ export function NoteEditorPage() {
     }
   });
 
-  useEffect(() => {
+  useAuthenticatedEffect(() => {
     if (isEditing && currentNote) {
       setTitle(currentNote.title);
       setContent(currentNote.content);

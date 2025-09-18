@@ -46,6 +46,7 @@ interface TodosState {
   loadTodo: (id: number) => Promise<void>;
   createTodo: (data: TodoCreate) => Promise<Todo | null>;
   updateTodo: (id: number, data: TodoUpdate) => Promise<Todo | null>;
+  updateTodoWithSubtasks: (todoId: number, updater: (todo: TodoSummary) => TodoSummary) => void;
   completeTodo: (id: number) => Promise<Todo | null>;
   deleteTodo: (id: number) => Promise<boolean>;
   archiveTodo: (id: number) => Promise<void>;
@@ -239,31 +240,14 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     try {
       const updatedTodo = await todosService.updateTodo(id, data);
       
-      // Convert Todo to TodoSummary for the list
-      const todoSummary: TodoSummary = {
-        id: updatedTodo.id,
-        title: updatedTodo.title,
-        project_name: updatedTodo.project_name,
-        due_date: updatedTodo.due_date,
-        priority: updatedTodo.priority,
-        status: updatedTodo.status,
-        created_at: updatedTodo.created_at,
-        tags: updatedTodo.tags,
-        days_until_due: updatedTodo.days_until_due,
-        is_archived: updatedTodo.is_archived
-      };
-      
       // Update in todos list
       set(state => ({
         todos: state.todos.map(todo => 
-          todo.id === id ? todoSummary : todo
+          todo.id === id ? { ...todo, ...updatedTodo } : todo
         ),
         currentTodo: state.currentTodo?.id === id ? updatedTodo : state.currentTodo,
         isUpdating: false
       }));
-      
-      // Reload stats to reflect updated todo
-      get().loadStats();
       
       return updatedTodo;
     } catch (error) {
@@ -273,6 +257,15 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       });
       return null;
     }
+  },
+
+  // Subtask management
+  updateTodoWithSubtasks: (todoId: number, updater: (todo: TodoSummary) => TodoSummary) => {
+    set(state => ({
+      todos: state.todos.map(todo => 
+        todo.id === todoId ? updater(todo) : todo
+      )
+    }));
   },
   
   completeTodo: async (id: number) => {

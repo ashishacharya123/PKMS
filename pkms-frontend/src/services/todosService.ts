@@ -33,28 +33,33 @@ export interface Todo {
   description?: string;
   project_id?: number;
   project_name?: string;
+  start_date?: string;
   due_date?: string;
   priority: number;
-  status: string;
+  status: string;  // Now matches backend
+  order_index: number;  // New field for Kanban ordering
+  parent_id?: number;  // For subtasks
+  subtasks?: Todo[];  // Nested subtasks
   completed_at?: string;
-  is_recurring: boolean;
-  recurrence_pattern?: string;
   created_at: string;
   updated_at: string;
   tags: string[];
   days_until_due?: number;
   is_archived: boolean;
+  is_favorite?: boolean;
 }
 
 export interface TodoCreate {
   title: string;
   description?: string;
   project_id?: number;
+  parent_id?: number;  // For creating subtasks
+  start_date?: string;
   due_date?: string;
   priority?: number;
+  status?: string;  // Allow setting initial status
+  order_index?: number;  // Allow setting initial order
   tags?: string[];
-  is_recurring?: boolean;
-  recurrence_pattern?: string;
   is_archived?: boolean;
 }
 
@@ -62,33 +67,41 @@ export interface TodoUpdate {
   title?: string;
   description?: string;
   project_id?: number;
+  parent_id?: number;  // For moving subtasks
+  start_date?: string;
   due_date?: string;
   priority?: number;
   status?: string;
+  order_index?: number;  // Allow updating order
   tags?: string[];
-  is_recurring?: boolean;
-  recurrence_pattern?: string;
   is_archived?: boolean;
+  is_favorite?: boolean;
 }
 
 export interface TodoSummary {
   id: number;
   title: string;
   project_name?: string;
+  start_date?: string;
   due_date?: string;
   priority: number;
   status: string;
+  order_index: number;  // New field for ordering
+  parent_id?: number;  // For subtasks
+  subtasks?: TodoSummary[];  // Nested subtasks
   created_at: string;
   tags: string[];
   days_until_due?: number;
   is_archived: boolean;
+  is_favorite?: boolean;
 }
 
 export interface TodoStats {
   total: number;
   pending: number;
   in_progress: number;
-  completed: number;
+  blocked: number;
+  done: number;
   cancelled: number;
   overdue: number;
   due_today: number;
@@ -106,6 +119,7 @@ export interface TodoListParams {
   limit?: number;
   offset?: number;
   is_archived?: boolean;
+  is_favorite?: boolean;
 }
 
 class TodosService {
@@ -170,6 +184,16 @@ class TodosService {
     return response.data;
   }
 
+  async updateTodoStatus(todoId: number, status: string): Promise<Todo> {
+    const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoId}/status?status=${status}`);
+    return response.data;
+  }
+
+  async reorderTodo(todoId: number, orderIndex: number): Promise<Todo> {
+    const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoId}/reorder?order_index=${orderIndex}`);
+    return response.data;
+  }
+
   async deleteTodo(todoId: number): Promise<void> {
     await apiService.delete(`${this.baseUrl}/${todoId}`);
   }
@@ -217,7 +241,8 @@ class TodosService {
     const labels = {
       pending: 'Pending',
       in_progress: 'In Progress',
-      completed: 'Completed',
+      blocked: 'Blocked',
+      done: 'Done',
       cancelled: 'Cancelled'
     };
     return labels[status as keyof typeof labels] || status;
@@ -226,19 +251,34 @@ class TodosService {
   getDaysUntilDue(dueDate: string): number | null {
     if (!dueDate) return null;
     
-    const due = new Date(dueDate);
-    const now = new Date();
-    const diffTime = due.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    return diffDays;
+    try {
+      const due = new Date(dueDate);
+      if (isNaN(due.getTime())) return null;
+      
+      const now = new Date();
+      const diffTime = due.getTime() - now.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      return diffDays;
+    } catch (error) {
+      console.warn('Invalid due date format:', dueDate, error);
+      return null;
+    }
   }
 
   isOverdue(dueDate: string): boolean {
     if (!dueDate) return false;
-    const due = new Date(dueDate);
-    const now = new Date();
-    return due < now;
+    
+    try {
+      const due = new Date(dueDate);
+      if (isNaN(due.getTime())) return false;
+      
+      const now = new Date();
+      return due < now;
+    } catch (error) {
+      console.warn('Invalid due date format:', dueDate, error);
+      return false;
+    }
   }
 
   getPriorityColor(priority: number): string {
@@ -254,25 +294,66 @@ class TodosService {
     const colors = {
       pending: '#757575',
       in_progress: '#2196F3',
-      completed: '#4CAF50',
+      blocked: '#FF9800',
+      done: '#4CAF50',
       cancelled: '#F44336'
     };
     return colors[status as keyof typeof colors] || '#757575';
   }
-
-  formatRecurrencePattern(pattern: string): string {
-    if (!pattern) return '';
-    
-    // Simple formatting for common patterns
-    const patterns = {
-      daily: 'Every day',
-      weekly: 'Every week',
-      monthly: 'Every month',
-      yearly: 'Every year'
-    };
-    
-    return patterns[pattern as keyof typeof patterns] || pattern;
-  }
 }
 
-export const todosService = new TodosService(); 
+export const todosService = new TodosService();
+
+// Export individual methods for convenience
+export const {
+  createProject,
+  getProjects,
+  getProject,
+  updateProject,
+  deleteProject,
+  createTodo,
+  getTodos,
+  getTodo,
+  updateTodo,
+  completeTodo,
+  updateTodoStatus,
+  reorderTodo,
+  deleteTodo,
+  archiveTodo,
+  getExportUrl,
+  downloadTodoExport,
+  getTodoStats,
+  getPriorityLabel,
+  getStatusLabel,
+  getDaysUntilDue,
+  isOverdue,
+  getPriorityColor,
+  getStatusColor
+} = todosService; 
+
+// Subtask management functions
+export const createSubtask = async (parentId: number, subtaskData: Omit<TodoCreate, 'parent_id'>): Promise<Todo> => {
+  const response = await apiService.post(`/todos/${parentId}/subtasks`, {
+    ...subtaskData,
+    parent_id: parentId
+  });
+  return response.data as Todo;
+};
+
+export const getSubtasks = async (parentId: number): Promise<Todo[]> => {
+  const response = await apiService.get(`/todos/${parentId}/subtasks`);
+  return response.data as Todo[];
+};
+
+export const moveSubtask = async (subtaskId: number, newParentId: number | null): Promise<Todo> => {
+  const response = await apiService.patch(`/todos/${subtaskId}/move`, {
+    parent_id: newParentId
+  });
+  return response.data as Todo;
+};
+
+export const reorderSubtasks = async (parentId: number, subtaskIds: number[]): Promise<void> => {
+  await apiService.patch(`/todos/${parentId}/subtasks/reorder`, {
+    subtask_ids: subtaskIds
+  });
+}; 

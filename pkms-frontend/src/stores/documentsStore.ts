@@ -28,6 +28,8 @@ interface DocumentsState {
   searchQuery: string;
   showArchived: boolean;
   showFavoritesOnly: boolean;
+  showProjectOnly: boolean;
+  currentProjectId: number | null;
   
   // Pagination
   limit: number;
@@ -59,6 +61,8 @@ interface DocumentsState {
   setSearch: (query: string) => void;
   setShowArchived: (show: boolean) => void;
   setShowFavoritesOnly: (show: boolean) => void;
+  setShowProjectOnly: (show: boolean) => void;
+  setCurrentProjectId: (id: number | null) => void;
   
   // UI Actions
   clearError: () => void;
@@ -82,6 +86,10 @@ const initialState: Omit<DocumentsState, 'reset' | 'setUploadProgress' | 'clearC
   searchQuery: '',
   showArchived: false,
   showFavoritesOnly: false,
+  showProjectOnly: false,
+  // Default view: non-project documents only
+  // We achieve this by setting project_only=false and unassigned_only=true in requests
+  currentProjectId: null,
   limit: 20,
   offset: 0,
   hasMore: true,
@@ -101,6 +109,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         search: state.searchQuery || undefined,
         archived: state.showArchived,
         is_favorite: state.showFavoritesOnly || undefined,
+        project_id: state.currentProjectId || undefined,
+        project_only: state.showProjectOnly || undefined,
+        unassigned_only: (!state.showProjectOnly) || undefined,
         limit: state.limit,
         offset: 0
       };
@@ -134,6 +145,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         search: state.searchQuery || undefined,
         archived: state.showArchived,
         is_favorite: state.showFavoritesOnly || undefined,
+        project_id: state.currentProjectId || undefined,
+        project_only: state.showProjectOnly || undefined,
+        unassigned_only: (!state.showProjectOnly) || undefined,
         limit: state.limit,
         offset: state.offset
       };
@@ -473,6 +487,18 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
   
   setShowFavoritesOnly: (show: boolean) => {
     set({ showFavoritesOnly: show });
+    get().loadDocuments();
+  },
+
+  setShowProjectOnly: (show: boolean) => {
+    // When turning ON project-only, we implicitly turn off unassigned-only.
+    // When turning OFF project-only, default to unassigned-only view.
+    set({ showProjectOnly: show });
+    get().loadDocuments();
+  },
+
+  setCurrentProjectId: (id: number | null) => {
+    set({ currentProjectId: id });
     get().loadDocuments();
   },
   

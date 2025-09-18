@@ -75,6 +75,9 @@ export interface DocumentsListParams {
   archived?: boolean;
   is_favorite?: boolean;
   tag?: string;
+  project_id?: number;
+  project_only?: boolean;
+  unassigned_only?: boolean;
   search?: string;
   limit?: number;
   offset?: number;
@@ -87,7 +90,8 @@ class DocumentsService {
   async uploadDocument(
     file: File, 
     tags: string[] = [],
-    onProgress?: (progress: number) => void
+    onProgress?: (progress: number) => void,
+    projectId?: number
   ): Promise<Document> {
     // Use chunked upload uniformly to match backend capabilities
     const fileId = await coreUploadService.uploadFile(file, {
@@ -102,6 +106,7 @@ class DocumentsService {
       title: file.name,
       description: undefined as string | undefined,
       tags,
+      project_id: projectId,
     };
     const commitResp = await apiService.post<Document>('/documents/upload/commit', commitPayload);
     const created = commitResp.data;

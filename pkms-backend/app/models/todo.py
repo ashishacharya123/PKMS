@@ -2,14 +2,24 @@
 Todo Model for Task Management
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum, Date
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
+import enum
 
 from app.models.base import Base
 from app.config import nepal_now
-from app.models.tag_associations import todo_tags
+from app.models.tag_associations import todo_tags, project_tags
+
+
+class TodoStatus(str, enum.Enum):
+    """Todo status enum for better task management"""
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    BLOCKED = "blocked"
+    DONE = "done"
+    CANCELLED = "cancelled"
 
 
 class Todo(Base):
@@ -18,27 +28,48 @@ class Todo(Base):
     __tablename__ = "todos"
     
     id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
-    title = Column(String(255), nullable=False, index=True)
-    description = Column(Text, nullable=True)
-    is_completed = Column(Boolean, default=False, index=True)
-    is_archived = Column(Boolean, default=False, index=True)
-    is_favorite = Column(Boolean, default=False, index=True)
-    priority = Column(Integer, default=2)  # 1=low, 2=medium, 3=high, 4=urgent
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True)
-    due_date = Column(DateTime(timezone=True), nullable=True)
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    uuid = Column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text)
+    status = Column(Enum(TodoStatus), default=TodoStatus.PENDING, nullable=False)
+    order_index = Column(Integer, default=0, nullable=False)  # For Kanban ordering
+    
+    # Phase 2: Subtasks and Dependencies
+    parent_id = Column(Integer, ForeignKey("todos.id"), nullable=True)  # For subtasks
+    blocked_by = Column(Text, nullable=True)  # JSON array of blocking todo IDs
+    
+    # Phase 2: Time Tracking
+    estimate_minutes = Column(Integer, nullable=True)  # Estimated time in minutes
+    actual_minutes = Column(Integer, nullable=True)  # Actual time spent in minutes
+    
+    # Existing fields
+    is_completed = Column(Boolean, default=False, nullable=False)
+    is_archived = Column(Boolean, default=False, nullable=False)
+    is_favorite = Column(Boolean, default=False, nullable=False)
+    priority = Column(Integer, default=2, nullable=False)  # 1=low, 2=medium, 3=high, 4=urgent
+    start_date = Column(Date, nullable=True)
+    due_date = Column(Date, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=func.now(), nullable=False)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # Foreign keys
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
+    
+    # FTS5 Search Support
+    tags_text = Column(Text, nullable=True, default="")  # Denormalized tags for FTS5 search
     
     # Relationships
     user = relationship("User", back_populates="todos")
     project = relationship("Project", back_populates="todos")
     tag_objs = relationship("Tag", secondary=todo_tags, back_populates="todos")
     
+    # Phase 2: Subtask relationships
+    subtasks = relationship("Todo", backref="parent", remote_side=[id])
+    
     def __repr__(self):
-        return f"<Todo(id={self.id}, title='{self.title}', completed={self.is_completed})>"
+        return f"<Todo(id={self.id}, title='{self.title}', status='{self.status}')>"
 
 
 class Project(Base):
@@ -56,9 +87,15 @@ class Project(Base):
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
     
+    # FTS5 Search Support
+    tags_text = Column(Text, nullable=True, default="")  # Denormalized tags for FTS5 search
+    
     # Relationships
     user = relationship("User", back_populates="projects")
     todos = relationship("Todo", back_populates="project", cascade="all, delete-orphan")
+    # Optional: documents associated with this project (images/files)
+    documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
+    tag_objs = relationship("Tag", secondary=project_tags, back_populates="projects")
     
     def __repr__(self):
         return f"<Project(id={self.id}, name='{self.name}')>" 

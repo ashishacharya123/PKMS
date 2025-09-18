@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi';
 import { useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -96,6 +97,7 @@ export default function FuzzySearchPage() {
   
   // Fuzzy-specific settings
   const [fuzzyThreshold, setFuzzyThreshold] = useState(60);
+  const [advancedMode, setAdvancedMode] = useState(false);
   
   // Filters
   const [selectedModules, setSelectedModules] = useState<string[]>([]);
@@ -119,6 +121,8 @@ export default function FuzzySearchPage() {
     }
   }, []);
 
+  const api = useAuthenticatedApi();
+
   const handleSearch = async () => {
     if (!query.trim()) {
       notifications.show({
@@ -129,50 +133,94 @@ export default function FuzzySearchPage() {
       return;
     }
 
+    if (!api.isReady) {
+      notifications.show({
+        title: 'Authentication Required',
+        message: 'Please wait for authentication to complete',
+        color: 'orange'
+      });
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setResults([]);
 
     try {
-      const params = new URLSearchParams({
-        q: query.trim(),
-        fuzzy_threshold: fuzzyThreshold.toString(),
-        sort_by: sortBy,
-        sort_order: sortOrder,
-        favorites_only: favoritesOnly.toString(),
-        include_archived: includeArchived.toString(),
-        limit: '50',
-        offset: '0'
-      });
+      if (advancedMode) {
+        // Advanced fuzzy: use dedicated advanced endpoint, map module names
+        const moduleMap: Record<string, string> = {
+          notes: 'note',
+          documents: 'document',
+          todos: 'todo',
+          diary: 'diary',
+          archive: 'archive'
+        };
+        const mappedModules = selectedModules
+          .map(m => moduleMap[m])
+          .filter(Boolean) as string[];
 
-      if (selectedModules.length > 0) {
-        params.set('modules', selectedModules.join(','));
-      }
-      if (includeTags.trim()) {
-        params.set('include_tags', includeTags.trim());
-      }
-      if (excludeTags.trim()) {
-        params.set('exclude_tags', excludeTags.trim());
-      }
-      if (dateFrom) {
-        params.set('date_from', dateFrom.toISOString().split('T')[0]);
-      }
-      if (dateTo) {
-        params.set('date_to', dateTo.toISOString().split('T')[0]);
-      }
+        const params = new URLSearchParams({
+          query: query.trim(),
+          limit: '50'
+        });
+        if (mappedModules.length > 0) {
+          params.set('modules', mappedModules.join(','));
+        }
 
-      const response = await apiService.get(`/search/fuzzy?${params}`);
-      const searchResponse: SearchResponse = response.data;
+        const response = await api.get(`/advanced-fuzzy-search?${params}`);
+        const data = response.data as any[];
+        setResults(Array.isArray(data) ? data : []);
+        setTotal(Array.isArray(data) ? data.length : 0);
+        setSearchMethod('advanced_fuzzy');
 
-      setResults(searchResponse.results);
-      setTotal(searchResponse.total);
-      setSearchMethod(searchResponse.search_method);
+        notifications.show({
+          title: 'Advanced Fuzzy Complete',
+          message: `Found ${Array.isArray(data) ? data.length : 0} results`,
+          color: 'purple'
+        });
+      } else {
+        // Standard fuzzy: use /search/fuzzy with full filter set
+        const params = new URLSearchParams({
+          q: query.trim(),
+          fuzzy_threshold: fuzzyThreshold.toString(),
+          sort_by: sortBy,
+          sort_order: sortOrder,
+          favorites_only: favoritesOnly.toString(),
+          include_archived: includeArchived.toString(),
+          limit: '50',
+          offset: '0'
+        });
 
-      notifications.show({
-        title: 'Fuzzy Search Complete',
-        message: `Found ${searchResponse.total} results (${searchResponse.fts_candidates} candidates analyzed)`,
-        color: 'purple'
-      });
+        if (selectedModules.length > 0) {
+          params.set('modules', selectedModules.join(','));
+        }
+        if (includeTags.trim()) {
+          params.set('include_tags', includeTags.trim());
+        }
+        if (excludeTags.trim()) {
+          params.set('exclude_tags', excludeTags.trim());
+        }
+        if (dateFrom) {
+          params.set('date_from', dateFrom.toISOString().split('T')[0]);
+        }
+        if (dateTo) {
+          params.set('date_to', dateTo.toISOString().split('T')[0]);
+        }
+
+        const response = await api.get(`/search/fuzzy?${params}`);
+        const searchResponse: SearchResponse = response.data;
+
+        setResults(searchResponse.results);
+        setTotal(searchResponse.total);
+        setSearchMethod((searchResponse as any).search_method || (searchResponse as any).search_type || 'fuzzy');
+
+        notifications.show({
+          title: 'Fuzzy Search Complete',
+          message: `Found ${searchResponse.total} results`,
+          color: 'purple'
+        });
+      }
 
     } catch (err: any) {
       setError(err.message || 'Search failed');
@@ -288,6 +336,11 @@ export default function FuzzySearchPage() {
 
             {/* Fuzzy Settings */}
             <Group>
+              <Switch
+                label="Advanced fuzzy"
+                checked={advancedMode}
+                onChange={(e) => setAdvancedMode(e.currentTarget.checked)}
+              />
               <div style={{ flex: 1 }}>
                 <Text size="sm" mb={5}>
                   Fuzzy Threshold: {fuzzyThreshold}% 
@@ -302,20 +355,22 @@ export default function FuzzySearchPage() {
                      fuzzyThreshold >= 50 ? 'Flexible' : 'Very Flexible'}
                   </Badge>
                 </Text>
-                <Slider
-                  value={fuzzyThreshold}
-                  onChange={setFuzzyThreshold}
-                  min={30}
-                  max={95}
-                  step={5}
-                  marks={[
-                    { value: 30, label: '30%' },
-                    { value: 50, label: '50%' },
-                    { value: 70, label: '70%' },
-                    { value: 90, label: '90%' }
-                  ]}
-                  color="purple"
-                />
+                {!advancedMode && (
+                  <Slider
+                    value={fuzzyThreshold}
+                    onChange={setFuzzyThreshold}
+                    min={30}
+                    max={95}
+                    step={5}
+                    marks={[
+                      { value: 30, label: '30%' },
+                      { value: 50, label: '50%' },
+                      { value: 70, label: '70%' },
+                      { value: 90, label: '90%' }
+                    ]}
+                    color="purple"
+                  />
+                )}
               </div>
             </Group>
 

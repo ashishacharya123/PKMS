@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -140,13 +141,9 @@ export function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasLoaded, setHasLoaded] = useState(false);
 
-  useEffect(() => {
-    // Prevent double loading in React strict mode
-    if (!hasLoaded) {
-      loadDashboardData();
-    }
+  useAuthenticatedEffect(() => {
+    loadDashboardData();
   }, []);
 
   useEffect(() => {
@@ -171,7 +168,6 @@ export function DashboardPage() {
       const dashboardStats = await dashboardService.getDashboardStats();
       console.log('[Dashboard] Stats received:', dashboardStats);
       setStats(dashboardStats);
-      setHasLoaded(true);
     } catch (err) {
       setError('Failed to load dashboard data');
       console.error('Dashboard load error:', err);
@@ -184,7 +180,6 @@ export function DashboardPage() {
         archive: { folders: 0, items: 0 },
         last_updated: new Date().toISOString()
       });
-      setHasLoaded(true);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);

@@ -1,7 +1,7 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { Container, Stack, Group, Button, Title, Text, Badge, Card, Skeleton, Alert, Paper } from '@mantine/core';
 import { IconEdit, IconArrowLeft, IconArchive, IconArchiveOff, IconTrash, IconAlertTriangle } from '@tabler/icons-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { notesService, type Note } from '../services/notesService';
 import MDEditor from '@uiw/react-md-editor';
 import { modals } from '@mantine/modals';
@@ -10,18 +10,31 @@ import { notifications } from '@mantine/notifications';
 export default function NoteViewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
 
-  const {
-    data: note,
-    isLoading,
-    error,
-  } = useQuery<Note, Error>({
-    queryKey: ['note', id],
-    queryFn: () => notesService.getNote(parseInt(id!)),
-    enabled: Boolean(id),
-    staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
+
+  const [note, setNote] = useState<Note | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useAuthenticatedEffect(() => {
+    if (!id) return;
+    
+    const loadNote = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const noteData = await notesService.getNote(parseInt(id));
+        setNote(noteData);
+      } catch (err) {
+        setError(err as Error);
+        setNote(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadNote();
+  }, [id]);
   });
 
   const handleToggleArchive = async () => {

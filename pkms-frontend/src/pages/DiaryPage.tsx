@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import {
   Container,
   Grid,
@@ -186,21 +187,21 @@ export function DiaryPage() {
   const [hasInitialized, setHasInitialized] = useState(false);
 
   // Initialize store on mount
-  useEffect(() => {
-    if (isAuthenticated && !hasInitialized) {
+  useAuthenticatedEffect(() => {
+    if (!hasInitialized) {
       store.init().then(() => setHasInitialized(true));
     }
-  }, [isAuthenticated, hasInitialized]);
+  }, [hasInitialized]);
 
-  // Load entries when authenticated or search query changes
+  // Load entries only when authenticated and diary is unlocked
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && store.isUnlocked) {
       store.loadEntries();
     }
-  }, [isAuthenticated, debouncedTitleSearch]);
+  }, [isAuthenticated, store.isUnlocked, debouncedTitleSearch]);
 
-  // Load templates for dropdown (kept separate from main entries list)
-  useEffect(() => {
+  // Load templates only after unlock (kept separate from main entries list)
+  useAuthenticatedEffect(() => {
     const fetchTemplates = async () => {
       try {
         const list = await diaryService.getEntries({ templates: true, limit: 100, offset: 0 });
@@ -209,8 +210,8 @@ export function DiaryPage() {
         console.error('Failed to load templates', e);
       }
     };
-    if (isAuthenticated) fetchTemplates();
-  }, [isAuthenticated]);
+    if (store.isUnlocked) fetchTemplates();
+  }, [store.isUnlocked]);
 
 
 
@@ -222,11 +223,11 @@ export function DiaryPage() {
   }, [isAuthenticated, store.currentYear, store.currentMonth, store.isUnlocked]);
 
   // Load mood stats when diary is unlocked and moodStats has not been loaded yet
-  useEffect(() => {
-    if (isAuthenticated && store.isUnlocked && !store.moodStats) {
+  useAuthenticatedEffect(() => {
+    if (store.isUnlocked && !store.moodStats) {
       store.loadMoodStats();
     }
-  }, [isAuthenticated, store.isUnlocked]);
+  }, [store.isUnlocked]);
 
   // Revoke media object URL on unmount/change
   useEffect(() => {
@@ -245,6 +246,25 @@ export function DiaryPage() {
       setUnlockModalOpen(false);
     }
   }, [hasInitialized, store.isEncryptionSetup, store.isUnlocked]);
+
+  // Monitor diary error state and show notifications for session expiration
+  useEffect(() => {
+    if (store.error && store.error.includes('session expired')) {
+      notifications.show({
+        title: 'Diary Session Expired',
+        message: 'Your diary session has expired. Please unlock again to continue.',
+        color: 'orange',
+        autoClose: 5000,
+      });
+    }
+  }, [store.error]);
+
+  // Cleanup diary monitoring on unmount
+  useEffect(() => {
+    return () => {
+      store.stopUnlockStatusMonitoring();
+    };
+  }, [store]);
 
   const sortedEntries = useMemo(() => {
     return [...store.entries].sort((a, b) => {
@@ -652,8 +672,8 @@ export function DiaryPage() {
     <Container size="xl" py="lg">
       {/* Session Timeout Warning */}
       <SessionTimeoutWarning 
-        sessionTimeoutSeconds={900} // 15 minutes
-        warningThresholdSeconds={120} // 2 minutes
+        sessionTimeoutSeconds={1800} // 30 minutes (matches backend TTL)
+        warningThresholdSeconds={180} // 3 minutes
       />
       
       <Stack gap="xl">
@@ -689,17 +709,28 @@ export function DiaryPage() {
           <Center py="xl">
             <Loader size="lg" />
           </Center>
+        ) : !store.isUnlocked ? (
+          <Alert color="blue" title="Diary Locked" icon={<IconLock size={16} />}>
+            <Text>Your diary is encrypted and locked. Please unlock it to view your entries.</Text>
+            <Button mt="md" onClick={() => setUnlockModalOpen(true)}>
+              Unlock Diary
+            </Button>
+          </Alert>
         ) : store.error ? (
           <Alert color="red" title="Error" icon={<IconAlertTriangle size={16} />}>
             {store.error}
           </Alert>
         ) : store.isUnlocked ? (
           <>
-            {/* Mood Insights */}
-            <MoodStatsWidget />
-            
-            {/* Mood Trends */}
-            <MoodTrendChart />
+            {/* Mood Insights + Trends (compact row) */}
+            <Grid>
+              <Grid.Col span={{ base: 12, md: 6 }}>
+                <MoodStatsWidget compact />
+              </Grid.Col>
+              <Grid.Col span={{ base: 12, md: 6 }}>
+                <MoodTrendChart compact />
+              </Grid.Col>
+            </Grid>
             
             {/* Calendar View */}
             <Grid>
@@ -751,6 +782,36 @@ export function DiaryPage() {
                     }}
                     renderSmallIcon={(entry: any) => (
                       <Stack gap={2} align="center">
+                        <Group justify="flex-end" w="100%" gap={4} style={{ opacity: 0.9 }}>
+                          <Menu shadow="md" width={200}>
+                            <Menu.Target>
+                              <ActionIcon variant="subtle" color="gray" size="sm" onClick={(e) => e.stopPropagation()}>
+                                <IconDots size={14} />
+                              </ActionIcon>
+                            </Menu.Target>
+                            <Menu.Dropdown>
+                              <Menu.Item 
+                                leftSection={<IconEye size={14} />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleViewEntry(entry);
+                                }}
+                              >
+                                View/Edit
+                              </Menu.Item>
+                              <Menu.Item 
+                                leftSection={<IconTrash size={14} />}
+                                color="red"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(entry.uuid);
+                                }}
+                              >
+                                Delete
+                              </Menu.Item>
+                            </Menu.Dropdown>
+                          </Menu>
+                        </Group>
                         <Text size="lg">{getDiaryIcon(entry)}</Text>
                         <Group gap={2}>
                           <Badge size="xs" variant="light" color={getMoodColor(entry.mood || 3)}>
@@ -764,6 +825,36 @@ export function DiaryPage() {
                     )}
                     renderMediumIcon={(entry: any) => (
                       <Stack gap="xs" align="center">
+                        <Group justify="flex-end" w="100%" gap={4} style={{ opacity: 0.9 }}>
+                          <Menu shadow="md" width={200}>
+                            <Menu.Target>
+                              <ActionIcon variant="subtle" color="gray" size="sm" onClick={(e) => e.stopPropagation()}>
+                                <IconDots size={14} />
+                              </ActionIcon>
+                            </Menu.Target>
+                            <Menu.Dropdown>
+                              <Menu.Item 
+                                leftSection={<IconEye size={14} />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleViewEntry(entry);
+                                }}
+                              >
+                                View/Edit
+                              </Menu.Item>
+                              <Menu.Item 
+                                leftSection={<IconTrash size={14} />}
+                                color="red"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDelete(entry.uuid);
+                                }}
+                              >
+                                Delete
+                              </Menu.Item>
+                            </Menu.Dropdown>
+                          </Menu>
+                        </Group>
                         <Text size="xl">{getDiaryIcon(entry)}</Text>
                         <Group gap={4}>
                           <Badge size="xs" variant="light" color={getMoodColor(entry.mood || 3)}>
@@ -997,14 +1088,7 @@ export function DiaryPage() {
               </Grid.Col>
             </Grid>
           </>
-        ) : (
-          <Alert color="blue" title="Diary Locked" icon={<IconLock size={16} />}>
-            <Text>Your diary is encrypted and locked. Please unlock it to view your entries.</Text>
-            <Button mt="md" onClick={() => setUnlockModalOpen(true)}>
-              Unlock Diary
-            </Button>
-          </Alert>
-        )}
+        ) : null}
       </Stack>
 
       {/* Media Preview Modal (photos) */}

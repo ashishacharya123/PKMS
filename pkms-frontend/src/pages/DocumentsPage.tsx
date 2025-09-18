@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
+import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { useSearchParams } from 'react-router-dom';
 import {
   Container,
@@ -118,6 +119,7 @@ export function DocumentsPage() {
     currentTag,
     showArchived,
     showFavoritesOnly,
+    showProjectOnly,
     loadDocuments,
     uploadDocument,
     deleteDocument,
@@ -129,6 +131,7 @@ export function DocumentsPage() {
     setSearch,
     setShowArchived,
     setShowFavoritesOnly,
+    setShowProjectOnly,
     clearError
   } = useDocumentsStore();
 
@@ -141,7 +144,7 @@ export function DocumentsPage() {
     setSearch(debouncedSearchQuery);
   }, [debouncedSearchQuery, setSearch]);
 
-  useEffect(() => {
+  useAuthenticatedEffect(() => {
     loadDocuments();
   }, [loadDocuments]);
 
@@ -475,6 +478,14 @@ export function DocumentsPage() {
                   color="yellow"
                 >
                   {showFavoritesOnly ? 'Show All Documents' : 'Show Favorites Only'}
+                </Button>
+                <Button
+                  variant={showProjectOnly ? 'filled' : 'subtle'}
+                  size="xs"
+                  onClick={() => setShowProjectOnly(!showProjectOnly)}
+                  fullWidth
+                >
+                  {showProjectOnly ? 'Show Non-Project' : 'Show Project Documents'}
                 </Button>
               </Stack>
             </Paper>

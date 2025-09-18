@@ -1,5 +1,5 @@
 import axios, { AxiosInstance } from 'axios';
-import { modals } from '@mantine/modals';
+
 import { notifications } from '@mantine/notifications';
 import { API_BASE_URL } from '../config';
 
@@ -26,7 +26,7 @@ class ApiService {
         'Content-Type': 'application/json',
       },
       // Ensure HttpOnly refresh cookie is sent/received for cross-origin requests
-      withCredentials: true,
+      withCredentials: true,  // Re-enabled for proper authentication flow
     });
 
     // Add response interceptor to handle errors intelligently
@@ -236,7 +236,7 @@ class ApiService {
   }
 
   /**
-   * Show expiry warning notification with extend button
+   * Show expiry warning notification (no extend button - use menu instead)
    */
   showExpiryWarning(): void {
     if (this.tokenExpiryWarningShown) return;
@@ -246,44 +246,24 @@ class ApiService {
     // Close any existing expiry notifications
     notifications.hide('token-expiry-warning');
 
+    // Play sound alert for 5-minute warning
+    this.playSoundAlert();
+
     notifications.show({
       id: 'token-expiry-warning',
       title: '⚠️ Session Expiring Soon',
-      message: 'Your session will expire in 5 minutes. Click "Extend Session" below to continue.',
+      message: 'Your session will expire in 5 minutes. Use the "Refresh Session" option in the user menu to extend.',
       color: 'orange',
-      autoClose: false,
+      autoClose: 10000, // Auto-close after 10 seconds
       withCloseButton: true,
       onClose: () => {
         this.tokenExpiryWarningShown = false;
       },
     });
-
-    // Add the extend button as a separate notification with action
-    setTimeout(() => {
-      notifications.show({
-        id: 'session-extend-button',
-        title: '',
-        message: '🔄 Click here to extend your session',
-        color: 'blue',
-        autoClose: false,
-        withCloseButton: false,
-        style: {
-          cursor: 'pointer',
-          border: '2px solid #228be6',
-          backgroundColor: '#e7f5ff'
-        },
-        onClick: () => {
-          this.extendSession();
-          notifications.hide('token-expiry-warning');
-          notifications.hide('session-extend-button');
-          this.tokenExpiryWarningShown = false;
-        },
-      });
-    }, 500);
   }
 
   /**
-   * Show a final 1-minute remaining confirmation modal with Yes/No
+   * Show a final 1-minute remaining notification (non-blocking)
    */
   showFinalExpiryPrompt(): void {
     // Use a separate flag to avoid repeated prompts
@@ -292,30 +272,72 @@ class ApiService {
 
     // Close any previous notifications to reduce noise
     notifications.hide('token-expiry-warning');
-    notifications.hide('session-extend-button');
 
-    modals.openConfirmModal({
-      title: 'Session expiring in 1 minute',
-      children: 'Do you want to extend your session?',
-      labels: { confirm: 'Yes, extend', cancel: 'No' },
-      confirmProps: { color: 'blue' },
-      onConfirm: async () => {
-        try {
-          await this.extendSession();
-        } finally {
-          (this as any).finalExpiryPromptShown = false;
-        }
-      },
-      onCancel: () => {
-        // allow it to show again next cycle only if still within 1 minute
-        setTimeout(() => {
-          (this as any).finalExpiryPromptShown = false;
-        }, 65_000);
-      },
-      closeOnEscape: true,
+    // Play sound alert for 1-minute warning
+    this.playSoundAlert();
+
+    // Show non-blocking notification instead of modal
+    notifications.show({
+      id: 'final-expiry-warning',
+      title: '🚨 Session Expiring Very Soon!',
+      message: 'Your session will expire in 1 minute. Use the "Refresh Session" option in the user menu to extend.',
+      color: 'red',
+      autoClose: 15000, // Auto-close after 15 seconds
       withCloseButton: true,
-      centered: true,
+      onClose: () => {
+        (this as any).finalExpiryPromptShown = false;
+      },
     });
+
+    // Reset the flag after a delay to allow showing again if needed
+    setTimeout(() => {
+      (this as any).finalExpiryPromptShown = false;
+    }, 65_000);
+  }
+
+  /**
+   * Play a sound alert for session expiry warnings
+   */
+  private playSoundAlert(): void {
+    try {
+      // Create a simple beep sound using Web Audio API
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      // Configure the sound
+      oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // 800 Hz tone
+      oscillator.type = 'sine';
+      
+      // Fade in/out to avoid harsh sounds
+      gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.1);
+      gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.3);
+      
+      // Play the sound
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.3);
+      
+      // Clean up
+      setTimeout(() => {
+        audioContext.close();
+      }, 500);
+    } catch (error) {
+      // Fallback: try to play a simple beep using HTML5 audio
+      try {
+        const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
+        audio.volume = 0.3;
+        audio.play().catch(() => {
+          // Silent fallback if audio fails
+        });
+      } catch (fallbackError) {
+        // Silent fallback if all audio methods fail
+        console.log('Sound alert not supported in this environment');
+      }
+    }
   }
 
   /**

@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 
 from app.config import get_database_url, settings, get_data_dir
-from app.services.fts_service import fts_service
+from app.services.fts_service_enhanced import enhanced_fts_service
 
 # Import Base and all models to register them with Base.metadata
 # This ensures all tables are created by Base.metadata.create_all()
@@ -28,7 +28,7 @@ from app.models.link import Link
 # Import all tag association tables
 from app.models.tag_associations import (
     note_tags, document_tags, todo_tags, 
-    diary_tags, archive_tags, link_tags
+    diary_entry_tags, archive_item_tags, archive_folder_tags, link_tags
 )
 
 # Configure logging
@@ -169,6 +169,8 @@ async def init_db():
             await conn.run_sync(Base.metadata.create_all)
             logger.info("✅ All tables created successfully")
         
+        # Note: We intentionally do NOT run implicit migrations here.
+        
         # Phase 3: Create performance indexes
         logger.info("📊 Phase 3: Creating performance indexes...")
         async with get_db_session() as session:
@@ -185,6 +187,7 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_notes_user_created ON notes(user_id, created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_notes_created_at ON notes(created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_notes_title ON notes(title);",
+                "CREATE INDEX IF NOT EXISTS idx_notes_user_search ON notes(user_id, title);",
                 "CREATE INDEX IF NOT EXISTS idx_notes_archived ON notes(is_archived);",
                 "CREATE INDEX IF NOT EXISTS idx_note_files_note_uuid ON note_files(note_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_note_files_user_id ON note_files(user_id);",
@@ -201,6 +204,7 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_todos_user_id ON todos(user_id);",
                 "CREATE INDEX IF NOT EXISTS idx_todos_user_status ON todos(user_id, is_completed);",
                 "CREATE INDEX IF NOT EXISTS idx_todos_priority ON todos(priority);",
+                "CREATE INDEX IF NOT EXISTS idx_todos_user_status_priority ON todos(user_id, is_completed, priority);",
                 "CREATE INDEX IF NOT EXISTS idx_todos_user_priority_date ON todos(user_id, priority DESC, created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date);",
                 "CREATE INDEX IF NOT EXISTS idx_todos_project_id ON todos(project_id);",
@@ -268,10 +272,10 @@ async def init_db():
         logger.info("🔍 Phase 4: Initializing FTS5 full-text search...")
         async with get_db_session() as session:
             try:
-                fts_success = await fts_service.initialize_fts_tables(session)
+                fts_success = await enhanced_fts_service.initialize_enhanced_fts_tables(session)
                 if fts_success:
                     # Populate FTS tables with existing data
-                    populate_success = await fts_service.populate_fts_tables(session)
+                    populate_success = await enhanced_fts_service.populate_enhanced_fts_tables(session)
                     if populate_success:
                         logger.info("✅ FTS5 initialization and population completed successfully")
                     else:

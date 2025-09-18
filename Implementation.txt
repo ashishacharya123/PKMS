@@ -57,6 +57,21 @@ Personal Knowledge Management System (PKMS) built with FastAPI backend and React
 - Tagging and categorization
 - Search and retrieval
 
+## 🔧 Backend System Status
+
+### Recent Critical Fixes (2025-08-14)
+- **Frontend Calendar Component Fixes**: Fixed calendar view errors in Todo and Diary modules
+  - Updated CalendarView to use correct TodoSummary interface
+  - Fixed onTodoEdit callback handling in TodosPage
+  - Added null checks and conditional rendering in MoodTrendChart to prevent crashes
+- **Backend Startup Issues Resolved**: Fixed multiple import and model mapping errors that were preventing the API from working
+- **Import Errors Fixed**: 
+  - Added missing aliases for `diary_tags` and `archive_tags` in tag associations
+  - Corrected import paths in search and FTS services
+  - Fixed Project model import references
+- **Model Mapping Fixed**: Corrected critical Todo model relationship syntax error in `subtasks` relationship
+- **Result**: Backend now starts successfully with all models loaded, CORS working, frontend can communicate properly
+
 ## 🔧 Advanced Testing & Debugging System
 
 ### Frontend Testing Interface

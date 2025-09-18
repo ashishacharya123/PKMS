@@ -12,7 +12,7 @@ import logging
 from ..database import get_db
 from ..auth.dependencies import get_current_user
 from ..models.user import User
-from ..services.fts_service import fts_service
+from ..services.fts_service_enhanced import enhanced_fts_service
 
 router = APIRouter(prefix="/search", tags=["enhanced_search"])
 logger = logging.getLogger(__name__)
@@ -85,7 +85,7 @@ async def global_search(
             # The proper solution is to use the dedicated /search/fuzzy endpoint directly
             logger.warning("⚠️ use_fuzzy=true in global endpoint is deprecated. Use /search/fuzzy directly.")
             
-            results = await fts_service.search_all(
+            results = await enhanced_fts_service.search_all(
                 db=db,
                 query=q,
                 user_id=current_user.id,
@@ -100,7 +100,7 @@ async def global_search(
                 result['note'] = 'Fuzzy search not available via global endpoint, used FTS5'
         else:
             # Use FTS5 search (actual existing service)
-            results = await fts_service.search_all(
+            results = await enhanced_fts_service.search_all(
                 db=db,
                 query=q,
                 user_id=current_user.id,
@@ -204,11 +204,11 @@ async def fts5_search_disabled(
             exclude_tags_list = [tag.strip() for tag in exclude_tags.split(",")]
         
         # Initialize FTS tables if needed
-        if not fts_service.tables_initialized:
-            await fts_service.initialize_fts_tables(db)
+        if not enhanced_fts_service.tables_initialized:
+            await enhanced_fts_service.initialize_enhanced_fts_tables(db)
         
         # Perform enhanced FTS5 search
-        search_results = await fts_service.search_all(
+        search_results = await enhanced_fts_service.search_all(
             db=db,
             query=q,
             user_id=current_user.id,
@@ -281,8 +281,8 @@ async def fuzzy_search_disabled(
             exclude_tags_list = [tag.strip() for tag in exclude_tags.split(",")]
         
         # Initialize FTS tables if needed
-        if not fts_service.tables_initialized:
-            await fts_service.initialize_fts_tables(db)
+        if not enhanced_fts_service.tables_initialized:
+            await enhanced_fts_service.initialize_enhanced_fts_tables(db)
         
         # Use working fuzzy search from advanced_fuzzy router
         from ..routers.advanced_fuzzy import advanced_fuzzy_search
@@ -459,7 +459,7 @@ async def hybrid_search(
             }
         else:
             # Use FTS5 search (fast)
-            results = await fts_service.search_all(
+            results = await enhanced_fts_service.search_all(
                 db=db,
                 query=q,
                 user_id=current_user.id,
@@ -546,7 +546,7 @@ async def fts5_search(
             content_types = ['notes', 'documents', 'todos', 'archive', 'folders']  # Exclude diary by default
         
         # Use working FTS5 service
-        results = await fts_service.search_all(
+        results = await enhanced_fts_service.search_all(
             db=db,
             query=q,
             user_id=current_user.id,
@@ -644,8 +644,8 @@ async def search_suggestions(
     """
     try:
         # Initialize FTS tables if needed
-        if not fts_service.tables_initialized:
-            await fts_service.initialize_fts_tables(db)
+        if not enhanced_fts_service.tables_initialized:
+            await enhanced_fts_service.initialize_enhanced_fts_tables(db)
         
         # Simple suggestions based on existing searches (placeholder implementation)
         suggestions = [
@@ -680,7 +680,7 @@ async def search_health(
     try:
         health_status = {
             "status": "healthy",
-            "fts_tables_initialized": fts_service.tables_initialized,
+            "fts_tables_initialized": enhanced_fts_service.tables_initialized,
             "available_endpoints": ["/fts5", "/fuzzy", "/hybrid", "/suggestions"],
             "supported_modules": ["notes", "documents", "todos", "diary", "archive", "folders"],
             "features": {
@@ -695,7 +695,7 @@ async def search_health(
         
         # Test basic FTS functionality
         try:
-            test_result = await fts_service.search_all(
+            test_result = await enhanced_fts_service.search_all(
                 db=db,
                 query="test",
                 user_id=current_user.id,
@@ -728,10 +728,10 @@ async def optimize_search_indices(
     """
     try:
         # Initialize FTS tables if needed
-        if not fts_service.tables_initialized:
-            await fts_service.initialize_fts_tables(db)
+        if not enhanced_fts_service.tables_initialized:
+            await enhanced_fts_service.initialize_enhanced_fts_tables(db)
         
-        success = await fts_service.optimize_fts_tables(db)
+        success = await enhanced_fts_service.optimize_enhanced_fts_tables(db)
         
         if success:
             return {

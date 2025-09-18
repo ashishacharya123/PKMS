@@ -43,7 +43,7 @@ import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { useNotesStore } from '../stores/notesStore';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { notesService } from '../services/notesService';
 
 type SortField = 'title' | 'created_at' | 'updated_at';
@@ -71,7 +71,6 @@ const truncateText = (text: string, maxLength: number): string => {
 export function NotesPage() {
   const navigate = useNavigate();
   const location = useLocation() as { state?: { highlightNoteId?: number } };
-  const queryClient = useQueryClient();
   
   // Local state
   const [searchQuery, setSearchQuery] = useState('');
@@ -93,27 +92,41 @@ export function NotesPage() {
     clearError
   } = useNotesStore();
 
-  // React Query for notes fetching
-  const {
-    data: notes,
-    isLoading,
-    error
-  } = useQuery({
-    queryKey: ['notes', { tag: currentTag, search: debouncedSearch, archived: showArchived, page: currentPage }],
-    queryFn: () => notesService.listNotes({
-      tag: currentTag || undefined,
-      search: debouncedSearch || undefined,
-      archived: showArchived,
-      limit: itemsPerPage,
-      offset: (currentPage - 1) * itemsPerPage,
-    }),
-    staleTime: 5 * 60 * 1000,
-  });
-  const safeNotes = Array.isArray(notes) ? notes : [];
+  // State for notes data
+  const [notes, setNotes] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  // Load notes function
+  const loadNotes = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const notesData = await notesService.listNotes({
+        tag: currentTag || undefined,
+        search: debouncedSearch || undefined,
+        archived: showArchived,
+        limit: itemsPerPage,
+        offset: (currentPage - 1) * itemsPerPage,
+      });
+      setNotes(Array.isArray(notesData) ? notesData : []);
+    } catch (err) {
+      setError(err as Error);
+      setNotes([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Load notes using consistent auth-aware pattern
+  useAuthenticatedEffect(() => {
+    loadNotes();
+  }, [currentTag, debouncedSearch, showArchived, currentPage, itemsPerPage]);
+  // notes is already guaranteed to be an array from loadNotes function
 
   // Sorted and paginated notes (sorting is still local, but you can move to backend if needed)
   const sortedNotes = useMemo(() => {
-    const sorted = [...safeNotes].sort((a, b) => {
+    const sorted = [...notes].sort((a, b) => {
       let aValue: string | number = a[sortField];
       let bValue: string | number = b[sortField];
       if (sortField.includes('_at')) {
@@ -131,7 +144,7 @@ export function NotesPage() {
       }
     });
     return sorted;
-  }, [safeNotes, sortField, sortOrder]);
+  }, [notes, sortField, sortOrder]);
 
   const paginatedNotes = useMemo(() => {
     const start = 0;
@@ -165,7 +178,7 @@ export function NotesPage() {
       onConfirm: async () => {
         const success = await deleteNote(id);
         if (success) {
-          queryClient.invalidateQueries({ queryKey: ['notes'] });
+          loadNotes(); // Reload notes after deletion
           notifications.show({
             title: 'Note Deleted',
             message: 'The note was deleted successfully',
@@ -344,7 +357,7 @@ export function NotesPage() {
                             e.stopPropagation();
                             try {
                               await notesService.updateNote(note.id, { is_archived: !note.is_archived });
-                              queryClient.invalidateQueries({ queryKey: ['notes'] });
+                              loadNotes(); // Reload notes after archive/unarchive
                               notifications.show({ title: note.is_archived ? 'Note Unarchived' : 'Note Archived', message: '', color: 'green' });
                             } catch {
                               notifications.show({ title: 'Action Failed', message: 'Could not change archive status', color: 'red' });
@@ -493,7 +506,7 @@ export function NotesPage() {
                           e.stopPropagation();
                           try {
                             await notesService.updateNote(note.id, { is_archived: !note.is_archived });
-                            queryClient.invalidateQueries({ queryKey: ['notes'] });
+                            loadNotes(); // Reload notes after archive/unarchive
                             notifications.show({
                               title: note.is_archived ? 'Note Unarchived' : 'Note Archived',
                               message: `"${note.title}" has been ${note.is_archived ? 'unarchived' : 'archived'}`,
@@ -601,7 +614,7 @@ export function NotesPage() {
                         e.stopPropagation();
                         try {
                           await useNotesStore.getState().updateNote(note.id, { is_favorite: !note.is_favorite });
-                          queryClient.invalidateQueries({ queryKey: ['notes'] });
+                          loadNotes(); // Reload notes after favorite toggle
                           notifications.show({ title: note.is_favorite ? 'Removed from Favorites' : 'Added to Favorites', message: '', color: 'pink' });
                         } catch {}
                       }}
@@ -614,7 +627,7 @@ export function NotesPage() {
                         e.stopPropagation();
                         try {
                           await notesService.updateNote(note.id, { is_archived: !note.is_archived });
-                          queryClient.invalidateQueries({ queryKey: ['notes'] });
+                          loadNotes(); // Reload notes after archive/unarchive
                         } catch {}
                       }}
                     >

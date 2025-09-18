@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -87,7 +88,7 @@ export function SearchResultsPage() {
   const [popularTags, setPopularTags] = useState<TagInfo[]>([]);
   const [availableTags, setAvailableTags] = useState<TagInfo[]>([]);
 
-  useEffect(() => {
+  useAuthenticatedEffect(() => {
     if (initialQuery) {
       performSearch(initialQuery, filters, currentPage);
     }

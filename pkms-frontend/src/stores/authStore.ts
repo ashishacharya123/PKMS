@@ -11,6 +11,7 @@ import {
   RecoveryReset,
   UserSettings
 } from '../types/auth';
+import { logger } from '../utils/logger';
 
 interface AuthActions {
   // Authentication actions
@@ -278,27 +279,35 @@ export const useAuthStore = create<AuthState & AuthActions>()(
 
       // State management
       checkAuth: async () => {
+        // Set loading state immediately to prevent race conditions
+        set({ isLoading: true, error: null });
+        
         const token = localStorage.getItem('pkms_token');
         
-        console.log('[AUTH STORE] checkAuth called, token exists:', !!token);
+        logger.auth('checkAuth called, token exists:', !!token);
         
         if (!token) {
-          console.log('[AUTH STORE] No token found, clearing auth state');
-          set({ isAuthenticated: false, user: null, token: null });
+          logger.auth('No token found, clearing auth state');
+          set({ 
+            isAuthenticated: false, 
+            user: null, 
+            token: null, 
+            isLoading: false 
+          });
           return;
         }
 
         try {
-          console.log('[AUTH STORE] Setting token in API service');
+          logger.auth('Setting token in API service');
           apiService.setAuthToken(token);
           
-          console.log('[AUTH STORE] Fetching current user');
+          logger.auth('Fetching current user');
           const currentUser = await authService.getCurrentUser();
           
           // Parse settings from JSON
           const settings = currentUser.settings_json ? JSON.parse(currentUser.settings_json) : {};
           
-          console.log('[AUTH STORE] User fetched successfully:', currentUser);
+          logger.auth('User fetched successfully:', currentUser);
           set({
             user: {
               ...currentUser,
@@ -306,13 +315,14 @@ export const useAuthStore = create<AuthState & AuthActions>()(
             },
             token,
             isAuthenticated: true,
+            isLoading: false,
             error: null
           });
 
           // Start session monitoring
           get().startSessionMonitoring();
         } catch (error) {
-          console.error('[AUTH STORE] Token validation failed:', error);
+          logger.error('Token validation failed:', error);
           // Token is invalid
           localStorage.removeItem('pkms_token');
           apiService.clearAuthToken();
@@ -320,6 +330,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
             user: null,
             token: null,
             isAuthenticated: false,
+            isLoading: false,
             error: null
           });
         }

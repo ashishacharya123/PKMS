@@ -5,7 +5,7 @@ Todo and Project Management Router for PKMS
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, delete, func
-from pydantic import BaseModel, Field, validator
+from app.schemas.todo import TodoCreate, TodoUpdate, TodoResponse, ProjectCreate, ProjectResponse
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from sqlalchemy.orm import selectinload
@@ -35,12 +35,23 @@ async def todos_stats_overview(
         select(func.count(Todo.id)).where(Todo.user_id == current_user.id)
     )).scalar() or 0
 
-    completed_count = (await db.execute(
-        select(func.count(Todo.id)).where(and_(
-            Todo.user_id == current_user.id,
-            Todo.is_completed.is_(True)
-        ))
-    )).scalar() or 0
+    # Counts by status
+    status_counts = (await db.execute(
+        select(Todo.status, func.count(Todo.id))
+        .where(Todo.user_id == current_user.id)
+        .group_by(Todo.status)
+    )).all()
+    
+    # Convert to dictionary with default values
+    status_stats = {
+        'pending': 0,
+        'in_progress': 0,
+        'blocked': 0,
+        'done': 0,
+        'cancelled': 0
+    }
+    for status, count in status_counts:
+        status_stats[status] = count
 
     archived_count = (await db.execute(
         select(func.count(Todo.id)).where(and_(
@@ -49,14 +60,12 @@ async def todos_stats_overview(
         ))
     )).scalar() or 0
 
-    pending_count = max(total_todos - completed_count, 0)
-
-    # Overdue: due_date set, in the past, not completed, not archived
+    # Overdue: due_date set, in the past, not done, not archived
     now_utc = datetime.utcnow()
     overdue_count = (await db.execute(
         select(func.count(Todo.id)).where(and_(
             Todo.user_id == current_user.id,
-            Todo.is_completed.is_(False),
+            Todo.status != 'done',
             Todo.is_archived.is_(False),
             Todo.due_date.is_not(None),
             Todo.due_date < now_utc
@@ -87,8 +96,11 @@ async def todos_stats_overview(
         "status": "success",
         "todos": {
             "total": total_todos,
-            "completed": completed_count,
-            "pending": pending_count,
+            "pending": status_stats['pending'],
+            "in_progress": status_stats['in_progress'],
+            "blocked": status_stats['blocked'],
+            "done": status_stats['done'],
+            "cancelled": status_stats['cancelled'],
             "archived": archived_count,
             "overdue": overdue_count,
             "by_priority": by_priority,
@@ -100,74 +112,10 @@ async def todos_stats_overview(
         }
     }
 
-# --- Pydantic Models ---
 
-class TodoCreate(BaseModel):
-    title: str = Field(..., min_length=1)
-    description: Optional[str] = None
-    project_id: Optional[int] = None
-    due_date: Optional[date] = None
-    priority: int = 2  # 1=low, 2=medium, 3=high, 4=urgent
-    tags: Optional[List[str]] = Field(default=[], max_items=20)
-    is_archived: Optional[bool] = False
-    
-    @validator('priority')
-    def validate_priority(cls, v):
-        if v not in VALID_PRIORITIES:
-            raise ValueError('Priority must be 1 (low), 2 (medium), 3 (high), or 4 (urgent)')
-        return v
-
-class TodoUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1)
-    description: Optional[str] = None
-    is_completed: Optional[bool] = None
-    project_id: Optional[int] = None
-    due_date: Optional[date] = None
-    priority: Optional[int] = None
-    tags: Optional[List[str]] = Field(None, max_items=20)
-    is_archived: Optional[bool] = None
-    is_favorite: Optional[bool] = None
-    
-    @validator('priority')
-    def validate_priority(cls, v):
-        if v is not None and v not in VALID_PRIORITIES:
-            raise ValueError('Priority must be 1 (low), 2 (medium), 3 (high), or 4 (urgent)')
-        return v
-
-class TodoResponse(BaseModel):
-    id: int
-    title: str
-    description: Optional[str]
-    is_completed: bool
-    is_archived: bool
-    is_favorite: bool
-    priority: int  # 1=low, 2=medium, 3=high, 4=urgent
-    project_id: Optional[int]
-    project_name: Optional[str]
-    due_date: Optional[date]
-    completed_at: Optional[datetime]
-    created_at: datetime
-    updated_at: datetime
-    tags: List[str]
-
-    class Config:
-        from_attributes = True
-
-class ProjectCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    color: Optional[str] = None
-
-class ProjectResponse(BaseModel):
-    id: int
-    name: str
-    description: Optional[str]
-    color: Optional[str]
-    is_archived: bool
-
-    class Config:
-        from_attributes = True
         
+from sqlalchemy.orm import selectinload
+
 # --- Helper Functions ---
 
 async def _handle_todo_tags(db: AsyncSession, todo: Todo, tag_names: List[str], user_id: int):
@@ -214,23 +162,105 @@ async def _handle_todo_tags(db: AsyncSession, todo: Todo, tag_names: List[str], 
     await db.commit()
     await db.refresh(todo)
 
+
+async def _get_project_counts(db: AsyncSession, project_id: int) -> tuple[int, int]:
+    """Get todo count and completed count for a project."""
+    total_count = (await db.execute(
+        select(func.count(Todo.id)).where(Todo.project_id == project_id)
+    )).scalar() or 0
+    
+    completed_count = (await db.execute(
+        select(func.count(Todo.id)).where(and_(
+            Todo.project_id == project_id,
+            Todo.is_completed.is_(True)
+        ))
+    )).scalar() or 0
+    
+    return total_count, completed_count
+
+
 def _convert_todo_to_response(todo: Todo) -> TodoResponse:
     """Convert Todo model to TodoResponse with relational tags."""
     return TodoResponse(
         id=todo.id,
         title=todo.title,
         description=todo.description,
+        status=todo.status,
         is_completed=todo.is_completed,
         is_archived=todo.is_archived,
         is_favorite=todo.is_favorite,
         priority=todo.priority,  # Direct integer use - no conversion needed
         project_id=todo.project_id,
         project_name=todo.project.name if todo.project else None,
+        order_index=todo.order_index,
+        parent_id=todo.parent_id,
+        subtasks=[_convert_todo_to_response(subtask) for subtask in (todo.subtasks or [])] if hasattr(todo, 'subtasks') and todo.subtasks else [],
+        start_date=todo.start_date,
         due_date=todo.due_date,
         completed_at=todo.completed_at,
         created_at=todo.created_at,
         updated_at=todo.updated_at,
         tags=[t.name for t in todo.tag_objs] if todo.tag_objs else []
+    )
+
+async def _handle_project_tags(db: AsyncSession, project: Project, tag_names: List[str], user_id: int):
+    """Synchronise project.tag_objs with the provided tag names."""
+    if tag_names is None:
+        return
+    if not tag_names:
+        project.tag_objs = []
+        await db.commit()
+        await db.refresh(project)
+        return
+
+    clean_names = {t.strip() for t in tag_names if t and t.strip()}
+
+    # Fetch existing tags for this user and module type
+    existing_tags = (
+        await db.execute(
+            select(Tag).where(and_(
+                Tag.user_id == user_id, 
+                Tag.name.in_(clean_names),
+                Tag.module_type == "todos"
+            ))
+        )
+    ).scalars().all()
+    existing_map = {t.name: t for t in existing_tags}
+
+    tag_objs: List[Tag] = []
+    for name in clean_names:
+        tag_obj = existing_map.get(name)
+        if not tag_obj:
+            tag_obj = Tag(
+                name=name, 
+                user_id=user_id,
+                module_type="todos",
+                usage_count=1,
+                color="#3498db"  # Blue color for project tags
+            )
+            db.add(tag_obj)
+            await db.flush()
+        else:
+            # Increment usage count for existing tag
+            tag_obj.usage_count += 1
+        tag_objs.append(tag_obj)
+
+    project.tag_objs = tag_objs
+    await db.commit()
+    await db.refresh(project)
+
+
+def _convert_project_to_response(project: Project, todo_count: int = 0, completed_count: int = 0) -> ProjectResponse:
+    """Convert Project model to ProjectResponse with todo counts."""
+    return ProjectResponse(
+        id=project.id,
+        name=project.name,
+        description=project.description,
+        color=project.color,
+        is_archived=project.is_archived,
+        tags=[t.name for t in project.tag_objs] if project.tag_objs else [],
+        todo_count=todo_count,
+        completed_count=completed_count
     )
 
 # --- Todo Endpoints ---
@@ -245,6 +275,9 @@ async def create_todo(
         title=todo_data.title,
         description=todo_data.description,
         priority=todo_data.priority,  # Direct integer use - no conversion needed
+        status=todo_data.status,  # Set status
+        order_index=todo_data.order_index,  # Set order index
+        start_date=todo_data.start_date,
         due_date=todo_data.due_date,
         project_id=todo_data.project_id,
         user_id=current_user.id,
@@ -257,9 +290,12 @@ async def create_todo(
     if todo_data.tags:
         await _handle_todo_tags(db, todo, todo_data.tags, current_user.id)
 
-    # Reload todo with tags to avoid lazy loading issues in response conversion
+    # Reload todo with tags and project to avoid lazy loading issues in response conversion
     result = await db.execute(
-        select(Todo).options(selectinload(Todo.tag_objs)).where(
+        select(Todo).options(
+            selectinload(Todo.tag_objs),
+            selectinload(Todo.project)
+        ).where(
             Todo.id == todo.id
         )
     )
@@ -271,19 +307,26 @@ async def create_todo(
 @router.get("/", response_model=List[TodoResponse])
 async def list_todos(
     is_completed: Optional[bool] = None,
+    status: Optional[str] = None,  # New status filter
     is_archived: Optional[bool] = None,
     is_favorite: Optional[bool] = None,
     project_id: Optional[int] = None,
     priority: Optional[int] = None,
     due_date: Optional[date] = None,
     tag: Optional[str] = None,
+    include_subtasks: Optional[bool] = True,  # New parameter to include subtasks
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(Todo).options(selectinload(Todo.tag_objs)).where(Todo.user_id == current_user.id)
+    query = select(Todo).options(
+        selectinload(Todo.tag_objs),
+        selectinload(Todo.project)
+    ).where(Todo.user_id == current_user.id)
 
     if is_completed is not None:
         query = query.where(Todo.is_completed == is_completed)
+    if status is not None:
+        query = query.where(Todo.status == status)
     if is_archived is not None:
         query = query.where(Todo.is_archived == is_archived)
     if is_favorite is not None:
@@ -296,10 +339,34 @@ async def list_todos(
         query = query.where(Todo.due_date == due_date)
     if tag:
         query = query.join(Todo.tag_objs).where(Tag.name == tag)
+    
+    # Only get top-level todos (no parent_id) when including subtasks
+    if include_subtasks:
+        query = query.where(Todo.parent_id.is_(None))
         
-    result = await db.execute(query.order_by(Todo.priority.desc(), Todo.created_at.desc()))  # Sort by priority first (urgent=4, high=3, medium=2, low=1)
+    # Order by order_index first (for Kanban), then priority, then creation date
+    result = await db.execute(query.order_by(Todo.order_index, Todo.priority.desc(), Todo.created_at.desc()))
     todos = result.scalars().unique().all()
-    return [_convert_todo_to_response(t) for t in todos]
+    
+    if include_subtasks:
+        # Load subtasks for each todo
+        todos_with_subtasks = []
+        for todo in todos:
+            subtasks_result = await db.execute(
+                select(Todo).options(
+                    selectinload(Todo.tag_objs),
+                    selectinload(Todo.project)
+                ).where(and_(
+                    Todo.parent_id == todo.id,
+                    Todo.user_id == current_user.id
+                )).order_by(Todo.order_index)
+            )
+            subtasks = subtasks_result.scalars().all()
+            todo.subtasks = subtasks
+            todos_with_subtasks.append(todo)
+        return [_convert_todo_to_response(t) for t in todos_with_subtasks]
+    else:
+        return [_convert_todo_to_response(t) for t in todos]
 
 # --- Project Endpoints (place before dynamic /{todo_id} routes to avoid conflicts) ---
 
@@ -310,24 +377,39 @@ async def create_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    project = Project(**project_data.model_dump(), user_id=current_user.id)
+    payload = project_data.model_dump()
+    tags = payload.pop("tags", []) or []
+    project = Project(**payload, user_id=current_user.id)
     db.add(project)
     await db.commit()
     await db.refresh(project)
-    return project
+    if tags:
+        await _handle_project_tags(db, project, tags, current_user.id)
+    return _convert_project_to_response(project, 0, 0)  # New project has 0 todos
 
 @router.get("/projects/", response_model=List[ProjectResponse])
 @router.get("/projects", response_model=List[ProjectResponse])
 async def list_projects(
     archived: Optional[bool] = None,
+    tag: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(Project).where(Project.user_id == current_user.id)
+    query = select(Project).options(selectinload(Project.tag_objs)).where(Project.user_id == current_user.id)
     if archived is not None:
         query = query.where(Project.is_archived == archived)
+    if tag:
+        query = query.join(Project.tag_objs).where(Tag.name == tag)
     result = await db.execute(query)
-    return result.scalars().all()
+    rows = result.scalars().unique().all()
+    
+    # Calculate counts for each project
+    projects_with_counts = []
+    for project in rows:
+        todo_count, completed_count = await _get_project_counts(db, project.id)
+        projects_with_counts.append(_convert_project_to_response(project, todo_count, completed_count))
+    
+    return projects_with_counts
 
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
 async def get_project(
@@ -341,7 +423,9 @@ async def get_project(
     project = result.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    return project
+    
+    todo_count, completed_count = await _get_project_counts(db, project.id)
+    return _convert_project_to_response(project, todo_count, completed_count)
 
 @router.put("/projects/{project_id}", response_model=ProjectResponse)
 async def update_project(
@@ -357,12 +441,18 @@ async def update_project(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    for key, value in project_data.model_dump().items():
+    update_payload = project_data.model_dump()
+    tags = update_payload.pop("tags", None)
+    for key, value in update_payload.items():
         setattr(project, key, value)
     
     await db.commit()
     await db.refresh(project)
-    return project
+    if tags is not None:
+        await _handle_project_tags(db, project, tags, current_user.id)
+    
+    todo_count, completed_count = await _get_project_counts(db, project.id)
+    return _convert_project_to_response(project, todo_count, completed_count)
 
 @router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
@@ -392,7 +482,10 @@ async def get_todo(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
-        select(Todo).options(selectinload(Todo.tag_objs)).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+        select(Todo).options(
+            selectinload(Todo.tag_objs),
+            selectinload(Todo.project)
+        ).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -421,16 +514,32 @@ async def update_todo(
     for key, value in update_data.items():
         setattr(todo, key, value)
         
-    if todo_data.is_completed and not todo.completed_at:
-        todo.completed_at = datetime.utcnow()
-    elif not todo_data.is_completed:
-        todo.completed_at = None
+    # Sync is_completed with status for backward compatibility
+    if todo_data.status is not None:
+        todo.is_completed = (todo_data.status == 'done')
+        if todo_data.status == 'done' and not todo.completed_at:
+            todo.completed_at = datetime.utcnow()
+        elif todo_data.status != 'done':
+            todo.completed_at = None
+    elif todo_data.is_completed is not None:
+        # Legacy support: if is_completed is set, update status accordingly
+        if todo_data.is_completed:
+            todo.status = 'done'
+            if not todo.completed_at:
+                todo.completed_at = datetime.utcnow()
+        else:
+            if todo.status == 'done':
+                todo.status = 'pending'
+            todo.completed_at = None
 
     await db.commit()
     
-    # Reload todo with tags to avoid lazy loading issues in response conversion
+    # Reload todo with tags and project to avoid lazy loading issues in response conversion
     result = await db.execute(
-        select(Todo).options(selectinload(Todo.tag_objs)).where(
+        select(Todo).options(
+            selectinload(Todo.tag_objs),
+            selectinload(Todo.project)
+        ).where(
             Todo.id == todo.id
         )
     )
@@ -446,7 +555,10 @@ async def archive_todo(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
-        select(Todo).options(selectinload(Todo.tag_objs)).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+        select(Todo).options(
+            selectinload(Todo.tag_objs),
+            selectinload(Todo.project)
+        ).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -471,4 +583,261 @@ async def delete_todo(
     await db.delete(todo)
     await db.commit()
 
+@router.patch("/{todo_id}/status", response_model=TodoResponse)
+async def update_todo_status(
+    todo_id: int,
+    status: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update todo status and sync is_completed field."""
+    result = await db.execute(
+        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+    )
+    todo = result.scalar_one_or_none()
+    if not todo:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    
+    # Validate status
+    valid_statuses = ['pending', 'in_progress', 'blocked', 'done', 'cancelled']
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}")
+    
+    # Update status
+    todo.status = status
+    todo.is_completed = (status == 'done')
+    
+    # Handle completed_at timestamp
+    if status == 'done' and not todo.completed_at:
+        todo.completed_at = datetime.utcnow()
+    elif status != 'done':
+        todo.completed_at = None
+    
+    await db.commit()
+    await db.refresh(todo)
+    
+    # Reload with tags and project for response
+    result = await db.execute(
+        select(Todo).options(
+            selectinload(Todo.tag_objs),
+            selectinload(Todo.project)
+        ).where(Todo.id == todo.id)
+    )
+    todo_with_tags = result.scalar_one()
+    
+    return _convert_todo_to_response(todo_with_tags)
+
+
+@router.patch("/{todo_id}/reorder", response_model=TodoResponse)
+async def reorder_todo(
+    todo_id: int,
+    order_index: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update todo order index for Kanban board positioning."""
+    result = await db.execute(
+        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+    )
+    todo = result.scalar_one_or_none()
+    if not todo:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    
+    todo.order_index = order_index
+    await db.commit()
+    await db.refresh(todo)
+    
+    # Reload with tags and project for response
+    result = await db.execute(
+        select(Todo).options(
+            selectinload(Todo.tag_objs),
+            selectinload(Todo.project)
+        ).where(Todo.id == todo.id)
+    )
+    todo_with_tags = result.scalar_one()
+    
+    return _convert_todo_to_response(todo_with_tags)
+
+
+@router.post("/{todo_id}/complete", response_model=TodoResponse)
+async def complete_todo(
+    todo_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Mark todo as completed (legacy endpoint - now sets status to 'done')."""
+    return await update_todo_status(todo_id, "done", current_user, db)
+
 # --- End Project Endpoints ---
+
+# --- Subtask Management Endpoints ---
+
+@router.post("/{todo_id}/subtasks", response_model=TodoResponse)
+async def create_subtask(
+    todo_id: int,
+    subtask_data: TodoCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a subtask for the specified todo."""
+    # Verify parent todo exists and belongs to user
+    parent_result = await db.execute(
+        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+    )
+    parent_todo = parent_result.scalar_one_or_none()
+    if not parent_todo:
+        raise HTTPException(status_code=404, detail="Parent todo not found")
+    
+    # Create subtask
+    subtask = Todo(
+        title=subtask_data.title,
+        description=subtask_data.description,
+        status=subtask_data.status or "pending",
+        priority=subtask_data.priority or 2,
+        order_index=subtask_data.order_index or 0,
+        start_date=subtask_data.start_date,
+        due_date=subtask_data.due_date,
+        parent_id=todo_id,
+        project_id=parent_todo.project_id,  # Inherit project from parent
+        user_id=current_user.id
+    )
+    
+    db.add(subtask)
+    await db.commit()
+    await db.refresh(subtask)
+    
+    # Reload with tags and project for response
+    result = await db.execute(
+        select(Todo).options(
+            selectinload(Todo.tag_objs),
+            selectinload(Todo.project)
+        ).where(Todo.id == subtask.id)
+    )
+    subtask_with_tags = result.scalar_one()
+    
+    return _convert_todo_to_response(subtask_with_tags)
+
+
+@router.get("/{todo_id}/subtasks", response_model=List[TodoResponse])
+async def get_subtasks(
+    todo_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all subtasks for the specified todo."""
+    # Verify parent todo exists and belongs to user
+    parent_result = await db.execute(
+        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+    )
+    parent_todo = parent_result.scalar_one_or_none()
+    if not parent_todo:
+        raise HTTPException(status_code=404, detail="Parent todo not found")
+    
+    # Get subtasks
+    result = await db.execute(
+        select(Todo).options(
+            selectinload(Todo.tag_objs),
+            selectinload(Todo.project)
+        ).where(and_(
+            Todo.parent_id == todo_id,
+            Todo.user_id == current_user.id
+        )).order_by(Todo.order_index)
+    )
+    subtasks = result.scalars().all()
+    
+    return [_convert_todo_to_response(subtask) for subtask in subtasks]
+
+
+@router.patch("/{todo_id}/move", response_model=TodoResponse)
+async def move_subtask(
+    todo_id: int,
+    parent_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Move a subtask to a different parent or make it a top-level todo."""
+    # Verify todo exists and belongs to user
+    result = await db.execute(
+        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+    )
+    todo = result.scalar_one_or_none()
+    if not todo:
+        raise HTTPException(status_code=404, detail="Todo not found")
+    
+    # If moving to a new parent, verify it exists and belongs to user
+    if parent_id is not None:
+        parent_result = await db.execute(
+            select(Todo).where(and_(Todo.id == parent_id, Todo.user_id == current_user.id))
+        )
+        parent_todo = parent_result.scalar_one_or_none()
+        if not parent_todo:
+            raise HTTPException(status_code=404, detail="New parent todo not found")
+        
+        # Prevent circular references
+        if parent_id == todo_id:
+            raise HTTPException(status_code=400, detail="Cannot make todo a subtask of itself")
+        
+        # Check if new parent is not a subtask of this todo
+        current_parent = parent_id
+        while current_parent:
+            if current_parent == todo_id:
+                raise HTTPException(status_code=400, detail="Cannot create circular reference")
+            parent_check = await db.execute(
+                select(Todo.parent_id).where(Todo.id == current_parent)
+            )
+            current_parent = parent_check.scalar_one_or_none()
+    
+    # Update parent_id
+    todo.parent_id = parent_id
+    
+    # If moving to a new parent, inherit project
+    if parent_id is not None:
+        parent_todo = await db.get(Todo, parent_id)
+        todo.project_id = parent_todo.project_id
+    
+    await db.commit()
+    await db.refresh(todo)
+    
+    # Reload with tags and project for response
+    result = await db.execute(
+        select(Todo).options(
+            selectinload(Todo.tag_objs),
+            selectinload(Todo.project)
+        ).where(Todo.id == todo.id)
+    )
+    todo_with_tags = result.scalar_one()
+    
+    return _convert_todo_to_response(todo_with_tags)
+
+
+@router.patch("/{todo_id}/subtasks/reorder")
+async def reorder_subtasks(
+    todo_id: int,
+    subtask_ids: List[int],
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Reorder subtasks for the specified todo."""
+    # Verify parent todo exists and belongs to user
+    parent_result = await db.execute(
+        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+    )
+    parent_todo = parent_result.scalar_one_or_none()
+    if not parent_todo:
+        raise HTTPException(status_code=404, detail="Parent todo not found")
+    
+    # Update order_index for each subtask
+    for index, subtask_id in enumerate(subtask_ids):
+        subtask_result = await db.execute(
+            select(Todo).where(and_(
+                Todo.id == subtask_id,
+                Todo.parent_id == todo_id,
+                Todo.user_id == current_user.id
+            ))
+        )
+        subtask = subtask_result.scalar_one_or_none()
+        if subtask:
+            subtask.order_index = index
+    
+    await db.commit()
+    return {"status": "success", "message": "Subtasks reordered successfully"}
