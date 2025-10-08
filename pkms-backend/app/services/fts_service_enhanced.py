@@ -502,13 +502,88 @@ class EnhancedFTS5SearchService:
             logger.error(f"Error searching diary entries: {e}")
             return []
 
-    async def search_all(self, db: AsyncSession, query: str, user_id: int, 
-                        content_types: Optional[List[str]] = None, 
+    async def search_all(self, db: AsyncSession, query: str, user_id: int,
+                        content_types: Optional[List[str]] = None,
                         limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
         """Search across all content types - compatibility method"""
-        return await self.search_enhanced(db, query, user_id, 
-                                        module_filter=content_types[0] if content_types else None, 
+        return await self.search_enhanced(db, query, user_id,
+                                        module_filter=content_types[0] if content_types else None,
                                         limit=limit)
+
+    async def get_search_suggestions(self, db: AsyncSession, user_id: int,
+                                   query: str, modules: Optional[List[str]] = None,
+                                   limit: int = 10) -> List[Dict[str, Any]]:
+        """Get real-time search suggestions with typeahead functionality"""
+        try:
+            if not self.tables_initialized or len(query.strip()) < 2:
+                return []
+
+            # Prepare prefix search query for typeahead
+            prefix_query = self._prepare_fts_query(query)
+
+            # Filter modules if specified
+            active_modules = modules if modules else list(self.fts_tables.keys())
+            suggestions = []
+
+            for module in active_modules:
+                if module not in self.fts_tables:
+                    continue
+
+                config = self.fts_tables[module]
+                table_name = config['table_name']
+
+                # Use prefix matching for suggestions
+                suggestion_sql = text(f"""
+                    SELECT DISTINCT
+                        title,
+                        substr(title, 1, 100) as suggestion,
+                        '{module}' as module,
+                        bm25({table_name}) as score
+                    FROM {table_name}
+                    WHERE {table_name} MATCH :prefix_query || '*'
+                      AND user_id = :user_id
+                    ORDER BY score DESC, title ASC
+                    LIMIT :module_limit
+                """)
+
+                result = await db.execute(suggestion_sql, {
+                    'prefix_query': prefix_query,
+                    'user_id': user_id,
+                    'module_limit': max(2, limit // len(active_modules))
+                })
+
+                module_suggestions = [
+                    {
+                        'text': row.suggestion,
+                        'module': row.module,
+                        'score': float(row.score) if row.score else 0.0,
+                        'type': self._get_suggestion_type(module)
+                    }
+                    for row in result.fetchall()
+                    if row.suggestion and row.suggestion.strip()
+                ]
+
+                suggestions.extend(module_suggestions)
+
+            # Sort by relevance and limit results
+            suggestions.sort(key=lambda x: (x['score'], x['text']), reverse=True)
+            return suggestions[:limit]
+
+        except Exception as e:
+            logger.error(f"❌ Search suggestions error: {str(e)}")
+            return []
+
+    def _get_suggestion_type(self, module: str) -> str:
+        """Get human-readable type for suggestion"""
+        type_map = {
+            'notes': 'Note',
+            'documents': 'Document',
+            'todos': 'Task',
+            'diary': 'Diary Entry',
+            'archive': 'Archive Item',
+            'folders': 'Folder'
+        }
+        return type_map.get(module, 'Item')
 
 # Global instance
 enhanced_fts_service = EnhancedFTS5SearchService()

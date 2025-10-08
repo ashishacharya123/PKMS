@@ -2,7 +2,7 @@ import { apiService } from './api';
 
 export interface SearchResult {
   id: string;
-  type: 'note' | 'document' | 'todo' | 'archive' | 'archive-folder';
+  type: 'note' | 'document' | 'todo' | 'archive' | 'archive-folder' | 'diary' | 'project' | 'folder';
   title: string;
   content: string;
   preview: string;
@@ -20,13 +20,31 @@ export interface SearchResult {
 }
 
 export interface SearchFilters {
-  types?: ('note' | 'document' | 'todo' | 'archive' | 'archive-folder')[];
+  types?: ('note' | 'document' | 'todo' | 'archive' | 'archive-folder' | 'diary' | 'project' | 'folder')[];
   tags?: string[];
   dateFrom?: string;
   dateTo?: string;
-  sortBy?: 'relevance' | 'date' | 'title';
+  sortBy?: 'relevance' | 'date' | 'title' | 'module';
   sortOrder?: 'asc' | 'desc';
   includeContent?: boolean;
+  include_tags?: string[];
+  exclude_tags?: string[];
+  favorites_only?: boolean;
+  include_archived?: boolean;
+  exclude_diary?: boolean;
+  fuzzy_threshold?: number;
+  min_file_size?: number;
+  max_file_size?: number;
+  todo_status?: string;
+  todo_priority?: string;
+  mime_types?: string;
+}
+
+export interface SearchSuggestion {
+  text: string;
+  module: string;
+  type: string;
+  score: number;
 }
 
 export interface SearchStats {
@@ -37,6 +55,9 @@ export interface SearchStats {
     todo: number;
     archive: number;
     'archive-folder': number;
+    diary: number;
+    project: number;
+    folder: number;
   };
   searchTime: number;
   query: string;
@@ -117,7 +138,7 @@ class SearchService {
     };
 
     if (options.modules?.length) {
-      searchParams.modules = options.modules.join(',');
+      searchParams.modules = this.frontendToBackendModules(options.modules).join(',');
     }
 
     if (options.include_tags?.length) {
@@ -190,7 +211,7 @@ class SearchService {
       };
 
       if (filters.types?.length) {
-        searchParams.content_types = filters.types.join(',');
+        searchParams.content_types = this.frontendToBackendModules(filters.types).join(',');
       }
 
       if (filters.tags?.length) {
@@ -365,18 +386,22 @@ class SearchService {
     }));
   }
 
-  private calculateResultsByType(results: any[]): { note: number; document: number; todo: number; archive: number; 'archive-folder': number } {
-    const counts = { note: 0, document: 0, todo: 0, archive: 0, 'archive-folder': 0 };
-    
+  private calculateResultsByType(results: any[]): { note: number; document: number; todo: number; archive: number; 'archive-folder': number; diary: number; project: number; folder: number } {
+    const counts = { note: 0, document: 0, todo: 0, archive: 0, 'archive-folder': 0, diary: 0, project: 0, folder: 0 };
+
     results.forEach(result => {
       const type = result.module || result.type;
+      // Backend module name mapping to frontend type
       if (type === 'notes') counts.note++;
       else if (type === 'documents') counts.document++;
       else if (type === 'todos') counts.todo++;
       else if (type === 'archive' || type === 'archive_items') counts.archive++;
       else if (type === 'folders' || type === 'archive_folders') counts['archive-folder']++;
+      else if (type === 'diary') counts.diary++;
+      else if (type === 'projects') counts.project++;
+      else if (type === 'folders') counts.folder++;
     });
-    
+
     return counts;
   }
 
@@ -387,11 +412,23 @@ class SearchService {
   }
 
   private generatePath(result: any): string {
-    switch (result.type) {
+    const type = result.module || result.type;
+    switch (type) {
+      case 'notes':
       case 'note': return `/notes/${result.id}`;
+      case 'documents':
       case 'document': return '/documents';
+      case 'todos':
       case 'todo': return '/todos';
+      case 'archive':
+      case 'archive_items':
       case 'archive': return '/archive';
+      case 'diary': return '/diary';
+      case 'projects':
+      case 'project': return '/todos';
+      case 'folders':
+      case 'archive_folders':
+      case 'folder': return '/archive';
       default: return '/';
     }
   }
@@ -403,12 +440,48 @@ class SearchService {
   }
 
   private generateCacheKey(
-    query: string, 
-    filters: SearchFilters, 
-    limit: number, 
+    query: string,
+    filters: SearchFilters,
+    limit: number,
     offset: number
   ): string {
     return `search:${query}:${JSON.stringify(filters)}:${limit}:${offset}`;
+  }
+
+  /**
+   * Convert frontend module names to backend module names
+   */
+  frontendToBackendModules(frontendTypes: string[]): string[] {
+    const mapping: Record<string, string> = {
+      'note': 'notes',
+      'document': 'documents',
+      'todo': 'todos',
+      'archive': 'archive_items',
+      'archive-folder': 'folders',
+      'diary': 'diary',
+      'project': 'projects',
+      'folder': 'folders'
+    };
+
+    return frontendTypes.map(type => mapping[type] || type);
+  }
+
+  /**
+   * Convert backend module names to frontend type names
+   */
+  backendToFrontendTypes(backendModules: string[]): string[] {
+    const mapping: Record<string, string> = {
+      'notes': 'note',
+      'documents': 'document',
+      'todos': 'todo',
+      'archive_items': 'archive',
+      'folders': 'folder',
+      'archive_folders': 'folder',
+      'diary': 'diary',
+      'projects': 'project'
+    };
+
+    return backendModules.map(module => mapping[module] || module);
   }
 
   private getFromCache(key: string): SearchResponse | null {
@@ -571,6 +644,399 @@ class SearchService {
       return result.title;
     }
     return `${result.title} (Content available - enable "Include Content" to see full preview)`;
+  }
+
+  // Unified FTS5 Search
+  async fts5Search(options: {
+    query: string;
+    modules?: string[];
+    page?: number;
+    limit?: number;
+    include_tags?: string[];
+    exclude_tags?: string[];
+    favorites_only?: boolean;
+    include_archived?: boolean;
+    exclude_diary?: boolean;
+    sort_by?: string;
+    sort_order?: string;
+    date_from?: string;
+    date_to?: string;
+    mime_types?: string;
+    min_file_size?: number;
+    max_file_size?: number;
+    todo_status?: string;
+    todo_priority?: string;
+  }): Promise<SearchResponse> {
+    const searchParams: Record<string, string> = {
+      q: options.query,
+      limit: (options.limit || 20).toString(),
+      offset: ((options.page || 1) - 1).toString(),
+      sort_by: options.sort_by || 'relevance',
+      sort_order: options.sort_order || 'desc'
+    };
+
+    if (options.modules?.length) {
+      searchParams.modules = this.frontendToBackendModules(options.modules).join(',');
+    }
+
+    if (options.include_tags?.length) {
+      searchParams.include_tags = options.include_tags.join(',');
+    }
+
+    if (options.exclude_tags?.length) {
+      searchParams.exclude_tags = options.exclude_tags.join(',');
+    }
+
+    if (options.favorites_only) {
+      searchParams.favorites_only = 'true';
+    }
+
+    if (options.include_archived !== undefined) {
+      searchParams.include_archived = options.include_archived.toString();
+    }
+
+    if (options.exclude_diary !== undefined) {
+      searchParams.exclude_diary = options.exclude_diary.toString();
+    }
+
+    if (options.date_from) {
+      searchParams.date_from = options.date_from;
+    }
+
+    if (options.date_to) {
+      searchParams.date_to = options.date_to;
+    }
+
+    const cacheKey = this.generateCacheKey(options.query, searchParams, options.limit || 20, options.page || 1);
+    const cached = this.getFromCache(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const response = await apiService.get(`/search/fts5?${new URLSearchParams(searchParams)}`);
+      const processed = this.processSearchResults((response.data as any)?.results || []);
+      const searchResponse: SearchResponse = {
+        results: processed,
+        total: (response.data as any)?.total || processed.length,
+        query: options.query,
+        search_type: 'fts5',
+        performance: (response.data as any)?.performance || 'high',
+        stats: {
+          totalResults: (response.data as any)?.total || processed.length,
+          resultsByType: this.calculateResultsByType((response.data as any)?.results || []),
+          searchTime: (response.data as any)?.stats?.searchTime || 0,
+          query: options.query,
+          includeContent: false,
+          appliedFilters: (response.data as any)?.stats?.appliedFilters || {}
+        }
+      };
+
+      this.setToCache(cacheKey, searchResponse);
+      return searchResponse;
+    } catch (error) {
+      console.error('FTS5 search error:', error);
+      return {
+        results: [],
+        total: 0,
+        query: options.query,
+        search_type: 'fts5',
+        performance: 'low',
+        stats: {
+          totalResults: 0,
+          resultsByType: { note: 0, document: 0, todo: 0, archive: 0, 'archive-folder': 0, diary: 0, project: 0, folder: 0 },
+          searchTime: 0,
+          query: options.query,
+          includeContent: false,
+          appliedFilters: {}
+        }
+      };
+    }
+  }
+
+  // Unified Fuzzy Search
+  async fuzzySearch(options: {
+    query: string;
+    modules?: string[];
+    page?: number;
+    limit?: number;
+    include_tags?: string[];
+    exclude_tags?: string[];
+    include_archived?: boolean;
+    exclude_diary?: boolean;
+    sort_by?: string;
+    sort_order?: string;
+    fuzzy_threshold?: number;
+  }): Promise<SearchResponse> {
+    const searchParams: Record<string, string> = {
+      q: options.query,
+      limit: (options.limit || 20).toString(),
+      offset: ((options.page || 1) - 1).toString(),
+      sort_by: options.sort_by || 'relevance',
+      sort_order: options.sort_order || 'desc',
+      fuzzy_threshold: (options.fuzzy_threshold || 60).toString()
+    };
+
+    if (options.modules?.length) {
+      searchParams.modules = this.frontendToBackendModules(options.modules).join(',');
+    }
+
+    if (options.include_tags?.length) {
+      searchParams.include_tags = options.include_tags.join(',');
+    }
+
+    if (options.exclude_tags?.length) {
+      searchParams.exclude_tags = options.exclude_tags.join(',');
+    }
+
+    if (options.include_archived !== undefined) {
+      searchParams.include_archived = options.include_archived.toString();
+    }
+
+    if (options.exclude_diary !== undefined) {
+      searchParams.exclude_diary = options.exclude_diary.toString();
+    }
+
+    const cacheKey = this.generateCacheKey(`fuzzy_${options.query}`, searchParams, options.limit || 20, options.page || 1);
+    const cached = this.getFromCache(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const response = await apiService.get(`/search/fuzzy?${new URLSearchParams(searchParams)}`);
+      const processed = this.processSearchResults((response.data as any)?.results || []);
+      const searchResponse: SearchResponse = {
+        results: processed,
+        total: (response.data as any)?.total || processed.length,
+        query: options.query,
+        search_type: 'fuzzy',
+        performance: (response.data as any)?.performance || 'deep',
+        stats: {
+          totalResults: (response.data as any)?.total || processed.length,
+          resultsByType: this.calculateResultsByType((response.data as any)?.results || []),
+          searchTime: (response.data as any)?.stats?.searchTime || 0,
+          query: options.query,
+          includeContent: false,
+          appliedFilters: (response.data as any)?.stats?.appliedFilters || {}
+        }
+      };
+
+      this.setToCache(cacheKey, searchResponse);
+      return searchResponse;
+    } catch (error) {
+      console.error('Fuzzy search error:', error);
+      return {
+        results: [],
+        total: 0,
+        query: options.query,
+        search_type: 'fuzzy',
+        performance: 'low',
+        stats: {
+          totalResults: 0,
+          resultsByType: { note: 0, document: 0, todo: 0, archive: 0, 'archive-folder': 0, diary: 0, project: 0, folder: 0 },
+          searchTime: 0,
+          query: options.query,
+          includeContent: false,
+          appliedFilters: {}
+        }
+      };
+    }
+  }
+
+  // Hybrid Search (combines FTS5 and Fuzzy)
+  async hybridSearch(options: {
+    query: string;
+    modules?: string[];
+    page?: number;
+    limit?: number;
+    include_tags?: string[];
+    exclude_tags?: string[];
+    include_archived?: boolean;
+    exclude_diary?: boolean;
+    sort_by?: string;
+    sort_order?: string;
+    use_fuzzy?: boolean;
+  }): Promise<SearchResponse> {
+    const searchParams: Record<string, string> = {
+      q: options.query,
+      limit: (options.limit || 20).toString(),
+      offset: ((options.page || 1) - 1).toString(),
+      sort_by: options.sort_by || 'relevance',
+      sort_order: options.sort_order || 'desc'
+    };
+
+    if (options.modules?.length) {
+      searchParams.modules = this.frontendToBackendModules(options.modules).join(',');
+    }
+
+    if (options.include_tags?.length) {
+      searchParams.include_tags = options.include_tags.join(',');
+    }
+
+    if (options.exclude_tags?.length) {
+      searchParams.exclude_tags = options.exclude_tags.join(',');
+    }
+
+    if (options.include_archived !== undefined) {
+      searchParams.include_archived = options.include_archived.toString();
+    }
+
+    if (options.exclude_diary !== undefined) {
+      searchParams.exclude_diary = options.exclude_diary.toString();
+    }
+
+    if (options.use_fuzzy !== undefined) {
+      searchParams.use_fuzzy = options.use_fuzzy.toString();
+    }
+
+    const cacheKey = this.generateCacheKey(`hybrid_${options.query}`, searchParams, options.limit || 20, options.page || 1);
+    const cached = this.getFromCache(cacheKey);
+    if (cached) return cached;
+
+    try {
+      const response = await apiService.get(`/search/hybrid?${new URLSearchParams(searchParams)}`);
+      const processed = this.processSearchResults((response.data as any)?.results || []);
+      const searchResponse: SearchResponse = {
+        results: processed,
+        total: (response.data as any)?.total || processed.length,
+        query: options.query,
+        search_type: (response.data as any)?.search_type || 'hybrid',
+        performance: (response.data as any)?.performance || 'high',
+        stats: {
+          totalResults: (response.data as any)?.total || processed.length,
+          resultsByType: this.calculateResultsByType((response.data as any)?.results || []),
+          searchTime: (response.data as any)?.stats?.searchTime || 0,
+          query: options.query,
+          includeContent: false,
+          appliedFilters: (response.data as any)?.stats?.appliedFilters || {}
+        }
+      };
+
+      this.setToCache(cacheKey, searchResponse);
+      return searchResponse;
+    } catch (error) {
+      console.error('Hybrid search error:', error);
+      return {
+        results: [],
+        total: 0,
+        query: options.query,
+        search_type: 'hybrid',
+        performance: 'low',
+        stats: {
+          totalResults: 0,
+          resultsByType: { note: 0, document: 0, todo: 0, archive: 0, 'archive-folder': 0, diary: 0, project: 0, folder: 0 },
+          searchTime: 0,
+          query: options.query,
+          includeContent: false,
+          appliedFilters: {}
+        }
+      };
+    }
+  }
+
+  // Cross-module search that searches across all modules
+  async crossModuleSearch(query: string, options: {
+    modules?: string[];
+    limit?: number;
+    offset?: number;
+    use_fuzzy?: boolean;
+    include_archived?: boolean;
+    exclude_diary?: boolean;
+  } = {}): Promise<SearchResponse> {
+    const searchParams: Record<string, string> = {
+      q: query,
+      limit: (options.limit || 50).toString(),
+      offset: (options.offset || 0).toString()
+    };
+
+    if (options.modules?.length) {
+      searchParams.content_types = options.modules.join(',');
+    }
+
+    if (options.use_fuzzy !== undefined) {
+      searchParams.use_fuzzy = options.use_fuzzy.toString();
+    }
+
+    if (options.include_archived !== undefined) {
+      searchParams.include_archived = options.include_archived.toString();
+    }
+
+    if (options.exclude_diary !== undefined) {
+      searchParams.exclude_diary = options.exclude_diary.toString();
+    }
+
+    try {
+      const response = await apiService.get(`/search/global?${new URLSearchParams(searchParams)}`);
+      const processed = this.processSearchResults((response.data as any)?.results || []);
+      return {
+        results: processed,
+        total: (response.data as any)?.total || processed.length,
+        query: query,
+        search_type: (response.data as any)?.search_type || 'global',
+        performance: (response.data as any)?.performance || 'high',
+        stats: {
+          totalResults: (response.data as any)?.total || processed.length,
+          resultsByType: this.calculateResultsByType((response.data as any)?.results || []),
+          searchTime: (response.data as any)?.stats?.searchTime || 0,
+          query: query,
+          includeContent: false,
+          appliedFilters: (response.data as any)?.stats?.appliedFilters || {}
+        }
+      };
+    } catch (error) {
+      console.error('Cross-module search error:', error);
+      return {
+        results: [],
+        total: 0,
+        query: query,
+        search_type: 'global',
+        performance: 'low',
+        stats: {
+          totalResults: 0,
+          resultsByType: { note: 0, document: 0, todo: 0, archive: 0, 'archive-folder': 0, diary: 0, project: 0, folder: 0 },
+          searchTime: 0,
+          query: query,
+          includeContent: false,
+          appliedFilters: {}
+        }
+      };
+    }
+  }
+
+  // Get available tags for search filtering
+  async getAvailableTags(moduleType?: string): Promise<TagInfo[]> {
+    try {
+      const params = new URLSearchParams();
+      if (moduleType) {
+        params.append('module_type', moduleType);
+      }
+
+      const response = await apiService.get(`/search/tags/available?${params}`);
+      return (response.data as any)?.tags || [];
+    } catch (error) {
+      console.error('Failed to get available tags:', error);
+      return [];
+    }
+  }
+
+  // Get real-time search suggestions
+  async getSearchSuggestions(query: string, options: {
+    modules?: string[];
+    limit?: number;
+  } = {}): Promise<SearchSuggestion[]> {
+    try {
+      const params = new URLSearchParams({
+        q: query,
+        limit: (options.limit || 10).toString()
+      });
+
+      if (options.modules?.length) {
+        params.append('content_types', options.modules.join(','));
+      }
+
+      const response = await apiService.get(`/search/suggestions?${params}`);
+      return (response.data as any)?.suggestions || [];
+    } catch (error) {
+      console.error('Failed to get search suggestions:', error);
+      return [];
+    }
   }
 }
 

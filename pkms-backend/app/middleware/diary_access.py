@@ -1,0 +1,154 @@
+"""
+Diary Access Control Middleware
+
+Ensures that diary entries can only be searched from within the diary module
+for enhanced privacy and security.
+"""
+
+import logging
+from fastapi import Request, HTTPException, status
+from fastapi.responses import JSONResponse
+from typing import Optional, Callable, Awaitable
+from urllib.parse import parse_qs
+
+logger = logging.getLogger(__name__)
+
+class DiaryAccessMiddleware:
+    """Middleware to control diary access in search operations"""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope, receive)
+
+        # Check if this is a search request that might include diary
+        if self.is_search_request(request):
+            try:
+                await self.validate_diary_access(request)
+            except HTTPException:
+                response = JSONResponse(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    content={"detail": "Diary search is only available within the diary module"}
+                )
+                await response(scope, receive, send)
+                return
+
+        await self.app(scope, receive, send)
+
+    def is_search_request(self, request: Request) -> bool:
+        """Check if this is a search request"""
+        return (
+            request.url.path.startswith("/api/v1/search/") and
+            "GET" == request.method
+        )
+
+    async def validate_diary_access(self, request: Request):
+        """Validate that diary search is only accessed from diary module"""
+
+        # Parse query parameters
+        query_params = parse_qs(request.url.query)
+
+        # Check if diary is included in modules
+        modules = query_params.get('modules', [])
+        if isinstance(modules, list) and len(modules) > 0:
+            modules = modules[0].split(',')
+        else:
+            modules = []
+
+        # Check if diary content types are requested
+        content_types = query_params.get('content_types', [])
+        if isinstance(content_types, list) and len(content_types) > 0:
+            content_types = content_types[0].split(',')
+
+        # Check if diary is explicitly included
+        include_diary = (
+            'diary' in modules or
+            'diary' in content_types or
+            query_params.get('exclude_diary', ['true'])[0].lower() == 'false'
+        )
+
+        if include_diary:
+            # Check referer header to see if request comes from diary module
+            referer = request.headers.get('referer', '')
+
+            # Check if the request originates from diary module
+            is_from_diary = (
+                '/diary' in referer or
+                '/search/diary' in referer or
+                request.headers.get('X-Diary-Context', '').lower() == 'true'
+            )
+
+            if not is_from_diary:
+                logger.warning(f"🚫 Unauthorized diary search attempt from: {referer}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Diary search is only available within the diary module"
+                )
+
+        # Always exclude diary unless explicitly requested and authorized
+        if not include_diary:
+            # Force exclude diary for non-diary contexts
+            if 'diary' in modules:
+                modules.remove('diary')
+            if 'diary' in content_types:
+                content_types.remove('diary')
+
+
+def diary_access_middleware(request: Request, call_next: Callable) -> Awaitable:
+    """
+    FastAPI middleware function for diary access control
+    """
+
+    # Skip for non-search requests
+    if not request.url.path.startswith("/api/v1/search/"):
+        return await call_next(request)
+
+    # Parse query parameters to check for diary access
+    try:
+        query_string = request.url.query
+        if query_string:
+            from urllib.parse import parse_qs
+            query_params = parse_qs(query_string)
+
+            # Check diary-related parameters
+            modules = query_params.get('modules', [])
+            if isinstance(modules, list) and len(modules) > 0:
+                modules = modules[0].split(',')
+
+            content_types = query_params.get('content_types', [])
+            if isinstance(content_types, list) and len(content_types) > 0:
+                content_types = content_types[0].split(',')
+
+            # Check if diary is being accessed
+            include_diary = (
+                'diary' in modules or
+                'diary' in content_types or
+                query_params.get('exclude_diary', ['true'])[0].lower() == 'false'
+            )
+
+            if include_diary:
+                # Validate referer
+                referer = request.headers.get('referer', '')
+                is_from_diary = (
+                    '/diary' in referer or
+                    '/search/diary' in referer or
+                    request.headers.get('X-Diary-Context', '').lower() == 'true'
+                )
+
+                if not is_from_diary:
+                    logger.warning(f"🚫 Unauthorized diary search attempt from: {referer}")
+                    return JSONResponse(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        content={"detail": "Diary search is only available within the diary module"}
+                    )
+
+    except Exception as e:
+        logger.error(f"Diary access middleware error: {e}")
+        # Don't block requests on middleware errors, just log and continue
+
+    return await call_next(request)

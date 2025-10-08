@@ -117,8 +117,9 @@ export default function FTS5SearchPage() {
     if (q) {
       setQuery(q);
       // fire and forget, don't await to avoid blocking
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      handleSearch();
+      handleSearch().catch(error => {
+        console.error('Search initialization failed:', error);
+      });
     }
   }, []);
 

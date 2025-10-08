@@ -35,7 +35,6 @@ export default function NoteViewPage() {
 
     loadNote();
   }, [id]);
-  });
 
   const handleToggleArchive = async () => {
     if (!note) return;

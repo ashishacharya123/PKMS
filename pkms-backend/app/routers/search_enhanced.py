@@ -13,9 +13,91 @@ from ..database import get_db
 from ..auth.dependencies import get_current_user
 from ..models.user import User
 from ..services.fts_service_enhanced import enhanced_fts_service
+from ..services.search_cache_service import get_cached_search_results, cache_search_results
+from fastapi import Request, Header, HTTPException, status
 
 router = APIRouter(prefix="/search", tags=["enhanced_search"])
 logger = logging.getLogger(__name__)
+
+async def validate_diary_access(
+    request: Request,
+    diary_context: str = Header(None, alias="X-Diary-Context"),
+    modules: Optional[str] = None
+):
+    """
+    Validate that diary search is only accessed from diary module context
+    """
+    if not modules:
+        return
+
+    content_types = [m.strip() for m in modules.split(",")] if modules else []
+
+    # Check if diary is included in search
+    if 'diary' in content_types:
+        # Check if request comes from diary module
+        referer = request.headers.get('referer', '')
+        is_from_diary = (
+            diary_context == 'true' or
+            '/diary' in referer or
+            '/search/diary' in referer
+        )
+
+        if not is_from_diary:
+            logger.warning(f"🚫 Unauthorized diary search attempt from: {referer}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Diary search is only available within the diary module"
+            )
+
+@router.get("/suggestions")
+async def search_suggestions(
+    q: str = Query(..., min_length=1, max_length=50, description="Search query for suggestions"),
+    content_types: Optional[str] = Query(None, description="Comma-separated content types"),
+    limit: int = Query(10, le=20, description="Maximum number of suggestions"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Real-time search suggestions endpoint providing typeahead functionality
+    """
+    try:
+        # Parse content types
+        modules = []
+        if content_types:
+            type_mapping = {
+                'note': 'notes',
+                'document': 'documents',
+                'todo': 'todos',
+                'archive': 'archive',
+                'diary': 'diary',
+                'folder': 'folders'
+            }
+            raw_types = [t.strip() for t in content_types.split(",")]
+            modules = [type_mapping.get(t, t) for t in raw_types]
+        else:
+            modules = ['notes', 'documents', 'todos', 'diary', 'archive', 'folders']
+
+        # Get suggestions from enhanced FTS service
+        suggestions = await enhanced_fts_service.get_search_suggestions(
+            db=db,
+            user_id=current_user.id,
+            query=q,
+            modules=modules,
+            limit=limit
+        )
+
+        return {
+            "query": q,
+            "suggestions": suggestions,
+            "count": len(suggestions)
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Search suggestions error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get search suggestions"
+        )
 
 @router.get("/global")
 async def global_search(
@@ -141,207 +223,6 @@ async def global_search(
             detail="Search failed. Please try again."
         )
 
-# @router.get("/fts5")  # Temporarily disabled - use working FTS5SearchPage instead
-async def fts5_search_disabled(
-    q: str = Query(..., description="Search query", min_length=2),
-    modules: Optional[str] = Query(None, description="Comma-separated modules: notes,documents,todos,diary,archive,folders"),
-    sort_by: str = Query("relevance", description="Sort by: relevance, date, title, module"),
-    sort_order: str = Query("desc", description="Sort order: asc, desc"),
-    
-    # Advanced Filters
-    date_from: Optional[date] = Query(None, description="Filter results from this date"),
-    date_to: Optional[date] = Query(None, description="Filter results up to this date"),
-    include_tags: Optional[str] = Query(None, description="Comma-separated tags to include"),
-    exclude_tags: Optional[str] = Query(None, description="Comma-separated tags to exclude"),
-    favorites_only: bool = Query(False, description="Only show favorited items"),
-    include_archived: bool = Query(True, description="Include archived items"),
-    
-    # Document-specific filters
-    mime_types: Optional[str] = Query(None, description="Comma-separated MIME types for documents"),
-    min_file_size: Optional[int] = Query(None, description="Minimum file size in bytes"),
-    max_file_size: Optional[int] = Query(None, description="Maximum file size in bytes"),
-    
-    # Todo-specific filters
-    todo_status: Optional[str] = Query(None, description="Todo status: pending, in_progress, completed"),
-    todo_priority: Optional[str] = Query(None, description="Todo priority: low, medium, high"),
-    
-    # Diary-specific filters
-    mood_min: Optional[int] = Query(None, description="Minimum mood rating (1-10)"),
-    mood_max: Optional[int] = Query(None, description="Maximum mood rating (1-10)"),
-    has_media: Optional[bool] = Query(None, description="Filter diary entries with/without media"),
-    
-    # Pagination
-    limit: int = Query(50, le=100, description="Maximum number of results"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-    
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Fast FTS5 Full-Text Search (Ctrl+F)
-    
-    Provides high-performance search using SQLite FTS5 with:
-    - Proper BM25 ranking
-    - Cross-module score normalization
-    - Advanced filtering options
-    - Fast response times
-    
-    Best for: Exact matching, boolean logic, fast performance
-    """
-    try:
-        # Parse modules
-        modules_list = None
-        if modules:
-            modules_list = [m.strip() for m in modules.split(",")]
-        
-        # Parse tags
-        include_tags_list = None
-        if include_tags:
-            include_tags_list = [tag.strip() for tag in include_tags.split(",")]
-        
-        exclude_tags_list = None
-        if exclude_tags:
-            exclude_tags_list = [tag.strip() for tag in exclude_tags.split(",")]
-        
-        # Initialize FTS tables if needed
-        if not enhanced_fts_service.tables_initialized:
-            await enhanced_fts_service.initialize_enhanced_fts_tables(db)
-        
-        # Perform enhanced FTS5 search
-        search_results = await enhanced_fts_service.search_all(
-            db=db,
-            query=q,
-            user_id=current_user.id,
-            content_types=modules_list,
-            limit=limit,
-            offset=offset
-        )
-        
-        return {
-            **search_results,
-            "endpoint": "fts5",
-            "performance": "high",
-            "search_type": "exact_matching"
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ FTS5 search failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="FTS5 search failed"
-        )
-
-# @router.get("/fuzzy")  # Temporarily disabled - use working FuzzySearchPage instead  
-async def fuzzy_search_disabled(
-    q: str = Query(..., description="Search query", min_length=2),
-    modules: Optional[str] = Query(None, description="Comma-separated modules: notes,documents,todos,diary,archive,folders"),
-    fuzzy_threshold: int = Query(60, ge=0, le=100, description="Fuzzy matching threshold (0-100)"),
-    sort_by: str = Query("relevance", description="Sort by: relevance, date, title, module, fuzzy_score"),
-    sort_order: str = Query("desc", description="Sort order: asc, desc"),
-    
-    # Advanced Filters
-    date_from: Optional[date] = Query(None, description="Filter results from this date"),
-    date_to: Optional[date] = Query(None, description="Filter results up to this date"),
-    include_tags: Optional[str] = Query(None, description="Comma-separated tags to include"),
-    exclude_tags: Optional[str] = Query(None, description="Comma-separated tags to exclude"),
-    favorites_only: bool = Query(False, description="Only show favorited items"),
-    include_archived: bool = Query(True, description="Include archived items"),
-    
-    # Pagination
-    limit: int = Query(50, le=100, description="Maximum number of results"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-    
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Flexible Fuzzy Search (Ctrl+Shift+F)
-    
-    Provides typo-tolerant search using RapidFuzz with:
-    - Configurable similarity threshold
-    - Multi-field fuzzy matching
-    - Intelligent scoring and ranking
-    - Great recall for partial matches
-    
-    Best for: Typos, partial matches, exploratory search
-    """
-    try:
-        # Parse modules
-        modules_list = None
-        if modules:
-            modules_list = [m.strip() for m in modules.split(",")]
-        
-        # Parse tags
-        include_tags_list = None
-        if include_tags:
-            include_tags_list = [tag.strip() for tag in include_tags.split(",")]
-        
-        exclude_tags_list = None
-        if exclude_tags:
-            exclude_tags_list = [tag.strip() for tag in exclude_tags.split(",")]
-        
-        # Initialize FTS tables if needed
-        if not enhanced_fts_service.tables_initialized:
-            await enhanced_fts_service.initialize_enhanced_fts_tables(db)
-        
-        # Use working fuzzy search from advanced_fuzzy router
-        from ..routers.advanced_fuzzy import advanced_fuzzy_search
-        
-        # Convert modules format
-        fuzzy_modules = ','.join(modules_list) if modules_list else None
-        
-        # Call working fuzzy search  
-        search_results = await advanced_fuzzy_search(
-            query=q,
-            limit=limit,
-            modules=fuzzy_modules,
-            db=db,
-            current_user=current_user
-        )
-        
-        # Convert to expected format
-        results = []
-        for result in search_results:
-            results.append({
-                'type': result.get('type', 'unknown'),
-                'module': result.get('module', result.get('type', 'unknown')),
-                'id': result.get('id'),
-                'title': result.get('title', ''),
-                'content': result.get('description', ''),
-                'tags': result.get('tags', []),
-                'created_at': result.get('created_at'),
-                'updated_at': result.get('created_at'),
-                'relevance_score': result.get('score', 0.0) / 100.0,
-                'search_type': 'fuzzy'
-            })
-        
-        return {
-            "results": results,
-            "total": len(results),
-            "query": q,
-            "endpoint": "fuzzy",
-            "performance": "moderate",
-            "search_type": "fuzzy_matching",
-            "fuzzy_threshold": fuzzy_threshold,
-            "stats": {
-                "totalResults": len(results),
-                "resultsByType": {result.get('type', 'unknown'): 1 for result in results},
-                "searchTime": 0,
-                "query": q,
-                "includeContent": True,
-                "appliedFilters": {
-                    "contentTypes": modules_list or [],
-                    "tags": include_tags_list or []
-                }
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Fuzzy search failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Fuzzy search failed"
-        )
 
 @router.get("/hybrid")
 async def hybrid_search(
@@ -527,25 +408,107 @@ async def hybrid_search(
 async def fts5_search(
     q: str = Query(..., description="Search query", min_length=2),
     modules: Optional[str] = Query(None, description="Comma-separated modules: notes,documents,todos,diary,archive,folders"),
-    sort_by: str = Query("relevance", description="Sort by: relevance, date, title"),
+    sort_by: str = Query("relevance", description="Sort by: relevance, date, title, module"),
     sort_order: str = Query("desc", description="Sort order: asc, desc"),
+
+    # Advanced Filters
     include_tags: Optional[str] = Query(None, description="Comma-separated tags to include"),
     exclude_tags: Optional[str] = Query(None, description="Comma-separated tags to exclude"),
+    favorites_only: bool = Query(False, description="Only show favorited items"),
+    include_archived: bool = Query(True, description="Include archived items"),
+    exclude_diary: bool = Query(True, description="Exclude diary entries (default for privacy)"),
+
+    # Date filtering
+    date_from: Optional[date] = Query(None, description="Filter results from this date"),
+    date_to: Optional[date] = Query(None, description="Filter results up to this date"),
+
+    # Document-specific filters
+    mime_types: Optional[str] = Query(None, description="Comma-separated MIME types for documents"),
+    min_file_size: Optional[int] = Query(None, description="Minimum file size in bytes"),
+    max_file_size: Optional[int] = Query(None, description="Maximum file size in bytes"),
+
+    # Todo-specific filters
+    todo_status: Optional[str] = Query(None, description="Todo status: pending, in_progress, completed"),
+    todo_priority: Optional[str] = Query(None, description="Todo priority: low, medium, high"),
+
+    # Pagination
     limit: int = Query(50, le=100, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
+
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,  # For diary access validation
 ):
-    """Fast FTS5 Search (Ctrl+F) - Exact matching with high performance"""
+    """
+    Fast FTS5 Search (Ctrl+F) - Exact matching with high performance
+
+    Provides high-performance search using SQLite FTS5 with:
+    - Proper BM25 ranking
+    - Cross-module score normalization
+    - Advanced filtering options
+    - Fast response times
+
+    Best for: Exact matching, boolean logic, fast performance
+    """
     try:
         # Parse modules
         content_types = []
         if modules:
             content_types = [m.strip() for m in modules.split(",")]
         else:
-            content_types = ['notes', 'documents', 'todos', 'archive', 'folders']  # Exclude diary by default
-        
-        # Use working FTS5 service
+            # Default modules - exclude diary for privacy by default
+            content_types = ['notes', 'documents', 'todos', 'archive', 'folders']
+            if not exclude_diary:
+                content_types.append('diary')
+
+        # Remove diary if explicitly excluded
+        if exclude_diary and 'diary' in content_types:
+            content_types.remove('diary')
+
+        # Validate diary access if diary is included
+        if 'diary' in content_types:
+            await validate_diary_access(request, modules=modules)
+
+        # Check cache first
+        cache_params = {
+            'sort_by': sort_by,
+            'sort_order': sort_order,
+            'include_tags': include_tags,
+            'exclude_tags': exclude_tags,
+            'favorites_only': favorites_only,
+            'include_archived': include_archived,
+            'exclude_diary': exclude_diary,
+            'date_from': date_from.isoformat() if date_from else None,
+            'date_to': date_to.isoformat() if date_to else None,
+            'mime_types': mime_types,
+            'min_file_size': min_file_size,
+            'max_file_size': max_file_size,
+            'todo_status': todo_status,
+            'todo_priority': todo_priority,
+            'limit': limit,
+            'offset': offset
+        }
+
+        # Try to get cached results
+        cached_results = await get_cached_search_results(
+            query=q,
+            user_id=current_user.id,
+            modules=content_types,
+            search_type="fts5",
+            **cache_params
+        )
+
+        if cached_results:
+            logger.debug(f"🎯 Cache hit for FTS5 search: '{q[:50]}...'")
+            return cached_results
+
+        logger.debug(f"🔍 Cache miss for FTS5 search: '{q[:50]}...'")
+
+        # Initialize FTS tables if needed
+        if not enhanced_fts_service.tables_initialized:
+            await enhanced_fts_service.initialize_enhanced_fts_tables(db)
+
+        # Perform enhanced FTS5 search
         results = await enhanced_fts_service.search_all(
             db=db,
             query=q,
@@ -554,38 +517,114 @@ async def fts5_search(
             limit=limit,
             offset=offset
         )
-        
-        # Apply tag filtering if specified
-        if include_tags or exclude_tags:
-            filtered_results = []
-            include_tag_list = include_tags.split(',') if include_tags else []
-            exclude_tag_list = exclude_tags.split(',') if exclude_tags else []
-            
-            for result in results:
+
+        # Apply advanced filtering
+        filtered_results = []
+
+        for result in results:
+            # Tag filtering
+            if include_tags or exclude_tags:
+                include_tag_list = include_tags.split(',') if include_tags else []
+                exclude_tag_list = exclude_tags.split(',') if exclude_tags else []
                 result_tags = [tag.lower() for tag in result.get('tags', [])]
-                
-                # Check include tags
-                if include_tag_list:
-                    if not all(inc_tag.lower() in result_tags for inc_tag in include_tag_list):
+
+                if include_tag_list and not all(inc_tag.lower() in result_tags for inc_tag in include_tag_list):
+                    continue
+                if exclude_tag_list and any(exc_tag.lower() in result_tags for exc_tag in exclude_tag_list):
+                    continue
+
+            # Favorites filtering
+            if favorites_only and not result.get('is_favorite', False):
+                continue
+
+            # Archived filtering
+            if not include_archived and result.get('is_archived', False):
+                continue
+
+            # Date filtering
+            if date_from or date_to:
+                result_date = result.get('created_at') or result.get('updated_at')
+                if result_date:
+                    result_date = result_date.date() if hasattr(result_date, 'date') else result_date
+                    if date_from and result_date < date_from:
                         continue
-                
-                # Check exclude tags
-                if exclude_tag_list:
-                    if any(exc_tag.lower() in result_tags for exc_tag in exclude_tag_list):
+                    if date_to and result_date > date_to:
                         continue
-                
-                filtered_results.append(result)
-            
-            results = filtered_results
-        
-        return {
-            "results": results,
-            "total": len(results),
+
+            # Document-specific filtering
+            if mime_types and result.get('type') == 'document':
+                result_mime_type = result.get('mime_type', '').lower()
+                allowed_types = [mt.strip().lower() for mt in mime_types.split(',')]
+                if not any(result_mime_type.startswith(allowed_type) for allowed_type in allowed_types):
+                    continue
+
+            if min_file_size and result.get('file_size', 0) < min_file_size:
+                continue
+            if max_file_size and result.get('file_size', 0) > max_file_size:
+                continue
+
+            # Todo-specific filtering
+            if todo_status and result.get('type') == 'todo':
+                if result.get('status') != todo_status:
+                    continue
+
+            if todo_priority and result.get('type') == 'todo':
+                if result.get('priority') != todo_priority:
+                    continue
+
+            filtered_results.append(result)
+
+        # Apply sorting
+        if sort_by == 'relevance':
+            filtered_results.sort(key=lambda x: x.get('relevance_score', 0), reverse=(sort_order == 'desc'))
+        elif sort_by == 'date':
+            filtered_results.sort(key=lambda x: x.get('created_at', x.get('updated_at')), reverse=(sort_order == 'desc'))
+        elif sort_by == 'title':
+            filtered_results.sort(key=lambda x: x.get('title', '').lower(), reverse=(sort_order == 'desc'))
+        elif sort_by == 'module':
+            filtered_results.sort(key=lambda x: x.get('module', ''), reverse=(sort_order == 'desc'))
+
+        # Build response data
+        response_data = {
+            "results": filtered_results,
+            "total": len(filtered_results),
             "query": q,
             "search_type": "fts5",
-            "performance": "fast"
+            "performance": "high",
+            "endpoint": "fts5",
+            "stats": {
+                "totalResults": len(filtered_results),
+                "resultsByType": {result.get('type', 'unknown'): 1 for result in filtered_results},
+                "searchTime": 0,
+                "query": q,
+                "includeContent": True,
+                "appliedFilters": {
+                    "contentTypes": content_types,
+                    "tags": include_tags.split(',') if include_tags else [],
+                    "excludeTags": exclude_tags.split(',') if exclude_tags else [],
+                    "favoritesOnly": favorites_only,
+                    "includeArchived": include_archived,
+                    "excludeDiary": exclude_diary,
+                    "dateRange": {
+                        "from": date_from.isoformat() if date_from else None,
+                        "to": date_to.isoformat() if date_to else None
+                    }
+                }
+            }
         }
-        
+
+        # Cache the results for future requests
+        await cache_search_results(
+            query=q,
+            user_id=current_user.id,
+            results=response_data,
+            modules=content_types,
+            search_type="fts5",
+            **cache_params
+        )
+
+        return response_data
+
     except Exception as e:
         logger.error(f"❌ FTS5 search failed: {e}")
         raise HTTPException(
@@ -597,32 +636,196 @@ async def fts5_search(
 async def fuzzy_search(
     q: str = Query(..., description="Search query", min_length=2),
     modules: Optional[str] = Query(None, description="Comma-separated modules: notes,documents,todos,diary,archive,folders"),
+    fuzzy_threshold: int = Query(60, ge=0, le=100, description="Fuzzy matching threshold (0-100)"),
+    sort_by: str = Query("relevance", description="Sort by: relevance, date, title, module, fuzzy_score"),
+    sort_order: str = Query("desc", description="Sort order: asc, desc"),
+
+    # Basic Filters
+    include_tags: Optional[str] = Query(None, description="Comma-separated tags to include"),
+    exclude_tags: Optional[str] = Query(None, description="Comma-separated tags to exclude"),
+    include_archived: bool = Query(True, description="Include archived items"),
+    exclude_diary: bool = Query(True, description="Exclude diary entries (default for privacy)"),
+
+    # Pagination
     limit: int = Query(50, le=100, description="Maximum number of results"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,  # For diary access validation
 ):
-    """Deep Fuzzy Search (Ctrl+Shift+F) - Typo-tolerant with high recall"""
+    """
+    Flexible Fuzzy Search (Ctrl+Shift+F) - Typo-tolerant with high recall
+
+    Provides typo-tolerant search using RapidFuzz with:
+    - Configurable similarity threshold
+    - Multi-field fuzzy matching
+    - Intelligent scoring and ranking
+    - Great recall for partial matches
+
+    Best for: Typos, partial matches, exploratory search
+    """
     try:
+        # Parse modules
+        content_types = []
+        if modules:
+            content_types = [m.strip() for m in modules.split(",")]
+        else:
+            # Default modules - exclude diary for privacy by default
+            content_types = ['notes', 'documents', 'todos', 'archive', 'folders']
+            if not exclude_diary:
+                content_types.append('diary')
+
+        # Remove diary if explicitly excluded
+        if exclude_diary and 'diary' in content_types:
+            content_types.remove('diary')
+
+        # Validate diary access if diary is included
+        if 'diary' in content_types:
+            await validate_diary_access(request, modules=modules)
+
+        # Check cache first
+        cache_params = {
+            'fuzzy_threshold': fuzzy_threshold,
+            'sort_by': sort_by,
+            'sort_order': sort_order,
+            'include_tags': include_tags,
+            'exclude_tags': exclude_tags,
+            'include_archived': include_archived,
+            'exclude_diary': exclude_diary,
+            'limit': limit,
+            'offset': offset
+        }
+
+        # Try to get cached results
+        cached_results = await get_cached_search_results(
+            query=q,
+            user_id=current_user.id,
+            modules=content_types,
+            search_type="fuzzy",
+            **cache_params
+        )
+
+        if cached_results:
+            logger.debug(f"🎯 Cache hit for fuzzy search: '{q[:50]}...'")
+            return cached_results
+
+        logger.debug(f"🔍 Cache miss for fuzzy search: '{q[:50]}...'")
+
         # Use working fuzzy search from advanced_fuzzy router
         from ..routers.advanced_fuzzy import advanced_fuzzy_search
-        
-        # Call working fuzzy search
+
+        # Convert modules format for advanced_fuzzy_search
+        fuzzy_modules = ','.join([
+            'note' if ct == 'notes' else
+            'document' if ct == 'documents' else
+            'todo' if ct == 'todos' else
+            'archive_item' if ct == 'archive' else
+            ct for ct in content_types
+        ])
+
+        # Call working fuzzy search with threshold
         search_results = await advanced_fuzzy_search(
             query=q,
             limit=limit,
-            modules=modules,
+            modules=fuzzy_modules,
             db=db,
             current_user=current_user
         )
-        
-        return {
-            "results": search_results,
-            "total": len(search_results),
+
+        # Apply filtering to fuzzy results
+        filtered_results = []
+
+        for result in search_results:
+            # Tag filtering
+            if include_tags or exclude_tags:
+                include_tag_list = include_tags.split(',') if include_tags else []
+                exclude_tag_list = exclude_tags.split(',') if exclude_tags else []
+                result_tags = [tag.lower() for tag in result.get('tags', [])]
+
+                if include_tag_list and not all(inc_tag.lower() in result_tags for inc_tag in include_tag_list):
+                    continue
+                if exclude_tag_list and any(exc_tag.lower() in result_tags for exc_tag in exclude_tag_list):
+                    continue
+
+            # Archived filtering
+            if not include_archived and result.get('is_archived', False):
+                continue
+
+            # Apply fuzzy threshold
+            result_score = result.get('score', 0)
+            if result_score < fuzzy_threshold:
+                continue
+
+            filtered_results.append(result)
+
+        # Apply sorting
+        if sort_by == 'relevance':
+            filtered_results.sort(key=lambda x: x.get('score', 0), reverse=(sort_order == 'desc'))
+        elif sort_by == 'date':
+            filtered_results.sort(key=lambda x: x.get('created_at', x.get('updated_at')), reverse=(sort_order == 'desc'))
+        elif sort_by == 'title':
+            filtered_results.sort(key=lambda x: x.get('title', '').lower(), reverse=(sort_order == 'desc'))
+        elif sort_by == 'module':
+            filtered_results.sort(key=lambda x: x.get('module', ''), reverse=(sort_order == 'desc'))
+        elif sort_by == 'fuzzy_score':
+            filtered_results.sort(key=lambda x: x.get('fuzzy_score', x.get('score', 0)), reverse=(sort_order == 'desc'))
+
+        # Convert to consistent response format
+        results = []
+        for result in filtered_results:
+            results.append({
+                'type': result.get('type', 'unknown'),
+                'module': result.get('module', result.get('type', 'unknown')),
+                'id': result.get('id'),
+                'title': result.get('title', ''),
+                'content': result.get('description', result.get('content', '')),
+                'tags': result.get('tags', []),
+                'created_at': result.get('created_at'),
+                'updated_at': result.get('updated_at', result.get('created_at')),
+                'relevance_score': result.get('score', 0.0) / 100.0,  # Normalize to 0-1
+                'search_type': 'fuzzy',
+                'fuzzy_score': result.get('score', 0.0)
+            })
+
+        # Build response data
+        response_data = {
+            "results": results,
+            "total": len(results),
             "query": q,
             "search_type": "fuzzy",
-            "performance": "deep"
+            "performance": "deep",
+            "endpoint": "fuzzy",
+            "fuzzy_threshold": fuzzy_threshold,
+            "stats": {
+                "totalResults": len(results),
+                "resultsByType": {result.get('type', 'unknown'): 1 for result in results},
+                "searchTime": 0,
+                "query": q,
+                "includeContent": True,
+                "appliedFilters": {
+                    "contentTypes": content_types,
+                    "tags": include_tags.split(',') if include_tags else [],
+                    "excludeTags": exclude_tags.split(',') if exclude_tags else [],
+                    "includeArchived": include_archived,
+                    "excludeDiary": exclude_diary,
+                    "fuzzyThreshold": fuzzy_threshold
+                }
+            }
         }
-        
+
+        # Cache the results for future requests
+        await cache_search_results(
+            query=q,
+            user_id=current_user.id,
+            results=response_data,
+            modules=content_types,
+            search_type="fuzzy",
+            **cache_params
+        )
+
+        return response_data
+
     except Exception as e:
         logger.error(f"❌ Fuzzy search failed: {e}")
         raise HTTPException(

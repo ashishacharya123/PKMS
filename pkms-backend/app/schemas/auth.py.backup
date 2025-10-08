@@ -5,7 +5,7 @@ from datetime import datetime
 import re
 
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{3,50}$')
-SAFE_STRING_PATTERN = re.compile(r'^[a-zA-Z0-9\s\-_.,!?\\\'"()[\]{}@#$%^&*+=|\\:;<>/~`]{1,500}$')
+SAFE_STRING_PATTERN = re.compile(r'^[a-zA-Z0-9\s\-_.,!?\\\'"()[\]{}@#$%^&*+=|\\:;<>/~`]{1,500}$')\\'')
 
 class CamelCaseModel(BaseModel):
     model_config = ConfigDict(

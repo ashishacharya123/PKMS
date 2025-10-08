@@ -131,7 +131,7 @@ export const ProjectDashboardPage: React.FC<ProjectDashboardPageProps> = ({
   const handleProjectDelete = async () => {
     if (!project) return;
     
-    if (window.confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
+    if (confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
       try {
         await deleteProject(project.id);
         onProjectDelete?.(project.id);
@@ -213,6 +213,7 @@ export const ProjectDashboardPage: React.FC<ProjectDashboardPageProps> = ({
             </Text>
           )}
         </Box>
+        
         <Group>
           <Button
             leftSection={<IconPlus size={16} />}
@@ -239,7 +240,7 @@ export const ProjectDashboardPage: React.FC<ProjectDashboardPageProps> = ({
             Delete Project
           </Button>
         </Group>
-      </Group>
+      </Box>
 
       {/* Dashboard Tiles */}
       <Grid mb="xl">

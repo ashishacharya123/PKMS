@@ -4,6 +4,7 @@ import { ColorSchemeScript } from '@mantine/core';
 import { useAuthStore } from './stores/authStore';
 import { Layout } from './components/shared/Layout';
 import { useGlobalKeyboardShortcuts } from './hooks/useGlobalKeyboardShortcuts';
+import { keyboardShortcuts } from './services/keyboardShortcuts';
 
 // Pages
 import { AuthPage } from './pages/AuthPage';
@@ -20,6 +21,7 @@ import { SearchResultsPage } from './pages/SearchResultsPage';
 import AdvancedFuzzySearchPage from './pages/AdvancedFuzzySearchPage';
 import FTS5SearchPage from './pages/FTS5SearchPage';
 import FuzzySearchPage from './pages/FuzzySearchPage';
+import UnifiedSearchPage from './pages/UnifiedSearchPage';
 
 // Auth Guard Component
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -70,9 +72,20 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   const { checkAuth, isLoading: authLoading } = useAuthStore();
-  
+
   // Initialize global keyboard shortcuts
   useGlobalKeyboardShortcuts();
+
+  // Initialize keyboard shortcuts service
+  useEffect(() => {
+    // Enable keyboard shortcuts
+    keyboardShortcuts.enable();
+
+    // Cleanup on unmount
+    return () => {
+      keyboardShortcuts.disable();
+    };
+  }, []);
 
   // Single global authentication check
   useEffect(() => {
@@ -231,13 +244,22 @@ function App() {
             } 
           />
 
-          <Route 
-            path="/search/fuzzy" 
+          <Route
+            path="/search/fuzzy"
             element={
               <AuthGuard>
                 <FuzzySearchPage />
               </AuthGuard>
-            } 
+            }
+          />
+
+          <Route
+            path="/search/unified"
+            element={
+              <AuthGuard>
+                <UnifiedSearchPage />
+              </AuthGuard>
+            }
           />
 
           {/* Default redirects */}

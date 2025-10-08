@@ -90,11 +90,11 @@ const navigationItems: NavigationItem[] = [
     description: 'Hierarchical file organization'
   },
   {
-    label: 'Advanced Fuzzy Search',
+    label: 'Unified Search',
     icon: IconSearch, // Reuse search icon for clarity
-    path: '/advanced-fuzzy-search',
-    color: 'gray',
-    description: 'Typo-tolerant search across all modules'
+    path: '/search/unified',
+    color: 'violet',
+    description: 'FTS5, Fuzzy, and Hybrid search in one interface'
   }
 ];
 

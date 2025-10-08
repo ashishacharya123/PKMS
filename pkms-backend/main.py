@@ -39,6 +39,7 @@ from app.routers import (
 )
 from app.routers.search_enhanced import router as search_enhanced_router
 from app.services.chunk_service import chunk_manager
+from app.services.search_cache_service import search_cache_service
 
 # Import database initialization
 from app.database import init_db, close_db, get_db_session
@@ -108,9 +109,9 @@ async def lifespan(app: FastAPI):
         # Initialize FTS5 tables and triggers
         logger.info("Initializing FTS5 search tables...")
         try:
-            from app.services.fts_service import fts_service
+            from app.services.fts_service_enhanced import enhanced_fts_service
             async with get_db_session() as db:
-                await fts_service.initialize_fts_tables(db)
+                await enhanced_fts_service.initialize_enhanced_fts_tables(db)
             logger.info("✅ FTS5 search tables initialized successfully")
         except Exception as fts_error:
             logger.error(f"⚠️ FTS5 initialization failed: {fts_error}")
@@ -123,8 +124,14 @@ async def lifespan(app: FastAPI):
 
         # Start chunk upload cleanup loop
         await chunk_manager.start()
+
+        # Initialize search cache service
+        logger.info("Initializing search cache service...")
+        await search_cache_service.initialize()
+        logger.info("✅ Search cache service initialized")
+
         logger.info("✅ Background tasks started")
-        
+
         yield
         
     except Exception as e:
@@ -140,6 +147,7 @@ async def lifespan(app: FastAPI):
             except asyncio.CancelledError:
                 pass
         await chunk_manager.stop()
+        await search_cache_service.close()
         await close_db()
 
 # Create FastAPI app
