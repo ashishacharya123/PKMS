@@ -2,7 +2,7 @@
 Authentication dependencies for FastAPI
 """
 
-from fastapi import Depends, HTTPException, status, Request
+from fastapi import Depends, HTTPException, status, Request, Cookie
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -14,20 +14,24 @@ from app.models.user import User, Session
 from app.auth.security import verify_token
 from app.config import settings, NEPAL_TZ
 
-# Security scheme
-security = HTTPBearer()
+# Security scheme (kept for backward compatibility)
+security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: AsyncSession = Depends(get_db)
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    token_cookie: str | None = Cookie(default=None, alias="pkms_token"),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security)
 ) -> User:
     """
-    Get the current authenticated user and extend session activity
+    Get the current authenticated user from HttpOnly cookie (preferred) or Authorization header (fallback)
     
     Args:
-        credentials: HTTP Bearer token
+        request: FastAPI request
         db: Database session
+        token_cookie: JWT token from HttpOnly cookie (primary method)
+        credentials: HTTP Bearer token (fallback for backward compatibility)
     
     Returns:
         Current user object
@@ -35,7 +39,19 @@ async def get_current_user(
     Raises:
         HTTPException: If authentication fails
     """
-    token = credentials.credentials
+    # Try cookie first (preferred, XSS-safe)
+    token = token_cookie
+    
+    # Fallback to Authorization header for backward compatibility
+    if not token and credentials:
+        token = credentials.credentials
+    
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
     # Verify JWT token
     payload = verify_token(token)
@@ -72,31 +88,8 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Update session activity and extend expiration
-    try:
-        from datetime import timedelta
-        
-        # Find active session for this user (get the most recent one)
-        session_result = await db.execute(
-            select(Session)
-            .where(Session.user_id == user.id)
-            .where(Session.expires_at > datetime.now(NEPAL_TZ))
-            .order_by(Session.expires_at.desc())
-            .limit(1)
-        )
-        session = session_result.scalar_one_or_none()
-        
-        if session:
-            # Update last activity and extend session by 7 days from now
-            session.last_activity = datetime.now(NEPAL_TZ)
-            session.expires_at = datetime.now(NEPAL_TZ) + timedelta(days=7)
-            
-            # Commit the session update
-            await db.commit()
-    except Exception as e:
-        # Don't fail authentication if session update fails, just log it
-        # This ensures the API remains functional even if session extension fails
-        print(f"Warning: Failed to update session activity: {e}")
+    # Note: Session activity tracking removed to prevent database commit issues
+    # Session expiry is extended via the /auth/refresh endpoint instead
     
     return user
 

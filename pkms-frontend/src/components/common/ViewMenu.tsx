@@ -1,5 +1,9 @@
-import React from 'react';
-import { Menu, ActionIcon, Group, Text } from '@mantine/core';
+import {
+  Menu,
+  ActionIcon,
+  Group,
+  Text,
+} from '@mantine/core';
 import { 
   IconSettings, 
   IconGridDots, 

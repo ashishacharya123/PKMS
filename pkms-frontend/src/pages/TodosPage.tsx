@@ -26,11 +26,13 @@ import {
   Checkbox,
   Tooltip,
   FileInput,
-  Progress,
-  Box
+  Progress
 } from '@mantine/core';
-import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
+import ViewMenu from '../components/common/ViewMenu';
 import ViewModeLayouts, { formatDate } from '../components/common/ViewModeLayouts';
+import { MultiProjectSelector } from '../components/common/MultiProjectSelector';
+import { ProjectBadges } from '../components/common/ProjectBadges';
+import { SubtaskList } from '../components/todos/SubtaskList';
 import { useViewPreferences } from '../hooks/useViewPreferences';
 import {
   IconPlus,
@@ -62,7 +64,7 @@ import { documentsService } from '../services/documentsService';
 import { KanbanBoard } from '../components/todos/KanbanBoard';
 import { CalendarView } from '../components/todos/CalendarView';
 import { TimelineView } from '../components/todos/TimelineView';
-import { todosService, Todo, TodoSummary } from '../services/todosService';
+import { todosService, TodoSummary } from '../services/todosService';
 
 type SortField = 'title' | 'created_at' | 'due_date' | 'priority';
 type SortOrder = 'asc' | 'desc';
@@ -124,7 +126,7 @@ export function TodosPage() {
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [currentPage, setCurrentPage] = useState(1);
-  const { getPreference, updatePreference } = useViewPreferences();
+  const { updatePreference } = useViewPreferences();
   const [viewMode, setViewMode] = useState<'list' | 'kanban' | 'calendar' | 'timeline'>('list');
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
@@ -137,6 +139,8 @@ export function TodosPage() {
     title: '',
     description: '',
     project_id: null as number | null,
+    projectIds: [] as number[],
+    isExclusive: false,
     start_date: '',
     due_date: '',
     priority: 1,
@@ -287,6 +291,8 @@ export function TodosPage() {
       title: '',
       description: '',
       project_id: null,
+      projectIds: [],
+      isExclusive: false,
       start_date: '',
       due_date: '',
       priority: 1,
@@ -308,7 +314,9 @@ export function TodosPage() {
       ...todoForm,
       due_date: todoForm.due_date || undefined,
       tags: todoForm.tags,
-      project_id: todoForm.project_id === null ? undefined : todoForm.project_id
+      project_id: todoForm.project_id === null ? undefined : todoForm.project_id,
+      projectIds: todoForm.projectIds.length > 0 ? todoForm.projectIds : undefined,
+      isExclusiveMode: todoForm.projectIds.length > 0 ? todoForm.isExclusive : undefined
     });
     
     if (success) {
@@ -466,6 +474,8 @@ export function TodosPage() {
                 title: '',
                 description: '',
                 project_id: null,
+                projectIds: [],
+                isExclusive: false,
                 start_date: '',
                 due_date: '',
                 priority: 1,
@@ -486,6 +496,8 @@ export function TodosPage() {
                 title: todo.title,
                 description: '', // TodoSummary doesn't have description
                 project_id: todo.project_id || null,
+                projectIds: [],
+                isExclusive: false,
                 start_date: todo.start_date || '',
                 due_date: todo.due_date || '',
                 priority: todo.priority,
@@ -508,6 +520,8 @@ export function TodosPage() {
                 title: '',
                 description: '',
                 project_id: null,
+                projectIds: [],
+                isExclusive: false,
                 start_date: '',
                 due_date: '',
                 priority: 1,
@@ -539,6 +553,8 @@ export function TodosPage() {
                 title: todo.title,
                 description: '',
                 project_id: todo.project_id,
+                projectIds: [],
+                isExclusive: false,
                 start_date: '',
                 due_date: todo.due_date || '',
                 priority: todo.priority,
@@ -582,8 +598,9 @@ export function TodosPage() {
               </Stack>
             )}
             renderListItem={(todo: any) => (
-              <Group justify="space-between">
-                <Group gap="md">
+              <Stack gap="xs">
+                <Group justify="space-between">
+                  <Group gap="md">
                   <Checkbox
                     checked={todo.status === 'done'}
                     onChange={() => handleCompleteTodo(todo.id)}
@@ -613,6 +630,8 @@ export function TodosPage() {
                             title: todo.title,
                             description: '',
                             project_id: todo.project_id,
+                            projectIds: [],
+                            isExclusive: false,
                             start_date: '',
                             due_date: todo.due_date || '',
                             priority: todo.priority,
@@ -655,6 +674,7 @@ export function TodosPage() {
                           {todo.project.name}
                         </Badge>
                       )}
+                      <ProjectBadges projects={todo.projects || []} size="xs" maxVisible={2} />
                       {Array.isArray(todo.tags) && todo.tags.slice(0, 2).map((tag: string) => (
                         <Badge key={tag} size="xs" variant="dot">{tag}</Badge>
                       ))}
@@ -680,6 +700,8 @@ export function TodosPage() {
                            title: todo.title,
                            description: '',
                            project_id: todo.project_id,
+                           projectIds: [],
+                           isExclusive: false,
                            start_date: '',
                            due_date: todo.due_date || '',
                            priority: todo.priority,
@@ -689,6 +711,15 @@ export function TodosPage() {
                       }}
                     >
                       Edit
+                    </Menu.Item>
+                    <Menu.Item 
+                      leftSection={<IconPlus size={14} />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleAddSubtask(todo.id);
+                      }}
+                    >
+                      Add Subtask
                     </Menu.Item>
                     {todo.status !== 'completed' && (
                       <Menu.Item 
@@ -724,6 +755,16 @@ export function TodosPage() {
                   </Menu.Dropdown>
                 </Menu>
               </Group>
+              
+              {/* Subtask List */}
+              <SubtaskList
+                parentTodo={todo}
+                onSubtaskComplete={handleSubtaskComplete}
+                onSubtaskEdit={handleSubtaskEdit}
+                onSubtaskDelete={handleSubtaskDelete}
+                onAddSubtask={() => handleAddSubtask(todo.id)}
+              />
+            </Stack>
             )}
             renderDetailColumns={(todo: any) => [
               <Group key="title" gap="xs">
@@ -791,6 +832,7 @@ export function TodosPage() {
                 )}
               </Group>,
               <Group key="tags" gap={4}>
+                <ProjectBadges projects={todo.projects || []} size="xs" maxVisible={3} />
                 {(todo.tags || []).slice(0, 3).map((tag: string) => (
                   <Badge key={tag} size="xs" variant="outline">
                     {tag}
@@ -881,26 +923,30 @@ export function TodosPage() {
   };
 
   // Subtask management functions
-  const handleSubtaskUpdate = async (subtask: TodoSummary) => {
+  const handleSubtaskComplete = async (subtaskId: number, isCompleted: boolean) => {
     try {
-      const updatedSubtask = await todosService.updateTodo(subtask.id, subtask);
-      // Update the subtask in the parent todo using the store
+      const parentTodo = todos.find(todo => todo.subtasks?.some(st => st.id === subtaskId));
+      if (!parentTodo) return;
+
+      const subtask = parentTodo.subtasks?.find(st => st.id === subtaskId);
+      if (!subtask) return;
+
+      const updatedSubtask = await todosService.updateTodo(subtaskId, {
+        ...subtask,
+        status: isCompleted ? 'done' : 'pending'
+      });
+
       if (updatedSubtask) {
-        updateTodoWithSubtasks(updatedSubtask.parent_id || 0, (todo) => {
+        updateTodoWithSubtasks(parentTodo.id, (todo) => {
           if (todo.subtasks) {
             const updatedSubtasks = todo.subtasks.map(st => 
-              st.id === updatedSubtask.id ? { ...st, ...updatedSubtask } : st
+              st.id === subtaskId ? { ...st, status: isCompleted ? 'done' : 'pending' } : st
             );
             return { ...todo, subtasks: updatedSubtasks };
           }
           return todo;
         });
       }
-      notifications.show({
-        title: 'Success',
-        message: 'Subtask updated successfully',
-        color: 'green'
-      });
     } catch (error) {
       console.error('Failed to update subtask:', error);
       notifications.show({
@@ -914,7 +960,7 @@ export function TodosPage() {
   const handleSubtaskDelete = async (subtaskId: number) => {
     try {
       await todosService.deleteTodo(subtaskId);
-      // Remove the subtask from the parent todo using the store
+      
       // Find the parent todo and update it
       const parentTodo = todos.find(todo => todo.subtasks?.some(st => st.id === subtaskId));
       if (parentTodo) {
@@ -926,6 +972,7 @@ export function TodosPage() {
           return todo;
         });
       }
+      
       notifications.show({
         title: 'Success',
         message: 'Subtask deleted successfully',
@@ -942,23 +989,29 @@ export function TodosPage() {
   };
 
   const handleSubtaskEdit = (subtask: TodoSummary) => {
-    setEditingTodo(subtask as any); // Cast to any since editingTodo expects Todo
-    setShowEditModal(true);
+    setEditingTodo(subtask as any);
+    setTodoModalOpen(true);
   };
 
-  const handleSubtaskCreate = async (subtask: TodoSummary) => {
-    // Add the new subtask to the parent todo using the store
-    if (subtask.parent_id) {
-      updateTodoWithSubtasks(subtask.parent_id, (todo) => {
-        const currentSubtasks = todo.subtasks || [];
-        return { ...todo, subtasks: [...currentSubtasks, subtask] };
-      });
-    }
-    notifications.show({
-      title: 'Success',
-      message: 'Subtask created successfully',
-      color: 'green'
-    });
+  const handleAddSubtask = (parentId: number) => {
+    setEditingTodo({
+      id: 0,
+      title: '',
+      description: '',
+      status: 'pending',
+      priority: 'medium',
+      parent_id: parentId, // Set parent ID for new subtask
+      is_completed: false,
+      is_archived: false,
+      is_favorite: false,
+      is_exclusive_mode: false,
+      order_index: 0,
+      tags: [],
+      projects: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    } as any);
+    setTodoModalOpen(true);
   };
 
   return (
@@ -1329,6 +1382,14 @@ export function TodosPage() {
             onSearchChange={handleTagSearch}
             splitChars={[',', ' ']}
             description="Add tags separated by comma or space. Start typing to see suggestions."
+          />
+          
+          <MultiProjectSelector
+            value={todoForm.projectIds}
+            onChange={(projectIds) => setTodoForm({ ...todoForm, projectIds })}
+            isExclusive={todoForm.isExclusive}
+            onExclusiveChange={(isExclusive) => setTodoForm({ ...todoForm, isExclusive })}
+            description="Link this task to one or more projects"
           />
           
           <Group justify="flex-end">

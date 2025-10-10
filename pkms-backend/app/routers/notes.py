@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, text, delete
 from sqlalchemy.orm import selectinload
-from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFileResponse, CommitNoteFileRequest
+from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFileResponse, CommitNoteFileRequest, ProjectBadge
 from app.schemas.link import LinkResponse
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -23,6 +23,8 @@ from app.models.user import User
 from app.models.tag import Tag
 from app.models.tag_associations import note_tags
 from app.models.link import Link
+from app.models.todo import Project
+from app.models.associations import note_projects
 from app.auth.dependencies import get_current_user
 from app.utils.security import sanitize_text_input, sanitize_tags
 from app.services.chunk_service import chunk_manager
@@ -139,11 +141,76 @@ async def _get_note_with_relations(db: AsyncSession, note_id: int, user_id: int)
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
     
-    return _convert_note_to_response(note)
+    # Build project badges
+    project_badges = await _build_project_badges(db, note.id, note.is_exclusive_mode)
+    
+    return _convert_note_to_response(note, project_badges)
 
 
 
-def _convert_note_to_response(note: Note) -> NoteResponse:
+async def _handle_note_projects(db: AsyncSession, note: Note, project_ids: List[int]):
+    """Link note to projects via junction table."""
+    # First, clear existing project links
+    await db.execute(
+        delete(note_projects).where(note_projects.c.note_id == note.id)
+    )
+    
+    # Add new project links
+    if project_ids:
+        for project_id in project_ids:
+            await db.execute(
+                note_projects.insert().values(
+                    note_id=note.id,
+                    project_id=project_id,
+                    project_name_snapshot=None  # Will be set on project deletion
+                )
+            )
+
+async def _build_project_badges(db: AsyncSession, note_id: int, is_exclusive: bool) -> List[ProjectBadge]:
+    """Build project badges from junction table (live projects and deleted snapshots)."""
+    from sqlalchemy import select
+    
+    # Query junction table for this note
+    result = await db.execute(
+        select(
+            note_projects.c.project_id,
+            note_projects.c.project_name_snapshot
+        ).where(note_projects.c.note_id == note_id)
+    )
+    
+    badges = []
+    for row in result:
+        project_id = row.project_id
+        snapshot_name = row.project_name_snapshot
+        
+        if project_id is not None:
+            # Live project - fetch current details
+            project_result = await db.execute(
+                select(Project).where(Project.id == project_id)
+            )
+            project = project_result.scalar_one_or_none()
+            if project:
+                badges.append(ProjectBadge(
+                    id=project.id,
+                    name=project.name,
+                    color=project.color,
+                    is_exclusive=is_exclusive,  # Note's exclusive mode applies to all its projects
+                    is_deleted=False
+                ))
+        else:
+            # Deleted project - use snapshot
+            if snapshot_name:
+                badges.append(ProjectBadge(
+                    id=None,
+                    name=snapshot_name,
+                    color="#6c757d",  # Gray for deleted projects
+                    is_exclusive=False,  # Was linked (survived deletion, so not exclusive)
+                    is_deleted=True
+                ))
+    
+    return badges
+
+def _convert_note_to_response(note: Note, project_badges: List[ProjectBadge] = []) -> NoteResponse:
     """Convert Note model to NoteResponse."""
     return NoteResponse(
         id=note.id,
@@ -153,9 +220,11 @@ def _convert_note_to_response(note: Note) -> NoteResponse:
         file_count=note.file_count,
         is_favorite=note.is_favorite,
         is_archived=note.is_archived,
+        is_exclusive_mode=note.is_exclusive_mode,
         created_at=note.created_at,
         updated_at=note.updated_at,
-        tags=[t.name for t in note.tag_objs] if note.tag_objs else []
+        tags=[t.name for t in note.tag_objs] if note.tag_objs else [],
+        projects=project_badges
     )
 
 # --- Note Endpoints ---
@@ -172,7 +241,14 @@ async def list_notes(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List notes with filtering and pagination. Uses FTS5 for text search."""
+    """
+    List notes with filtering and pagination. Uses FTS5 for text search.
+    
+    Exclusive mode filtering:
+    - Items with is_exclusive_mode=True are HIDDEN from main list (only in project dashboards)
+    - Items with is_exclusive_mode=False are ALWAYS shown (linked mode)
+    """
+    
     if search:
         # Use FTS5 for full-text search
         fts_results = await enhanced_fts_service.search_all(db, search, current_user.id, content_types=["notes"], limit=limit, offset=offset)
@@ -184,7 +260,8 @@ async def list_notes(
             and_(
                 Note.user_id == current_user.id,
                 Note.is_archived == archived,
-                Note.id.in_(note_ids)
+                Note.id.in_(note_ids),
+                Note.is_exclusive_mode == False  # Only show linked (non-exclusive) items
             )
         )
         if tag:
@@ -203,7 +280,8 @@ async def list_notes(
         query = select(Note).options(selectinload(Note.tag_objs)).where(
             and_(
                 Note.user_id == current_user.id,
-                Note.is_archived == archived
+                Note.is_archived == archived,
+                Note.is_exclusive_mode == False  # Only show linked (non-exclusive) items
             )
         )
         if tag:
@@ -218,6 +296,7 @@ async def list_notes(
     summaries = []
     for note in ordered_notes:
         preview = note.content[:200] + "..." if len(note.content) > 200 else note.content
+        project_badges = await _build_project_badges(db, note.id, note.is_exclusive_mode)
         summary = NoteSummary(
             id=note.id,
             uuid=note.uuid,
@@ -225,10 +304,12 @@ async def list_notes(
             file_count=note.file_count,
             is_favorite=note.is_favorite,
             is_archived=note.is_archived,
+            is_exclusive_mode=note.is_exclusive_mode,
             created_at=note.created_at,
             updated_at=note.updated_at,
             tags=[t.name for t in note.tag_objs] if note.tag_objs else [],
-            preview=preview
+            preview=preview,
+            projects=project_badges
         )
         summaries.append(summary)
     return summaries
@@ -239,10 +320,11 @@ async def create_note(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a new note."""
+    """Create a new note with optional project linkage."""
     note = Note(
         title=note_data.title,
         content=note_data.content,
+        is_exclusive_mode=note_data.is_exclusive_mode or False,
         user_id=current_user.id
     )
     db.add(note)
@@ -251,6 +333,10 @@ async def create_note(
     # Handle tags
     if note_data.tags:
         await _handle_note_tags(db, note, note_data.tags, current_user.id)
+    
+    # Handle projects
+    if note_data.project_ids:
+        await _handle_note_projects(db, note, note_data.project_ids)
     
     # Process links in content
     await _process_note_links(db, note, note_data.content, current_user.id)
@@ -265,7 +351,10 @@ async def create_note(
     )
     note_with_tags = result.scalar_one()
     
-    return _convert_note_to_response(note_with_tags)
+    # Build project badges
+    project_badges = await _build_project_badges(db, note_with_tags.id, note_with_tags.is_exclusive_mode)
+    
+    return _convert_note_to_response(note_with_tags, project_badges)
 
 @router.get("/{note_id}", response_model=NoteResponse)
 async def get_note(
@@ -299,6 +388,10 @@ async def update_note(
     if "tags" in update_data:
         await _handle_note_tags(db, note, update_data.pop("tags"), current_user.id)
 
+    # Handle projects if provided
+    if "project_ids" in update_data:
+        await _handle_note_projects(db, note, update_data.pop("project_ids"))
+
     # Update other fields
     for key, value in update_data.items():
         setattr(note, key, value)
@@ -317,7 +410,10 @@ async def update_note(
     )
     note_with_tags = result.scalar_one()
     
-    return _convert_note_to_response(note_with_tags)
+    # Build project badges
+    project_badges = await _build_project_badges(db, note_with_tags.id, note_with_tags.is_exclusive_mode)
+    
+    return _convert_note_to_response(note_with_tags, project_badges)
 
 @router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_note(

@@ -13,7 +13,8 @@ echo Creating backup: %backup_name%
 if not exist "PKMS_Data\backups" mkdir "PKMS_Data\backups"
 
 :: Copy database from Docker volume to local backup
-docker run --rm -v pkms_db_data:/source -v "%cd%/PKMS_Data/backups":/backup alpine sh -c "cp /source/pkm_metadata.db /backup/%backup_name%"
+:: Note: pkms_db_data volume contains the /data directory structure
+docker compose cp pkms-backend:/app/data/pkm_metadata.db PKMS_Data/backups/%backup_name%
 
 if %ERRORLEVEL% EQU 0 (
     echo ✅ Backup created successfully: PKMS_Data\backups\%backup_name%

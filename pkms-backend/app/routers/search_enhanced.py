@@ -224,185 +224,8 @@ async def global_search(
         )
 
 
-@router.get("/hybrid")
-async def hybrid_search(
-    q: str = Query(..., description="Search query", min_length=2),
-    modules: Optional[str] = Query(None, description="Comma-separated modules: notes,documents,todos,diary,archive,folders"),
-    use_fuzzy: bool = Query(True, description="Enable fuzzy search (True) or use FTS5 (False)"),
-    fuzzy_threshold: int = Query(60, ge=0, le=100, description="Fuzzy matching threshold (0-100)"),
-    sort_by: str = Query("relevance", description="Sort by: relevance, date, title"),
-    sort_order: str = Query("desc", description="Sort order: asc, desc"),
-    
-    # Advanced Filters
-    include_tags: Optional[str] = Query(None, description="Comma-separated tags to include"),
-    exclude_tags: Optional[str] = Query(None, description="Comma-separated tags to exclude"),
-    include_archived: bool = Query(True, description="Include archived items"),
-    
-    # Pagination
-    limit: int = Query(50, le=100, description="Maximum number of results"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
-    
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Intelligent Hybrid Search
-    
-    Combines FTS5 and fuzzy search for optimal results:
-    - Fast FTS5 for candidate retrieval
-    - Fuzzy re-ranking for better relevance
-    - Adaptive strategy based on result quality
-    - Best of both worlds
-    
-    Best for: General search with intelligence and performance
-    """
-    try:
-        # Parse modules - convert to the format expected by existing services
-        content_types = []
-        if modules:
-            module_mapping = {
-                'notes': 'notes',
-                'documents': 'documents', 
-                'todos': 'todos',
-                'archive': 'archive',
-                'diary': 'diary',
-                'folders': 'folders'
-            }
-            raw_modules = [m.strip() for m in modules.split(",")]
-            content_types = [module_mapping.get(m, m) for m in raw_modules]
-        else:
-            content_types = ['notes', 'documents', 'todos', 'archive', 'diary', 'folders']
-        
-        # Apply diary filtering (exclude diary by default unless explicitly requested)
-        if 'diary' not in (modules.split(',') if modules else []):
-            content_types = [ct for ct in content_types if ct != 'diary']
-        
-        if use_fuzzy:
-            # Use the working fuzzy search from advanced_fuzzy router
-            from ..routers.advanced_fuzzy import advanced_fuzzy_search
-            
-            # Convert parameters to format expected by advanced_fuzzy_search
-            fuzzy_modules = ','.join([
-                'note' if ct == 'notes' else
-                'document' if ct == 'documents' else
-                'todo' if ct == 'todos' else
-                ct for ct in content_types
-            ])
-            
-            # Call the working fuzzy search
-            fuzzy_results = await advanced_fuzzy_search(
-                query=q,
-                limit=limit,
-                modules=fuzzy_modules,
-                db=db,
-                current_user=current_user
-            )
-            
-            # Convert to unified response format
-            results = []
-            for result in fuzzy_results:
-                results.append({
-                    'type': result.get('type', 'unknown'),
-                    'module': result.get('module', result.get('type', 'unknown')),
-                    'id': result.get('id'),
-                    'title': result.get('title', ''),
-                    'content': result.get('description', ''),
-                    'tags': result.get('tags', []),
-                    'created_at': result.get('created_at'),
-                    'updated_at': result.get('created_at'),  # Fallback
-                    'relevance_score': result.get('score', 0.0) / 100.0,  # Normalize to 0-1
-                    'search_type': 'fuzzy'
-                })
-            
-            # Calculate stats
-            results_by_type = {}
-            for result in results:
-                result_type = result.get('type', 'unknown')
-                results_by_type[result_type] = results_by_type.get(result_type, 0) + 1
-            
-            return {
-                "results": results,
-                "total": len(results),
-                "query": q,
-                "search_type": "fuzzy",
-                "performance": "deep",
-                "stats": {
-                    "totalResults": len(results),
-                    "resultsByType": results_by_type,
-                    "searchTime": 0,
-                    "query": q,
-                    "includeContent": True,
-                    "appliedFilters": {
-                        "contentTypes": content_types,
-                        "tags": include_tags.split(',') if include_tags else []
-                    }
-                }
-            }
-        else:
-            # Use FTS5 search (fast)
-            results = await enhanced_fts_service.search_all(
-                db=db,
-                query=q,
-                user_id=current_user.id,
-                content_types=content_types,
-                limit=limit,
-                offset=offset
-            )
-            
-            # Apply tag filtering if specified
-            if include_tags or exclude_tags:
-                filtered_results = []
-                include_tag_list = include_tags.split(',') if include_tags else []
-                exclude_tag_list = exclude_tags.split(',') if exclude_tags else []
-                
-                for result in results:
-                    result_tags = [tag.lower() for tag in result.get('tags', [])]
-                    
-                    # Check include tags
-                    if include_tag_list:
-                        if not all(inc_tag.lower() in result_tags for inc_tag in include_tag_list):
-                            continue
-                    
-                    # Check exclude tags
-                    if exclude_tag_list:
-                        if any(exc_tag.lower() in result_tags for exc_tag in exclude_tag_list):
-                            continue
-                    
-                    filtered_results.append(result)
-                
-                results = filtered_results
-            
-            # Calculate stats
-            results_by_type = {}
-            for result in results:
-                result_type = result.get('type', 'unknown')
-                results_by_type[result_type] = results_by_type.get(result_type, 0) + 1
-            
-            return {
-                "results": results,
-                "total": len(results),
-                "query": q,
-                "search_type": "fts5",
-                "performance": "fast",
-                "stats": {
-                    "totalResults": len(results),
-                    "resultsByType": results_by_type,
-                    "searchTime": 0,
-                    "query": q,
-                    "includeContent": True,
-                    "appliedFilters": {
-                        "contentTypes": content_types,
-                        "tags": include_tags.split(',') if include_tags else []
-                    }
-                }
-            }
-        
-    except Exception as e:
-        logger.error(f"❌ Hybrid search failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Hybrid search failed: {str(e)}"
-        )
+# REMOVED: /hybrid endpoint - not used by frontend, functionality covered by /fts5 and /fuzzy
+# Removed to simplify codebase and reduce maintenance burden
 
 @router.get("/fts5")
 async def fts5_search(
@@ -884,15 +707,14 @@ async def search_health(
         health_status = {
             "status": "healthy",
             "fts_tables_initialized": enhanced_fts_service.tables_initialized,
-            "available_endpoints": ["/fts5", "/fuzzy", "/hybrid", "/suggestions"],
+            "available_endpoints": ["/fts5", "/fuzzy", "/suggestions"],
             "supported_modules": ["notes", "documents", "todos", "diary", "archive", "folders"],
             "features": {
                 "bm25_ranking": True,
                 "cross_module_normalization": True,
                 "embedded_tags": True,
                 "advanced_filtering": True,
-                "fuzzy_matching": True,
-                "hybrid_search": True
+                "fuzzy_matching": True
             }
         }
         

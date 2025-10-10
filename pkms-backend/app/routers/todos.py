@@ -5,7 +5,7 @@ Todo and Project Management Router for PKMS
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, delete, func
-from app.schemas.todo import TodoCreate, TodoUpdate, TodoResponse, ProjectCreate, ProjectResponse
+from app.schemas.todo import TodoCreate, TodoUpdate, TodoResponse, ProjectCreate, ProjectResponse, ProjectBadge
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from sqlalchemy.orm import selectinload
@@ -14,6 +14,7 @@ from app.database import get_db
 from app.models.todo import Todo, Project
 from app.models.tag import Tag
 from app.models.user import User
+from app.models.associations import todo_projects
 from app.auth.dependencies import get_current_user
 
 # Priority constants for validation
@@ -179,7 +180,67 @@ async def _get_project_counts(db: AsyncSession, project_id: int) -> tuple[int, i
     return total_count, completed_count
 
 
-def _convert_todo_to_response(todo: Todo) -> TodoResponse:
+async def _handle_todo_projects(db: AsyncSession, todo: Todo, project_ids: List[int]):
+    """Link todo to projects via junction table."""
+    # First, clear existing project links
+    await db.execute(
+        delete(todo_projects).where(todo_projects.c.todo_id == todo.id)
+    )
+    
+    # Add new project links
+    if project_ids:
+        for project_id in project_ids:
+            await db.execute(
+                todo_projects.insert().values(
+                    todo_id=todo.id,
+                    project_id=project_id,
+                    project_name_snapshot=None  # Will be set on project deletion
+                )
+            )
+
+async def _build_todo_project_badges(db: AsyncSession, todo_id: int, is_exclusive: bool) -> List[ProjectBadge]:
+    """Build project badges from junction table (live projects and deleted snapshots)."""
+    # Query junction table for this todo
+    result = await db.execute(
+        select(
+            todo_projects.c.project_id,
+            todo_projects.c.project_name_snapshot
+        ).where(todo_projects.c.todo_id == todo_id)
+    )
+    
+    badges = []
+    for row in result:
+        project_id = row.project_id
+        snapshot_name = row.project_name_snapshot
+        
+        if project_id is not None:
+            # Live project - fetch current details
+            project_result = await db.execute(
+                select(Project).where(Project.id == project_id)
+            )
+            project = project_result.scalar_one_or_none()
+            if project:
+                badges.append(ProjectBadge(
+                    id=project.id,
+                    name=project.name,
+                    color=project.color,
+                    is_exclusive=is_exclusive,
+                    is_deleted=False
+                ))
+        else:
+            # Deleted project - use snapshot
+            if snapshot_name:
+                badges.append(ProjectBadge(
+                    id=None,
+                    name=snapshot_name,
+                    color="#6c757d",  # Gray for deleted projects
+                    is_exclusive=False,  # Was linked (survived deletion)
+                    is_deleted=True
+                ))
+    
+    return badges
+
+def _convert_todo_to_response(todo: Todo, project_badges: List[ProjectBadge] = []) -> TodoResponse:
     """Convert Todo model to TodoResponse with relational tags."""
     return TodoResponse(
         id=todo.id,
@@ -189,18 +250,20 @@ def _convert_todo_to_response(todo: Todo) -> TodoResponse:
         is_completed=todo.is_completed,
         is_archived=todo.is_archived,
         is_favorite=todo.is_favorite,
-        priority=todo.priority,  # Direct integer use - no conversion needed
-        project_id=todo.project_id,
-        project_name=todo.project.name if todo.project else None,
+        is_exclusive_mode=todo.is_exclusive_mode,
+        priority=todo.priority,
+        project_id=todo.project_id,  # Legacy
+        project_name=todo.project.name if todo.project else None,  # Legacy
         order_index=todo.order_index,
         parent_id=todo.parent_id,
-        subtasks=[_convert_todo_to_response(subtask) for subtask in (todo.subtasks or [])] if hasattr(todo, 'subtasks') and todo.subtasks else [],
+        subtasks=[_convert_todo_to_response(subtask, []) for subtask in (todo.subtasks or [])] if hasattr(todo, 'subtasks') and todo.subtasks else [],
         start_date=todo.start_date,
         due_date=todo.due_date,
         completed_at=todo.completed_at,
         created_at=todo.created_at,
         updated_at=todo.updated_at,
-        tags=[t.name for t in todo.tag_objs] if todo.tag_objs else []
+        tags=[t.name for t in todo.tag_objs] if todo.tag_objs else [],
+        projects=project_badges
     )
 
 async def _handle_project_tags(db: AsyncSession, project: Project, tag_names: List[str], user_id: int):
@@ -274,21 +337,27 @@ async def create_todo(
     todo = Todo(
         title=todo_data.title,
         description=todo_data.description,
-        priority=todo_data.priority,  # Direct integer use - no conversion needed
-        status=todo_data.status,  # Set status
-        order_index=todo_data.order_index,  # Set order index
+        priority=todo_data.priority,
+        status=todo_data.status,
+        order_index=todo_data.order_index,
         start_date=todo_data.start_date,
         due_date=todo_data.due_date,
-        project_id=todo_data.project_id,
+        is_exclusive_mode=todo_data.is_exclusive_mode or False,
+        project_id=todo_data.project_id,  # Legacy
         user_id=current_user.id,
         is_archived=todo_data.is_archived or False
     )
     db.add(todo)
-    await db.commit()
-    await db.refresh(todo)
+    await db.flush()
 
     if todo_data.tags:
         await _handle_todo_tags(db, todo, todo_data.tags, current_user.id)
+
+    # Handle projects
+    if todo_data.project_ids:
+        await _handle_todo_projects(db, todo, todo_data.project_ids)
+
+    await db.commit()
 
     # Reload todo with tags and project to avoid lazy loading issues in response conversion
     result = await db.execute(
@@ -301,7 +370,10 @@ async def create_todo(
     )
     todo_with_tags = result.scalar_one()
     
-    return _convert_todo_to_response(todo_with_tags)
+    # Build project badges
+    project_badges = await _build_todo_project_badges(db, todo_with_tags.id, todo_with_tags.is_exclusive_mode)
+    
+    return _convert_todo_to_response(todo_with_tags, project_badges)
 
 
 @router.get("/", response_model=List[TodoResponse])
@@ -318,10 +390,22 @@ async def list_todos(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    """
+    List todos with filtering.
+    
+    Exclusive mode filtering:
+    - Items with is_exclusive_mode=True are HIDDEN from main list (only in project dashboards)
+    - Items with is_exclusive_mode=False are ALWAYS shown (linked mode)
+    """
     query = select(Todo).options(
         selectinload(Todo.tag_objs),
         selectinload(Todo.project)
-    ).where(Todo.user_id == current_user.id)
+    ).where(
+        and_(
+            Todo.user_id == current_user.id,
+            Todo.is_exclusive_mode == False  # Only show linked (non-exclusive) items
+        )
+    )
 
     if is_completed is not None:
         query = query.where(Todo.is_completed == is_completed)
@@ -364,9 +448,20 @@ async def list_todos(
             subtasks = subtasks_result.scalars().all()
             todo.subtasks = subtasks
             todos_with_subtasks.append(todo)
-        return [_convert_todo_to_response(t) for t in todos_with_subtasks]
+        
+        # Build responses with project badges
+        responses = []
+        for t in todos_with_subtasks:
+            project_badges = await _build_todo_project_badges(db, t.id, t.is_exclusive_mode)
+            responses.append(_convert_todo_to_response(t, project_badges))
+        return responses
     else:
-        return [_convert_todo_to_response(t) for t in todos]
+        # Build responses with project badges
+        responses = []
+        for t in todos:
+            project_badges = await _build_todo_project_badges(db, t.id, t.is_exclusive_mode)
+            responses.append(_convert_todo_to_response(t, project_badges))
+        return responses
 
 # --- Project Endpoints (place before dynamic /{todo_id} routes to avoid conflicts) ---
 
@@ -460,6 +555,17 @@ async def delete_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    """
+    Delete a project with multi-project support:
+    - Snapshots project name in junction tables for linked items (preserved as 'deleted_ProjectName')
+    - Hard deletes exclusive items (items with is_exclusive_mode=True)
+    - Removes project (SET NULL in junction tables preserves linked items)
+    """
+    from app.models.associations import note_projects, document_projects, todo_projects
+    from app.models.note import Note
+    from app.models.document import Document
+    from sqlalchemy import update, delete as sql_delete
+    
     result = await db.execute(
         select(Project).where(and_(Project.id == project_id, Project.user_id == current_user.id))
     )
@@ -467,11 +573,65 @@ async def delete_project(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # Check if project has associated todos
-    result = await db.execute(select(Todo).where(Todo.project_id == project_id))
-    if result.scalars().first():
-        raise HTTPException(status_code=400, detail="Cannot delete project with associated todos")
-        
+    # Step 1: Snapshot project name in all junction records BEFORE deletion
+    # This preserves the project name for linked (non-exclusive) items
+    await db.execute(
+        update(note_projects)
+        .where(note_projects.c.project_id == project_id)
+        .values(project_name_snapshot=project.name)
+    )
+    
+    await db.execute(
+        update(document_projects)
+        .where(document_projects.c.project_id == project_id)
+        .values(project_name_snapshot=project.name)
+    )
+    
+    await db.execute(
+        update(todo_projects)
+        .where(todo_projects.c.project_id == project_id)
+        .values(project_name_snapshot=project.name)
+    )
+    
+    # Step 2: Hard delete exclusive items
+    # Get exclusive notes linked to this project
+    exclusive_note_ids = await db.execute(
+        select(Note.id)
+        .join(note_projects, Note.id == note_projects.c.note_id)
+        .where(
+            note_projects.c.project_id == project_id,
+            Note.is_exclusive_mode == True
+        )
+    )
+    for note_id in exclusive_note_ids.scalars():
+        await db.execute(sql_delete(Note).where(Note.id == note_id))
+    
+    # Get exclusive documents linked to this project
+    exclusive_doc_ids = await db.execute(
+        select(Document.id)
+        .join(document_projects, Document.id == document_projects.c.document_id)
+        .where(
+            document_projects.c.project_id == project_id,
+            Document.is_exclusive_mode == True
+        )
+    )
+    for doc_id in exclusive_doc_ids.scalars():
+        await db.execute(sql_delete(Document).where(Document.id == doc_id))
+    
+    # Get exclusive todos linked to this project
+    exclusive_todo_ids = await db.execute(
+        select(Todo.id)
+        .join(todo_projects, Todo.id == todo_projects.c.todo_id)
+        .where(
+            todo_projects.c.project_id == project_id,
+            Todo.is_exclusive_mode == True
+        )
+    )
+    for todo_id in exclusive_todo_ids.scalars():
+        await db.execute(sql_delete(Todo).where(Todo.id == todo_id))
+    
+    # Step 3: Delete project (SET NULL will set project_id=NULL in junction tables)
+    # Linked items (is_exclusive_mode=False) survive with project_name_snapshot
     await db.delete(project)
     await db.commit()
 
@@ -490,7 +650,11 @@ async def get_todo(
     todo = result.scalar_one_or_none()
     if not todo:
         raise HTTPException(status_code=404, detail="Todo not found")
-    return _convert_todo_to_response(todo)
+    
+    # Build project badges
+    project_badges = await _build_todo_project_badges(db, todo.id, todo.is_exclusive_mode)
+    
+    return _convert_todo_to_response(todo, project_badges)
 
 @router.put("/{todo_id}", response_model=TodoResponse)
 async def update_todo(
@@ -510,6 +674,10 @@ async def update_todo(
     
     if "tags" in update_data:
         await _handle_todo_tags(db, todo, update_data.pop("tags"), current_user.id)
+
+    # Handle projects if provided
+    if "project_ids" in update_data:
+        await _handle_todo_projects(db, todo, update_data.pop("project_ids"))
 
     for key, value in update_data.items():
         setattr(todo, key, value)
@@ -545,7 +713,10 @@ async def update_todo(
     )
     todo_with_tags = result.scalar_one()
     
-    return _convert_todo_to_response(todo_with_tags)
+    # Build project badges
+    project_badges = await _build_todo_project_badges(db, todo_with_tags.id, todo_with_tags.is_exclusive_mode)
+    
+    return _convert_todo_to_response(todo_with_tags, project_badges)
 
 @router.patch("/{todo_id}/archive", response_model=TodoResponse)
 async def archive_todo(

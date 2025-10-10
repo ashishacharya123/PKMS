@@ -1,0 +1,69 @@
+### Diary Dashboard Complete Redesign (2025-10-10 00:35:00 +05:45)
+- **User Feedback**: Dashboard was cluttered with too many always-visible widgets, duplicate calendars, and excessive weather options. User wanted cleaner, more organized layout with expandable sections.
+
+- **Changes Implemented**:
+
+  **1. Weather System Simplification**:
+  - Removed 24 complex weather options (with emojis like "🌫️ Depositing Rime Fog", "⛈️ Thunderstorm with Heavy Hail")
+  - Now using backend's 7 simple options: Clear, Partly Cloudy, Cloudy, Rain, Storm, Snow, Scorching Sun
+  - Weather/location fields removed from DailyMetricsPanel (kept only in diary entry form where they belong)
+
+  **2. Daily Wellness Tracker Redesign** (`DailyMetricsPanel.tsx`):
+  - Converted from always-visible Card to expandable Accordion (collapsed by default)
+  - Removed date-picker calendar - now ONLY tracks TODAY's metrics
+  - Removed weather/location fields (duplicates)
+  - Auto-loads today's wellness snapshot on mount
+  - Cleaner button layout with "Refresh" and "Save Snapshot"
+  - Uses `useEffect` to load data automatically
+
+  **3. Mood Analysis Reorganization**:
+  - `MoodTrendChart`: Always visible at top, reduced height to 200px (compact)
+  - `MoodStatsWidget`: Moved to expandable "📈 Detailed Mood Analysis" accordion
+  - Users see trends at a glance, expand for detailed analysis
+
+  **4. Historical Entries Feature (NEW)** (`HistoricalEntries.tsx`):
+  - Brand new component showing entries from specific past dates:
+    * 📅 Yesterday
+    * 📆 Last Week (same day of week)
+    * 🗓️ Last Month (same date)
+    * 📜 Last Year (same date)
+  - Expandable accordion: "🕰️ Historical Entries"
+  - 4-column responsive grid (1 col on mobile, 2 on tablet, 4 on desktop)
+  - Each card shows:
+    * Date and mood badge with emoji
+    * Entry title (if available)
+    * Weather, location, tags (first 2 + count)
+    * Content length
+    * "No Entry" state for missing dates
+  - Click card to view full entry (uses existing `handleViewEntry`)
+  - Automatically finds matching entries by date
+
+  **5. Diary Page Layout Order** (top to bottom):
+  1. Session timeout warning
+  2. Header with "Diary" title + encryption status + new entry button
+  3. **Mood Trend Chart** (compact, always visible, 200px height)
+  4. **Detailed Mood Analysis** (expandable accordion, collapsed)
+  5. **Daily Wellness Tracker** (expandable accordion, collapsed, TODAY only)
+  6. **Historical Entries** (expandable accordion, collapsed, 4 time periods)
+  7. **Calendar + Diary Entries Grid** (main content area)
+
+- **Technical Details**:
+  - Used `date-fns` functions: `subDays`, `subWeeks`, `subMonths`, `subYears` for date calculations
+  - Entry matching by formatted date string comparison (`yyyy-MM-dd`)
+  - Proper TypeScript interfaces for historical periods
+  - Responsive grid using Mantine's `SimpleGrid` with breakpoints
+  - Mood emoji/color/label mapping consistent with existing components
+
+- **User Experience**:
+  - **Much cleaner dashboard**: Only mood trend visible by default
+  - **Focused tracking**: Daily wellness for today only
+  - **Easy comparison**: Historical entries show patterns over time
+  - **No duplication**: Single calendar, weather/location only in entries
+  - **Progressive disclosure**: Expand sections only when needed
+
+- **Files**:
+  - NEW: `pkms-frontend/src/components/diary/HistoricalEntries.tsx` (259 lines)
+  - MODIFIED: `pkms-frontend/src/components/diary/DailyMetricsPanel.tsx` (refactored to accordion, today-only)
+  - MODIFIED: `pkms-frontend/src/components/diary/MoodTrendChart.tsx` (added height prop)
+  - MODIFIED: `pkms-frontend/src/pages/DiaryPage.tsx` (reorganized layout, added imports)
+

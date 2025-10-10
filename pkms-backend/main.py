@@ -83,7 +83,7 @@ async def cleanup_expired_sessions():
                 deleted_count = result.rowcount
                 
                 if deleted_count > 0:
-                    logger.info(f"🧹 Cleaned up {deleted_count} expired sessions")
+                    logger.info(f"Cleaned up {deleted_count} expired sessions")
                     
         except Exception as e:
             logger.error(f"❌ Session cleanup error: {e}")
@@ -98,13 +98,13 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     
     # Startup
-    logger.info("🚀 Starting PKMS Backend...")
+    logger.info("Starting PKMS Backend...")
     
     try:
         # Initialize database tables (creates tables if they don't exist)
         logger.info("Initializing database...")
         await init_db()
-        logger.info("✅ Database initialized successfully")
+        logger.info("Database initialized successfully")
         
         # Initialize FTS5 tables and triggers
         logger.info("Initializing FTS5 search tables...")
@@ -112,9 +112,9 @@ async def lifespan(app: FastAPI):
             from app.services.fts_service_enhanced import enhanced_fts_service
             async with get_db_session() as db:
                 await enhanced_fts_service.initialize_enhanced_fts_tables(db)
-            logger.info("✅ FTS5 search tables initialized successfully")
+            logger.info("FTS5 search tables initialized successfully")
         except Exception as fts_error:
-            logger.error(f"⚠️ FTS5 initialization failed: {fts_error}")
+            logger.error(f"FTS5 initialization failed: {fts_error}")
             logger.info("Search will fall back to basic queries")
         
         # Start background tasks
@@ -128,18 +128,18 @@ async def lifespan(app: FastAPI):
         # Initialize search cache service
         logger.info("Initializing search cache service...")
         await search_cache_service.initialize()
-        logger.info("✅ Search cache service initialized")
+        logger.info("Search cache service initialized")
 
-        logger.info("✅ Background tasks started")
+        logger.info("Background tasks started")
 
         yield
         
     except Exception as e:
-        logger.error(f"❌ Critical error during startup: {e}")
+        logger.error(f"Critical error during startup: {e}")
         raise
     finally:
         # Shutdown
-        logger.info("🌙 Shutting down PKMS Backend...")
+        logger.info("Shutting down PKMS Backend...")
         if cleanup_task:
             cleanup_task.cancel()
             try:
@@ -224,7 +224,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         retry_after = None
 
     logger.warning(
-        "⚠️ Rate limit exceeded for %s – retry after %s s",
+        "Rate limit exceeded for %s – retry after %s s",
         request.client.host,
         retry_after or "unknown"
     )
@@ -360,9 +360,9 @@ async def test_todos():
         }
 
 if __name__ == "__main__":
-    print(f"🌐 Starting server on {settings.host}:{settings.port}")
-    print(f"🔄 Reload mode: {settings.debug}")
-    print(f"📝 Log level: {settings.log_level}")
+    print(f"Starting server on {settings.host}:{settings.port}")
+    print(f"Reload mode: {settings.debug}")
+    print(f"Log level: {settings.log_level}")
     
     # Temporarily disable reload to debug segfault
     try:
@@ -374,6 +374,6 @@ if __name__ == "__main__":
             log_level=settings.log_level
         )
     except Exception as e:
-        print(f"❌ Failed to start server: {e}")
+        print(f"Failed to start server: {e}")
         import traceback
         traceback.print_exc()

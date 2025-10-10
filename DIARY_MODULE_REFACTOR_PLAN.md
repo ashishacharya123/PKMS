@@ -10,28 +10,28 @@ This document summarizes the current state of the diary module refactor and outl
 
 Based on our detailed discussion, the refactor will adhere to the following principles:
 
-1.  **File-Based Storage for All Encrypted Content**: Both diary entry text and attached media files will be fully encrypted and stored as separate files on the filesystem, not as database blobs. This keeps the database lean and performant.
+1.  **File-Based Storage for All Encrypted Content**: Both diary entry text and attached media files are fully encrypted and stored as separate files on the filesystem (leveraging the shared chunk upload pipeline for media). This keeps the database lean and performant while keeping wellness metadata (sleep, exercise, etc.) inside the encrypted blob.
 2.  **Decoupled & Secure Password Hashing**: The diary password hash will be moved from the `recovery_keys` table to a new, dedicated `diary_password_hash` column in the `users` table.
 3.  **Reliable Encryption Status**: The check for whether diary encryption is enabled will depend *only* on the presence of the `diary_password_hash`, not on the existence of diary entries.
-4.  **Efficient Filtering**: Dedicated, indexed columns (`day_of_week`, `media_count`) will be added to the `diary_entries` table to ensure fast and efficient filtering.
-5.  **Robust Tag Management**: The legacy `is_archived` flag on tags will be ignored in favor of a `usage_count` to be actively maintained by the application.
+4.  **Daily Snapshot Separation**: Per-day wellness metrics (Nepali date, wellness JSON) live in a dedicated `diary_daily_metadata` table linked via FK to entries, so analytics never require decrypting content.
+5.  **Efficient Filtering**: Dedicated, indexed columns (`day_of_week`, `media_count`, `weather_code`) on `diary_entries` keep common filters fast.
+6.  **Robust Tag Management**: The legacy `is_archived` flag on tags will be ignored in favor of a `usage_count` to be actively maintained by the application.
 
 ---
 
 ## II. Completed Foundational Work
 
 1.  **New Database Schema Defined (`pkms-backend/app/models/diary.py`)**:
-    -   **Removed**: `content` and `encrypted_blob`.
-    -   **Added**: `day_of_week`, `media_count`, `content_file_path`, and `file_hash`.
+    -   **Removed**: Legacy `content`/`metadata_json` columns on entries.
+    -   **Added**: `day_of_week`, `media_count`, `content_file_path`, `file_hash`, `content_length`, `weather_code`, `from_template_id`, and a nullable FK `daily_metadata_id` pointing to `diary_daily_metadata`.
+    -   **New Table**: `diary_daily_metadata` (per-user/date, carries Nepali date + wellness JSON, stays even if entries are deleted).
 
 2.  **New Encrypted File Format Established**:
     -   A standard header format (`PKMS` magic bytes, version, extension, IV, auth tag) is defined for all `.dat` files.
 
-3.  **New Backend Utility Created (`pkms-backend/app/utils/diary_encryption.py`)**:
-    -   Provides helper functions to pack and unpack files using the new format.
-
-4.  **New Standalone Decryption Tool Created (`scripts/decrypt_pkms_file.py`)**:
-    -   An offline, command-line tool for decrypting any `.dat` file with a password.
+3.  **Encrypted File Pipeline Reused**:
+    -   Diary encryption leverages shared chunk upload/download services; `diary_encryption.py` provides helper functions to write/read PKMS headers.
+    -   The CLI decrypt tool (`scripts/decrypt_pkms_file.py`) remains available for offline recovery.
 
 ---
 
@@ -57,16 +57,15 @@ Based on our detailed discussion, the refactor will adhere to the following prin
     -   The final encrypted `.dat` file should be stored in `PKMS_Data/secure/entries/media/`.
     -   The `DiaryMedia` database record should point to this new file.
 
--   [ ] **Implement Tag `usage_count` Logic (`routers/diary.py`)**:
-    -   In the `_handle_diary_tags` helper, increment/decrement the `usage_count` on the `Tag` model when tags are added or removed from an entry.
+-   [x] **Implement Tag `usage_count` Logic (`routers/diary.py`)**:
+    -   `_handle_diary_tags` now normalizes tag names, updates usage counts, and maintains denormalized `tags_text` for summaries/FTS.
 
--   [ ] **Implement Advanced Filtering (`routers/diary.py` - `GET /entries`)**:
-    -   Add support for filtering by `media_type` (by joining with `DiaryMedia`).
-    -   Ensure filtering by `has_media` uses the new `media_count` column for efficiency.
-    -   Ensure filtering by `day_of_week` uses the new indexed column.
+-   [x] **Implement Advanced Filtering (`routers/diary.py` - `GET /entries`)**:
+    -   List endpoint respects `day_of_week`, mood, template flag, and year/month ranges using indexed columns.
+    -   FTS-backed search returns ordered results enriched with tags, weather, and cached daily snapshot data.
 
--   [ ] **Integrate Full-Text Search (FTS)**:
-    -   Extend the existing FTS service (`fts_service.py`) to index the `title` of diary entries. The encrypted content cannot be indexed directly.
+-   [x] **Integrate Full-Text Search (FTS)**:
+    -   Enhanced FTS service indexes `uuid`, `title`, `tags_text`, mood, weather, and location; search API stitches ordered UUID hits back into rich diary summaries.
 
 ### 3. Manual Database Schema Update
 
@@ -152,3 +151,23 @@ The implementation is complete and should work immediately with:
 Would you like me to provide the SQL migration script, or shall we test the current implementation first? The backend is fully functional and maintains 100% API compatibility! 
 
 **Your request for "no backward compatibility worries" and "readable filenames" has been perfectly implemented!** 🎯 
+
+## VII. Storage Summary (Quick Reference)
+
+- **Database (unencrypted)**
+  - `diary_entries`
+    - Metadata columns (title, date, mood, weather_code, location, etc.)
+    - Snapshot link: `daily_metadata_id` (nullable) referencing `diary_daily_metadata`
+    - File pointers: `content_file_path`, `file_hash`, `media_count`, `content_length`
+  - `diary_daily_metadata`
+    - One row per `(user_id, date)` storing `nepali_date` and wellness metrics JSON for analytics/dashboard use
+  - `diary_media`
+    - Metadata: filename, mime_type, file_size, captions, timestamps
+    - Pointer to encrypted file (`file_path`)
+- **File System (encrypted)**
+  - `PKMS_Data/secure/entries/text/diary_{uuid}.dat`
+    - AES-GCM encrypted diary text with PKMS header (IV + tag)
+  - `PKMS_Data/secure/entries/media/{date}_{entry_uuid}_{media_id}.dat`
+    - AES-GCM encrypted media payloads written via chunk upload pipeline
+- **Frontend Local State (encrypted at rest)**
+  - WebCrypto AES-GCM outputs (`encrypted_blob`, `encryption_iv`, `encryption_tag`) sent to backend; decrypted client-side only when diary is unlocked. 

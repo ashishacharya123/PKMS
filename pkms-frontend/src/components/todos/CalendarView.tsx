@@ -215,14 +215,12 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       <Menu.Item
                         leftSection={<IconEdit size={12} />}
                         onClick={() => onTodoEdit(todo)}
-                        size="xs"
                       >
                         Edit
                       </Menu.Item>
                       <Menu.Item
                         leftSection={<IconArchive size={12} />}
                         onClick={() => onTodoArchive(todo.id)}
-                        size="xs"
                       >
                         Archive
                       </Menu.Item>
@@ -230,7 +228,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         leftSection={<IconTrash size={12} />}
                         color="red"
                         onClick={() => onTodoDelete(todo.id)}
-                        size="xs"
                       >
                         Delete
                       </Menu.Item>

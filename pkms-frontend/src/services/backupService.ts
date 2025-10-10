@@ -277,7 +277,7 @@ class BackupService {
   formatWalStatus(walStatus: any): string {
     if (!walStatus?.wal_analysis) return 'Unknown';
     
-    const { current_size_mb, percentage_of_threshold, status, recommendation } = walStatus.wal_analysis;
+    const { current_size_mb, percentage_of_threshold, recommendation } = walStatus.wal_analysis;
     
     return `${current_size_mb}MB (${percentage_of_threshold.toFixed(1)}% of threshold) - ${recommendation}`;
   }

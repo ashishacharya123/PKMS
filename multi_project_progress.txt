@@ -1,0 +1,105 @@
+## Multi-Project Integration Implementation - 2025-01-10
+
+Implemented comprehensive multi-project support across Notes, Documents, and Todos with both linked and exclusive modes.
+
+### Backend Phase (100% Complete):
+
+#### Database Schema Updates:
+- Created `app/models/associations.py` with junction tables:
+  - `note_projects` (many-to-many Note ↔ Project)
+  - `document_projects` (many-to-many Document ↔ Project)
+  - `todo_projects` (many-to-many Todo ↔ Project)
+- Added `project_name_snapshot` column for deleted project names
+- Added `project_id` with `ondelete='SET NULL'` for graceful deletion
+- Updated models with `is_exclusive_mode` boolean flag
+
+#### Model Updates:
+- MODIFIED: `pkms-backend/app/models/note.py` - Added `is_exclusive_mode`, `projects` relationship
+- MODIFIED: `pkms-backend/app/models/document.py` - Added `is_exclusive_mode`, `projects` relationship
+- MODIFIED: `pkms-backend/app/models/todo.py` - Added `is_exclusive_mode`, `projects` relationship
+- MODIFIED: `pkms-backend/app/models/todo.py` (Project model) - Added reverse relationships for many-to-many
+
+#### Schema Updates:
+- Added `ProjectBadge` schema (id, name, color, is_exclusive, is_deleted)
+- Updated `NoteCreate`, `NoteUpdate`, `NoteResponse` with `project_ids`, `is_exclusive_mode`, `projects`
+- Updated `DocumentUpdate`, `CommitDocumentUploadRequest`, `DocumentResponse` with project fields
+- Updated `TodoCreate`, `TodoUpdate`, `TodoResponse` with project fields
+
+#### Router Updates:
+- MODIFIED: `pkms-backend/app/routers/notes.py`:
+  - Added `_handle_note_projects()` helper for junction table management
+  - Added `_build_project_badges()` helper for fetching live + deleted projects
+  - Updated create/update/get/list endpoints with project support
+  - Added exclusive mode filtering (exclusive items hidden from main list)
+- MODIFIED: `pkms-backend/app/routers/documents.py`:
+  - Added `_handle_document_projects()` helper
+  - Added `_build_document_project_badges()` helper
+  - Updated commit/update/get/list endpoints with project support
+  - Added exclusive mode filtering
+- MODIFIED: `pkms-backend/app/routers/todos.py`:
+  - Added `_handle_todo_projects()` helper
+  - Added `_build_todo_project_badges()` helper
+  - Updated create/update/get/list endpoints with project support
+  - Added exclusive mode filtering
+  - Updated `delete_project` endpoint to snapshot names and cascade delete exclusive items
+
+### Frontend Phase (60% Complete):
+
+#### Shared Components (100%):
+- NEW: `pkms-frontend/src/components/common/MultiProjectSelector.tsx` (151 lines)
+  - MultiSelect dropdown with searchable project selection
+  - Exclusive mode checkbox with visual indicators (Lock/Link icons)
+  - Warning alert for exclusive mode
+  - Visual project badges with color dots
+- NEW: `pkms-frontend/src/components/common/ProjectBadges.tsx` (102 lines)
+  - Displays project associations with badges
+  - Shows deleted projects (grayed out with trash icon)
+  - Shows exclusive/linked status (lock/link icons)
+  - Clickable navigation to project dashboard
+  - Tooltip with project details
+  - Support for +N more badge
+
+#### TypeScript Interfaces (100%):
+- MODIFIED: `pkms-frontend/src/services/notesService.ts` - Added `ProjectBadge`, updated `Note` interface
+- MODIFIED: `pkms-frontend/src/services/documentsService.ts` - Added `ProjectBadge`, updated `Document` interface
+- MODIFIED: `pkms-frontend/src/services/todosService.ts` - Added `ProjectBadge`, updated `Todo` interface
+
+#### Notes Integration (100%):
+- MODIFIED: `pkms-frontend/src/pages/NoteEditorPage.tsx`:
+  - Added `projectIds` and `isExclusive` state
+  - Integrated `MultiProjectSelector` in metadata sidebar
+  - Updated save logic to include `projectIds` and `isExclusiveMode`
+  - Load existing project associations on edit
+- MODIFIED: `pkms-frontend/src/pages/NotesPage.tsx`:
+  - Added `ProjectBadges` import
+  - Display project badges in list view (max 2)
+  - Display project badges in grid view (max 3)
+
+#### Documents Integration (Pending):
+- TODO: Update document upload/edit modal with `MultiProjectSelector`
+- TODO: Display `ProjectBadges` in documents list
+
+#### Todos Integration (Pending):
+- TODO: Update todo create/edit modal with `MultiProjectSelector`
+- TODO: Display `ProjectBadges` in todos list/kanban
+
+#### Project Dashboard (Pending):
+- TODO: Update to show exclusive vs linked items separately
+- TODO: Add visual indicators for item modes
+
+### Key Features:
+1. **Linked Mode** (default):
+   - Items survive project deletion
+   - Project name preserved in `project_name_snapshot`
+   - Displayed as grayed-out deleted badge
+2. **Exclusive Mode**:
+   - Items hard-deleted when any linked project is deleted
+   - Never appear in main lists (only in project dashboards)
+   - Visual warning in UI
+3. **Multi-Project Support**:
+   - Items can belong to multiple projects
+   - Junction tables track all associations
+   - Efficient badge display with overflow handling
+
+**Next Steps**: Complete Documents and Todos integration, update project dashboard, test all scenarios.
+

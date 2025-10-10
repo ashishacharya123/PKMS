@@ -37,7 +37,7 @@ class KeyboardShortcutService {
   }
 
   unregisterShortcut(key: string, ctrl: boolean = false, alt: boolean = false, shift: boolean = false, meta: boolean = false): void {
-    const configKey = this.generateKey({ key, ctrl, alt, shift, meta, description: '', category: '', action: () => {} });
+    const configKey = this.generateKey({ key, ctrl, alt, shift, meta });
     this.shortcuts.delete(configKey);
   }
 
@@ -164,6 +164,11 @@ class KeyboardShortcutService {
     });
 
     return this.shortcuts.get(configKey) || null;
+  }
+
+  public showHelp(): void {
+    this.helpOpen = true;
+    this.showHelpModal();
   }
 
   private toggleHelp(): void {
@@ -308,8 +313,8 @@ class KeyboardShortcutService {
 
   private openGlobalSearch(): void {
     // Navigate to search page or open search modal
-    if (window.location.pathname !== '/search') {
-      window.location.href = '/search';
+    if (window.location.pathname !== '/search/unified') {
+      window.location.href = '/search/unified';
     } else {
       this.focusSearch();
     }
@@ -383,7 +388,7 @@ export const useKeyboardShortcuts = () => {
     enable: keyboardShortcuts.enable.bind(keyboardShortcuts),
     disable: keyboardShortcuts.disable.bind(keyboardShortcuts),
     getShortcutsList: keyboardShortcuts.getShortcutsList.bind(keyboardShortcuts),
-    showHelp: keyboardShortcuts.toggleHelp.bind(keyboardShortcuts)
+    showHelp: keyboardShortcuts.showHelp.bind(keyboardShortcuts)
   };
 };
 

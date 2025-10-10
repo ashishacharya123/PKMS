@@ -49,11 +49,9 @@ async def setup_user(
     Comprehensive user setup (creates user + recovery questions + diary password)
     Everything is set up in one go - no more first_login complexity!
     """
-    # Check if any user already exists
-    result = await db.execute(select(User))
-    existing_user = result.scalar_one_or_none()
-    
-    if existing_user:
+    # Check if any user already exists (use COUNT to avoid MultipleResultsFound)
+    user_count = await db.scalar(select(func.count(User.id)))
+    if user_count and user_count > 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User already exists. Use login endpoint instead."
@@ -126,7 +124,17 @@ async def setup_user(
     # Create JWT access token
     access_token = create_access_token(data={"sub": str(user.id)})
 
-    # Set secure cookie
+    # Set access token in HttpOnly cookie (XSS protection)
+    response.set_cookie(
+        key="pkms_token",
+        value=access_token,
+        max_age=settings.access_token_expire_minutes * 60,  # 30 minutes
+        httponly=True,
+        secure=(settings.environment == "production"),
+        samesite="lax"
+    )
+
+    # Set refresh token cookie
     response.set_cookie(
         key="pkms_refresh",
         value=session_token,
@@ -137,7 +145,7 @@ async def setup_user(
     )
     
     return TokenResponse(
-        access_token=access_token,
+        access_token=access_token,  # Still return in body for backward compatibility during transition
         expires_in=settings.access_token_expire_minutes * 60,
         user_id=user.id,
         username=user.username
@@ -215,6 +223,16 @@ async def login(
     
     await db.commit()
     
+    # Set access token in HttpOnly cookie (XSS protection)
+    response.set_cookie(
+        key="pkms_token",
+        value=access_token,
+        max_age=settings.access_token_expire_minutes * 60,  # 30 minutes
+        httponly=True,
+        secure=(settings.environment == "production"),
+        samesite="lax"
+    )
+    
     # Set refresh token cookie
     response.set_cookie(
         key="pkms_refresh",
@@ -226,7 +244,7 @@ async def login(
     )
     
     return TokenResponse(
-        access_token=access_token,
+        access_token=access_token,  # Still return in body for backward compatibility during transition
         token_type="bearer",
         expires_in=settings.access_token_expire_minutes * 60,
         user_id=user.id,
@@ -236,20 +254,32 @@ async def login(
 
 @router.post("/logout")
 async def logout(
+    response: Response,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    session_token: str | None = Cookie(default=None, alias="pkms_refresh")
 ):
     """
-    User logout
-    Note: With JWT tokens, logout is handled client-side by removing the token.
-    This endpoint is provided for completeness and future session management.
+    User logout - Clear cookies and invalidate session
     """
     try:
         # Clear diary session (in-memory) on logout for safety
         from app.routers.diary import _clear_diary_session
         _clear_diary_session(current_user.id)
+        
+        # Delete session from database
+        if session_token:
+            await db.execute(
+                delete(Session).where(Session.session_token == session_token)
+            )
+            await db.commit()
     except Exception:
         pass
+    
+    # Clear cookies
+    response.delete_cookie(key="pkms_token", samesite="lax")
+    response.delete_cookie(key="pkms_refresh", samesite="lax")
+    
     return {"message": "Successfully logged out"}
 
 
@@ -453,18 +483,38 @@ async def refresh_access_token(
         # Issue new access token
         access_token = create_access_token(data={"sub": str(user.id)})
 
-        # Slide session expiry by another 7 days
-        session.expires_at = now + timedelta(days=7)
+        # Update last activity but DON'T slide expiry infinitely
+        # Max validity: 1 day from creation, no sliding window
+        session.last_activity = now
+        max_expiry = session.created_at + timedelta(days=1) if session.created_at else now + timedelta(days=1)
+        
+        # Don't extend beyond 1 day from creation
+        if session.expires_at < max_expiry:
+            # Can still extend a bit, but not beyond max_expiry
+            potential_new_expiry = now + timedelta(days=settings.refresh_token_lifetime_days)
+            session.expires_at = min(potential_new_expiry, max_expiry)
+        # else: already at max, don't extend
+        
         await db.commit()
 
-        # refresh cookie max-age
+        # Set access token in HttpOnly cookie (XSS protection)
+        response.set_cookie(
+            key="pkms_token",
+            value=access_token,
+            max_age=settings.access_token_expire_minutes * 60,  # 30 minutes
+            httponly=True,
+            secure=(settings.environment == "production"),
+            samesite="lax"
+        )
+
+        # Refresh cookie max-age
         response.set_cookie(
             key="pkms_refresh",
             value=session_token,
             httponly=True,
             samesite="lax",
             secure=settings.environment == "production",
-            max_age=7*24*60*60
+            max_age=settings.refresh_token_lifetime_days * 24 * 60 * 60
         )
 
         return TokenResponse(

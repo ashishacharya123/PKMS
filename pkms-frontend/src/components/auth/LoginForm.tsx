@@ -20,7 +20,7 @@ import { API_BASE_URL } from '../../config';
 
 interface LoginFormProps {
   onSwitchToSetup: () => void;
-  onShowRecovery?: () => void;
+  onShowRecovery?: (username: string) => void;
 }
 
 export function LoginForm({ onSwitchToSetup, onShowRecovery }: LoginFormProps) {
@@ -245,7 +245,7 @@ export function LoginForm({ onSwitchToSetup, onShowRecovery }: LoginFormProps) {
                 {onShowRecovery && (
                   <Anchor 
                     size="sm" 
-                    onClick={onShowRecovery}
+                    onClick={() => onShowRecovery(username.trim())}
                     style={{ cursor: 'pointer' }}
                     c="orange"
                   >

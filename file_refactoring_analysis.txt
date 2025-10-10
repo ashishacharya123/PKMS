@@ -1,0 +1,534 @@
+# PKMS Codebase Refactoring Analysis
+Generated: 2025-10-10
+
+## EXECUTIVE SUMMARY
+This analysis examines the PKMS (Personal Knowledge Management System) codebase for:
+1. Redundant/duplicate files
+2. Potential consolidation opportunities
+3. File organization and architecture blueprint
+4. Recommendations for improvement
+
+---
+
+## 1. DUPLICATE & BACKUP FILES (TO BE REMOVED)
+
+### Frontend
+1. **pkms-frontend/src/pages/ProjectDashboardPage.tsx.backup**
+   - Status: DUPLICATE
+   - Action: DELETE (main file exists)
+   - Risk: None
+
+### Backend
+2. **pkms-backend/app/schemas/auth.py.backup**
+   - Status: DUPLICATE
+   - Action: DELETE (main file exists)
+   - Risk: None
+
+---
+
+## 2. POTENTIALLY REDUNDANT/SIMILAR FILES
+
+### Search Components (HIGH SIMILARITY - CONSIDER CONSOLIDATION)
+
+**Issue**: Multiple search-related components with overlapping functionality
+
+A. **Diary Search Components**:
+   - `components/diary/DiarySearch.tsx` - Basic diary search
+   - `components/diary/AdvancedDiarySearch.tsx` - Advanced diary search
+   - **Recommendation**: These are appropriately separated (basic vs advanced)
+   - **Action**: KEEP AS IS
+
+B. **Global Search Components**:
+   - `components/search/UnifiedSearch.tsx` - FTS5 unified search
+   - `pages/FuzzySearchPage.tsx` - Fuzzy/typo-tolerant search
+   - `pages/UnifiedSearchPage.tsx` - Page wrapper for UnifiedSearch
+   - **Analysis**: Each serves distinct purpose
+   - **Action**: KEEP AS IS (different algorithms)
+
+C. **Search Service Architecture**:
+   - Backend: `routers/search.py` - Standard search
+   - Backend: `routers/search_enhanced.py` - Enhanced FTS5 search
+   - Backend: `routers/advanced_fuzzy.py` - Advanced fuzzy search
+   - **Analysis**: Three different search strategies
+   - **Recommendation**: Consider consolidating search.py and search_enhanced.py
+   - **Action**: EVALUATE for merging
+
+---
+
+## 3. ARCHITECTURE BLUEPRINT
+
+### FRONTEND STRUCTURE (pkms-frontend/src/)
+
+#### A. CORE APPLICATION
+```
+App.tsx                    - Main application router and layout
+main.tsx                   - React entry point
+config.ts                  - Configuration constants
+```
+
+#### B. PAGES (User-facing routes)
+```
+AUTHENTICATION:
+- AuthPage.tsx            - Login/setup landing page
+
+DASHBOARD:
+- DashboardPage.tsx       - Main dashboard with stats
+
+NOTES MODULE:
+- NotesPage.tsx           - Notes list/grid view
+- NoteEditorPage.tsx      - Rich text note editor
+- NoteViewPage.tsx        - Read-only note viewer
+
+DOCUMENTS MODULE:
+- DocumentsPage.tsx       - Document management
+
+DIARY MODULE:
+- DiaryPage.tsx           - Diary entries list + form
+- DiaryViewPage.tsx       - Single diary entry view
+
+TODOS MODULE:
+- TodosPage.tsx           - Todo management with Kanban/Calendar/Timeline
+
+ARCHIVE MODULE:
+- ArchivePage.tsx         - Archive folder/item browser
+
+PROJECTS MODULE:
+- ProjectDashboardPage.tsx - Project analytics and management
+
+SEARCH MODULES:
+- UnifiedSearchPage.tsx   - FTS5 cross-module search wrapper
+- FuzzySearchPage.tsx     - Typo-tolerant fuzzy search
+```
+
+#### C. COMPONENTS (Reusable UI)
+
+**Common/Shared:**
+```
+shared/
+- Layout.tsx              - App shell with header/sidebar
+- Navigation.tsx          - Left sidebar navigation
+- TestingInterface.tsx    - Debug/testing UI
+- BackupRestoreModal.tsx  - Backup and restore functionality
+
+common/
+- ViewMenu.tsx            - View mode switcher (grid/list/compact)
+- ViewModeLayouts.tsx     - Renders different view layouts
+```
+
+**Authentication:**
+```
+auth/
+- AuthReadyWrapper.tsx    - Auth state wrapper
+- LoginForm.tsx           - Login form component
+- SetupForm.tsx           - Initial user setup form
+- RecoveryModal.tsx       - Password recovery modal
+- RecoverySetupModal.tsx  - Recovery questions setup
+- RecoveryViewModal.tsx   - View recovery questions
+```
+
+**Diary:**
+```
+diary/
+- DailyMetricsPanel.tsx       - Daily wellness tracker (NEW)
+- HistoricalEntries.tsx       - Past entries viewer (NEW)
+- MoodStatsWidget.tsx         - Mood statistics display
+- MoodTrendChart.tsx          - Mood trends graph
+- DiarySearch.tsx             - Basic diary search
+- AdvancedDiarySearch.tsx     - Advanced diary search with filters
+- EncryptionStatus.tsx        - Diary encryption indicator
+- SessionTimeoutWarning.tsx   - Diary session timeout
+- KeyboardShortcutsHelp.tsx   - Keyboard shortcuts modal
+- WellnessBadges.tsx          - Wellness metric badges
+```
+
+**Todos:**
+```
+todos/
+- KanbanBoard.tsx         - Kanban drag-drop board
+- CalendarView.tsx        - Calendar-based todo view
+- TimelineView.tsx        - Gantt/timeline view
+- SubtaskList.tsx         - Subtask management
+- SubtaskItem.tsx         - Individual subtask component
+```
+
+**Search:**
+```
+search/
+- UnifiedSearch.tsx           - Main unified search UI
+- UnifiedSearchFilters.tsx    - Filter panel for unified search
+- SearchSuggestions.tsx       - Search autocomplete/suggestions
+```
+
+**Archive:**
+```
+archive/
+- FolderTree.tsx          - Hierarchical folder tree
+```
+
+**Calendar:**
+```
+calendar/
+- UnifiedCalendar.tsx     - Cross-module calendar view
+```
+
+#### D. SERVICES (API Communication Layer)
+```
+CORE:
+- api.ts                  - Axios instance, interceptors, auth headers
+- authService.ts          - Authentication API calls
+- dashboardService.ts     - Dashboard stats API
+
+MODULE SERVICES:
+- notesService.ts         - Notes CRUD operations
+- documentsService.ts     - Documents CRUD + upload
+- diaryService.ts         - Diary CRUD + encryption
+- diaryTemplates.ts       - Diary template management
+- todosService.ts         - Todos CRUD
+- archiveService.ts       - Archive CRUD
+- searchService.ts        - FTS5/fuzzy search API
+- unifiedCalendar.ts      - Calendar data aggregation
+
+UTILITIES:
+- backupService.ts        - Backup/restore operations
+- bulkOperations.ts       - Bulk operations (delete, tag, etc.)
+- testingService.ts       - Testing/debug API calls
+- keyboardShortcuts.ts    - Keyboard shortcut definitions
+
+SHARED UTILITIES:
+- shared/coreUploadService.ts    - Chunked file upload
+- shared/coreDownloadService.ts  - File download with progress
+```
+
+#### E. STORES (State Management - Zustand)
+```
+- authStore.ts            - User auth state
+- notesStore.ts           - Notes state
+- documentsStore.ts       - Documents state
+- diaryStore.ts           - Diary state + encryption
+- todosStore.ts           - Todos state
+- archiveStore.ts         - Archive state
+```
+
+#### F. HOOKS (React Custom Hooks)
+```
+- useAuthenticatedApi.ts      - Auto-refreshing auth API calls
+- useAuthenticatedEffect.ts   - useEffect that requires auth
+- useDateTime.ts              - Real-time date/time with Nepali calendar
+- useDragAndDrop.ts           - Drag and drop logic
+- useGlobalKeyboardShortcuts.ts - App-wide keyboard shortcuts
+- useKeyboardShortcuts.ts     - Component-level shortcuts
+- useViewPreferences.ts       - User view mode preferences
+```
+
+#### G. TYPES (TypeScript Interfaces)
+```
+- api.ts                  - Generic API response types
+- auth.ts                 - Auth-related types
+- archive.ts              - Archive types
+- diary.ts                - Diary + wellness types
+- index.ts                - Barrel export
+```
+
+#### H. UTILS (Utility Functions)
+```
+- diary.ts                - Diary helper functions
+- logger.ts               - Console logging utility
+- testUtils.ts            - Testing helpers
+```
+
+#### I. STYLES
+```
+- DiaryPage.css           - Diary-specific styles
+- mantine-override.css    - Mantine theme overrides
+- searchStyles.ts         - Search component styles (TS)
+```
+
+---
+
+### BACKEND STRUCTURE (pkms-backend/app/)
+
+#### A. CORE
+```
+__init__.py               - App initialization
+config.py                 - Configuration (env vars)
+database.py               - SQLAlchemy setup, session management
+```
+
+#### B. AUTHENTICATION
+```
+auth/
+- security.py             - Password hashing, JWT creation/verification
+- dependencies.py         - FastAPI dependencies (get_current_user)
+```
+
+#### C. MIDDLEWARE
+```
+middleware/
+- diary_access.py         - Diary encryption access control
+- sanitization.py         - Input sanitization
+```
+
+#### D. MODELS (SQLAlchemy ORM)
+```
+models/
+- base.py                 - Base model with common fields
+- user.py                 - User model
+- note.py                 - Note model
+- document.py             - Document model
+- todo.py                 - Todo model with subtasks/dependencies
+- diary.py                - Diary entry + daily metadata models
+- archive.py              - Archive folder + item models
+- tag.py                  - Tag model
+- tag_associations.py     - Many-to-many tag relationships
+- link.py                 - Link tracking model
+```
+
+#### E. ROUTERS (API Endpoints)
+```
+routers/
+- auth.py                 - /auth/* endpoints (login, setup, recovery)
+- notes.py                - /notes/* CRUD endpoints
+- documents.py            - /documents/* CRUD + upload endpoints
+- todos.py                - /todos/* CRUD endpoints
+- diary.py                - /diary/* CRUD + encryption endpoints
+- archive.py              - /archive/* CRUD endpoints
+- tags.py                 - /tags/* endpoints
+- uploads.py              - /uploads/* chunked upload endpoints
+- dashboard.py            - /dashboard/* stats endpoints
+- backup.py               - /backup/* backup/restore endpoints
+- testing.py              - /testing/* debug endpoints
+
+SEARCH ROUTERS:
+- search.py               - /search/* basic search
+- search_enhanced.py      - /search/fts5 enhanced FTS5 search
+- advanced_fuzzy.py       - /advanced-fuzzy-search RapidFuzz search
+```
+
+#### F. SCHEMAS (Pydantic)
+```
+schemas/
+- auth.py                 - Auth request/response schemas
+- note.py                 - Note schemas
+- document.py             - Document schemas
+- todo.py                 - Todo schemas
+- diary.py                - Diary schemas
+- archive.py              - Archive schemas
+- tag.py                  - Tag schemas
+- link.py                 - Link schemas
+- dashboard.py            - Dashboard stat schemas
+```
+
+#### G. SERVICES (Business Logic)
+```
+services/
+- chunk_service.py        - Chunked upload handling
+- chunk_assembly.py       - File chunk assembly
+- file_detection.py       - MIME type detection
+- fts_service_enhanced.py - FTS5 full-text search logic
+- hybrid_search.py        - Hybrid search combining multiple strategies
+- search_cache_service.py - Search result caching
+- tag_sync_service.py     - Tag synchronization across modules
+```
+
+#### H. UTILS
+```
+utils/
+- diary_encryption.py     - Diary content encryption helpers
+- security.py             - General security utilities
+```
+
+---
+
+## 4. REDUNDANCY ANALYSIS
+
+### A. SEARCH ARCHITECTURE (REVIEW RECOMMENDED)
+
+**Current State**:
+- 3 separate search routers (search.py, search_enhanced.py, advanced_fuzzy.py)
+- 2 frontend search pages (UnifiedSearchPage, FuzzySearchPage)
+- 1 search service with multiple methods
+
+**Analysis**:
+- `search.py` and `search_enhanced.py` both use FTS5
+- Could be merged into single router with mode parameter
+- **Recommendation**: Merge search.py into search_enhanced.py
+- **Benefit**: Reduced code duplication, single FTS5 implementation
+
+**Action Items**:
+1. Consolidate FTS5 logic into search_enhanced.py
+2. Deprecate search.py
+3. Update frontend to only use /search/fts5 endpoint
+
+### B. DIARY SEARCH (WELL ORGANIZED)
+
+**Current State**:
+- DiarySearch.tsx - Basic search
+- AdvancedDiarySearch.tsx - Advanced with filters
+
+**Analysis**: Appropriate separation of concerns
+**Action**: KEEP AS IS
+
+### C. VIEW LAYOUTS (WELL ABSTRACTED)
+
+**Current State**:
+- ViewMenu.tsx - Mode selector
+- ViewModeLayouts.tsx - Rendering logic
+
+**Analysis**: Good separation, reusable across modules
+**Action**: KEEP AS IS
+
+### D. TODO VIEWS (WELL ORGANIZED)
+
+**Current State**:
+- KanbanBoard.tsx - Kanban view
+- CalendarView.tsx - Calendar view
+- TimelineView.tsx - Timeline view
+
+**Analysis**: Each view is distinct, no duplication
+**Action**: KEEP AS IS
+
+---
+
+## 5. ORGANIZATION ISSUES
+
+### A. FILE NAMING INCONSISTENCIES
+
+**Issue**: Some files use PascalCase, others use camelCase
+- Frontend: Mostly PascalCase (good for React components) ✓
+- Backend: Mostly snake_case (Python convention) ✓
+- **Action**: No changes needed
+
+### B. NESTED FOLDER DEPTH
+
+**Issue**: Some deep nesting in components
+- Example: `components/shared/`, `components/common/`
+- **Observation**: Both contain shared components
+- **Recommendation**: Consider merging `common/` into `shared/`
+- **Benefit**: Less confusion about where to put shared components
+
+### C. SERVICE ORGANIZATION
+
+**Frontend Services**:
+- Well organized by module ✓
+- `shared/` subfolder for upload/download ✓
+
+**Backend Services**:
+- All services in flat structure
+- **Recommendation**: Create subfolders for search, upload, etc.
+
+---
+
+## 6. CODE QUALITY OBSERVATIONS
+
+### STRENGTHS:
+1. ✅ Clear module separation (notes, docs, diary, todos, archive)
+2. ✅ Consistent use of TypeScript interfaces
+3. ✅ Zustand stores well organized
+4. ✅ Custom hooks promote reusability
+5. ✅ Service layer abstracts API calls
+6. ✅ Pydantic schemas for validation
+7. ✅ SQLAlchemy models well structured
+
+### AREAS FOR IMPROVEMENT:
+1. ⚠️ Multiple search implementations (consolidate)
+2. ⚠️ Backup files in codebase (delete)
+3. ⚠️ `common/` vs `shared/` ambiguity (merge)
+4. ⚠️ Some large page files (>1000 lines) - consider splitting
+
+---
+
+## 7. IMMEDIATE ACTION ITEMS
+
+### HIGH PRIORITY (Do Now):
+1. **Delete backup files**:
+   - pkms-frontend/src/pages/ProjectDashboardPage.tsx.backup
+   - pkms-backend/app/schemas/auth.py.backup
+
+2. **Document search strategy**:
+   - Add comments explaining when to use each search type
+   - Create developer documentation
+
+### MEDIUM PRIORITY (Next Sprint):
+3. **Consolidate search routers**:
+   - Merge search.py into search_enhanced.py
+   - Update frontend to use consolidated endpoint
+
+4. **Merge common/ into shared/**:
+   - Move ViewMenu.tsx and ViewModeLayouts.tsx to shared/
+   - Update all imports
+
+### LOW PRIORITY (Future):
+5. **Split large files**:
+   - DiaryPage.tsx (1673 lines) - extract form components
+   - DocumentsPage.tsx - extract upload modal
+   - TodosPage.tsx - extract view components
+
+6. **Organize backend services**:
+   - Create services/search/ subfolder
+   - Create services/upload/ subfolder
+
+---
+
+## 8. ARCHITECTURAL STRENGTHS
+
+### EXCELLENT SEPARATION OF CONCERNS:
+1. **Frontend**: Pages → Components → Services → Stores
+2. **Backend**: Routers → Schemas → Models → Services
+3. **Clear boundaries** between modules
+4. **Reusable components** (ViewMenu, etc.)
+
+### GOOD PRACTICES:
+1. Custom hooks for common logic
+2. Service layer for API calls
+3. Type safety with TypeScript/Pydantic
+4. State management with Zustand
+5. Authentication middleware
+
+---
+
+## 9. RECOMMENDATIONS SUMMARY
+
+### DELETIONS:
+- [ ] ProjectDashboardPage.tsx.backup
+- [ ] auth.py.backup
+
+### CONSOLIDATIONS:
+- [ ] Merge search.py into search_enhanced.py
+- [ ] Consider merging common/ into shared/
+
+### REFACTORINGS:
+- [ ] Extract DiaryPage form components
+- [ ] Extract DocumentsPage upload modal
+- [ ] Organize backend services into subfolders
+
+### DOCUMENTATION:
+- [ ] Add architecture documentation
+- [ ] Document search strategy
+- [ ] Create contribution guidelines
+
+---
+
+## 10. CONCLUSION
+
+The PKMS codebase is **well-organized** with clear module boundaries and good separation of concerns. Main issues are:
+
+1. **Minor duplication**: 2 backup files to delete
+2. **Search complexity**: Multiple search implementations (can consolidate)
+3. **Organizational clarity**: common/ vs shared/ ambiguity
+
+**Overall Grade**: B+ (Very Good)
+
+**Main Strength**: Clear module structure, type safety, reusable components
+
+**Main Weakness**: Search architecture complexity, some large page files
+
+**Recommended Next Steps**:
+1. Delete backup files immediately
+2. Document search strategy
+3. Consider search router consolidation
+4. Plan for gradual component extraction from large files
+
+---
+
+END OF ANALYSIS
+

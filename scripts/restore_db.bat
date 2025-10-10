@@ -60,7 +60,8 @@ if %ERRORLEVEL% NEQ 0 (
 :: Restore database from backup
 echo.
 echo Restoring database from backup...
-docker run --rm -v pkms_db_data:/target -v "%cd%/PKMS_Data/backups":/source alpine sh -c "cp /source/%backup_file% /target/pkm_metadata.db"
+:: Note: Copy to Docker volume at /app/data/pkm_metadata.db
+docker compose cp PKMS_Data/backups/%backup_file% pkms-backend:/app/data/pkm_metadata.db
 
 if %ERRORLEVEL% EQU 0 (
     echo ✅ Database restored successfully from: %backup_file%

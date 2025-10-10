@@ -218,7 +218,8 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_date ON diary_entries(date);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_mood ON diary_entries(mood);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_location ON diary_entries(location);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_media_entry_id ON diary_media(diary_entry_id);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_is_template_date ON diary_entries(user_id, is_template, date DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_media_entry_uuid ON diary_media(diary_entry_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_media_user_id ON diary_media(user_id);",
                 
                 # Archive indexes

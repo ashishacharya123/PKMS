@@ -52,8 +52,8 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           const response = await authService.login(credentials);
           
           // Store token FIRST, then make authenticated requests
-          localStorage.setItem('pkms_token', response.access_token);
-          apiService.setAuthToken(response.access_token);
+          localStorage.setItem('pkms_token', response.accessToken);
+          apiService.setAuthToken(response.accessToken);
           
           const currentUser = await authService.getCurrentUser(); // Get full user details
           
@@ -65,7 +65,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
               ...currentUser,
               settings // Add parsed settings
             },
-            token: response.access_token,
+            token: response.accessToken,
             isAuthenticated: true,
             isLoading: false,
             error: null
@@ -98,8 +98,8 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           const currentUser = await authService.getCurrentUser(); // Get full user details
           
           // Store token and user data
-          localStorage.setItem('pkms_token', response.access_token);
-          apiService.setAuthToken(response.access_token);
+          localStorage.setItem('pkms_token', response.accessToken);
+          apiService.setAuthToken(response.accessToken);
           
           // Parse settings from JSON
           const settings = currentUser.settings_json ? JSON.parse(currentUser.settings_json) : {};
@@ -109,7 +109,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
               ...currentUser,
               settings // Add parsed settings
             },
-            token: response.access_token,
+            token: response.accessToken,
             isAuthenticated: true,
             isLoading: false,
             error: null

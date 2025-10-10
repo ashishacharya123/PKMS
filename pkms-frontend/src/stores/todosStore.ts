@@ -78,7 +78,7 @@ interface TodosState {
   reset: () => void;
 }
 
-const initialState: Omit<TodosState, 'reset' | 'clearCurrentProject' | 'clearCurrentTodo' | 'clearError' | 'setShowOverdue' | 'setSearch' | 'setTag' | 'setProjectFilter' | 'setPriority' | 'setStatus' | 'loadStats' | 'deleteProject' | 'updateProject' | 'createProject' | 'loadProject' | 'loadProjects' | 'deleteTodo' | 'completeTodo' | 'updateTodo' | 'createTodo' | 'loadTodo' | 'loadMore' | 'loadTodos' | 'archiveTodo' | 'unarchiveTodo' | 'setArchivedFilter'> = {
+const initialState: Omit<TodosState, 'reset' | 'clearCurrentProject' | 'clearCurrentTodo' | 'clearError' | 'setShowOverdue' | 'setSearch' | 'setTag' | 'setProjectFilter' | 'setPriority' | 'setStatus' | 'loadStats' | 'deleteProject' | 'updateProject' | 'createProject' | 'loadProject' | 'loadProjects' | 'deleteTodo' | 'completeTodo' | 'updateTodo' | 'updateTodoWithSubtasks' | 'createTodo' | 'loadTodo' | 'loadMore' | 'loadTodos' | 'archiveTodo' | 'unarchiveTodo' | 'setArchivedFilter'> = {
   todos: [],
   currentTodo: null,
   projects: [],
@@ -198,6 +198,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
         due_date: todo.due_date,
         priority: todo.priority,
         status: todo.status,
+        order_index: todo.order_index || 0,
         created_at: todo.created_at,
         tags: todo.tags,
         days_until_due: todo.days_until_due,
@@ -282,6 +283,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
         due_date: completedTodo.due_date,
         priority: completedTodo.priority,
         status: completedTodo.status,
+        order_index: completedTodo.order_index || 0,
         created_at: completedTodo.created_at,
         tags: completedTodo.tags,
         days_until_due: completedTodo.days_until_due,
@@ -337,7 +339,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
   archiveTodo: async (id: number) => {
     set({ isUpdating: true, error: null });
     try {
-      const updatedTodo = await todosService.archiveTodo(id, true);
+      await todosService.archiveTodo(id, true);
       set(state => ({
         todos: state.todos.map(todo => todo.id === id ? { ...todo, is_archived: true } : todo),
         isUpdating: false
@@ -350,7 +352,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
   unarchiveTodo: async (id: number) => {
     set({ isUpdating: true, error: null });
     try {
-      const updatedTodo = await todosService.archiveTodo(id, false);
+      await todosService.archiveTodo(id, false);
       set(state => ({
         todos: state.todos.map(todo => todo.id === id ? { ...todo, is_archived: false } : todo),
         isUpdating: false

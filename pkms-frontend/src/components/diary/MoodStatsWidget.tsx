@@ -101,16 +101,18 @@ export function MoodStatsWidget({ compact = false }: { compact?: boolean }) {
   }
   
   // Calculate percentage for each mood
-  const moodPercentages = Object.entries(mood_distribution).map(([mood, count]) => ({
+  const moodPercentages = mood_distribution ? Object.entries(mood_distribution).map(([mood, count]) => ({
     mood: parseInt(mood),
     count,
     percentage: total_entries > 0 ? (count / total_entries) * 100 : 0
-  }));
+  })) : [];
 
   // Get dominant mood
-  const dominantMood = moodPercentages.reduce((prev, current) => 
-    current.count > prev.count ? current : prev
-  );
+  const dominantMood = moodPercentages.length > 0 
+    ? moodPercentages.reduce((prev, current) => 
+        current.count > prev.count ? current : prev
+      )
+    : null;
 
   // Calculate trend (simple interpretation)
   const getTrendMessage = () => {
@@ -192,22 +194,28 @@ export function MoodStatsWidget({ compact = false }: { compact?: boolean }) {
             <Card withBorder p={compact ? 'sm' : 'md'}>
               <Stack gap={compact ? 4 : 'xs'}>
                 <Text size="sm" c="dimmed">Most Common Mood</Text>
-                <Group justify="space-between">
-                  <Text size={compact ? 'md' : 'lg'} fw={500}>
-                    {moodLabels[dominantMood.mood as keyof typeof moodLabels]}
-                  </Text>
-                  <Text size={compact ? 'md' : 'lg'}>
-                    {moodEmojis[dominantMood.mood as keyof typeof moodEmojis]}
-                  </Text>
-                </Group>
-                <Progress 
-                  value={dominantMood.percentage} 
-                  color={moodColors[dominantMood.mood as keyof typeof moodColors]}
-                  size={compact ? 'xs' : 'sm'}
-                />
-                <Text size="xs" c="dimmed">
-                  {dominantMood.percentage.toFixed(1)}% of your entries
-                </Text>
+                {dominantMood ? (
+                  <>
+                    <Group justify="space-between">
+                      <Text size={compact ? 'md' : 'lg'} fw={500}>
+                        {moodLabels[dominantMood.mood as keyof typeof moodLabels]}
+                      </Text>
+                      <Text size={compact ? 'md' : 'lg'}>
+                        {moodEmojis[dominantMood.mood as keyof typeof moodEmojis]}
+                      </Text>
+                    </Group>
+                    <Progress 
+                      value={dominantMood.percentage} 
+                      color={moodColors[dominantMood.mood as keyof typeof moodColors]}
+                      size={compact ? 'xs' : 'sm'}
+                    />
+                    <Text size="xs" c="dimmed">
+                      {dominantMood.percentage.toFixed(1)}% of your entries
+                    </Text>
+                  </>
+                ) : (
+                  <Text size="sm" c="dimmed">No mood data yet</Text>
+                )}
               </Stack>
             </Card>
           </Grid.Col>

@@ -10,6 +10,7 @@ from uuid import uuid4
 from app.models.base import Base
 from app.config import nepal_now
 from app.models.tag_associations import note_tags
+from app.models.associations import note_projects
 
 
 class Note(Base):
@@ -23,6 +24,7 @@ class Note(Base):
     content = Column(Text, nullable=False)
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
+    is_exclusive_mode = Column(Boolean, default=False, index=True)  # If True, note is deleted when any of its projects are deleted
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
@@ -34,6 +36,7 @@ class Note(Base):
     user = relationship("User", back_populates="notes")
     tag_objs = relationship("Tag", secondary=note_tags, back_populates="notes")
     files = relationship("NoteFile", back_populates="note", cascade="all, delete-orphan")
+    projects = relationship("Project", secondary=note_projects, back_populates="notes")
     
     def __repr__(self):
         return f"<Note(id={self.id}, title='{self.title}')>"

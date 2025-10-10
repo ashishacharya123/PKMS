@@ -73,12 +73,12 @@ export interface RecoveryReset {
 }
 
 export interface AuthResponse {
-  access_token: string;
-  token_type: string;
-  expires_in: number;
-  user_id: number;
+  accessToken: string;  // Backend returns camelCase due to CamelCaseModel
+  tokenType: string;
+  expiresIn: number;
+  userId: number;
   username: string;
-  is_first_login: boolean;
+  isFirstLogin?: boolean;  // Optional
 }
 
 export interface RecoveryKeyResponse {

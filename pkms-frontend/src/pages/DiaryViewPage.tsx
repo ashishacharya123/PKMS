@@ -39,7 +39,7 @@ export default function DiaryViewPage() {
         const content = await diaryService.decryptContent(
           entry.encrypted_blob,
           entry.encryption_iv,
-          entry.encryption_tag,
+          '',
           store.encryptionKey
         );
         setDecryptedContent(content);
@@ -47,7 +47,7 @@ export default function DiaryViewPage() {
         // Load first photo if any exists
         try {
           const full = await diaryService.getEntry(entry.uuid);
-          const mediaList = await diaryService.getEntryMedia((full as any).id);
+          const mediaList = await diaryService.getEntryMedia(full.uuid);
           const firstPhoto = (mediaList || []).find((m: any) => m.media_type === 'photo');
           if (firstPhoto) {
             const blob = await diaryService.downloadMedia(firstPhoto.id);
@@ -154,7 +154,7 @@ export default function DiaryViewPage() {
             ))}
           </Group>
           <Text size="xs" c="dimmed" mb="md">
-            {new Date(entry.updated_at).toLocaleString()}
+            {new Date(entry.created_at).toLocaleString()}
           </Text>
 
           {isDecrypting ? (
@@ -167,7 +167,7 @@ export default function DiaryViewPage() {
 
           {photoUrl && (
             <Paper p="md" mt="md">
-              <Image src={photoUrl} alt="Photo" radius="md" fit="contain" h={400} withPlaceholder />
+              <Image src={photoUrl} alt="Photo" radius="md" fit="contain" h={400} />
             </Paper>
           )}
         </Card>

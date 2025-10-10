@@ -25,6 +25,8 @@ import {
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import ViewModeLayouts, { formatDate, formatFileSize } from '../components/common/ViewModeLayouts';
 import { useViewPreferences } from '../hooks/useViewPreferences';
+import { MultiProjectSelector } from '../components/common/MultiProjectSelector';
+import { ProjectBadges } from '../components/common/ProjectBadges';
 import {
   IconUpload,
   IconSearch,
@@ -103,6 +105,8 @@ export function DocumentsPage() {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadTags, setUploadTags] = useState<string[]>([]);
+  const [uploadProjectIds, setUploadProjectIds] = useState<number[]>([]);
+  const [uploadIsExclusive, setUploadIsExclusive] = useState(false);
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const { getPreference, updatePreference } = useViewPreferences();
   const [viewMode, setViewMode] = useState<ViewMode>(getPreference('documents'));
@@ -213,21 +217,33 @@ export function DocumentsPage() {
     if (!uploadFile) return;
     
     try {
-      await uploadDocument(uploadFile, uploadTags);
+      const uploadedDoc = await uploadDocument(uploadFile, uploadTags, uploadProjectIds, uploadIsExclusive);
       
-      notifications.show({
-        title: 'Upload Successful',
-        message: `${uploadFile.name} has been uploaded successfully`,
-        color: 'green'
-      });
+      // Check if document is in the current list after upload
+      const isInList = documents.some(doc => doc.uuid === uploadedDoc?.uuid);
+      
+      if (isInList) {
+        notifications.show({
+          title: 'Upload Successful',
+          message: `${uploadFile.name} has been uploaded successfully`,
+          color: 'green'
+        });
+      } else {
+        // Document uploaded but not visible due to filters
+        notifications.show({
+          title: 'Upload Successful',
+          message: `${uploadFile.name} uploaded, but not visible due to current filters. Clear filters to see it.`,
+          color: 'blue',
+          autoClose: 7000
+        });
+      }
       
       // Close modal and reset form
       setUploadModalOpen(false);
       setUploadFile(null);
       setUploadTags([]);
-      
-      // Refresh documents list
-      await loadDocuments();
+      setUploadProjectIds([]);
+      setUploadIsExclusive(false);
     } catch (error) {
       console.error('Upload failed:', error);
       notifications.show({
@@ -629,6 +645,7 @@ export function DocumentsPage() {
                         <Text size="xs" c="dimmed">
                           {formatDate(document.updated_at)}
                         </Text>
+                        <ProjectBadges projects={document.projects || []} size="xs" maxVisible={2} />
                         {document.tags.slice(0, 2).map((tag) => (
                           <Badge key={tag} size="xs" variant="dot" style={{ cursor: 'pointer' }} onClick={() => setTag(tag)}>
                             {tag}
@@ -670,6 +687,7 @@ export function DocumentsPage() {
                   <Text size="sm" c="dimmed">{getFileTypeLabel(document.mime_type, document.original_name)}</Text>
                 </Group>,
                 <Group key="tags" gap={4}>
+                  <ProjectBadges projects={document.projects || []} size="xs" maxVisible={3} />
                   {document.tags.slice(0, 3).map((tag) => (
                     <Badge key={tag} size="xs" variant="dot" style={{ cursor: 'pointer' }} onClick={() => setTag(tag)}>
                       {tag}
@@ -803,6 +821,15 @@ export function DocumentsPage() {
             onSearchChange={handleTagSearch}
             splitChars={[',', ' ']}
             description="Add tags separated by comma or space. Start typing to see suggestions."
+          />
+
+          <MultiProjectSelector
+            value={uploadProjectIds}
+            onChange={setUploadProjectIds}
+            isExclusive={uploadIsExclusive}
+            onExclusiveChange={setUploadIsExclusive}
+            description="Link this document to one or more projects"
+            disabled={isUploading}
           />
 
           {isUploading && uploadProgress !== null && (

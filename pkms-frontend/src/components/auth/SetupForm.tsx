@@ -13,7 +13,6 @@ import {
   Progress,
   List,
   Group,
-  Divider,
   Select,
   Card,
   Badge,
@@ -23,6 +22,7 @@ import { useForm } from '@mantine/form';
 import { IconAlertCircle, IconUserPlus, IconCheck, IconShield, IconLock } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
 import { UserSetup } from '../../types/auth';
+import { notifications } from '@mantine/notifications';
 
 interface SetupFormProps {
   onSwitchToLogin: () => void;

@@ -1,199 +1,135 @@
-import React, { useState } from 'react';
-import { Box, Text, Button, Group, Modal, TextInput, Textarea, Select, NumberInput } from '@mantine/core';
-import { IconPlus, IconGripVertical } from '@tabler/icons-react';
-import { Todo, TodoCreate, createSubtask, reorderSubtasks } from '../../services/todosService';
-import { SubtaskItem } from './SubtaskItem';
-import { useDragAndDrop } from '../../hooks/useDragAndDrop';
+import { Stack, Group, Text, ActionIcon, Checkbox, Badge, Button, Collapse, Box } from '@mantine/core';
+import { IconPlus, IconGripVertical, IconEdit, IconTrash, IconChevronDown, IconChevronRight } from '@tabler/icons-react';
+import { useState } from 'react';
+import { TodoSummary } from '../../services/todosService';
+import { formatDate } from '../common/ViewModeLayouts';
 
 interface SubtaskListProps {
-  parentTodo: Todo;
-  subtasks: Todo[];
-  onSubtaskUpdate: (subtask: Todo) => void;
+  parentTodo: TodoSummary;
+  onSubtaskComplete: (subtaskId: number, isCompleted: boolean) => void;
+  onSubtaskEdit: (subtask: TodoSummary) => void;
   onSubtaskDelete: (subtaskId: number) => void;
-  onSubtaskEdit: (subtask: Todo) => void;
-  onSubtaskCreate: (subtask: Todo) => void;
+  onAddSubtask: () => void;
 }
 
-export const SubtaskList: React.FC<SubtaskListProps> = ({
+export function SubtaskList({
   parentTodo,
-  subtasks,
-  onSubtaskUpdate,
-  onSubtaskDelete,
+  onSubtaskComplete,
   onSubtaskEdit,
-  onSubtaskCreate
-}) => {
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newSubtask, setNewSubtask] = useState<TodoCreate>({
-    title: '',
-    description: '',
-    priority: 2,
-    status: 'pending'
-  });
-  const { draggedItem, handleDragStart, handleDragOver, handleDrop } = useDragAndDrop();
+  onSubtaskDelete,
+  onAddSubtask
+}: SubtaskListProps) {
+  const [isExpanded, setIsExpanded] = useState(true);
+  const subtasks = parentTodo.subtasks || [];
+  const hasSubtasks = subtasks.length > 0;
 
-  const handleCreateSubtask = async () => {
-    try {
-      const createdSubtask = await createSubtask(parentTodo.id, newSubtask);
-      onSubtaskCreate(createdSubtask);
-      setShowCreateModal(false);
-      setNewSubtask({ title: '', description: '', priority: 2, status: 'pending' });
-    } catch (error) {
-      console.error('Failed to create subtask:', error);
-    }
-  };
-
-  const handleSubtaskDragStart = (e: React.DragEvent, subtask: Todo) => {
-    handleDragStart(e, { todoId: subtask.id, sourceStatus: 'subtask', sourceOrderIndex: subtask.order_index });
-  };
-
-  const handleSubtaskDrop = async (e: React.DragEvent, targetIndex: number) => {
-    e.preventDefault();
-    if (draggedItem && draggedItem.sourceStatus === 'subtask') {
-      const newOrder = [...subtasks];
-      const draggedSubtask = subtasks.find(s => s.id === draggedItem.todoId);
-      if (draggedSubtask) {
-        // Remove from current position
-        const currentIndex = newOrder.findIndex(s => s.id === draggedItem.todoId);
-        if (currentIndex !== -1) {
-          newOrder.splice(currentIndex, 1);
-        }
-        // Insert at target position
-        newOrder.splice(targetIndex, 0, draggedSubtask);
-        
-        // Update order indices
-        const updatedSubtasks = newOrder.map((subtask, index) => ({
-          ...subtask,
-          order_index: index
-        }));
-        
-        // Call API to reorder
-        try {
-          await reorderSubtasks(parentTodo.id, updatedSubtasks.map(s => s.id));
-          // Update local state
-          updatedSubtasks.forEach(subtask => onSubtaskUpdate(subtask));
-        } catch (error) {
-          console.error('Failed to reorder subtasks:', error);
-        }
-      }
-    }
-  };
-
-  const getPriorityColor = (priority: number) => {
-    switch (priority) {
-      case 1: return '#4CAF50'; // Low - Green
-      case 2: return '#2196F3'; // Medium - Blue
-      case 3: return '#FF9800'; // High - Orange
-      case 4: return '#F44336'; // Urgent - Red
-      default: return '#757575';
-    }
-  };
+  const completedCount = subtasks.filter(st => st.status === 'done').length;
+  const totalCount = subtasks.length;
 
   return (
-    <Box>
-      <Group justify="space-between" align="center" mb="md">
-        <Text size="sm" fw={500} c="dimmed">
-          Subtasks ({subtasks.length})
+    <Box ml="md" mt="xs">
+      <Group gap="xs" mb="xs">
+        <ActionIcon
+          size="xs"
+          variant="subtle"
+          onClick={() => setIsExpanded(!isExpanded)}
+          style={{ visibility: hasSubtasks ? 'visible' : 'hidden' }}
+        >
+          {isExpanded ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+        </ActionIcon>
+        
+        <Text size="xs" c="dimmed" fw={500}>
+          Subtasks {hasSubtasks && `(${completedCount}/${totalCount})`}
         </Text>
+        
         <Button
           size="xs"
-          leftSection={<IconPlus size={14} />}
-          onClick={() => setShowCreateModal(true)}
-          variant="light"
+          variant="subtle"
+          leftSection={<IconPlus size={12} />}
+          onClick={onAddSubtask}
         >
           Add Subtask
         </Button>
       </Group>
 
-      {subtasks.length === 0 ? (
-        <Text size="sm" c="dimmed" ta="center" py="md">
-          No subtasks yet. Click "Add Subtask" to get started.
-        </Text>
-      ) : (
-        <Box>
-          {subtasks.map((subtask, index) => (
-            <Box
+      <Collapse in={isExpanded && hasSubtasks}>
+        <Stack gap="xs" ml="lg">
+          {subtasks.map((subtask) => (
+            <Group
               key={subtask.id}
-              onDragOver={(e) => handleDragOver(e)}
-              onDrop={(e) => handleSubtaskDrop(e, index)}
+              gap="xs"
+              wrap="nowrap"
+              p="xs"
+              style={{
+                borderLeft: '2px solid var(--mantine-color-gray-3)',
+                borderRadius: '4px',
+                backgroundColor: subtask.status === 'done'
+                  ? 'var(--mantine-color-gray-0)' 
+                  : 'transparent'
+              }}
             >
-              <SubtaskItem
-                subtask={subtask}
-                onSubtaskUpdate={onSubtaskUpdate}
-                onSubtaskDelete={onSubtaskDelete}
-                onSubtaskEdit={onSubtaskEdit}
-                onDragStart={handleSubtaskDragStart}
-                isDragging={draggedItem?.todoId === subtask.id}
-              />
-            </Box>
-          ))}
-        </Box>
-      )}
+              <ActionIcon size="xs" variant="subtle" style={{ cursor: 'grab' }}>
+                <IconGripVertical size={12} />
+              </ActionIcon>
 
-      {/* Create Subtask Modal */}
-      <Modal
-        opened={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        title="Create Subtask"
-        size="md"
-      >
-        <Box>
-          <TextInput
-            label="Title"
-            placeholder="Enter subtask title"
-            value={newSubtask.title}
-            onChange={(e) => setNewSubtask({ ...newSubtask, title: e.target.value })}
-            required
-            mb="md"
-          />
-          
-          <Textarea
-            label="Description"
-            placeholder="Enter subtask description (optional)"
-            value={newSubtask.description || ''}
-            onChange={(e) => setNewSubtask({ ...newSubtask, description: e.target.value })}
-            mb="md"
-            rows={3}
-          />
-          
-          <Group grow>
-            <Select
-              label="Priority"
-              value={newSubtask.priority?.toString() || '2'}
-              onChange={(value) => setNewSubtask({ ...newSubtask, priority: parseInt(value || '2') })}
-              data={[
-                { value: '1', label: 'Low' },
-                { value: '2', label: 'Medium' },
-                { value: '3', label: 'High' },
-                { value: '4', label: 'Urgent' }
-              ]}
-            />
-            
-            <Select
-              label="Status"
-              value={newSubtask.status || 'pending'}
-              onChange={(value) => setNewSubtask({ ...newSubtask, status: value || 'pending' })}
-              data={[
-                { value: 'pending', label: 'Pending' },
-                { value: 'in_progress', label: 'In Progress' },
-                { value: 'blocked', label: 'Blocked' },
-                { value: 'done', label: 'Done' }
-              ]}
-            />
-          </Group>
-          
-          <Group justify="flex-end" mt="lg">
-            <Button variant="outline" onClick={() => setShowCreateModal(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCreateSubtask}
-              disabled={!newSubtask.title.trim()}
-            >
-              Create Subtask
-            </Button>
-          </Group>
-        </Box>
-      </Modal>
+              <Checkbox
+                size="sm"
+                checked={subtask.status === 'done'}
+                onChange={(e) => onSubtaskComplete(subtask.id, e.currentTarget.checked)}
+              />
+
+              <Text
+                size="sm"
+                style={{
+                  textDecoration: subtask.status === 'done' ? 'line-through' : 'none',
+                  opacity: subtask.status === 'done' ? 0.6 : 1,
+                  flex: 1
+                }}
+              >
+                {subtask.title}
+              </Text>
+
+              {subtask.priority && (
+                <Badge size="xs" color={
+                  subtask.priority === 3 ? 'red' :    // urgent
+                  subtask.priority === 2 ? 'orange' : // high
+                  subtask.priority === 1 ? 'yellow' : // medium
+                  'blue'                               // low
+                }>
+                  {subtask.priority === 3 ? 'urgent' :
+                   subtask.priority === 2 ? 'high' :
+                   subtask.priority === 1 ? 'medium' : 'low'}
+                </Badge>
+              )}
+
+              {subtask.due_date && (
+                <Text size="xs" c="dimmed">
+                  {formatDate(subtask.due_date)}
+                </Text>
+              )}
+
+              <Group gap={4}>
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="blue"
+                  onClick={() => onSubtaskEdit(subtask)}
+                >
+                  <IconEdit size={14} />
+                </ActionIcon>
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="red"
+                  onClick={() => onSubtaskDelete(subtask.id)}
+                >
+                  <IconTrash size={14} />
+                </ActionIcon>
+              </Group>
+            </Group>
+          ))}
+        </Stack>
+      </Collapse>
     </Box>
   );
-};
+}

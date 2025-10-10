@@ -5,9 +5,16 @@
 import { apiService } from './api';
 import { coreUploadService, UploadProgress } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
-import { searchService } from './searchService';
 
 // Removed SMALL_FILE_THRESHOLD since we're using chunked upload consistently
+
+export interface ProjectBadge {
+  id: number | null;  // null if project is deleted
+  name: string;
+  color: string;
+  isExclusive: boolean;
+  isDeleted: boolean;  // True if project was deleted (using snapshot name)
+}
 
 export interface Note {
   id: number;
@@ -17,9 +24,11 @@ export interface Note {
   file_count: number;
   is_favorite: boolean;
   is_archived: boolean;
+  isExclusiveMode: boolean;
   created_at: string;
   updated_at: string;
   tags: string[];
+  projects: ProjectBadge[];
 }
 
 export interface NoteSummary {
@@ -29,10 +38,12 @@ export interface NoteSummary {
   file_count: number;
   is_favorite: boolean;
   is_archived: boolean;
+  isExclusiveMode: boolean;
   created_at: string;
   updated_at: string;
   tags: string[];
   preview: string;
+  projects: ProjectBadge[];
 }
 
 export interface NoteFile {
@@ -50,6 +61,8 @@ export interface CreateNoteRequest {
   title: string;
   content: string;
   tags?: string[];
+  projectIds?: number[];
+  isExclusiveMode?: boolean;
 }
 
 export interface UpdateNoteRequest {
@@ -58,6 +71,8 @@ export interface UpdateNoteRequest {
   tags?: string[];
   is_archived?: boolean;
   is_favorite?: boolean;
+  projectIds?: number[];
+  isExclusiveMode?: boolean;
 }
 
 export interface UploadFileRequest {
@@ -73,7 +88,7 @@ class NotesService {
   async createNote(data: CreateNoteRequest): Promise<Note> {
     const response = await apiService.post<Note>('/notes/', data);
     // Invalidate search cache for notes
-    searchService.invalidateCacheForContentType('note');
+    // searchService.invalidateCacheForContentType('note'); // Method removed in search refactor
     return response.data;
   }
 
@@ -91,7 +106,7 @@ class NotesService {
   async updateNote(id: number, data: UpdateNoteRequest): Promise<Note> {
     const response = await apiService.put<Note>(`/notes/${id}`, data);
     // Invalidate search cache for notes
-    searchService.invalidateCacheForContentType('note');
+    // searchService.invalidateCacheForContentType('note'); // Method removed in search refactor
     return response.data;
   }
 
@@ -101,7 +116,7 @@ class NotesService {
   async deleteNote(id: number): Promise<void> {
     await apiService.delete(`/notes/${id}`);
     // Invalidate search cache for notes
-    searchService.invalidateCacheForContentType('note');
+    // searchService.invalidateCacheForContentType('note'); // Method removed in search refactor
   }
 
   /**

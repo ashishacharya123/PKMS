@@ -11,6 +11,7 @@ import enum
 from app.models.base import Base
 from app.config import nepal_now
 from app.models.tag_associations import todo_tags, project_tags
+from app.models.associations import todo_projects
 
 
 class TodoStatus(str, enum.Enum):
@@ -46,6 +47,7 @@ class Todo(Base):
     is_completed = Column(Boolean, default=False, nullable=False)
     is_archived = Column(Boolean, default=False, nullable=False)
     is_favorite = Column(Boolean, default=False, nullable=False)
+    is_exclusive_mode = Column(Boolean, default=False, nullable=False)  # If True, todo is deleted when any of its projects are deleted
     priority = Column(Integer, default=2, nullable=False)  # 1=low, 2=medium, 3=high, 4=urgent
     start_date = Column(Date, nullable=True)
     due_date = Column(Date, nullable=True)
@@ -55,15 +57,16 @@ class Todo(Base):
     
     # Foreign keys
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)  # Legacy single project support
     
     # FTS5 Search Support
     tags_text = Column(Text, nullable=True, default="")  # Denormalized tags for FTS5 search
     
     # Relationships
     user = relationship("User", back_populates="todos")
-    project = relationship("Project", back_populates="todos")
+    project = relationship("Project", back_populates="todos")  # Legacy single project
     tag_objs = relationship("Tag", secondary=todo_tags, back_populates="todos")
+    projects = relationship("Project", secondary=todo_projects, back_populates="todos_multi")
     
     # Phase 2: Subtask relationships
     subtasks = relationship("Todo", backref="parent", remote_side=[id])
@@ -92,10 +95,16 @@ class Project(Base):
     
     # Relationships
     user = relationship("User", back_populates="projects")
-    todos = relationship("Todo", back_populates="project", cascade="all, delete-orphan")
+    todos = relationship("Todo", back_populates="project", cascade="all, delete-orphan")  # Legacy single project todos
     # Optional: documents associated with this project (images/files)
-    documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
+    documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")  # Legacy single project docs
     tag_objs = relationship("Tag", secondary=project_tags, back_populates="projects")
+    
+    # Many-to-many relationships
+    from app.models.associations import note_projects, document_projects, todo_projects
+    notes = relationship("Note", secondary=note_projects, back_populates="projects")
+    documents_multi = relationship("Document", secondary=document_projects, back_populates="projects")
+    todos_multi = relationship("Todo", secondary=todo_projects, back_populates="projects")
     
     def __repr__(self):
         return f"<Project(id={self.id}, name='{self.name}')>" 

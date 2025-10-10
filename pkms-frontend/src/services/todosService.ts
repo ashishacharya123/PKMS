@@ -2,6 +2,14 @@ import { apiService } from './api';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
 
 // Types for todos
+export interface ProjectBadge {
+  id: number | null;  // null if project is deleted
+  name: string;
+  color: string;
+  isExclusive: boolean;
+  isDeleted: boolean;  // True if project was deleted (using snapshot name)
+}
+
 export interface Project {
   id: number;
   name: string;
@@ -31,8 +39,9 @@ export interface Todo {
   id: number;
   title: string;
   description?: string;
-  project_id?: number;
-  project_name?: string;
+  project_id?: number;  // Legacy single project
+  project_name?: string;  // Legacy single project name
+  isExclusiveMode: boolean;
   start_date?: string;
   due_date?: string;
   priority: number;
@@ -47,12 +56,15 @@ export interface Todo {
   days_until_due?: number;
   is_archived: boolean;
   is_favorite?: boolean;
+  projects: ProjectBadge[];
 }
 
 export interface TodoCreate {
   title: string;
   description?: string;
-  project_id?: number;
+  project_id?: number;  // Legacy single project
+  projectIds?: number[];  // Multi-project support
+  isExclusiveMode?: boolean;
   parent_id?: number;  // For creating subtasks
   start_date?: string;
   due_date?: string;
@@ -66,7 +78,9 @@ export interface TodoCreate {
 export interface TodoUpdate {
   title?: string;
   description?: string;
-  project_id?: number;
+  project_id?: number;  // Legacy single project
+  projectIds?: number[];  // Multi-project support
+  isExclusiveMode?: boolean;
   parent_id?: number;  // For moving subtasks
   start_date?: string;
   due_date?: string;
@@ -81,7 +95,8 @@ export interface TodoUpdate {
 export interface TodoSummary {
   id: number;
   title: string;
-  project_name?: string;
+  project_name?: string;  // Legacy single project name
+  isExclusiveMode: boolean;
   start_date?: string;
   due_date?: string;
   priority: number;
@@ -94,6 +109,7 @@ export interface TodoSummary {
   days_until_due?: number;
   is_archived: boolean;
   is_favorite?: boolean;
+  projects: ProjectBadge[];
 }
 
 export interface TodoStats {

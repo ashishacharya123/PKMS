@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { diaryService } from '../services/diaryService';
 import { apiService } from '../services/api';
-import { DiaryEntry, DiaryEntrySummary, DiaryMetadata, DiaryEntryCreatePayload, DiaryCalendarData, MoodStats } from '../types/diary';
+import { DiaryEntry, DiaryEntrySummary, DiaryEntryCreatePayload, DiaryCalendarData, MoodStats, DiaryDailyMetadata } from '../types/diary';
 import { logger } from '../utils/logger';
 
 interface DiaryState {
@@ -20,7 +20,8 @@ interface DiaryState {
   searchQuery: string;
   currentDayOfWeek: number | null;
   currentHasMedia: boolean | null;
-  unlockStatusInterval: NodeJS.Timeout | null;
+  dailyMetadataCache: Record<string, DiaryDailyMetadata>;
+  unlockStatusInterval: ReturnType<typeof setInterval> | null;
   filters: {
     year?: number;
     month?: number;
@@ -56,6 +57,7 @@ interface DiaryState {
   setSearchQuery: (query: string) => void;
   setDayOfWeek: (dayOfWeek: number | null) => void;
   setHasMedia: (hasMedia: boolean | null) => void;
+  setDailyMetadata: (snapshot: DiaryDailyMetadata) => void;
 }
 
 export const useDiaryStore = create<DiaryState>((set, get) => {
@@ -75,6 +77,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
       calendarData: [],
       moodStats: null,
       error: null,
+      dailyMetadataCache: {},
       unlockStatusInterval: null,
       filters: {}
     });
@@ -96,6 +99,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
     searchQuery: '',
     currentDayOfWeek: null,
     currentHasMedia: null,
+    dailyMetadataCache: {},
     unlockStatusInterval: null,
     filters: {},
 
@@ -164,8 +168,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         const { key, success } = await diaryService.unlockSession(password);
         if (success) {
           set({ encryptionKey: key, isUnlocked: true, error: null });
-          // Start monitoring unlock status
-          get().startUnlockStatusMonitoring();
+          // Note: Auto-lock is now handled by DiaryPage component (5 min after leaving page)
         }
         return success;
       } catch (error) {
@@ -247,10 +250,9 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
           
         console.log('[DIARY STORE] Loaded entries:', entries?.length, 'entries');
         
-        // Ensure metadata is properly structured for each entry
+        // Ensure tags is properly structured for each entry
         const processedEntries = entries.map(entry => ({
           ...entry,
-          metadata: entry.metadata || {},
           tags: entry.tags || []
         }));
           
@@ -272,10 +274,8 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
       
       try {
         set({ error: null, isLoading: true });
-        // Store contains entries by uuid; if needed, fetch by translating uuid to id via list.
-        const list = await diaryService.getEntries({ limit: 1, offset: 0, search_title: '' });
-        // Fallback: keep current implementation minimal until a direct get-by-uuid exists
-        const entry = list?.[0] as any;
+        // Fetch entry by UUID using the proper API endpoint
+        const entry = await diaryService.getEntry(uuid);
         if (entry) {
           set({ currentEntry: entry });
         }
@@ -455,6 +455,13 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
     setSearchQuery: (query: string) => set({ searchQuery: query }),
     setDayOfWeek: (dayOfWeek: number | null) => set({ currentDayOfWeek: dayOfWeek }),
     setHasMedia: (hasMedia: boolean | null) => set({ currentHasMedia: hasMedia }),
+    
+    setDailyMetadata: (snapshot: DiaryDailyMetadata) => {
+      const dateKey = snapshot.date.split('T')[0];
+      set((state) => ({
+        dailyMetadataCache: { ...state.dailyMetadataCache, [dateKey]: snapshot },
+      }));
+    },
   };
 });
 

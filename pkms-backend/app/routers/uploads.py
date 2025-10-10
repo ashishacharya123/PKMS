@@ -7,7 +7,7 @@ will be passed through unchanged – the respective module can query the final
 assembled file later.
 """
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any
@@ -30,6 +30,7 @@ MAX_CHUNK_SIZE = 5 * 1024 * 1024  # 5MB per chunk
 @router.post("/upload/chunk")
 @limiter.limit("60/minute")
 async def upload_chunk(
+    request: Request,
     file: UploadFile = File(...),
     chunk_data: str = Form(...),
     current_user: User = Depends(get_current_user),

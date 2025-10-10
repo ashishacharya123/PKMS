@@ -1,8 +1,8 @@
 import { Group, Badge, Tooltip } from '@mantine/core';
-import { DiaryMetadata } from '../../types/diary';
+import { DiaryDailyMetrics } from '../../types/diary';
 
 interface WellnessBadgesProps {
-  metadata: DiaryMetadata;
+  metadata: DiaryDailyMetrics;
   compact?: boolean;
 }
 

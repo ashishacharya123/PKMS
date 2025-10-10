@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Box, Group, Text, Paper, Stack, Badge, ActionIcon, Menu, Button, Select } from '@mantine/core';
-import { IconDots, IconEdit, IconTrash, IconArchive, IconZoomIn, IconZoomOut } from '@tabler/icons-react';
+import { IconDots, IconEdit, IconTrash, IconArchive } from '@tabler/icons-react';
 import { Todo } from '../../services/todosService';
 
 interface TimelineViewProps {
@@ -29,8 +29,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
     return todos
       .filter(todo => todo.start_date && todo.due_date)
       .map(todo => {
-        const startDate = new Date(todo.start_date);
-        const endDate = new Date(todo.due_date);
+        const startDate = new Date(todo.start_date!); // Filtered above
+        const endDate = new Date(todo.due_date!); // Filtered above
         const duration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
         
         return {
@@ -261,7 +261,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                     
                     {todo.project_name && (
                       <Badge
-                        size="xs"
                         variant="outline"
                         style={{ fontSize: '8px' }}
                       >
@@ -280,14 +279,12 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                       <Menu.Item
                         leftSection={<IconEdit size={12} />}
                         onClick={() => onTodoEdit(todo)}
-                        size="xs"
                       >
                         Edit
                       </Menu.Item>
                       <Menu.Item
                         leftSection={<IconArchive size={12} />}
                         onClick={() => onTodoArchive(todo.id)}
-                        size="xs"
                       >
                         Archive
                       </Menu.Item>
@@ -295,7 +292,6 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         leftSection={<IconTrash size={12} />}
                         color="red"
                         onClick={() => onTodoDelete(todo.id)}
-                        size="xs"
                       >
                         Delete
                       </Menu.Item>

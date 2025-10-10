@@ -23,6 +23,7 @@ import {
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import ViewModeLayouts, { formatDate } from '../components/common/ViewModeLayouts';
 import { useViewPreferences } from '../hooks/useViewPreferences';
+import { ProjectBadges } from '../components/common/ProjectBadges';
 import {
   IconPlus,
   IconSearch,
@@ -443,6 +444,7 @@ export function NotesPage() {
                         <Text size="xs" c="dimmed">
                           {formatDate(note.updated_at)}
                         </Text>
+                        <ProjectBadges projects={note.projects || []} size="xs" maxVisible={2} />
                         {(note.tags || []).slice(0, 2).map((tag: string) => (
                           <Badge 
                             key={tag} 
@@ -568,12 +570,13 @@ export function NotesPage() {
                   </Badge>
                 </Group>,
                 <Group key="tags" gap={4}>
+                  <ProjectBadges projects={note.projects || []} size="xs" maxVisible={3} />
                   {(note.tags || []).slice(0, 3).map((tag: string) => (
                     <Badge 
                       key={tag} 
                       size="xs" 
                       variant="dot" 
-                      style={{ cursor: 'pointer' }} 
+                      style={{ cursor: 'pointer' }}
                       onClick={(e) => {
                         e.stopPropagation();
                         setTag(tag);

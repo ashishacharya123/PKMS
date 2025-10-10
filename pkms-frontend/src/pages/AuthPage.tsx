@@ -12,6 +12,7 @@ type AuthMode = 'login' | 'setup';
 export function AuthPage() {
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [recoveryModalOpened, setRecoveryModalOpened] = useState(false);
+  const [recoveryUsername, setRecoveryUsername] = useState<string>('');
   const theme = useMantineTheme();
   const { colorScheme } = useMantineColorScheme();
   const { clearError, isAuthenticated } = useAuthStore();
@@ -35,7 +36,10 @@ export function AuthPage() {
         return (
           <LoginForm 
             onSwitchToSetup={() => handleSwitchMode('setup')} 
-            onShowRecovery={() => setRecoveryModalOpened(true)}
+            onShowRecovery={(username) => {
+              setRecoveryUsername(username);
+              setRecoveryModalOpened(true);
+            }}
           />
         );
       case 'setup':
@@ -48,7 +52,10 @@ export function AuthPage() {
         return (
           <LoginForm 
             onSwitchToSetup={() => handleSwitchMode('setup')} 
-            onShowRecovery={() => setRecoveryModalOpened(true)}
+            onShowRecovery={(username) => {
+              setRecoveryUsername(username);
+              setRecoveryModalOpened(true);
+            }}
           />
         );
     }
@@ -93,9 +100,9 @@ export function AuthPage() {
         opened={recoveryModalOpened}
         onClose={() => setRecoveryModalOpened(false)}
         onSuccess={() => {
-          // Refresh the page or redirect to login after successful recovery
           window.location.reload();
         }}
+        username={recoveryUsername}
       />
 
       <Box ta="center" mt="xl">

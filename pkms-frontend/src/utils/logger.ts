@@ -3,8 +3,10 @@
  * Controls logging levels and reduces excessive console output
  */
 
-const isDevelopment = process.env.NODE_ENV === 'development';
-const isProduction = process.env.NODE_ENV === 'production';
+/// <reference types="vite/client" />
+
+const isDevelopment = import.meta.env.MODE === 'development';
+const isProduction = import.meta.env.MODE === 'production';
 
 // Log levels: 'error', 'warn', 'info', 'debug'
 const LOG_LEVEL = isProduction ? 'error' : 'warn';

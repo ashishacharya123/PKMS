@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import {
   Container,
@@ -24,12 +24,9 @@ import {
   TagsInput,
   Select,
   Checkbox,
-  NumberInput,
-  Slider,
   Divider,
   Accordion,
   SimpleGrid,
-  Switch,
   ScrollArea,
   Tooltip,
   Badge,
@@ -46,7 +43,7 @@ import {
   IconDots,
   IconAlertTriangle,
   IconLock,
-  IconEye,
+  IconEye
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useDiaryStore } from '../stores/diaryStore';
@@ -55,16 +52,26 @@ import { diaryService } from '../services/diaryService';
 import { searchService } from '../services/searchService';
 import { format, parseISO } from 'date-fns';
 import { notifications } from '@mantine/notifications';
-import { MoodStatsWidget } from '../components/diary/MoodStatsWidget';
-import { MoodTrendChart } from '../components/diary/MoodTrendChart';
+import { WellnessAnalytics } from '../components/diary/WellnessAnalytics';
 import EncryptionStatus from '../components/diary/EncryptionStatus';
-import { SessionTimeoutWarning } from '../components/diary/SessionTimeoutWarning';
 import { AdvancedDiarySearch } from '../components/diary/AdvancedDiarySearch';
 import { KeyboardShortcutsHelp, KeyboardShortcutsButton } from '../components/diary/KeyboardShortcutsHelp';
+import { DailyMetricsPanel } from '../components/diary/DailyMetricsPanel';
+import { HistoricalEntries } from '../components/diary/HistoricalEntries';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 import { useForm } from '@mantine/form';
-import { DiaryEntrySummary, DiaryFormValues, DiaryMetadata, SortField, SortOrder, DiaryEntryCreatePayload } from '../types/diary';
+import {
+  DiaryEntrySummary,
+  DiaryFormValues,
+  DiaryDailyMetrics,
+  SortField,
+  SortOrder,
+  DiaryEntryCreatePayload,
+  WEATHER_CODES,
+  WeatherCode,
+  DiaryDailyMetadata,
+} from '../types/diary';
 import { formatDateTime, convertToNepaliDate } from '../utils/diary';
 import '../styles/DiaryPage.css';
 
@@ -78,50 +85,57 @@ const getDiaryIcon = (entry: any): string => {
   return '😢';
 };
 
-
-
-const getWeatherIcon = (weather: string): string => {
-  if (!weather) return '🌤️';
-  const w = weather.toLowerCase();
-  if (w.includes('sunny') || w.includes('clear')) return '☀️';
-  if (w.includes('cloudy') || w.includes('overcast')) return '☁️';
-  if (w.includes('rain') || w.includes('drizzle')) return '🌧️';
-  if (w.includes('storm') || w.includes('thunder')) return '⛈️';
-  if (w.includes('snow')) return '❄️';
-  if (w.includes('fog') || w.includes('mist')) return '🌫️';
-  if (w.includes('windy')) return '💨';
-  return '🌤️';
+const getWeatherLabel = (code?: WeatherCode | null) => {
+  if (code === undefined || code === null) return undefined;
+  const mapping = WEATHER_CODES.find((item) => item.value === code);
+  return mapping?.label;
 };
 
-const getWordCount = (content: string): number => {
-  if (!content) return 0;
-  return content.trim().split(/\s+/).filter(word => word.length > 0).length;
+const formatSummarySubtitle = (entry: DiaryEntrySummary) => {
+  const parts: string[] = [];
+  if (entry.mood) {
+    const moodLabelFor = (m: number) => ({ 1: 'Very Low', 2: 'Low', 3: 'Neutral', 4: 'Good', 5: 'Excellent' }[m] || 'Unknown');
+    parts.push(moodLabelFor(entry.mood));
+  }
+  if (entry.nepali_date) {
+    parts.push(`NP ${entry.nepali_date}`);
+  }
+  if (entry.location) {
+    parts.push(entry.location);
+  }
+  if (entry.weather_code !== undefined && entry.weather_code !== null) {
+    const label = entry.weather_label || getWeatherLabel(entry.weather_code);
+    if (label) parts.push(label);
+  }
+  if (entry.media_count > 0) {
+    parts.push(`${entry.media_count} media`);
+  }
+  if (entry.content_length) {
+    parts.push(`${entry.content_length} chars`);
+  }
+  return parts.join(' • ');
 };
 
-const truncateText = (text: string, maxLength: number): string => {
-  if (!text || text.length <= maxLength) return text || '';
-  return text.substring(0, maxLength) + '...';
-};
-
-const initialMetadata: DiaryMetadata = {
-  // Legacy fields
-  sleep_hours: 0,
-  exercise_minutes: 0,
-  phone_hours: 0,
-  activity_level: 0,
-  
-  // New wellness tracking fields
+const initialDailyMetrics: DiaryDailyMetrics = {
+  // Physical Activity
   did_exercise: false,
-  did_meditation: false,
-  sleep_duration: 8,
-  screen_time: 0,
-  water_intake: 8,
+  exercise_minutes: 0,
   time_outside: 0,
-  social_interaction: false,
-  gratitude_practice: false,
-  reading_time: 0,
+  
+  // Sleep
+  sleep_duration: 8,
+  
+  // Mental Wellness
+  did_meditation: false,
   energy_level: 3,
   stress_level: 3,
+  gratitude_practice: false,
+  
+  // Daily Habits
+  water_intake: 8,
+  screen_time: 0,
+  reading_time: 0,
+  social_interaction: false,
   
   custom_fields: {}
 };
@@ -132,10 +146,14 @@ const initialFormValues: DiaryFormValues = {
   title: '',
   content: '',
   mood: 3,
-  metadata: initialMetadata,
+  daily_metrics: initialDailyMetrics,
   tags: [],
   is_template: false,
   template_uuid: null,
+  weather_code: undefined,
+  location: '',
+  nepali_date: undefined,
+  from_template_id: null,
 };
 
 export function DiaryPage() {
@@ -170,6 +188,10 @@ export function DiaryPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [photoStatus, setPhotoStatus] = useState<string>('');
+  const [isDailyMetadataLoading, setIsDailyMetadataLoading] = useState(false);
+  const [hasMissingSnapshot, setHasMissingSnapshot] = useState(false);
+  const [wellnessHasMissing, setWellnessHasMissing] = useState(true);
+  const [wellnessIsLoading, setWellnessIsLoading] = useState(false);
 
   const form = useForm<DiaryFormValues>({
     initialValues: initialFormValues,
@@ -336,7 +358,7 @@ export function DiaryPage() {
       const decryptedContent = await diaryService.decryptContent(
         entry.encrypted_blob,
         entry.encryption_iv,
-        entry.encryption_tag,
+        '',
         store.encryptionKey
       );
       
@@ -346,13 +368,17 @@ export function DiaryPage() {
         title: entry.title || '',
         content: decryptedContent,
         mood: entry.mood || 3,
-        metadata: {
-          ...initialMetadata,
-          ...entry.metadata
+        daily_metrics: {
+          ...initialDailyMetrics,
+          ...entry.daily_metrics,
         },
         tags: entry.tags || [],
         is_template: entry.is_template ?? false,
-        template_uuid: null,
+        template_uuid: entry.from_template_id || null,
+        weather_code: entry.weather_code,
+        location: entry.location || '',
+        nepali_date: entry.nepali_date,
+        from_template_id: entry.from_template_id || null,
       });
       
       setViewMode('view');
@@ -412,32 +438,106 @@ export function DiaryPage() {
     }
   };
 
+  const ensureDailyMetadata = useCallback(
+    async (targetDate: Date): Promise<DiaryDailyMetadata | null> => {
+      const key = format(targetDate, 'yyyy-MM-dd');
+      const cached = store.dailyMetadataCache[key];
+      if (cached) {
+        setHasMissingSnapshot(false);
+        return cached;
+      }
+      try {
+        setIsDailyMetadataLoading(true);
+        const snapshot = await diaryService.getDailyMetadata(key);
+        store.setDailyMetadata(snapshot);
+        setHasMissingSnapshot(false);
+        return snapshot;
+      } catch (error: any) {
+        if (error?.response?.status === 404) {
+          setHasMissingSnapshot(true);
+          return null;
+        }
+        console.error('Failed to load daily metadata', error);
+        notifications.show({
+          title: 'Metadata Error',
+          message: 'Could not load daily wellness data.',
+          color: 'red',
+        });
+        setHasMissingSnapshot(true);
+        return null;
+      } finally {
+        setIsDailyMetadataLoading(false);
+      }
+    },
+    [store],
+  );
+
+  const preloadDailyMetadata = useCallback(
+    async (targetDate: Date) => {
+      const snapshot = await ensureDailyMetadata(targetDate);
+      if (snapshot) {
+        form.setValues((prev) => ({
+          ...prev,
+          daily_metrics: {
+            ...initialDailyMetrics,
+            ...snapshot.metrics,
+          },
+          nepali_date: snapshot.nepali_date,
+        }));
+        // Note: weather_code and location are entry-specific, NOT from daily snapshot
+        // They should be set from the entry being edited or left as defaults for new entries
+      } else {
+        form.setFieldValue('daily_metrics', initialDailyMetrics);
+        form.setFieldValue('nepali_date', convertToNepaliDate(targetDate));
+        setHasMissingSnapshot(true);
+      }
+    },
+    [ensureDailyMetadata, form],
+  );
+
   const handleCreateOrUpdateEntry = async (values: DiaryFormValues) => {
-    if (!store.encryptionKey) return;
+    if (!store.encryptionKey) {
+      notifications.show({
+        title: 'Diary Locked',
+        message: 'Unlock diary to create or update entries.',
+        color: 'red',
+      });
+      return;
+    }
     
     try {
-      const { encrypted_blob, iv, tag } = await diaryService.encryptContent(
-        values.content,
-        store.encryptionKey
-      );
+      const { encrypted_blob, iv } = await diaryService.encryptContent(values.content, store.encryptionKey);
       
       const payload: DiaryEntryCreatePayload = {
         date: format(values.date, 'yyyy-MM-dd'),
-        nepali_date: convertToNepaliDate(values.date),
         title: values.title,
         encrypted_blob,
         encryption_iv: iv,
-        encryption_tag: tag,
         mood: values.mood,
-        metadata: values.metadata,
+        weather_code: values.weather_code,
+        location: values.location,
+        daily_metrics: values.daily_metrics,
         tags: values.tags,
-        is_template: values.is_template ?? false,
+        is_template: values.is_template,
+        nepali_date: values.nepali_date || convertToNepaliDate(values.date),
+        content_length: values.content.length,
+        from_template_id: values.from_template_id,
       };
       
       if (values.uuid) {
         await store.updateEntry(values.uuid, payload);
+        notifications.show({
+          title: 'Entry Updated',
+          message: 'Diary entry updated successfully',
+          color: 'green',
+        });
       } else {
         await store.createEntry(payload);
+        notifications.show({
+          title: 'Entry Created',
+          message: 'Diary entry created successfully',
+          color: 'green',
+        });
       }
       
       setModalOpen(false);
@@ -446,12 +546,7 @@ export function DiaryPage() {
       // Refresh data
       store.loadEntries();
       store.loadCalendarData(store.currentYear, store.currentMonth);
-      notifications.show({
-        title: 'Success',
-        message: values.uuid ? 'Diary entry updated' : 'Diary entry created',
-        color: 'green',
-      });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to save entry:', error);
       notifications.show({
         title: 'Error',
@@ -553,7 +648,7 @@ export function DiaryPage() {
       setIsUploadingPhoto(true);
       setPhotoStatus('Uploading...');
       const full = await diaryService.getEntry(form.values.uuid);
-      await diaryService.uploadMedia((full as any).id, photoFile, 'photo', undefined, (p) => setPhotoStatus(p.status));
+      await diaryService.uploadMedia(full.uuid, photoFile, 'photo', undefined, (p) => setPhotoStatus(p.status));
       setPhotoFile(null);
       setPhotoStatus('Complete');
       notifications.show({ title: 'Photo Uploaded', message: 'Image attached to entry', color: 'green' });
@@ -668,13 +763,41 @@ export function DiaryPage() {
     showNotifications: false
   });
 
+  // Auto-lock diary when leaving the page for more than 5 minutes
+  useEffect(() => {
+    let lockTimer: number | null = null;
+
+    return () => {
+      // This runs when component unmounts (user navigates away from diary page)
+      if (store.isUnlocked) {
+        console.log('[DIARY PAGE] User left diary page, will lock after 5 minutes of inactivity...');
+        
+        // Set a timer to lock after 5 minutes
+        lockTimer = setTimeout(() => {
+          console.log('[DIARY PAGE] 5 minutes elapsed, locking diary session...');
+          store.lockSession();
+        }, 5 * 60 * 1000); // 5 minutes
+      }
+    };
+
+    // Note: If user returns to diary page within 5 minutes, this component
+    // remounts and the timer is cleared (never executed)
+  }, []); // Empty deps - only run on mount/unmount
+
+  // For weather/location
+  // Removed unused loadSnapshotToForm function - it called non-existent store.loadDailySnapshot
+  // and incorrectly tried to load weather_code/location from daily metrics
+  // (weather and location are entry-specific, not from daily snapshot)
+
+  // Memoized callback for wellness status changes
+  const handleWellnessStatusChange = useCallback((hasMissing: boolean, isLoading: boolean) => {
+    setWellnessHasMissing(hasMissing);
+    setWellnessIsLoading(isLoading);
+  }, []);
+
   return (
     <Container size="xl" py="lg">
-      {/* Session Timeout Warning */}
-      <SessionTimeoutWarning 
-        sessionTimeoutSeconds={1800} // 30 minutes (matches backend TTL)
-        warningThresholdSeconds={180} // 3 minutes
-      />
+      {/* Auto-lock: Diary locks 5 minutes after navigating away from this page (see useEffect cleanup) */}
       
       <Stack gap="xl">
         <Group justify="space-between">
@@ -722,15 +845,44 @@ export function DiaryPage() {
           </Alert>
         ) : store.isUnlocked ? (
           <>
-            {/* Mood Insights + Trends (compact row) */}
-            <Grid>
-              <Grid.Col span={{ base: 12, md: 6 }}>
-                <MoodStatsWidget compact />
-              </Grid.Col>
-              <Grid.Col span={{ base: 12, md: 6 }}>
-                <MoodTrendChart compact />
-              </Grid.Col>
-            </Grid>
+            {/* Analytics & Tracking Sections - Only one can be open at a time */}
+            <Accordion variant="contained" defaultValue="" multiple={false}>
+              {/* Wellness Analytics */}
+              <Accordion.Item value="wellness-analytics">
+                <Accordion.Control>
+                  <Text fw={600} size="md">📊 Wellness Analytics</Text>
+                </Accordion.Control>
+                <Accordion.Panel>
+                  <WellnessAnalytics />
+                </Accordion.Panel>
+              </Accordion.Item>
+
+              {/* Daily Wellness Tracker */}
+              <Accordion.Item value="wellness">
+                <Accordion.Control>
+                  <div>
+                    <Group gap="xs">
+                      <Text fw={600} size="md">💪 Daily Wellness Tracker</Text>
+                      {wellnessIsLoading ? (
+                        <Loader size="xs" />
+                      ) : wellnessHasMissing ? (
+                        <Badge color="yellow" size="sm" variant="light">No Metadata for Today</Badge>
+                      ) : (
+                        <Badge color="green" size="sm" variant="light">✓ Tracked</Badge>
+                      )}
+                    </Group>
+                    <Text size="xs" c="dimmed">
+                      Today: {format(new Date(), 'MMMM d, yyyy')}
+                    </Text>
+                  </div>
+                </Accordion.Control>
+                <Accordion.Panel>
+                  <DailyMetricsPanel 
+                    onStatusChange={handleWellnessStatusChange}
+                  />
+                </Accordion.Panel>
+              </Accordion.Item>
+            </Accordion>
             
             {/* Calendar View */}
             <Grid>
@@ -817,8 +969,8 @@ export function DiaryPage() {
                           <Badge size="xs" variant="light" color={getMoodColor(entry.mood || 3)}>
                             {getMoodLabel(entry.mood || 3).charAt(0)}
                           </Badge>
-                          {entry.weather && (
-                            <Text size="xs">{getWeatherIcon(entry.weather)}</Text>
+                          {entry.weather_code !== undefined && entry.weather_code !== null && (
+                            <Text size="xs">{getWeatherLabel(entry.weather_code) || 'Weather'}</Text>
                           )}
                         </Group>
                       </Stack>
@@ -860,8 +1012,8 @@ export function DiaryPage() {
                           <Badge size="xs" variant="light" color={getMoodColor(entry.mood || 3)}>
                             {getMoodLabel(entry.mood || 3)}
                           </Badge>
-                          <Badge size="xs" variant="light" color="blue">
-                            {getWordCount(entry.content || '')} words
+                          <Badge size="xs" variant="outline" color="gray">
+                            {formatSummarySubtitle(entry) || 'No details'}
                           </Badge>
                           {entry.media_count > 0 && (
                             <Badge size="xs" variant="outline" color="teal">📷 {entry.media_count}</Badge>
@@ -873,6 +1025,9 @@ export function DiaryPage() {
                           )}
                           {entry.location && (
                             <Badge size="xs" variant="light" color="indigo">📍 {entry.location}</Badge>
+                          )}
+                          {entry.weather_code !== undefined && entry.weather_code !== null && (
+                            <Badge size="xs" variant="light" color="cyan">{getWeatherLabel(entry.weather_code) || 'Weather'}</Badge>
                           )}
                           {entry.is_favorite && (
                             <Badge size="xs" variant="light" color="pink">Favorite</Badge>
@@ -916,18 +1071,16 @@ export function DiaryPage() {
                               <Badge size="xs" variant="light" color={getMoodColor(entry.mood || 3)}>
                                 {getMoodEmoji(entry.mood || 3)} {getMoodLabel(entry.mood || 3)}
                               </Badge>
-                              <Badge size="xs" variant="light" color="blue">
-                                {getWordCount(entry.content || '')} words
+                              {entry.weather_code !== undefined && entry.weather_code !== null ? (
+                                <Badge size="xs" variant="outline">
+                                  {getWeatherLabel(entry.weather_code) || 'Weather'}
                               </Badge>
-                              {entry.media_count > 0 && (
-                                <Badge size="xs" variant="outline" color="teal">📷 {entry.media_count}</Badge>
+                              ) : (
+                                <Text size="xs" c="dimmed">No weather</Text>
                               )}
-                              {entry.nepali_date && (
-                                <Badge size="xs" variant="light" color="grape">NP {entry.nepali_date}</Badge>
-                              )}
-                              {entry.location && (
-                                <Badge size="xs" variant="light" color="indigo">📍 {entry.location}</Badge>
-                              )}
+                              <Badge size="xs" variant="outline" color="gray">
+                                {formatSummarySubtitle(entry)}
+                              </Badge>
                               <Text size="xs" c="dimmed">
                                 {formatDateTime(entry.updated_at)}
                               </Text>
@@ -940,9 +1093,6 @@ export function DiaryPage() {
                                 <Badge size="xs" variant="outline">+{(entry.tags?.length || 0) - 2}</Badge>
                               )}
                             </Group>
-                            <Text size="xs" c="dimmed" lineClamp={1}>
-                              {truncateText(entry.content || '', 100)}
-                            </Text>
                           </Stack>
                         </Group>
                         <Menu shadow="md" width={200}>
@@ -1002,17 +1152,17 @@ export function DiaryPage() {
                         </Badge>
                       </Group>,
                       <Group key="weather" gap="xs">
-                        {entry.weather ? (
+                        {entry.weather_code !== undefined && entry.weather_code !== null ? (
                           <Badge size="xs" variant="outline">
-                            {getWeatherIcon(entry.weather)} {entry.weather}
+                            {getWeatherLabel(entry.weather_code) || 'Weather'}
                           </Badge>
                         ) : (
                           <Text size="xs" c="dimmed">No weather</Text>
                         )}
                       </Group>,
-                      <Group key="wordcount" gap="xs">
-                        <Badge size="xs" variant="light" color="blue">
-                          {getWordCount(entry.content || '')} words
+                      <Group key="summary" gap="xs">
+                        <Badge size="xs" variant="outline" color="gray">
+                          {formatSummarySubtitle(entry) || 'No details'}
                         </Badge>
                       </Group>,
                       <Group key="tags" gap={4}>
@@ -1087,6 +1237,9 @@ export function DiaryPage() {
                 </Stack>
               </Grid.Col>
             </Grid>
+
+            {/* Historical Entries - Shows entries from past (yesterday, last week, last month, last year) */}
+            <HistoricalEntries onViewEntry={handleViewEntry} />
           </>
         ) : null}
       </Stack>
@@ -1202,7 +1355,7 @@ export function DiaryPage() {
                           const decrypted = await diaryService.decryptContent(
                             tmpl.encrypted_blob,
                             tmpl.encryption_iv,
-                            tmpl.encryption_tag,
+                            '',
                             store.encryptionKey
                           );
                           // Only replace content and optionally title
@@ -1294,175 +1447,34 @@ export function DiaryPage() {
 
             <Divider />
 
-            {/* Wellness Tracking Section */}
-            <Accordion defaultValue="wellness" variant="contained">
-              <Accordion.Item value="wellness">
-                <Accordion.Control>
-                  <Title order={4}>Wellness Tracking</Title>
-                </Accordion.Control>
-                <Accordion.Panel>
-                  <Stack gap="lg">
-                    {/* Sleep & Rest */}
-                    <Stack>
-                      <Text size="sm" fw={500} c="blue">Sleep & Rest</Text>
-                      <SimpleGrid cols={2}>
-                        <NumberInput
-                          label="Sleep Duration (hours)"
-                          placeholder="8"
-                          min={0}
-                          max={24}
-                          step={0.5}
-                          value={form.values.metadata.sleep_duration}
-                          onChange={(value) => form.setFieldValue('metadata.sleep_duration', typeof value === 'string' ? parseFloat(value) || 0 : value)}
-                        />
-                        <NumberInput
-                          label="Sleep Hours (legacy)"
-                          placeholder="0"
-                          min={0}
-                          max={24}
-                          value={form.values.metadata.sleep_hours}
-                          onChange={(value) => form.setFieldValue('metadata.sleep_hours', typeof value === 'string' ? parseInt(value) || 0 : value)}
-                        />
-                      </SimpleGrid>
-                    </Stack>
-
-                    {/* Physical Activity */}
-                    <Stack>
-                      <Text size="sm" fw={500} c="green">Physical Activity</Text>
-                      <SimpleGrid cols={2}>
-                        <Switch
-                          label="Did Exercise Today"
-                          checked={form.values.metadata.did_exercise}
-                          onChange={(event) => form.setFieldValue('metadata.did_exercise', event.currentTarget.checked)}
-                        />
-                        <NumberInput
-                          label="Exercise Minutes"
-                          placeholder="0"
-                          min={0}
-                          max={1440}
-                          value={form.values.metadata.exercise_minutes}
-                          onChange={(value) => form.setFieldValue('metadata.exercise_minutes', typeof value === 'string' ? parseInt(value) || 0 : value)}
-                        />
-                      </SimpleGrid>
-                      <SimpleGrid cols={2}>
-                        <NumberInput
-                          label="Time Outside (minutes)"
-                          placeholder="0"
-                          min={0}
-                          max={1440}
-                          value={form.values.metadata.time_outside}
-                          onChange={(value) => form.setFieldValue('metadata.time_outside', typeof value === 'string' ? parseInt(value) || 0 : value)}
-                        />
-                        <NumberInput
-                          label="Activity Level (0-10)"
-                          placeholder="0"
-                          min={0}
-                          max={10}
-                          value={form.values.metadata.activity_level}
-                          onChange={(value) => form.setFieldValue('metadata.activity_level', typeof value === 'string' ? parseInt(value) || 0 : value)}
-                        />
-                      </SimpleGrid>
-                    </Stack>
-
-                    {/* Mental Wellness */}
-                    <Stack>
-                      <Text size="sm" fw={500} c="purple">Mental Wellness</Text>
-                      <SimpleGrid cols={2}>
-                        <Switch
-                          label="Did Meditation"
-                          checked={form.values.metadata.did_meditation}
-                          onChange={(event) => form.setFieldValue('metadata.did_meditation', event.currentTarget.checked)}
-                        />
-                        <Switch
-                          label="Gratitude Practice"
-                          checked={form.values.metadata.gratitude_practice}
-                          onChange={(event) => form.setFieldValue('metadata.gratitude_practice', event.currentTarget.checked)}
-                        />
-                      </SimpleGrid>
-                      <SimpleGrid cols={2}>
-                        <Stack>
-                          <Text size="xs" c="dimmed">Energy Level: {form.values.metadata.energy_level}/5</Text>
-                          <Slider
-                            value={form.values.metadata.energy_level}
-                            onChange={(value) => form.setFieldValue('metadata.energy_level', value)}
-                            min={1}
-                            max={5}
-                            step={1}
-                            marks={[
-                              { value: 1, label: 'Very Low' },
-                              { value: 3, label: 'Moderate' },
-                              { value: 5, label: 'High' }
-                            ]}
-                          />
-                        </Stack>
-                        <Stack>
-                          <Text size="xs" c="dimmed">Stress Level: {form.values.metadata.stress_level}/5</Text>
-                          <Slider
-                            value={form.values.metadata.stress_level}
-                            onChange={(value) => form.setFieldValue('metadata.stress_level', value)}
-                            min={1}
-                            max={5}
-                            step={1}
-                            marks={[
-                              { value: 1, label: 'Very Low' },
-                              { value: 3, label: 'Moderate' },
-                              { value: 5, label: 'High' }
-                            ]}
-                          />
-                        </Stack>
-                      </SimpleGrid>
-                    </Stack>
-
-                    {/* Daily Habits */}
-                    <Stack>
-                      <Text size="sm" fw={500} c="orange">Daily Habits</Text>
-                      <SimpleGrid cols={2}>
-                        <NumberInput
-                          label="Water Intake (glasses)"
-                          placeholder="8"
-                          min={0}
-                          max={50}
-                          value={form.values.metadata.water_intake}
-                          onChange={(value) => form.setFieldValue('metadata.water_intake', typeof value === 'string' ? parseInt(value) || 0 : value)}
-                        />
-                        <NumberInput
-                          label="Reading Time (minutes)"
-                          placeholder="0"
-                          min={0}
-                          max={1440}
-                          value={form.values.metadata.reading_time}
-                          onChange={(value) => form.setFieldValue('metadata.reading_time', typeof value === 'string' ? parseInt(value) || 0 : value)}
-                        />
-                      </SimpleGrid>
-                      <SimpleGrid cols={2}>
-                        <NumberInput
-                          label="Screen Time (hours)"
-                          placeholder="0"
-                          min={0}
-                          max={24}
-                          step={0.5}
-                          value={form.values.metadata.screen_time}
-                          onChange={(value) => form.setFieldValue('metadata.screen_time', typeof value === 'string' ? parseFloat(value) || 0 : value)}
-                        />
-                        <NumberInput
-                          label="Phone Hours (legacy)"
-                          placeholder="0"
-                          min={0}
-                          max={24}
-                          value={form.values.metadata.phone_hours}
-                          onChange={(value) => form.setFieldValue('metadata.phone_hours', typeof value === 'string' ? parseInt(value) || 0 : value)}
-                        />
-                      </SimpleGrid>
-                      <Switch
-                        label="Social Interaction"
-                        checked={form.values.metadata.social_interaction}
-                        onChange={(event) => form.setFieldValue('metadata.social_interaction', event.currentTarget.checked)}
-                      />
-                    </Stack>
-                  </Stack>
-                </Accordion.Panel>
-              </Accordion.Item>
-            </Accordion>
+            {/* Weather & Location - Quick Entry Metadata */}
+            <Stack gap="sm">
+              <Text size="sm" fw={500} c="dimmed">Entry Details (Optional)</Text>
+              <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                <Select
+                  label="Weather"
+                  placeholder="Select weather"
+                  value={form.values.weather_code !== undefined && form.values.weather_code !== null ? String(form.values.weather_code) : null}
+                  data={WEATHER_CODES.map((code) => ({ value: String(code.value), label: code.label }))}
+                  onChange={(value) =>
+                    form.setFieldValue('weather_code', value === null ? undefined : (parseInt(value, 10) as WeatherCode))
+                  }
+                  searchable
+                  clearable
+                />
+                <TextInput
+                  label="Location"
+                  placeholder="Where were you today?"
+                  value={form.values.location || ''}
+                  onChange={(event) => form.setFieldValue('location', event.currentTarget.value)}
+                />
+              </SimpleGrid>
+              <Alert color="blue" variant="light" title="Daily Wellness Tracking">
+                <Text size="sm">
+                  Track your daily wellness metrics (sleep, exercise, mood, etc.) in the <strong>Daily Wellness Tracker</strong> on the main Diary page.
+                </Text>
+              </Alert>
+            </Stack>
 
             <Group justify="flex-end">
               <Button variant="light" onClick={() => setModalOpen(false)}>

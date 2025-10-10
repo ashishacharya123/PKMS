@@ -29,6 +29,7 @@ interface RecoveryModalProps {
   opened: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  username?: string;
 }
 
 interface UserQuestion {
@@ -39,14 +40,17 @@ interface UserQuestion {
 const RecoveryModal: React.FC<RecoveryModalProps> = ({
   opened,
   onClose,
-  onSuccess
+  onSuccess,
+  username
 }) => {
   const [loading, setLoading] = useState(false);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [userQuestions, setUserQuestions] = useState<UserQuestion[]>([]);
   const [questionsError, setQuestionsError] = useState<string | null>(null);
   
-  const { resetPasswordWithRecovery } = useAuthStore();
+  const { resetPasswordWithRecovery, user } = useAuthStore();
+
+  const effectiveUsername = username ?? user?.username;
 
   // Security Questions Form
   const questionsForm = useForm({
@@ -137,6 +141,7 @@ const RecoveryModal: React.FC<RecoveryModalProps> = ({
       }
 
       const success = await resetPasswordWithRecovery({
+        username: effectiveUsername ?? '',
         answers: answers,
         new_password: values.newPassword,
       });

@@ -5,12 +5,19 @@
 import { apiService } from './api';
 import { coreUploadService } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
-import { searchService } from './searchService';
 
 // Using chunked upload for all documents; no small-file direct path
 // (kept here previously; now removed to avoid dead code)
 
 // Removed legacy direct-upload progress mapper
+
+export interface ProjectBadge {
+  id: number | null;  // null if project is deleted
+  name: string;
+  color: string;
+  isExclusive: boolean;
+  isDeleted: boolean;  // True if project was deleted (using snapshot name)
+}
 
 export interface Document {
   id: number;
@@ -24,11 +31,13 @@ export interface Document {
   description?: string;
   is_favorite: boolean;
   is_archived: boolean;
+  isExclusiveMode: boolean;
   archive_item_uuid?: string;
   upload_status: string;
   created_at: string;
   updated_at: string;
   tags: string[];
+  projects: ProjectBadge[];
 }
 
 export interface DocumentSummary {
@@ -43,11 +52,13 @@ export interface DocumentSummary {
   description?: string;
   is_favorite: boolean;
   is_archived: boolean;
+  isExclusiveMode: boolean;
   archive_item_uuid?: string;
   upload_status: string;
   created_at: string;
   updated_at: string;
   tags: string[];
+  projects: ProjectBadge[];
 }
 
 export interface UploadDocumentRequest {
@@ -59,6 +70,8 @@ export interface UpdateDocumentRequest {
   tags?: string[];
   is_archived?: boolean;
   metadata?: Record<string, any>;
+  projectIds?: number[];
+  isExclusiveMode?: boolean;
 }
 
 export interface SearchResult {
@@ -91,7 +104,9 @@ class DocumentsService {
     file: File, 
     tags: string[] = [],
     onProgress?: (progress: number) => void,
-    projectId?: number
+    projectIds?: number[],
+    isExclusive?: boolean,
+    projectId?: number // Legacy support
   ): Promise<Document> {
     // Use chunked upload uniformly to match backend capabilities
     const fileId = await coreUploadService.uploadFile(file, {
@@ -106,11 +121,13 @@ class DocumentsService {
       title: file.name,
       description: undefined as string | undefined,
       tags,
-      project_id: projectId,
+      project_id: projectId, // Legacy
+      projectIds: projectIds && projectIds.length > 0 ? projectIds : undefined,
+      isExclusiveMode: projectIds && projectIds.length > 0 ? isExclusive : undefined,
     };
     const commitResp = await apiService.post<Document>('/documents/upload/commit', commitPayload);
     const created = commitResp.data;
-    searchService.invalidateCacheForContentType('document');
+    // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return created;
   }
 
@@ -128,7 +145,7 @@ class DocumentsService {
   async updateDocument(id: number, data: UpdateDocumentRequest): Promise<Document> {
     const response = await apiService.put<Document>(`/documents/${id}`, data);
     // Invalidate search cache for documents
-    searchService.invalidateCacheForContentType('document');
+    // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return response.data;
   }
 
@@ -138,7 +155,7 @@ class DocumentsService {
   async deleteDocument(id: number): Promise<{ message: string }> {
     const response = await apiService.delete<{ message: string }>(`/documents/${id}`);
     // Invalidate search cache for documents
-    searchService.invalidateCacheForContentType('document');
+    // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return response.data;
   }
 

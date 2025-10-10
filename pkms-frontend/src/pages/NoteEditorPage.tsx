@@ -33,6 +33,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { notesService, Note, type NoteFile } from '../services/notesService';
 import { searchService } from '../services/searchService';
+import { MultiProjectSelector } from '../components/common/MultiProjectSelector';
 
 export function NoteEditorPage() {
   const navigate = useNavigate();
@@ -43,6 +44,8 @@ export function NoteEditorPage() {
   const [content, setContent] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [projectIds, setProjectIds] = useState<number[]>([]);
+  const [isExclusive, setIsExclusive] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
@@ -126,6 +129,8 @@ export function NoteEditorPage() {
       setTitle(currentNote.title);
       setContent(currentNote.content);
       setTags(currentNote.tags);
+      setProjectIds(currentNote.projects?.filter(p => !p.isDeleted).map(p => p.id).filter((id): id is number => id !== null) || []);
+      setIsExclusive(currentNote.isExclusiveMode || false);
       setHasUnsavedChanges(false);
       // Load attachments for this note
       notesService.getNoteFiles(currentNote.id).then(setNoteFiles).catch(() => setNoteFiles([]));
@@ -183,7 +188,9 @@ export function NoteEditorPage() {
     const noteData = {
       title: title.trim(),
       content: content.trim(),
-      tags
+      tags,
+      projectIds: projectIds.length > 0 ? projectIds : undefined,
+      isExclusiveMode: projectIds.length > 0 ? isExclusive : undefined
     };
 
     try {
@@ -403,7 +410,8 @@ export function NoteEditorPage() {
                     <IconFolder size={18} />
                     Metadata
                   </Group>
-                </Title>                  <Stack gap="sm">
+                </Title>
+                <Stack gap="sm">
                   <TagsInput
                     label="Tags"
                     placeholder="Type to search and add tags"
@@ -414,6 +422,14 @@ export function NoteEditorPage() {
                     onSearchChange={handleTagSearch}
                     splitChars={[',', ' ']}
                     description="Add multiple tags separated by comma or space. Start typing to see suggestions."
+                  />
+                  
+                  <MultiProjectSelector
+                    value={projectIds}
+                    onChange={setProjectIds}
+                    isExclusive={isExclusive}
+                    onExclusiveChange={setIsExclusive}
+                    description="Link this note to one or more projects"
                   />
                 </Stack>
               </Card>

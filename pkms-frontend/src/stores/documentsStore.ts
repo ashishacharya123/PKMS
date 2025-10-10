@@ -40,7 +40,7 @@ interface DocumentsState {
   loadDocuments: () => Promise<void>;
   loadMore: () => Promise<void>;
   loadDocument: (uuid: string) => Promise<void>;
-  uploadDocument: (file: File, tags?: string[]) => Promise<Document | null>;
+  uploadDocument: (file: File, tags?: string[], projectIds?: number[], isExclusive?: boolean) => Promise<Document | null>;
   updateDocument: (uuid: string, data: UpdateDocumentRequest) => Promise<Document | null>;
   deleteDocument: (uuid: string) => Promise<boolean>;
   toggleArchive: (id: number, archived: boolean) => Promise<Document | null>;
@@ -71,7 +71,7 @@ interface DocumentsState {
   reset: () => void;
 }
 
-const initialState: Omit<DocumentsState, 'reset' | 'setUploadProgress' | 'clearCurrentDocument' | 'clearError' | 'setShowArchived' | 'setShowFavoritesOnly' | 'setSearch' | 'setTag' | 'setMimeType' | 'getPreviewUrl' | 'getDownloadUrl' | 'downloadDocument' | 'previewDocument' | 'clearSearch' | 'searchDocuments' | 'toggleArchive' | 'deleteDocument' | 'updateDocument' | 'uploadDocument' | 'loadDocument' | 'loadMore' | 'loadDocuments'> = {
+const initialState: Omit<DocumentsState, 'reset' | 'setUploadProgress' | 'clearCurrentDocument' | 'clearError' | 'setShowArchived' | 'setShowFavoritesOnly' | 'setShowProjectOnly' | 'setCurrentProjectId' | 'setSearch' | 'setTag' | 'setMimeType' | 'getPreviewUrl' | 'getDownloadUrl' | 'downloadDocument' | 'previewDocument' | 'clearSearch' | 'searchDocuments' | 'toggleArchive' | 'deleteDocument' | 'updateDocument' | 'uploadDocument' | 'loadDocument' | 'loadMore' | 'loadDocuments'> = {
   documents: [],
   currentDocument: null,
   searchResults: [],
@@ -110,8 +110,11 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         archived: state.showArchived,
         is_favorite: state.showFavoritesOnly || undefined,
         project_id: state.currentProjectId || undefined,
+        // Fixed: Don't send conflicting filters
+        // - If showProjectOnly is true: send project_only=true (show only docs WITH projects)
+        // - If showProjectOnly is false: send nothing (show ALL docs, both with and without projects)
         project_only: state.showProjectOnly || undefined,
-        unassigned_only: (!state.showProjectOnly) || undefined,
+        // REMOVED: unassigned_only - was backwards logic causing uploaded docs to be hidden
         limit: state.limit,
         offset: 0
       };
@@ -147,7 +150,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         is_favorite: state.showFavoritesOnly || undefined,
         project_id: state.currentProjectId || undefined,
         project_only: state.showProjectOnly || undefined,
-        unassigned_only: (!state.showProjectOnly) || undefined,
+        // REMOVED: unassigned_only - was backwards logic causing uploaded docs to be hidden
         limit: state.limit,
         offset: state.offset
       };
@@ -172,7 +175,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const document = await documentsService.getDocument(uuid);
+      // Convert UUID string to number ID (backend expects numeric ID)
+      const docId = parseInt(uuid, 10);
+      const document = await documentsService.getDocument(docId);
       set({ currentDocument: document, isLoading: false });
     } catch (error) {
       set({ 
@@ -182,45 +187,72 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     }
   },
   
-  uploadDocument: async (file: File, tags: string[] = []) => {
+  uploadDocument: async (file: File, tags: string[] = [], projectIds: number[] = [], isExclusive: boolean = false) => {
     set({ isUploading: true, error: null, uploadProgress: 0 });
     
     try {
       const document = await documentsService.uploadDocument(
         file, 
         tags, 
-        (progress) => set({ uploadProgress: progress })
+        (progress) => set({ uploadProgress: progress }),
+        projectIds,
+        isExclusive
       );
       
       // Convert Document to DocumentSummary for the list
       const documentSummary: DocumentSummary = {
+        id: document.id,
         uuid: document.uuid,
+        title: document.original_name, // Use original_name as title
         filename: document.filename,
         original_name: document.original_name,
-        mime_type: document.mime_type,
+        file_path: document.file_path,
         file_size: document.file_size,
+        mime_type: document.mime_type,
+        is_favorite: document.is_favorite ?? false,
         is_archived: document.is_archived,
+        upload_status: document.upload_status || 'completed',
         created_at: document.created_at,
         updated_at: document.updated_at,
-        tags: document.tags,
-        preview: document.extracted_text?.substring(0, 200) || ''
+        tags: document.tags
       };
       
       // Add to documents list if it matches current filters
       const state = get();
-      const shouldAdd = (!state.currentMimeType || document.mime_type === state.currentMimeType) &&
-                       (!state.currentTag || document.tags.includes(state.currentTag)) &&
-                       (!state.searchQuery || document.original_name.toLowerCase().includes(state.searchQuery.toLowerCase())) &&
-                       (state.showArchived || !document.is_archived);
       
-      if (shouldAdd) {
-        set({ 
-          documents: [documentSummary, ...state.documents],
-          isUploading: false,
-          uploadProgress: 0
+      // Check if document matches current filters
+      const matchesMimeType = !state.currentMimeType || document.mime_type === state.currentMimeType;
+      const matchesTag = !state.currentTag || document.tags.includes(state.currentTag);
+      const matchesSearch = !state.searchQuery || document.original_name.toLowerCase().includes(state.searchQuery.toLowerCase());
+      const matchesArchived = state.showArchived || !document.is_archived;
+      const matchesFavorite = !state.showFavoritesOnly || document.is_favorite;
+      
+      // Check project filter: if showProjectOnly is true, only show documents with project_id
+      // For now, assume uploaded documents are unassigned (no project), so they should show when !showProjectOnly
+      const matchesProjectFilter = !state.showProjectOnly;
+      
+      const shouldAdd = matchesMimeType && matchesTag && matchesSearch && matchesArchived && matchesFavorite && matchesProjectFilter;
+      
+      set({ 
+        documents: shouldAdd ? [documentSummary, ...state.documents] : state.documents,
+        isUploading: false,
+        uploadProgress: 0
+      });
+      
+      // If document was uploaded but doesn't match filters, user might be confused
+      // Log for debugging
+      if (!shouldAdd) {
+        console.log('[Documents Store] Uploaded document does not match current filters:', {
+          document: document.original_name,
+          filters: {
+            mimeType: state.currentMimeType,
+            tag: state.currentTag,
+            search: state.searchQuery,
+            showArchived: state.showArchived,
+            showFavoritesOnly: state.showFavoritesOnly,
+            showProjectOnly: state.showProjectOnly
+          }
         });
-      } else {
-        set({ isUploading: false, uploadProgress: 0 });
       }
       
       return document;
@@ -449,12 +481,12 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         if (previewableTypes.includes((document as any).mime_type)) {
           window.open(objectUrl, '_blank');
         } else {
-          const a = document.createElement('a');
+          const a = window.document.createElement('a');
           a.href = objectUrl;
           a.download = (document as any).original_name || 'download';
-          document.body.appendChild(a);
+          window.document.body.appendChild(a);
           a.click();
-          document.body.removeChild(a);
+          window.document.body.removeChild(a);
         }
         // Revoke later to allow the new tab to read it first
         setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);

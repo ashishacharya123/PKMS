@@ -1,16 +1,4 @@
-import React from 'react';
-import { 
-  SimpleGrid, 
-  Stack, 
-  Paper, 
-  Group, 
-  Text, 
-  Badge, 
-  ActionIcon,
-  Tooltip,
-  Table,
-  Card
-} from '@mantine/core';
+import { SimpleGrid, Card, Stack, Title, Text } from '@mantine/core';
 import { ViewMode } from './ViewMenu';
 
 interface BaseItem {
@@ -54,15 +42,12 @@ export function ViewModeLayouts<T extends BaseItem>({
     return (
       <Stack gap="md">
         {Array.from({ length: 6 }).map((_, i) => (
-          <Paper key={i} withBorder p="md" style={{ opacity: 0.6 }}>
-            <Group>
-              <div style={{ width: 40, height: 40, backgroundColor: '#f0f0f0', borderRadius: 4 }} />
-              <Stack gap={4}>
-                <div style={{ width: 120, height: 12, backgroundColor: '#f0f0f0', borderRadius: 2 }} />
-                <div style={{ width: 80, height: 8, backgroundColor: '#f0f0f0', borderRadius: 2 }} />
-              </Stack>
-            </Group>
-          </Paper>
+          <Card key={i} withBorder p="md" style={{ opacity: 0.6 }}>
+            <Stack gap={4}>
+              <div style={{ width: 120, height: 12, backgroundColor: '#f0f0f0', borderRadius: 2 }} />
+              <div style={{ width: 80, height: 8, backgroundColor: '#f0f0f0', borderRadius: 2 }} />
+            </Stack>
+          </Card>
         ))}
       </Stack>
     );
@@ -70,9 +55,9 @@ export function ViewModeLayouts<T extends BaseItem>({
 
   if (items.length === 0) {
     return (
-      <Paper withBorder p="xl" style={{ textAlign: 'center' }}>
+      <Card withBorder p="xl" style={{ textAlign: 'center' }}>
         <Text c="dimmed" size="lg">{emptyMessage}</Text>
-      </Paper>
+      </Card>
     );
   }
 
@@ -81,7 +66,7 @@ export function ViewModeLayouts<T extends BaseItem>({
     return (
       <SimpleGrid cols={{ base: 2, sm: 3, md: 4, lg: 6 }} spacing="xs">
         {items.map((item) => (
-          <Paper
+          <Card
             key={item.id}
             withBorder
             p="xs"
@@ -105,7 +90,7 @@ export function ViewModeLayouts<T extends BaseItem>({
                 {item.title || item.name || `Item ${item.id}`}
               </Text>
             </Stack>
-          </Paper>
+          </Card>
         ))}
       </SimpleGrid>
     );
@@ -142,18 +127,18 @@ export function ViewModeLayouts<T extends BaseItem>({
                   {item.title || item.name || `Item ${item.id}`}
                 </Text>
                 {item.tags && item.tags.length > 0 && (
-                  <Group gap={4} justify="center">
+                  <Stack gap={4} justify="center">
                     {item.tags.slice(0, 2).map((tag, idx) => (
-                      <Badge key={idx} size="xs" variant="light">
+                      <Text key={idx} size="xs" variant="light">
                         {tag}
-                      </Badge>
+                      </Text>
                     ))}
                     {item.tags.length > 2 && (
-                      <Badge size="xs" variant="outline">
+                      <Text size="xs" variant="outline">
                         +{item.tags.length - 2}
-                      </Badge>
+                      </Text>
                     )}
-                  </Group>
+                  </Stack>
                 )}
               </Stack>
             </Stack>
@@ -168,7 +153,7 @@ export function ViewModeLayouts<T extends BaseItem>({
     return (
       <Stack gap="xs">
         {items.map((item) => (
-          <Paper
+          <Card
             key={item.id}
             withBorder
             p="md"
@@ -182,7 +167,7 @@ export function ViewModeLayouts<T extends BaseItem>({
             onClick={() => onItemClick?.(item)}
           >
             {renderListItem(item)}
-          </Paper>
+          </Card>
         ))}
       </Stack>
     );
@@ -191,32 +176,19 @@ export function ViewModeLayouts<T extends BaseItem>({
   // Details View (Table)
   if (viewMode === 'details') {
     return (
-      <Paper withBorder>
-        <Table striped highlightOnHover>
-          <Table.Thead>
-            <Table.Tr>
-              {detailHeaders.map((header) => (
-                <Table.Th key={header}>{header}</Table.Th>
-              ))}
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {items.map((item) => (
-              <Table.Tr
-                key={item.id}
-                style={{ 
-                  cursor: onItemClick ? 'pointer' : 'default'
-                }}
-                onClick={() => onItemClick?.(item)}
-              >
-                {renderDetailColumns(item).map((cell, idx) => (
-                  <Table.Td key={idx}>{cell}</Table.Td>
-                ))}
-              </Table.Tr>
+      <Card withBorder>
+        <Stack gap="xs">
+          <Title order={5}>Details</Title>
+          <Stack gap="xs">
+            {detailHeaders.map((header) => (
+              <Stack key={header} direction="row" justify="space-between" align="center">
+                <Text fw={500}>{header}</Text>
+                <Text>{renderDetailColumns(items[0])[detailHeaders.indexOf(header)]}</Text>
+              </Stack>
             ))}
-          </Table.Tbody>
-        </Table>
-      </Paper>
+          </Stack>
+        </Stack>
+      </Card>
     );
   }
 

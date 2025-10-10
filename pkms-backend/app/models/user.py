@@ -48,6 +48,7 @@ class User(Base):
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
     diary_entries = relationship("DiaryEntry", back_populates="user", cascade="all, delete-orphan")
     diary_media = relationship("DiaryMedia", back_populates="user", cascade="all, delete-orphan")
+    diary_daily_metadata = relationship("DiaryDailyMetadata", back_populates="user", cascade="all, delete-orphan")
     archive_folders = relationship("ArchiveFolder", back_populates="user", cascade="all, delete-orphan")
     archive_items = relationship("ArchiveItem", back_populates="user", cascade="all, delete-orphan")
     

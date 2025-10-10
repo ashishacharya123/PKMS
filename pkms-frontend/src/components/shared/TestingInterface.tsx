@@ -127,14 +127,14 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   const [databaseStats, setDatabaseStats] = useState<DatabaseStats | null>(null);
   const [sampleRows, setSampleRows] = useState<any>(null);
   // const [tableSchema, setTableSchema] = useState<any>(null);
-  const [allTableSchemas, setAllTableSchemas] = useState<any>({});
+  const [allTableSchemas, setAllTableSchemas] = useState<any>(null);
   const [selectedTableGroup, setSelectedTableGroup] = useState<string>('content');
-  const [selectedTable, setSelectedTable] = useState<string>('notes');
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [rowLimit, setRowLimit] = useState<number>(5);
   const [schemaDrawerOpen, setSchemaDrawerOpen] = useState(false);
   const [allTablesData, setAllTablesData] = useState<any>(null);
   const [allTablesModalOpen, setAllTablesModalOpen] = useState(false);
-  // const [allTablesExpanded, setAllTablesExpanded] = useState(false);
+  const [allTablesExpanded, setAllTablesExpanded] = useState<boolean>(false);
   
   // FTS5 tables state
   // const [ftsTablesData, setFtsTablesData] = useState<any>(null);
@@ -584,7 +584,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
     setDatabaseStats(null);
     setSampleRows(null);
     setTableSchema(null);
-    setAllTableSchemas({});
+    setAllTableSchemas(null);
     setAllTablesData(null);
     
     // Clear FTS5 tables state
@@ -1291,7 +1291,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
         size="xl"
       >
         <Stack gap="lg">
-          {tableGroups.map((group) => (
+          {allTableSchemas && tableGroups.map((group) => (
             <Card key={group.name} withBorder>
               <Stack gap="md">
                 <Group>
@@ -1306,7 +1306,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
                 
                 <Accordion>
                   {group.tables.map((tableName) => {
-                    const schema = allTableSchemas[tableName];
+                    const schema = allTableSchemas?.[tableName];
                     return (
                       <Accordion.Item key={tableName} value={tableName}>
                         <Accordion.Control>
