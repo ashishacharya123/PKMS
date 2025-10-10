@@ -49,7 +49,7 @@ export const MultiProjectSelector: React.FC<MultiProjectSelectorProps> = ({
   const loadProjects = async () => {
     try {
       setLoading(true);
-      const response = await todosService.listProjects({ archived: false });
+      const response = await todosService.getProjects(false);  // Pass archived flag directly
       setProjects(response);
     } catch (error) {
       console.error('Failed to load projects:', error);

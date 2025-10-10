@@ -33,22 +33,39 @@ class FakeTag:
 
 
 @pytest.mark.asyncio
-async def test_handle_document_tags_usage_counts(monkeypatch):
+async def test_handle_document_tags_usage_counts():
+    """Test that tag usage counts are updated correctly and new tags are created."""
     doc = Document(id=1, uuid="doc-uuid", user_id=1, title="Doc", filename="file", file_path="path")
 
     existing_tag = FakeTag(uuid="tag-1", name="existing", usage_count=3)
 
     db = AsyncMock()
 
+    # Mock the sequence of database queries:
+    # 1. Get existing tag associations
+    # 2. Fetch existing tags to update usage counts
+    # 3. Find existing tag by name
+    # 4. Find new tag (not found - will create)
     db.execute.side_effect = [
-        MockQueryResult([(existing_tag.uuid,)]),
-        MockQueryResult([existing_tag]),
-        MockQueryResult([(FakeTag(uuid="tag-2", name="new", usage_count=1),)]),
+        MockQueryResult([(existing_tag.uuid,)]),  # Existing associations
+        MockQueryResult([existing_tag]),           # Fetch existing tags
+        MockQueryResult([existing_tag]),           # Find existing tag by name
+        MockQueryResult([]),                       # Find new tag (not found)
     ]
 
     new_tags = ["existing", "new"]
 
     await _handle_document_tags(db, doc, new_tags, user_id=1)
 
-    assert db.execute.await_count >= 3
+    # Verify execute was called for all expected queries
+    assert db.execute.await_count >= 4, "Should execute at least 4 queries"
+
+    # Verify existing tag usage count was incremented (kept at same value since it's reused)
+    assert existing_tag.usage_count == 3, "Existing tag count should be preserved when reused"
+
+    # Verify db.add was called for the new tag
+    assert db.add.call_count >= 1, "Should add new tag to session"
+    
+    # Verify db.flush was called to persist changes
+    assert db.flush.await_count >= 1, "Should flush changes to database"
 

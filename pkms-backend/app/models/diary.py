@@ -29,7 +29,6 @@ class DiaryEntry(Base):
     content_file_path = Column(String(500), nullable=True)
     file_hash = Column(String(128), nullable=True)
     encryption_tag = Column(String(255), nullable=True)
-    encryption_tag = Column(String(255), nullable=True)
     encryption_iv = Column(String(255), nullable=True)
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)

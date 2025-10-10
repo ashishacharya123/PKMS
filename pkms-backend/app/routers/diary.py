@@ -780,6 +780,10 @@ async def get_diary_entries_by_date(
     
     entries = result.scalars().all()
     
+    # Fetch tags for all entries in a single query (avoid lazy loading in async)
+    entry_uuids = [entry.uuid for entry in entries]
+    tags_map = await _get_tags_for_entries(db, entry_uuids) if entry_uuids else {}
+    
     response = []
     for entry in entries:
         # Read encrypted blob from file if available
@@ -813,7 +817,7 @@ async def get_diary_entries_by_date(
             created_at=entry.created_at,
             updated_at=entry.updated_at,
             media_count=len(entry.media),
-            tags=[t.name for t in entry.tag_objs],
+            tags=tags_map.get(entry.uuid, []),  # Use pre-fetched tags
             content_length=entry.content_length,
         )
         response.append(res)

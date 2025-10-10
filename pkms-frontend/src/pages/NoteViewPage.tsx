@@ -41,11 +41,11 @@ export default function NoteViewPage() {
     if (!note) return;
     try {
       await notesService.toggleArchive(note.id, !note.is_archived);
-      // queryClient.invalidateQueries({ queryKey: ['note', id] });
-      // queryClient.invalidateQueries({ queryKey: ['notes'] });
+      // Update local state after successful toggle
+      setNote({ ...note, is_archived: !note.is_archived });
       notifications.show({
-        title: note.is_archived ? 'Unarchived' : 'Archived',
-        message: note.is_archived ? 'Note moved back to active' : 'Note moved to archive',
+        title: !note.is_archived ? 'Unarchived' : 'Archived',
+        message: !note.is_archived ? 'Note moved back to active' : 'Note moved to archive',
         color: 'green'
       });
     } catch (err) {

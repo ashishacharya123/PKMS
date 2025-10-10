@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Modal,
   Alert,
@@ -9,7 +9,6 @@ import {
   Group,
   LoadingOverlay,
   Textarea,
-  PasswordInput,
   Badge,
   Divider,
   Select,
@@ -62,8 +61,6 @@ const RecoverySetupModal: React.FC<RecoverySetupModalProps> = ({
   username
 }) => {
   const [loading, setLoading] = useState(false);
-  const [questions, setQuestions] = useState<string[]>(['', '', '']);
-  const [answers, setAnswers] = useState<string[]>(['', '', '']);
 
   const form = useForm({
     initialValues: {

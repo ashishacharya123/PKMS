@@ -53,9 +53,15 @@ export default function SearchSuggestions(props: SearchSuggestionsProps) {
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
       setHighlightedIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-    } else if (event.key === 'Enter' && highlightedIndex >= 0) {
+    } else if (event.key === 'Enter') {
       event.preventDefault();
-      onChange(suggestions[highlightedIndex]);
+      
+      // If a suggestion is highlighted, use it
+      if (highlightedIndex >= 0 && suggestions[highlightedIndex]) {
+        onChange(suggestions[highlightedIndex]);
+      }
+      
+      // Always trigger search
       onSearch();
       setSuggestions([]);
     }

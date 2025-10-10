@@ -31,8 +31,8 @@ export const ProjectBadges: React.FC<ProjectBadgesProps> = ({
   }
 
   const handleBadgeClick = (projectId: number | null) => {
-    if (clickable && projectId) {
-      navigate(`/todos?project=${projectId}`);
+    if (clickable && projectId != null) {  // Explicit null/undefined check (allows 0)
+      navigate(`/projects/${projectId}`);
     }
   };
 

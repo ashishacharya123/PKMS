@@ -30,7 +30,7 @@ MAX_CHUNK_SIZE = 5 * 1024 * 1024  # 5MB per chunk
 @router.post("/upload/chunk")
 @limiter.limit("60/minute")
 async def upload_chunk(
-    request: Request,
+    request: Request,  # Required for rate limiting - moved before optional params
     file: UploadFile = File(...),
     chunk_data: str = Form(...),
     current_user: User = Depends(get_current_user),

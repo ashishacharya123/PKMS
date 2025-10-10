@@ -114,7 +114,7 @@ async def lifespan(app: FastAPI):
                 await enhanced_fts_service.initialize_enhanced_fts_tables(db)
             logger.info("FTS5 search tables initialized successfully")
         except Exception as fts_error:
-            logger.error(f"FTS5 initialization failed: {fts_error}")
+            logger.exception("FTS5 initialization failed")
             logger.info("Search will fall back to basic queries")
         
         # Start background tasks
@@ -135,7 +135,7 @@ async def lifespan(app: FastAPI):
         yield
         
     except Exception as e:
-        logger.error(f"Critical error during startup: {e}")
+        logger.exception("Critical error during startup")
         raise
     finally:
         # Shutdown

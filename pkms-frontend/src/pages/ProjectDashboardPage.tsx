@@ -72,7 +72,7 @@ export function ProjectDashboardPage() {
       const [notesData, docsData, todosData] = await Promise.all([
         notesService.listNotes({ project_id: parseInt(projectId!) }),
         documentsService.listDocuments({ project_id: parseInt(projectId!) }),
-        todosService.listTodos({ project_id: parseInt(projectId!) })
+        todosService.getTodos({ project_id: parseInt(projectId!) })
       ]);
       
       setNotes(notesData);
@@ -160,15 +160,19 @@ export function ProjectDashboardPage() {
           </Text>
         </Group>
         <Group gap="xs">
-          {item.isExclusiveMode ? (
-            <Tooltip label="Exclusive - Will be deleted with project">
-              <IconLock size={16} color="var(--mantine-color-red-6)" />
-            </Tooltip>
-          ) : (
-            <Tooltip label="Linked - Will survive deletion">
-              <IconLink size={16} color="var(--mantine-color-blue-6)" />
-            </Tooltip>
-          )}
+          {(() => {
+            // Normalize both camelCase and snake_case
+            const isExclusive = (item as any).isExclusiveMode ?? (item as any).is_exclusive_mode ?? false;
+            return isExclusive ? (
+              <Tooltip label="Exclusive - Will be deleted with project">
+                <IconLock size={16} color="var(--mantine-color-red-6)" />
+              </Tooltip>
+            ) : (
+              <Tooltip label="Linked - Will survive deletion">
+                <IconLink size={16} color="var(--mantine-color-blue-6)" />
+              </Tooltip>
+            );
+          })()}
           {item.tags && item.tags.length > 0 && (
             <Badge size="xs" variant="dot">
               {item.tags.length} tags

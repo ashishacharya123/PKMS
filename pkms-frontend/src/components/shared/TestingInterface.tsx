@@ -583,15 +583,15 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
     // Clear all database state
     setDatabaseStats(null);
     setSampleRows(null);
-    setTableSchema(null);
+    // setTableSchema(null); // Commented out - state not defined
     setAllTableSchemas(null);
     setAllTablesData(null);
     
-    // Clear FTS5 tables state
-    setFtsTablesData(null);
-    setSelectedFtsTable('');
-    setFtsModalOpen(false);
-    setFtsTableSamples(null);
+    // Clear FTS5 tables state (commented out - states not defined)
+    // setFtsTablesData(null);
+    // setSelectedFtsTable('');
+    // setFtsModalOpen(false);
+    // setFtsTableSamples(null);
     
     // Clear diary testing state
     setDiaryTestResult(null);

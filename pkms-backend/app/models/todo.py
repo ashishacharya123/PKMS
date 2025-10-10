@@ -95,9 +95,9 @@ class Project(Base):
     
     # Relationships
     user = relationship("User", back_populates="projects")
-    todos = relationship("Todo", back_populates="project", cascade="all, delete-orphan")  # Legacy single project todos
+    todos = relationship("Todo", back_populates="project")  # Legacy single project (no delete-orphan to avoid conflicts with M2M)
     # Optional: documents associated with this project (images/files)
-    documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")  # Legacy single project docs
+    documents = relationship("Document", back_populates="project")  # Legacy single project (no delete-orphan to avoid conflicts with M2M)
     tag_objs = relationship("Tag", secondary=project_tags, back_populates="projects")
     
     # Many-to-many relationships

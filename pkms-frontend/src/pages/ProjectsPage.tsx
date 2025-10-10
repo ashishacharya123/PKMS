@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
+import { useAuthenticatedEffectAlways } from '../hooks/useAuthenticatedEffect';
 import { useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -55,7 +55,7 @@ export function ProjectsPage() {
     color: '#228be6'
   });
 
-  useAuthenticatedEffect(() => {
+  useAuthenticatedEffectAlways(() => {
     loadProjects();
   }, [showArchived]);
 

@@ -173,7 +173,7 @@ export function WellnessAnalytics() {
               <YAxis domain={[0, 5]} ticks={[1, 2, 3, 4, 5]} />
               <Tooltip 
                 labelFormatter={(date) => new Date(date).toLocaleDateString()}
-                formatter={(value: any) => [value ? value.toFixed(1) : 'No data', 'Mood']}
+                formatter={(value: any) => [value != null ? value.toFixed(1) : 'No data', 'Mood']}
               />
               <Legend />
               <Line 
@@ -202,7 +202,7 @@ export function WellnessAnalytics() {
               <YAxis label={{ value: 'Hours', angle: -90, position: 'insideLeft' }} />
               <Tooltip 
                 labelFormatter={(date) => new Date(date).toLocaleDateString()}
-                formatter={(value: any) => [value ? `${value} hrs` : 'No data', 'Sleep']}
+                formatter={(value: any) => [value != null ? `${value} hrs` : 'No data', 'Sleep']}
               />
               <Legend />
               <Bar dataKey="value" fill={COLORS.sleep} name="Sleep Duration">
@@ -227,7 +227,7 @@ export function WellnessAnalytics() {
               <YAxis label={{ value: 'Minutes', angle: -90, position: 'insideLeft' }} />
               <Tooltip 
                 labelFormatter={(date) => new Date(date).toLocaleDateString()}
-                formatter={(value: any) => [value ? `${value} min` : 'No exercise', 'Duration']}
+                formatter={(value: any) => [value != null ? `${value} min` : 'No exercise', 'Duration']}
               />
               <Legend />
               <Bar dataKey="value" fill={COLORS.exercise} name="Exercise Minutes" />
@@ -248,7 +248,7 @@ export function WellnessAnalytics() {
               <YAxis label={{ value: 'Hours', angle: -90, position: 'insideLeft' }} />
               <Tooltip 
                 labelFormatter={(date) => new Date(date).toLocaleDateString()}
-                formatter={(value: any) => [value ? `${value} hrs` : 'No data', 'Screen Time']}
+                formatter={(value: any) => [value != null ? `${value} hrs` : 'No data', 'Screen Time']}
               />
               <Legend />
               <Line 
@@ -313,7 +313,7 @@ export function WellnessAnalytics() {
               <YAxis label={{ value: 'Glasses', angle: -90, position: 'insideLeft' }} />
               <Tooltip 
                 labelFormatter={(date) => new Date(date).toLocaleDateString()}
-                formatter={(value: any) => [value ? `${value} glasses` : 'No data', 'Water']}
+                formatter={(value: any) => [value != null ? `${value} glasses` : 'No data', 'Water']}
               />
               <Legend />
               <Bar dataKey="value" fill={COLORS.hydration} name="Water Intake">
@@ -325,7 +325,7 @@ export function WellnessAnalytics() {
           </ResponsiveContainer>
         );
 
-      case 'mood-sleep-correlation':
+      case 'mood-sleep-correlation': {
         const validPoints = wellnessData.moodSleepCorrelation.filter(p => p.mood !== null && p.sleep !== null);
         return (
           <ResponsiveContainer width="100%" height={300}>
@@ -360,8 +360,9 @@ export function WellnessAnalytics() {
             </ScatterChart>
           </ResponsiveContainer>
         );
+      }
 
-      case 'wellness-score':
+      case 'wellness-score': {
         const radarData = Object.entries(wellnessData.wellnessComponents).map(([key, value]) => ({
           metric: key.replace(/([A-Z])/g, ' $1').trim(),
           score: value,
@@ -383,6 +384,7 @@ export function WellnessAnalytics() {
             </RadarChart>
           </ResponsiveContainer>
         );
+      }
 
       default:
         return null;
@@ -433,7 +435,7 @@ export function WellnessAnalytics() {
                 <Text size="xl" fw={700}>
                   {wellnessData.wellnessScore?.toFixed(0) || 'N/A'}
                 </Text>
-                {wellnessData.wellnessScore && (
+                {wellnessData.wellnessScore != null && (
                   <Badge 
                     color={
                       wellnessData.wellnessScore >= 75 ? 'green' : 
@@ -456,7 +458,7 @@ export function WellnessAnalytics() {
                 <Text size="xl" fw={700}>
                   {wellnessData.averageMood?.toFixed(1) || 'N/A'}
                 </Text>
-                {wellnessData.averageMood && (
+                {wellnessData.averageMood != null && (
                   <Text size="sm" c="dimmed">/ 5 ⭐</Text>
                 )}
               </Group>
@@ -470,7 +472,7 @@ export function WellnessAnalytics() {
                 <Text size="xl" fw={700}>
                   {wellnessData.averageSleep?.toFixed(1) || 'N/A'}
                 </Text>
-                {wellnessData.averageSleep && (
+                {wellnessData.averageSleep != null && (
                   <Text size="sm" c="dimmed">hrs 😴</Text>
                 )}
               </Group>

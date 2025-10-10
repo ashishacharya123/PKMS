@@ -239,7 +239,7 @@ const UnifiedSearch: React.FC<UnifiedSearchProps> = ({ initialQuery = '' }) => {
               <ActionIcon variant="outline" onClick={openFilters} size="lg">
                 <IconFilter size={16} />
               </ActionIcon>
-              <Button variant="outline" onClick={() => performSearch(1)} type="submit" loading={loading}>
+              <Button variant="outline" type="submit" loading={loading}>
                 <IconSearch size={16} />
               </Button>
             </Group>

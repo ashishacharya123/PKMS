@@ -1,4 +1,4 @@
-import { SimpleGrid, Card, Stack, Title, Text } from '@mantine/core';
+import { SimpleGrid, Card, Stack, Title, Text, Badge, Group } from '@mantine/core';
 import { ViewMode } from './ViewMenu';
 
 interface BaseItem {
@@ -129,14 +129,14 @@ export function ViewModeLayouts<T extends BaseItem>({
                 {item.tags && item.tags.length > 0 && (
                   <Stack gap={4} justify="center">
                     {item.tags.slice(0, 2).map((tag, idx) => (
-                      <Text key={idx} size="xs" variant="light">
+                      <Badge key={idx} size="xs" variant="light">
                         {tag}
-                      </Text>
+                      </Badge>
                     ))}
                     {item.tags.length > 2 && (
-                      <Text size="xs" variant="outline">
+                      <Badge size="xs" variant="outline">
                         +{item.tags.length - 2}
-                      </Text>
+                      </Badge>
                     )}
                   </Stack>
                 )}
@@ -173,20 +173,31 @@ export function ViewModeLayouts<T extends BaseItem>({
     );
   }
 
-  // Details View (Table)
+  // Details View (Table) - Show all items
   if (viewMode === 'details') {
     return (
       <Card withBorder>
-        <Stack gap="xs">
+        <Stack gap="md">
           <Title order={5}>Details</Title>
-          <Stack gap="xs">
-            {detailHeaders.map((header) => (
-              <Stack key={header} direction="row" justify="space-between" align="center">
-                <Text fw={500}>{header}</Text>
-                <Text>{renderDetailColumns(items[0])[detailHeaders.indexOf(header)]}</Text>
-              </Stack>
-            ))}
-          </Stack>
+          {items.map((item) => (
+            <Stack 
+              key={item.id} 
+              gap="xs" 
+              p="sm" 
+              style={{ 
+                borderBottom: '1px solid var(--mantine-color-gray-3)',
+                cursor: onItemClick ? 'pointer' : 'default'
+              }}
+              onClick={() => onItemClick?.(item)}
+            >
+              {detailHeaders.map((header, idx) => (
+                <Group key={`${item.id}-${header}`} justify="space-between" align="center">
+                  <Text fw={500}>{header}</Text>
+                  <Text>{renderDetailColumns(item)[idx]}</Text>
+                </Group>
+              ))}
+            </Stack>
+          ))}
         </Stack>
       </Card>
     );

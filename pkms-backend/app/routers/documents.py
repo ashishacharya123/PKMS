@@ -122,18 +122,31 @@ async def _handle_document_tags(db: AsyncSession, doc: Document, tag_names: List
         if tag.uuid in removed_tag_uuids and tag.usage_count > 0:
             tag.usage_count -= 1
 
-async def _handle_document_projects(db: AsyncSession, doc: Document, project_ids: List[int]):
-    """Link document to projects via junction table."""
-    from sqlalchemy import delete
+async def _handle_document_projects(db: AsyncSession, doc: Document, project_ids: List[int], user_id: int):
+    """Link document to projects via junction table (with ownership verification)."""
+    from sqlalchemy import delete, and_
+    from app.models.todo import Project
     
     # First, clear existing project links
     await db.execute(
         delete(document_projects).where(document_projects.c.document_id == doc.id)
     )
     
-    # Add new project links
+    # Add new project links (only for projects owned by the user)
     if project_ids:
-        for project_id in project_ids:
+        # Verify ownership: only link projects that belong to this user
+        result = await db.execute(
+            select(Project.id).where(
+                and_(
+                    Project.id.in_(project_ids),
+                    Project.user_id == user_id
+                )
+            )
+        )
+        allowed_project_ids = [row[0] for row in result.fetchall()]
+        
+        # Insert links only for allowed projects
+        for project_id in allowed_project_ids:
             await db.execute(
                 document_projects.insert().values(
                     document_id=doc.id,
@@ -141,6 +154,11 @@ async def _handle_document_projects(db: AsyncSession, doc: Document, project_ids
                     project_name_snapshot=None  # Will be set on project deletion
                 )
             )
+        
+        # Optional: warn if any requested projects were not owned by user
+        if len(allowed_project_ids) < len(project_ids):
+            forbidden_ids = set(project_ids) - set(allowed_project_ids)
+            print(f"Warning: User {user_id} attempted to link to projects they don't own: {forbidden_ids}")
 
 async def _build_document_project_badges(db: AsyncSession, doc_id: int, is_exclusive: bool) -> List[ProjectBadge]:
     """Build project badges from junction table (live projects and deleted snapshots)."""
@@ -306,9 +324,9 @@ async def commit_document_upload(
         if payload.tags:
             await _handle_document_tags(db, document, payload.tags, current_user.id)
 
-        # Handle projects
+        # Handle projects (with ownership verification)
         if payload.project_ids:
-            await _handle_document_projects(db, document, payload.project_ids)
+            await _handle_document_projects(db, document, payload.project_ids, current_user.id)
 
         await db.commit()
         
@@ -517,9 +535,9 @@ async def update_document(
     if "tags" in update_data:
         await _handle_document_tags(db, doc, update_data.pop("tags"), current_user.id)
 
-    # Handle projects if provided
+    # Handle projects if provided (with ownership verification)
     if "project_ids" in update_data:
-        await _handle_document_projects(db, doc, update_data.pop("project_ids"))
+        await _handle_document_projects(db, doc, update_data.pop("project_ids"), current_user.id)
 
     for key, value in update_data.items():
         setattr(doc, key, value)

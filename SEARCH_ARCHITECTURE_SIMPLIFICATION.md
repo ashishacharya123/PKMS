@@ -31,13 +31,17 @@ Successfully simplified the search architecture by removing "Enhanced" and "Hybr
 
 ---
 
-## Backend Endpoints (Unchanged)
+## Backend Endpoints (Actual Routes)
 
-1. **`/search/fts5`** → FTS5 full-text search with advanced filtering
-2. **`/search/fuzzy`** → RapidFuzz typo-tolerant search
-3. **`/search/unified`** → Simple FTS5 search (compatibility)
+1. **`GET /search/fts5`** → FTS5 full-text search with advanced filtering (calls `enhanced_fts_service.search_enhanced()`)
+2. **`GET /search/fuzzy`** → RapidFuzz typo-tolerant search
+3. **`GET /search/global`** → Global cross-module search
+4. **`GET /search/suggestions`** → Search suggestions/autocomplete
+5. **`GET /search/health`** → Search service health check
+6. **`POST /search/optimize`** → Optimize FTS5 indices
+7. **`GET /search/analytics`** → Search analytics and statistics
 
-**Note**: Both `/search/fts5` and `/search/unified` call the same `search_enhanced()` function - they just use the same FTS5 engine with different parameter formats.
+**Note**: The frontend's "Unified Search" uses `/search/fts5` as the main search entrypoint.
 
 ---
 
@@ -62,7 +66,7 @@ Successfully simplified the search architecture by removing "Enhanced" and "Hybr
 - Removed `searchType` state (no longer toggles between FTS5/Fuzzy)
 - Removed FTS5/Fuzzy tabs UI (`<Tabs>`)
 - Removed `searchTypeInfo` memoized value
-- Always calls `searchService.searchFTS()` (FTS5 endpoint)
+- Always calls `searchService.searchFTS()` (which calls `/search/fts5` backend endpoint)
 - Updated alert to show "FTS5 Full-Text Search" description
 - Removed unused imports: `Tabs`, `IconBrain`, `useMemo`
 

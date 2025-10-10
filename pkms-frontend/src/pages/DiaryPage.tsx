@@ -358,7 +358,6 @@ export function DiaryPage() {
       const decryptedContent = await diaryService.decryptContent(
         entry.encrypted_blob,
         entry.encryption_iv,
-        '',
         store.encryptionKey
       );
       
@@ -1355,7 +1354,6 @@ export function DiaryPage() {
                           const decrypted = await diaryService.decryptContent(
                             tmpl.encrypted_blob,
                             tmpl.encryption_iv,
-                            '',
                             store.encryptionKey
                           );
                           // Only replace content and optionally title

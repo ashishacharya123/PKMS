@@ -219,8 +219,19 @@ export function DocumentsPage() {
     try {
       const uploadedDoc = await uploadDocument(uploadFile, uploadTags, uploadProjectIds, uploadIsExclusive);
       
-      // Check if document is in the current list after upload
-      const isInList = documents.some(doc => doc.uuid === uploadedDoc?.uuid);
+      // Guard against null upload result
+      if (!uploadedDoc) {
+        notifications.show({
+          title: 'Upload Failed',
+          message: `Failed to upload ${uploadFile.name}. Please try again.`,
+          color: 'red'
+        });
+        return;
+      }
+      
+      // Get fresh store state to check visibility (avoid stale closure)
+      const currentDocuments = useDocumentsStore.getState().documents;
+      const isInList = currentDocuments.some(doc => doc.uuid === uploadedDoc.uuid);
       
       if (isInList) {
         notifications.show({
@@ -238,7 +249,7 @@ export function DocumentsPage() {
         });
       }
       
-      // Close modal and reset form
+      // Close modal and reset form only after successful upload
       setUploadModalOpen(false);
       setUploadFile(null);
       setUploadTags([]);

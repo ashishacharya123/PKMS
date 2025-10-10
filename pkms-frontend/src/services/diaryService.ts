@@ -79,7 +79,7 @@ class DiaryService {
     };
   }
 
-  async decryptContent(encrypted_blob: string, iv: string, _tag: string, key: CryptoKey): Promise<string> {
+  async decryptContent(encrypted_blob: string, iv: string, key: CryptoKey): Promise<string> {
     const decoder = new TextDecoder();
     const encryptedData = Uint8Array.from(atob(encrypted_blob), c => c.charCodeAt(0));
     const ivData = Uint8Array.from(atob(iv), c => c.charCodeAt(0));

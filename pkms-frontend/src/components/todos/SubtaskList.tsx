@@ -1,5 +1,5 @@
 import { Stack, Group, Text, ActionIcon, Checkbox, Badge, Button, Collapse, Box } from '@mantine/core';
-import { IconPlus, IconGripVertical, IconEdit, IconTrash, IconChevronDown, IconChevronRight } from '@tabler/icons-react';
+import { IconPlus, IconEdit, IconTrash, IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { useState } from 'react';
 import { TodoSummary } from '../../services/todosService';
 import { formatDate } from '../common/ViewModeLayouts';
@@ -68,10 +68,6 @@ export function SubtaskList({
                   : 'transparent'
               }}
             >
-              <ActionIcon size="xs" variant="subtle" style={{ cursor: 'grab' }}>
-                <IconGripVertical size={12} />
-              </ActionIcon>
-
               <Checkbox
                 size="sm"
                 checked={subtask.status === 'done'}

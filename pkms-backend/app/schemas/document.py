@@ -21,7 +21,7 @@ class ProjectBadge(CamelCaseModel):
 class DocumentCreate(CamelCaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=1000)
-    tags: Optional[List[str]] = Field(default=[], max_items=20)
+    tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
     
     @validator('tags')
     def validate_tags(cls, v):
@@ -56,15 +56,15 @@ class DocumentResponse(CamelCaseModel):
     created_at: datetime
     updated_at: datetime
     tags: List[str]
-    projects: List[ProjectBadge] = Field(default=[], description="Projects this document belongs to")
+    projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this document belongs to")
 
 class CommitDocumentUploadRequest(CamelCaseModel):
     file_id: str
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=1000)
-    tags: Optional[List[str]] = Field(default=[], max_items=20)
+    tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
     project_id: Optional[int] = Field(None, description="Legacy: Associate this document to a single project")
-    project_ids: Optional[List[int]] = Field(default=[], max_items=10, description="List of project IDs to link this document to")
+    project_ids: Optional[List[int]] = Field(default_factory=list, max_items=10, description="List of project IDs to link this document to")
     is_exclusive_mode: Optional[bool] = Field(default=False, description="If True, document is exclusive to projects and deleted when any project is deleted")
 
     @validator('tags')
