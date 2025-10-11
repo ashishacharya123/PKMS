@@ -123,7 +123,14 @@ class UserResponse(CamelCaseModel):
     id: int
     username: str
     email: Optional[str]
+    is_active: bool
+    is_first_login: bool
+    settings_json: str
+    login_password_hint: Optional[str]
+    diary_password_hint: Optional[str]
     created_at: datetime
+    updated_at: datetime
+    last_login: Optional[datetime]
 
 class RefreshTokenRequest(CamelCaseModel):
     pass

@@ -24,6 +24,13 @@ class SearchCacheService:
         """Initialize Redis connection"""
         try:
             redis_url = get_redis_url()
+            
+            # If Redis URL is empty, skip Redis initialization and use in-memory cache
+            if not redis_url or redis_url.strip() == "":
+                logger.info("🔄 No Redis URL provided. Using in-memory cache fallback.")
+                self.is_available = False
+                return False
+            
             self.redis_client = redis.from_url(redis_url, decode_responses=True)
 
             # Test connection

@@ -94,7 +94,7 @@ class ChunkUploadManager:
                 'bytes_uploaded': upload['bytes_received'],
                 'total_size': total_size,
                 'status': upload['status'],
-                'progress': len(upload['received_chunks']) / total_chunks * 100
+                'progress': len(upload['received_chunks']) / total_chunks * 100 if total_chunks > 0 else 0
             }
             
         except Exception as e:

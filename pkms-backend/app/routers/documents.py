@@ -414,7 +414,7 @@ async def list_documents(
                     Document.user_id == current_user.id,
                     Document.is_archived == archived,
                     Document.uuid.in_(doc_uuids),
-                    not Document.is_exclusive_mode  # Only show linked (non-exclusive) items
+                    Document.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
                 )
             )
             # Apply filters
@@ -445,7 +445,7 @@ async def list_documents(
                 and_(
                     Document.user_id == current_user.id,
                     Document.is_archived == archived,
-                    not Document.is_exclusive_mode  # Only show linked (non-exclusive) items
+                    Document.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
                 )
             )
             # Apply filters

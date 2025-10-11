@@ -65,10 +65,10 @@ class AuthService {
     return response.data;
   }
 
-  // Complete setup
+  // Complete setup - DEPRECATED: No longer needed as /setup endpoint handles everything
   async completeSetup(): Promise<{ message: string }> {
-    const response = await apiService.post<{ message: string }>('/auth/complete-setup');
-    return response.data;
+    // This endpoint no longer exists - setup is completed in one step
+    return { message: "Setup already completed" };
   }
 
   // Refresh token
@@ -88,8 +88,9 @@ class AuthService {
   }
 
   getStoredToken(): string | null {
-    // SECURITY: No longer reading from localStorage - using httpOnly cookies
-    return null;
+    // SECURITY: For backward compatibility, still check localStorage
+    // The actual authentication is handled by httpOnly cookies
+    return localStorage.getItem('pkms_token');
   }
 
   getStoredUser(): User | null {
@@ -98,7 +99,11 @@ class AuthService {
   }
 
   isAuthenticated(): boolean {
-    return !!this.getStoredToken();
+    // SECURITY: Since we're using httpOnly cookies, we can't check token directly
+    // Instead, we need to check if there's a token in localStorage (for backward compatibility)
+    // or rely on the auth store state
+    const token = localStorage.getItem('pkms_token');
+    return !!token;
   }
 
   // Login Password Hint Methods (separate from diary encryption hints)

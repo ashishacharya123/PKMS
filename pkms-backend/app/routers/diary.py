@@ -1369,8 +1369,8 @@ async def commit_diary_media_upload(
         existing_ivs_result = await db.execute(
             select(DiaryMedia.encryption_iv).where(
                 and_(
-                    DiaryMedia.diary_entry_id.in_(
-                        select(DiaryEntry.id).where(DiaryEntry.user_id == current_user.id)
+                    DiaryMedia.diary_entry_uuid.in_(
+                        select(DiaryEntry.uuid).where(DiaryEntry.user_id == current_user.id)
                     ),
                     DiaryMedia.encryption_iv.is_not(None)
                 )
@@ -1407,10 +1407,6 @@ async def commit_diary_media_upload(
         encrypted_content = aesgcm.encrypt(iv, file_content, None)
         
         logger.info(f"Media encrypted using user-specific diary password for user {current_user.id}")
-        
-        # Split into ciphertext and tag (last 16 bytes)
-        ciphertext = encrypted_content[:-16]
-        auth_tag = encrypted_content[-16:]
         
         # Extract file extension (strip leading dot)
         file_extension = assembled.suffix.lstrip('.').lower() if assembled.suffix else ""
@@ -1544,49 +1540,35 @@ async def download_diary_media(
                     detail="Failed to decrypt media file. The file may be corrupted or the encryption key may be invalid."
                 )
             
-            # SECURITY: Use secure temporary file with automatic cleanup
+            # SECURITY: Use secure temporary file with proper lifecycle
             import tempfile
             import os
-            import atexit
             
-            # Create temporary file that will be automatically deleted
+            # Create temporary file that will be cleaned up after streaming
             temp_file = tempfile.NamedTemporaryFile(
-                delete=True,  # SECURITY: Auto-delete on close
+                delete=False,  # Let FileResponse handle cleanup
                 suffix=f".{extension}" if extension else "",
                 mode='wb'
             )
             
-            try:
-                temp_file.write(decrypted_content)
-                temp_file.flush()  # Ensure data is written
-                
-                logger.info(f"Successfully decrypted media {media_uuid} for user {current_user.id}")
-                
-                # Return decrypted file with cleanup handler
-                def cleanup_temp_file():
-                    try:
-                        if os.path.exists(temp_file.name):
-                            os.unlink(temp_file.name)
-                    except Exception:
-                        pass  # Ignore cleanup errors
-                
-                # Register cleanup function
-                atexit.register(cleanup_temp_file)
-                
-                return FileResponse(
-                    path=temp_file.name,
-                    filename=f"{media.original_name}",
-                    media_type=media.mime_type,
-                    headers={
-                        "X-Media-Type": media.media_type,
-                        "X-File-Size": str(len(decrypted_content)),
-                        "X-Is-Encrypted": "false"
-                    }
-                )
-            finally:
-                # Ensure file is closed and cleaned up
-                temp_file.close()
-                cleanup_temp_file()
+            temp_file.write(decrypted_content)
+            temp_file.flush()
+            temp_file.close()  # Close but don't delete
+            
+            logger.info(f"Successfully decrypted media {media_uuid} for user {current_user.id}")
+            
+            # FileResponse will clean up after streaming
+            return FileResponse(
+                path=temp_file.name,
+                filename=f"{media.original_name}",
+                media_type=media.mime_type,
+                headers={
+                    "X-Media-Type": media.media_type,
+                    "X-File-Size": str(len(decrypted_content)),
+                    "X-Is-Encrypted": "false"
+                },
+                background=lambda: os.unlink(temp_file.name)  # Cleanup after streaming
+            )
             
         except InvalidPKMSFile as e:
             logger.error(f"Corrupt media file for media {media_uuid}: {e}")
@@ -1714,7 +1696,7 @@ async def get_calendar_data(
             DiaryCalendarData(
                 date=date_str,
                 has_entry=day_data is not None and day_data.entry_count > 0,
-                mood=round(day_data.avg_mood) if (day_data and day_data.avg_mood) else None,
+                mood=round(float(day_data.avg_mood)) if (day_data and day_data.avg_mood is not None) else None,
                 media_count=media_count
             )
         )
@@ -1932,14 +1914,14 @@ async def get_wellness_stats(
         if metrics.get("social_interaction"):
             social_days += 1
     
-    # Calculate averages
-    avg_mood = sum(mood_values) / len(mood_values) if mood_values else None
-    avg_sleep = sum(sleep_values) / len(sleep_values) if sleep_values else None
-    avg_screen_time = sum(screen_time_values) / len(screen_time_values) if screen_time_values else None
-    avg_energy = sum(energy_values) / len(energy_values) if energy_values else None
-    avg_stress = sum(stress_values) / len(stress_values) if stress_values else None
-    avg_water = sum(water_values) / len(water_values) if water_values else None
-    avg_exercise_minutes = sum(exercise_minutes) / len(exercise_minutes) if exercise_minutes else None
+    # Calculate averages with proper floating point handling
+    avg_mood = round(sum(mood_values) / len(mood_values), 2) if mood_values else None
+    avg_sleep = round(sum(sleep_values) / len(sleep_values), 2) if sleep_values else None
+    avg_screen_time = round(sum(screen_time_values) / len(screen_time_values), 2) if screen_time_values else None
+    avg_energy = round(sum(energy_values) / len(energy_values), 2) if energy_values else None
+    avg_stress = round(sum(stress_values) / len(stress_values), 2) if stress_values else None
+    avg_water = round(sum(water_values) / len(water_values), 2) if water_values else None
+    avg_exercise_minutes = round(sum(exercise_minutes) / len(exercise_minutes), 2) if exercise_minutes else None
     
     # Exercise frequency per week
     weeks = days / 7.0

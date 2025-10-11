@@ -216,8 +216,10 @@ class EnhancedFTS5SearchService:
         )
         
         for record in records.scalars():
-            # Extract tags
-            tag_names = [tag.name for tag in record.tag_objs]
+            # Extract tags - handle case where tag_objs might be None or empty
+            tag_names = []
+            if hasattr(record, 'tag_objs') and record.tag_objs:
+                tag_names = [tag.name for tag in record.tag_objs if hasattr(tag, 'name')]
             tags_text = " ".join(tag_names)
             
             # Build named bindings for text()
@@ -566,7 +568,7 @@ class EnhancedFTS5SearchService:
                 result = await db.execute(suggestion_sql, {
                     'prefix_query': prefix_query,
                     'user_id': user_id,
-                    'module_limit': max(2, limit // len(active_modules))
+                    'module_limit': max(2, limit // len(active_modules)) if active_modules else limit
                 })
 
                 module_suggestions = [

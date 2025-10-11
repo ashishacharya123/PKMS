@@ -1,0 +1,162 @@
+# 🚀 DOCKERLESS DEPLOYMENT INSTRUCTIONS
+# For users who want to avoid Docker Desktop and use pure Python
+# This setup allows Redis as optional service
+
+## 🐳 **STEP 1: PYTHON SETUP**
+```bash
+# Install Python 3.11+ (3.12+ recommended)
+# Windows: winget install python-3.11
+# Linux: sudo apt install python3.11 python3-pip
+# macOS: brew install python@3.11
+
+# Create virtual environment
+python -m venv venv
+# Windows: venv\Scripts\activate
+# Linux/Mac: source venv/bin/activate
+```
+
+## 🐳 **STEP 2: INSTALL DEPENDENCIES**
+```bash
+# CORE DEPENDENCIES (essential - ~50MB)
+pip install fastapi uvicorn[standard] sqlalchemy[asyncio] aiosqlite passlib bcrypt python-jose[cryptography] python-multipart aiofiles pydantic[email] pydantic-settings python-dotenv bleach redis
+
+# OPTIONAL ENHANCEMENTS
+pip install rapidfuzz pillow PyMuPDF python-docx
+```
+
+## 🚀 **STEP 3: OPTIONAL REDIS SETUP**
+```bash
+# Install Redis (optional but recommended for performance)
+# Windows: Download Redis for Windows from redis.io/download
+# Linux: sudo apt install redis-server
+# macOS: brew install redis
+
+# Start Redis (if installed)
+redis-server  # Windows: `redis-server` command
+# Linux/Mac: `sudo systemctl start redis-server`
+
+# For Windows, use the installed Redis instance
+```
+
+## 🔥 **STEP 4: CONFIGURE ENVIRONMENT**
+```bash
+# Create .env file in project root
+cat > .env << EOF
+# SECURITY: Generate a secure key for production
+SECRET_KEY=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')
+
+# Database settings
+DATABASE_URL=sqlite+aiosqlite:///./PKMS_Data/pkm_metadata.db
+
+# Redis settings (if using Redis)
+REDIS_URL=redis://localhost:6379/0
+
+# App settings
+ENVIRONMENT=development
+DEBUG=true
+DATA_DIR=./PKMS_Data
+```
+
+## 🚀 **STEP 5: RUN THE APP**
+```bash
+# For development
+python main.py
+
+# For production (optional)
+gunicorn main:app --host 0.0.0.0 --port 8000
+```
+
+## 🔍 **FEATURE COMPARISON**
+
+| Feature | ✅ **WITH REDIS** | ❌ **WITHOUT REDIS** |
+|--------|-------------------|------------------------|
+| Search Performance | 🚀 Fast caching | ⚠️ Slower search (no caching) |
+| Rate Limiting | 🚀 Proper rate limiting | ⚠️ In-memory fallback only |
+| Session Cache | 🚀 Redis sessions | ⚠️ Basic in-memory only |
+| Concurrent Users | 🚀 Multiple users | ⚠️ Single user only |
+
+## 🎯 **MINIMALIST ALTERNATIVE (NO REDIS, NO PIL)**
+```bash
+# ULTRA-MINIMAL REQUIREMENTS.TXT (~30MB)
+fastapi uvicorn[standard] sqlalchemy[asyncio] aiosqlite passlib bcrypt python-jose[cryptography] python-multipart aiofiles pydantic[email] pydantic-settings python-dotenv bleach
+```
+
+**What you lose without heavy packages:**
+- ❌ Image processing (PIL) - Use browser to view images instead
+- ❌ PDF processing (PyMuPDF) - Use browser's PDF viewer
+- ❌ Word processing (python-docx) - Use LibreOffice/MS Office
+- ❌ System monitoring (psutil) - Use browser's task manager
+- ❌ Structured logging (structlog) - Use Python logging
+- ❌ Heavy PDF/Document libraries - Use browser native viewing
+
+## 🎯 **DOCKER ENGINE CLI ONLY (NO DESKTOP)**
+
+### **Install Docker Engine CLI only:**
+```bash
+# Ubuntu/Debian:
+sudo apt install docker.io docker-plugin-rootless-lessner docker-compose-plugin
+
+# Windows:
+# Install Docker Desktop or use WSL2 with Docker Engine CLI
+# Or use WSL2: wsl --install -d Ubuntu-22.04
+
+# Mac: Install Docker Desktop or use Homebrew: brew install docker
+```
+
+### **Create ultra-minimal Dockerfile:**
+```dockerfile
+FROM python:3.11-alpine
+
+WORKDIR /app
+COPY requirements-minimal.txt .
+RUN pip install --no-cache-dir -r requirements-minimal.txt
+
+COPY pkms-backend/ ./pkms-backend
+COPY PKMS_Data/ ./PKMS_Data
+COPY data/ ./data
+
+EXPOSE 8000
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+Build and run:
+```bash
+docker build -t pkms-minimal .
+docker run -p 8000:8000 -v $(pwd)/PKMS_Data:/app/PKMS_Data pkms-minimal
+```
+
+## 🎯 **WINDOWS ALTERNATIVE (no Docker):**
+```bash
+# Using Python with virtual environment
+# Save your SECRET_KEY properly
+# Keep Redis running as separate service (redis-server on Windows)
+```
+
+## 🔧 **TROUBLESHOOTING**
+
+### **If Redis fails to start:**
+```bash
+# Test Redis connection
+redis-cli ping
+
+# Check Redis status
+redis-cli info
+```
+
+### **If PIL fails:**
+```bash
+# Remove from requirements.txt:
+# - pillow>=11.0.0
+# - python-magic==0.4.27
+# - magika==0.6.2
+
+# Remove from requirements-dev.txt:
+# - All AI/ML packages (transformers, huggingface-hub)
+# - Development tools (black, flake8, mypy, pytest, httpx, factory-boy, faker)
+# - Heavy libraries (prometheus-client, structlog, psutil)
+```
+
+---
+
+**You're welcome, bitch!** This setup gives you a lightweight Dockerless Python setup with optional Redis for performance, and minimal dependencies for maximum portability!
+```

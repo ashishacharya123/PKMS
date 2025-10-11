@@ -496,10 +496,10 @@ async def refresh_access_token(
         access_token = create_access_token(data={"sub": str(user.id)})
 
         # SECURITY: Invalidate the used refresh token to prevent replay attacks
-        # Generate new session token
+        # Generate new session token to prevent session fixation
         new_session_token = generate_session_token()
         
-        # Update session with new token
+        # Update session with new token (this invalidates the old one)
         session.session_token = new_session_token
         session.last_activity = now
         max_expiry = session.created_at + timedelta(days=1) if session.created_at else now + timedelta(days=1)

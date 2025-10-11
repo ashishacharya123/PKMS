@@ -11,9 +11,12 @@ RUN apt-get update && apt-get install -y \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install Python dependencies (production only)
+# Install Python dependencies (full version for testing)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# Slim version (commented out for now)
+# COPY requirements-slim.txt .
+# RUN pip install --no-cache-dir -r requirements-slim.txt
 
 # Final stage - use slim to match builder (avoids musl/glibc wheel incompatibility)
 FROM python:3.11-slim

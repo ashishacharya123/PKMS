@@ -36,7 +36,28 @@ import time
 
 from app.services.chunk_service import chunk_manager
 
-# Optional imports for file processing
+# Lightweight imports for file processing with multi-step fallback
+try:
+    import imagesize  # Lightweight image dimensions (1MB vs 100MB Pillow)
+except ImportError:
+    imagesize = None
+
+try:
+    import filetype  # File type detection with dimensions (2MB)
+except ImportError:
+    filetype = None
+
+try:
+    import pypdf  # Lightweight PDF metadata (5MB vs 50MB PyMuPDF)
+except ImportError:
+    pypdf = None
+
+try:
+    from tinytag import TinyTag  # Lightweight metadata extraction (1MB vs 30MB docx)
+except ImportError:
+    TinyTag = None
+
+# Legacy heavy packages (fallback if lightweight unavailable)
 try:
     import fitz  # PyMuPDF for PDF processing
 except ImportError:
@@ -46,6 +67,11 @@ try:
     from docx import Document as DocxDocument  # python-docx for DOCX processing
 except ImportError:
     DocxDocument = None
+
+try:
+    from PIL import Image  # Pillow (heavy fallback)
+except ImportError:
+    Image = None
 
 from app.database import get_db
 from app.config import settings, get_data_dir, get_file_storage_dir, NEPAL_TZ
@@ -1224,41 +1250,135 @@ async def _handle_item_tags(db: AsyncSession, item: ArchiveItem, tag_names: List
 # Text extraction functionality removed as requested
 
 async def _extract_metadata(file_path: Path, mime_type: str, original_name: str) -> Dict[str, Any]:
-    """Extract metadata from file"""
+    """Extract metadata from file with multi-step lightweight fallback"""
     # Basic metadata
     metadata = {
         "original_name": original_name,
         "mime_type": mime_type,
         "size": file_path.stat().st_size
     }
-    
-    # Add more metadata based on file type (can be extended)
-    if mime_type.startswith('image/'):
-        try:
-            from PIL import Image
-            with Image.open(file_path) as img:
-                metadata.update({
-                    "width": img.width,
-                    "height": img.height,
-                    "format": img.format,
-                    "mode": img.mode
-                })
-        except ImportError:
-            pass # PIL not installed
-        except Exception as e:
-            print(f"Image metadata extraction failed for {file_path}: {e}")
 
+    # IMAGE METADATA - Multi-step fallback
+    if mime_type.startswith('image/'):
+        # Step 1: Try imagesize (1MB - ultra lightweight)
+        if imagesize:
+            try:
+                width, height = imagesize.get(file_path)
+                if width and height:
+                    metadata.update({
+                        "width": width,
+                        "height": height,
+                        "extraction_method": "imagesize (lightweight)"
+                    })
+            except Exception as e:
+                logger.debug(f"imagesize extraction failed: {e}")
+
+        # Step 2: Try filetype (2MB - includes dimensions)
+        if filetype and ("width" not in metadata or "height" not in metadata):
+            try:
+                kind = filetype.guess(file_path)
+                if kind and hasattr(kind, 'width') and hasattr(kind, 'height'):
+                    metadata.update({
+                        "width": kind.width,
+                        "height": kind.height,
+                        "format": kind.extension.replace('.', '').upper(),
+                        "extraction_method": "filetype (lightweight)"
+                    })
+            except Exception as e:
+                logger.debug(f"filetype extraction failed: {e}")
+
+        # Step 3: Try Pillow (100MB - heavy fallback)
+        if Image and ("width" not in metadata or "height" not in metadata):
+            try:
+                with Image.open(file_path) as img:
+                    metadata.update({
+                        "width": img.width,
+                        "height": img.height,
+                        "format": img.format,
+                        "mode": img.mode,
+                        "extraction_method": "PIL (heavy fallback)"
+                    })
+            except ImportError:
+                pass  # PIL not installed
+            except Exception as e:
+                logger.debug(f"PIL extraction failed: {e}")
+
+    # PDF METADATA - Multi-step fallback
     elif mime_type == 'application/pdf':
-        if fitz:
+        # Step 1: Try pypdf (5MB - lightweight)
+        if pypdf:
+            try:
+                import pypdf
+                with open(file_path, 'rb') as f:
+                    reader = pypdf.PdfReader(f)
+                    metadata.update({
+                        "page_count": len(reader.pages),
+                        "pdf_metadata": dict(reader.metadata or {}),
+                        "extraction_method": "pypdf (lightweight)"
+                    })
+            except Exception as e:
+                logger.debug(f"pypdf extraction failed: {e}")
+
+        # Step 2: Try PyMuPDF (50MB - heavy fallback)
+        if fitz and "page_count" not in metadata:
             try:
                 with fitz.open(file_path) as doc:
                     metadata.update({
                         "page_count": doc.page_count,
-                        "pdf_metadata": doc.metadata
+                        "pdf_metadata": doc.metadata,
+                        "extraction_method": "PyMuPDF (heavy fallback)"
                     })
             except Exception as e:
-                print(f"PDF metadata extraction failed for {file_path}: {e}")
-    
+                logger.debug(f"PyMuPDF extraction failed: {e}")
+
+    # DOCUMENT METADATA - Multi-step fallback
+    elif mime_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
+        # Step 1: Try TinyTag (1MB - ultra lightweight)
+        if TinyTag:
+            try:
+                tag = TinyTag.get(file_path)
+                if tag:
+                    metadata.update({
+                        "title": tag.title,
+                        "author": tag.artist,  # TinyTag uses artist for author
+                        "duration": tag.duration,
+                        "extraction_method": "TinyTag (lightweight)"
+                    })
+            except Exception as e:
+                logger.debug(f"TinyTag extraction failed: {e}")
+
+        # Step 2: Try python-docx (30MB - heavy fallback)
+        if DocxDocument and "title" not in metadata:
+            try:
+                doc = DocxDocument(file_path)
+                core_props = doc.core_properties
+                metadata.update({
+                    "title": core_props.title or "",
+                    "author": core_props.author or "",
+                    "created": str(core_props.created) if core_props.created else "",
+                    "modified": str(core_props.modified) if core_props.modified else "",
+                    "extraction_method": "python-docx (heavy fallback)"
+                })
+            except Exception as e:
+                logger.debug(f"python-docx extraction failed: {e}")
+
+    # AUDIO METADATA - Use TinyTag if available
+    elif mime_type.startswith('audio/'):
+        if TinyTag:
+            try:
+                tag = TinyTag.get(file_path)
+                if tag:
+                    metadata.update({
+                        "title": tag.title,
+                        "artist": tag.artist,
+                        "album": tag.album,
+                        "duration": tag.duration,
+                        "year": tag.year,
+                        "extraction_method": "TinyTag (lightweight)"
+                    })
+            except Exception as e:
+                logger.debug(f"TinyTag audio extraction failed: {e}")
+
     return metadata
 
 # --- END: COPIED FROM documents.py router ---
