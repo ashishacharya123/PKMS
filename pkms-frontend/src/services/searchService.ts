@@ -145,42 +145,66 @@ class SearchService {
     return finalResponse;
   }
 
-  async searchFuzzy(query: string, filters: SearchFilters = {}, page = 1, limit = 20): Promise<SearchResponse> {
+  async searchFuzzy(query: string, filters: SearchFilters = {}, _page = 1, limit = 20): Promise<SearchResponse> {
+    // Light fuzzy search - title, description, tags only (NO full content)
     const params: Record<string, string> = {
-      q: query,
-      offset: ((page - 1) * limit).toString(),
+      query: query,
       limit: limit.toString(),
-      sort_by: filters.sort_by ?? 'relevance',
-      sort_order: filters.sort_order ?? 'desc',
-      fuzzy_threshold: (filters.fuzzy_threshold ?? 60).toString(),
     };
 
     if (filters.modules?.length) params.modules = filters.modules.join(',');
-    if (filters.include_tags?.length) params.include_tags = filters.include_tags.join(',');
-    if (filters.exclude_tags?.length) params.exclude_tags = filters.exclude_tags.join(',');
-    if (filters.include_archived !== undefined) params.include_archived = String(filters.include_archived);
-    if (filters.exclude_diary !== undefined) params.exclude_diary = String(filters.exclude_diary);
 
-    const cacheKey = this.generateCacheKey(`fuzzy_${query}`, params);
+    const cacheKey = this.generateCacheKey(`fuzzy_light_${query}`, params);
     const cached = this.getFromCache(cacheKey);
     if (cached) return cached;
 
-    const response = await apiService.get(`/search/fuzzy?${new URLSearchParams(params)}`);
+    const response = await apiService.get(`/fuzzy-search-light?${new URLSearchParams(params)}`);
     const payload = response.data as any;
-    const results = this.normaliseResults(payload.results || []);
+    const results = this.normaliseResults(Array.isArray(payload) ? payload : []);
 
     const finalResponse: SearchResponse = {
       results,
-        stats: {
-        totalResults: payload.total ?? results.length,
-        searchTime: payload.stats?.searchTime,
+      stats: {
+        totalResults: results.length,
         query,
         appliedFilters: {
           modules: filters.modules,
-          tags: filters.include_tags,
         },
       },
-      suggestions: payload.suggestions || [],
+      suggestions: [],
+    };
+
+    this.setCache(cacheKey, finalResponse);
+    return finalResponse;
+  }
+
+  async searchAdvancedFuzzy(query: string, filters: SearchFilters = {}, _page = 1, limit = 20): Promise<SearchResponse> {
+    // Advanced fuzzy loads all content into memory and searches - SLOW but comprehensive
+    const params: Record<string, string> = {
+      query: query,
+      limit: limit.toString(),
+    };
+
+    if (filters.modules?.length) params.modules = filters.modules.join(',');
+
+    const cacheKey = this.generateCacheKey(`advanced_fuzzy_${query}`, params);
+    const cached = this.getFromCache(cacheKey);
+    if (cached) return cached;
+
+    const response = await apiService.get(`/advanced-fuzzy-search?${new URLSearchParams(params)}`);
+    const payload = response.data as any;
+    const results = this.normaliseResults(Array.isArray(payload) ? payload : []);
+
+    const finalResponse: SearchResponse = {
+      results,
+      stats: {
+        totalResults: results.length,
+        query,
+        appliedFilters: {
+          modules: filters.modules,
+        },
+      },
+      suggestions: [],
     };
 
     this.setCache(cacheKey, finalResponse);

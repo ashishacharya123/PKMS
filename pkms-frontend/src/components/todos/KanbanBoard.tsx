@@ -14,7 +14,6 @@ interface KanbanBoardProps {
   onSubtaskUpdate?: (subtask: Todo) => void;
   onSubtaskDelete?: (subtaskUuid: string) => void;
   onSubtaskEdit?: (subtask: Todo) => void;
-  onSubtaskCreate?: (subtask: Todo) => void;
 }
 
 interface StatusLane {
@@ -39,8 +38,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   onTodoEdit,
   onSubtaskUpdate,
   onSubtaskDelete,
-  onSubtaskEdit,
-  onSubtaskCreate
+  onSubtaskEdit
 }) => {
   const [lanes, setLanes] = useState<StatusLane[]>([]);
   const { draggedItem, handleDragStart, handleDragOver } = useDragAndDrop();

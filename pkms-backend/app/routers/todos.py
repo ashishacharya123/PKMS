@@ -452,7 +452,6 @@ async def list_todos(
         query = query.join(Todo.tag_objs).where(Tag.name == tag)
     
     # Only get top-level todos; when include_subtasks, we will populate children below
-    if include_subtasks:
     # Order by order_index first (for Kanban), then priority, then creation date
     result = await db.execute(query.order_by(Todo.order_index, Todo.priority.desc(), Todo.created_at.desc()))
     todos = result.scalars().unique().all()
@@ -865,14 +864,14 @@ async def reorder_todo(
     return _convert_todo_to_response(todo_with_tags, project_badges)
 
 
-@router.post("/{todo_id}/complete", response_model=TodoResponse)
+@router.post("/{todo_uuid}/complete", response_model=TodoResponse)
 async def complete_todo(
-    todo_id: int,
+    todo_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Mark todo as completed (legacy endpoint - now sets status to 'done')."""
-    return await update_todo_status(todo_id, "done", current_user, db)
+    return await update_todo_status(todo_uuid, "done", current_user, db)
 
 # --- End Project Endpoints ---
 

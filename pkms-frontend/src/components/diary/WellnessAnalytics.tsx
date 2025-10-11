@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Paper,
   Stack,
@@ -85,7 +85,7 @@ export function WellnessAnalytics() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadWellnessData = async () => {
+  const loadWellnessData = useCallback(async () => {
     if (!isUnlocked) return;
     
     setIsLoading(true);
@@ -99,11 +99,11 @@ export function WellnessAnalytics() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedPeriod, isUnlocked]);
 
   useEffect(() => {
     loadWellnessData();
-  }, [selectedPeriod, isUnlocked]);
+  }, [loadWellnessData]);
 
   if (!isUnlocked) {
     return (
@@ -281,7 +281,7 @@ export function WellnessAnalytics() {
             <LineChart data={wellnessData.energyTrend.map((e, idx) => ({
               date: e.date,
               energy: e.value,
-              stress: wellnessData.stressTrend[idx]?.value,
+              stress: wellnessData.stressTrend[idx]?.value ?? null,
             }))}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
@@ -390,7 +390,10 @@ export function WellnessAnalytics() {
               <PolarGrid />
               <PolarAngleAxis dataKey="metric" tick={{ fontSize: 12 }} />
               <PolarRadiusAxis angle={90} domain={[0, 100]} />
-              <Tooltip formatter={(value: any) => [`${value.toFixed(1)}`, 'Score']} />
+              <Tooltip formatter={(value: any) => {
+                const num = Number(value);
+                return [Number.isFinite(num) ? num.toFixed(1) : 'N/A', 'Score'];
+              }} />
               <Radar 
                 name="Wellness Components" 
                 dataKey="score" 

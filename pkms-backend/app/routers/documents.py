@@ -398,7 +398,7 @@ async def list_documents(
                 Document.user_id == current_user.id,
                 Document.is_archived == archived,
                 Document.uuid.in_(doc_uuids),
-                Document.is_exclusive_mode == False  # Only show linked (non-exclusive) items
+                not Document.is_exclusive_mode  # Only show linked (non-exclusive) items
             )
         )
         # Apply filters
@@ -429,7 +429,7 @@ async def list_documents(
             and_(
                 Document.user_id == current_user.id,
                 Document.is_archived == archived,
-                Document.is_exclusive_mode == False  # Only show linked (non-exclusive) items
+                not Document.is_exclusive_mode  # Only show linked (non-exclusive) items
             )
         )
         # Apply filters
@@ -729,9 +729,9 @@ async def delete_document(
     
     # Log archive status for clarity
     if doc.is_archived:
-        logger.info(f"Deleting archived document {document_id} (archive copy preserved: {doc.archive_item_uuid})")
+        logger.info(f"Deleting archived document {document_uuid} (archive copy preserved: {doc.archive_item_uuid})")
     else:
-        logger.info(f"Deleting document {document_id} (not archived)")
+        logger.info(f"Deleting document {document_uuid} (not archived)")
     
     # Delete the physical file
     try:
@@ -746,4 +746,4 @@ async def delete_document(
     await db.delete(doc)
     await db.commit()
     
-    logger.info(f"Document {document_id} deleted successfully")
+    logger.info(f"Document {document_uuid} deleted successfully")

@@ -6,21 +6,18 @@ import {
   Title,
   Group,
   Text,
-  Select,
-  MultiSelect,
   Button,
   Card,
   Badge,
   ActionIcon,
-  Divider,
   SimpleGrid,
   Alert,
   Pagination,
   ThemeIcon,
   LoadingOverlay,
   Paper,
-  Chip,
   Highlight,
+  MultiSelect,
 } from '@mantine/core';
 import {
   IconSearch,
@@ -92,6 +89,15 @@ const UnifiedSearch: React.FC<UnifiedSearchProps> = ({ initialQuery = '' }) => {
 
   const performSearch = async (page = 1) => {
     if (!searchQuery.trim()) return;
+    
+    if (selectedModules.length === 0) {
+      notifications.show({
+        title: 'No modules selected',
+        message: 'Please select at least one module to search in',
+        color: 'orange'
+      });
+      return;
+    }
 
     setLoading(true);
     setCurrentPage(page);
@@ -227,34 +233,63 @@ const UnifiedSearch: React.FC<UnifiedSearchProps> = ({ initialQuery = '' }) => {
 
         <Paper p="md" withBorder>
           <form onSubmit={handleSearch}>
-            <Group>
-              <SearchSuggestions
-                value={searchQuery}
-                onChange={setSearchQuery}
-                onSearch={() => performSearch(1)}
-                placeholder="Search your knowledge base..."
-                modules={selectedModules}
-                loading={loading}
-              />
-              <ActionIcon variant="outline" onClick={openFilters} size="lg">
-                <IconFilter size={16} />
-              </ActionIcon>
-              <Button variant="outline" type="submit" loading={loading}>
-                <IconSearch size={16} />
-              </Button>
-            </Group>
+            <Stack gap="md">
+              <Group>
+                <SearchSuggestions
+                  value={searchQuery}
+                  onChange={setSearchQuery}
+                  onSearch={() => performSearch(1)}
+                  placeholder="Search your knowledge base..."
+                  loading={loading}
+                />
+                <ActionIcon variant="outline" onClick={openFilters} size="lg">
+                  <IconFilter size={16} />
+                </ActionIcon>
+                <Button 
+                  variant="outline" 
+                  type="submit" 
+                  loading={loading}
+                  disabled={selectedModules.length === 0}
+                >
+                  <IconSearch size={16} />
+                </Button>
+              </Group>
+              
+              <Group>
+                <Text size="sm" fw={500}>Search in:</Text>
+                <MultiSelect
+                  placeholder="Select modules to search"
+                  data={allModuleOptions}
+                  value={selectedModules}
+                  onChange={setSelectedModules}
+                  size="sm"
+                  style={{ minWidth: 300 }}
+                />
+                {selectedModules.length === 0 && (
+                  <Text size="xs" c="red">Please select at least one module to search</Text>
+                )}
+              </Group>
+            </Stack>
           </form>
         </Paper>
 
         <Group>
           {selectedModules.map(module => (
-            <Chip
+            <Badge
               key={module}
-              checked
-              onClose={() => setSelectedModules(prev => prev.filter(m => m !== module))}
+              variant="filled"
+              rightSection={
+                <ActionIcon
+                  size="xs"
+                  variant="transparent"
+                  onClick={() => setSelectedModules(prev => prev.filter(m => m !== module))}
+                >
+                  ×
+                </ActionIcon>
+              }
             >
               {module}
-            </Chip>
+            </Badge>
           ))}
         </Group>
 

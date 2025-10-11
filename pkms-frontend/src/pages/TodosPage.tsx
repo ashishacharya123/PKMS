@@ -466,13 +466,13 @@ export function TodosPage() {
           <KanbanBoard
             todos={paginatedTodos as any}
             onTodoUpdate={(todo) => handleCompleteTodo((todo as any).uuid)}
-            onTodoDelete={(todoId: number) => {
-              const t = paginatedTodos.find(x => x.id === todoId);
-              if (t) handleDeleteTodo((t as any).uuid, t.title);
+            onTodoDelete={(todoUuid: string) => {
+              const t = paginatedTodos.find(x => (x as any).uuid === todoUuid);
+              if (t) handleDeleteTodo(todoUuid, t.title);
             }}
-            onTodoArchive={(todoId: number) => {
-              const t = paginatedTodos.find(x => x.id === todoId);
-              if (t) (t as any).is_archived ? unarchiveTodo((t as any).uuid) : archiveTodo((t as any).uuid);
+            onTodoArchive={(todoUuid: string) => {
+              const t = paginatedTodos.find(x => (x as any).uuid === todoUuid);
+              if (t) (t as any).is_archived ? unarchiveTodo(todoUuid) : archiveTodo(todoUuid);
             }}
             onTodoEdit={() => {
               setEditingTodo(null); // Clear editing todo for new modal
@@ -945,15 +945,15 @@ export function TodosPage() {
   };
 
   // Subtask management functions
-  const handleSubtaskComplete = async (subtaskId: number, isCompleted: boolean) => {
+  const handleSubtaskComplete = async (subtaskUuid: string, isCompleted: boolean) => {
     try {
-      const parentTodo = todos.find(todo => todo.subtasks?.some(st => st.id === subtaskId));
+      const parentTodo = todos.find(todo => todo.subtasks?.some(st => (st as any).uuid === subtaskUuid));
       if (!parentTodo) return;
 
-      const subtask = parentTodo.subtasks?.find(st => st.id === subtaskId);
+      const subtask = parentTodo.subtasks?.find(st => (st as any).uuid === subtaskUuid);
       if (!subtask) return;
 
-      const updatedSubtask = await todosService.updateTodo((subtask as any).uuid, {
+      const updatedSubtask = await todosService.updateTodo(subtaskUuid, {
         ...subtask,
         status: isCompleted ? 'done' : 'pending'
       });
@@ -962,7 +962,7 @@ export function TodosPage() {
         updateTodoWithSubtasks(parentTodo.id, (todo) => {
           if (todo.subtasks) {
             const updatedSubtasks = todo.subtasks.map(st => 
-              st.id === subtaskId ? { ...st, status: isCompleted ? 'done' : 'pending' } : st
+              (st as any).uuid === subtaskUuid ? { ...st, status: isCompleted ? 'done' : 'pending' } : st
             );
             return { ...todo, subtasks: updatedSubtasks };
           }
@@ -979,19 +979,19 @@ export function TodosPage() {
     }
   };
 
-  const handleSubtaskDelete = async (subtaskId: number) => {
+  const handleSubtaskDelete = async (subtaskUuid: string) => {
     try {
-      const parent = todos.find(t => t.subtasks?.some(st => st.id === subtaskId));
-      const st = parent?.subtasks?.find(st => st.id === subtaskId) as any;
+      const parent = todos.find(t => t.subtasks?.some(st => (st as any).uuid === subtaskUuid));
+      const st = parent?.subtasks?.find(st => (st as any).uuid === subtaskUuid) as any;
       if (!st) return;
-      await todosService.deleteTodo(st.uuid);
+      await todosService.deleteTodo(subtaskUuid);
       
       // Find the parent todo and update it
-      const parentTodo = todos.find(todo => todo.subtasks?.some(st => st.id === subtaskId));
+      const parentTodo = todos.find(todo => todo.subtasks?.some(st => (st as any).uuid === subtaskUuid));
       if (parentTodo) {
         updateTodoWithSubtasks(parentTodo.id, (todo) => {
           if (todo.subtasks) {
-            const updatedSubtasks = todo.subtasks.filter(st => st.id !== subtaskId);
+            const updatedSubtasks = todo.subtasks.filter(st => (st as any).uuid !== subtaskUuid);
             return { ...todo, subtasks: updatedSubtasks };
           }
           return todo;

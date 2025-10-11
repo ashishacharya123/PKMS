@@ -79,11 +79,11 @@ class AuthService {
 
   // Local storage management
   saveAuthData(authResponse: AuthResponse): void {
-    localStorage.setItem('pkms_token', authResponse.access_token);
+    localStorage.setItem('pkms_token', authResponse.accessToken);
     localStorage.setItem('pkms_user', JSON.stringify({
-      id: authResponse.user_id,
+      id: authResponse.userId,
       username: authResponse.username,
-      is_first_login: authResponse.is_first_login
+      is_first_login: authResponse.isFirstLogin
     }));
   }
 

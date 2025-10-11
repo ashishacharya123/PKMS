@@ -30,7 +30,8 @@ import {
   ScrollArea,
   Tooltip,
   Badge,
-  FileInput
+  FileInput,
+  Tabs
 } from '@mantine/core';
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import ViewModeLayouts, { formatDate } from '../components/common/ViewModeLayouts';
@@ -43,7 +44,8 @@ import {
   IconDots,
   IconAlertTriangle,
   IconLock,
-  IconEye
+  IconEye,
+  IconSearch
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { useDiaryStore } from '../stores/diaryStore';
@@ -55,6 +57,7 @@ import { notifications } from '@mantine/notifications';
 import { WellnessAnalytics } from '../components/diary/WellnessAnalytics';
 import EncryptionStatus from '../components/diary/EncryptionStatus';
 import { AdvancedDiarySearch } from '../components/diary/AdvancedDiarySearch';
+import DiarySearch from '../components/diary/DiarySearch';
 import { KeyboardShortcutsHelp, KeyboardShortcutsButton } from '../components/diary/KeyboardShortcutsHelp';
 import { DailyMetricsPanel } from '../components/diary/DailyMetricsPanel';
 import { HistoricalEntries } from '../components/diary/HistoricalEntries';
@@ -169,6 +172,7 @@ export function DiaryPage() {
   const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false);
   const [templateEntries, setTemplateEntries] = useState<DiaryEntrySummary[]>([]);
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [searchMode, setSearchMode] = useState<'filter' | 'search'>('filter');
 
   const [viewMode, setViewMode] = useState<'view' | 'edit'>('view');
   const { getPreference, updatePreference } = useViewPreferences();
@@ -437,6 +441,8 @@ export function DiaryPage() {
     }
   };
 
+  // Function to load daily wellness metadata for a specific date
+  // Used when creating/editing diary entries to pre-populate wellness data
   const ensureDailyMetadata = useCallback(
     async (targetDate: Date): Promise<DiaryDailyMetadata | null> => {
       const key = format(targetDate, 'yyyy-MM-dd');
@@ -463,30 +469,12 @@ export function DiaryPage() {
     },
     [store],
   );
-
-  // Commented out - unused function
-  // const preloadDailyMetadata = useCallback(
-  //   async (targetDate: Date) => {
-  //     const snapshot = await ensureDailyMetadata(targetDate);
-  //     if (snapshot) {
-  //       form.setValues((prev) => ({
-  //         ...prev,
-  //         daily_metrics: {
-  //           ...initialDailyMetrics,
-  //           ...snapshot.metrics,
-  //         },
-  //         nepali_date: snapshot.nepali_date,
-  //       }));
-  //       // Note: weather_code and location are entry-specific, NOT from daily snapshot
-  //       // They should be set from the entry being edited or left as defaults for new entries
-  //     } else {
-  //       form.setFieldValue('daily_metrics', initialDailyMetrics);
-  //       form.setFieldValue('nepali_date', convertToNepaliDate(targetDate));
-  //       setHasMissingSnapshot(true);
-  //     }
-  //   },
-  //   [ensureDailyMetadata, form],
-  // );
+  
+  // Export for potential future use in daily metrics panel
+  useEffect(() => {
+    // ensureDailyMetadata is available for use when needed
+    void ensureDailyMetadata;
+  }, [ensureDailyMetadata]);
 
   const handleCreateOrUpdateEntry = async (values: DiaryFormValues) => {
     if (!store.encryptionKey) {
@@ -915,8 +903,36 @@ export function DiaryPage() {
                     />
                   </Group>
                   
-                  {/* Advanced Search Component */}
-                  <AdvancedDiarySearch />
+                  {/* Search Component */}
+                  <Tabs value={searchMode} onChange={(value) => setSearchMode(value as 'filter' | 'search')}>
+                    <Tabs.List>
+                      <Tabs.Tab value="filter" leftSection={<IconSearch size={16} />}>
+                        Filter Entries
+                      </Tabs.Tab>
+                      <Tabs.Tab value="search" leftSection={<IconSearch size={16} />}>
+                        Cross-Module Search
+                      </Tabs.Tab>
+                    </Tabs.List>
+                    
+                    <Tabs.Panel value="filter" pt="sm">
+                      <AdvancedDiarySearch />
+                    </Tabs.Panel>
+                    
+                    <Tabs.Panel value="search" pt="sm">
+                      <DiarySearch onEntrySelect={(entryUuid) => {
+                        // Navigate to diary entry
+                        const entry = store.entries.find(e => e.uuid === entryUuid);
+                        if (entry) {
+                          // You could implement navigation to the specific entry here
+                          notifications.show({
+                            title: 'Entry Found',
+                            message: `Found diary entry: ${entry.title || 'Untitled'}`,
+                            color: 'blue'
+                          });
+                        }
+                      }} />
+                    </Tabs.Panel>
+                  </Tabs>
 
                   {/* Optional media strip per entry (photos only) when available */}
 

@@ -52,7 +52,7 @@ const moodEmojis = {
   5: '😄'
 };
 
-export function MoodTrendChart({ compact = false, height }: { compact?: boolean; height?: number }) {
+export function MoodTrendChart({ compact = false, h }: { compact?: boolean; h?: number | string }) {
   const { entries, isUnlocked, loadEntries } = useDiaryStore();
   const [selectedPeriod, setSelectedPeriod] = useState('30');
 
@@ -181,7 +181,7 @@ export function MoodTrendChart({ compact = false, height }: { compact?: boolean;
   };
 
   return (
-    <Paper p={compact ? 'md' : 'lg'} withBorder style={{ height: height || 'auto' }}>
+    <Paper p={compact ? 'md' : 'lg'} withBorder h={h}>
       <Stack gap={compact ? 'md' : 'lg'}>
         <Group justify="space-between" align="center">
           <Title order={compact ? 4 : 3} size={compact ? 'h5' : 'h4'}>

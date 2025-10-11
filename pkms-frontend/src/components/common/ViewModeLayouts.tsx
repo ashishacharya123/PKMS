@@ -20,7 +20,6 @@ interface ViewModeLayoutsProps<T extends BaseItem> {
   renderDetailColumns: (item: T) => React.ReactNode[];
   detailHeaders: string[];
   onItemClick?: (item: T) => void;
-  onItemAction?: (item: T, action: string) => void;
   isLoading?: boolean;
   emptyMessage?: string;
 }
@@ -34,7 +33,6 @@ export function ViewModeLayouts<T extends BaseItem>({
   renderDetailColumns,
   detailHeaders,
   onItemClick,
-  onItemAction,
   isLoading = false,
   emptyMessage = 'No items found'
 }: ViewModeLayoutsProps<T>) {
@@ -174,9 +172,9 @@ export function ViewModeLayouts<T extends BaseItem>({
               key={item.id} 
               gap="xs" 
               p="sm" 
+              className={onItemClick ? classes.hoverCardDetails : undefined}
               style={{ 
-                borderBottom: '1px solid var(--mantine-color-gray-3)',
-                cursor: onItemClick ? 'pointer' : 'default'
+                borderBottom: '1px solid var(--mantine-color-gray-3)'
               }}
               onClick={() => onItemClick?.(item)}
             >
@@ -202,6 +200,7 @@ export function formatDate(dateString: string | undefined): string {
   
   try {
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid Date';
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -216,11 +215,12 @@ export function formatDate(dateString: string | undefined): string {
 
 // Utility function for formatting file sizes
 export function formatFileSize(bytes: number | undefined): string {
-  if (!bytes || bytes === 0) return 'N/A';
+  if (!bytes || bytes === 0 || !Number.isFinite(bytes) || bytes < 0) return 'N/A';
   
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${sizes[i]}`;
+  const clampedIndex = Math.min(i, sizes.length - 1);
+  return `${(bytes / Math.pow(1024, clampedIndex)).toFixed(1)} ${sizes[clampedIndex]}`;
 }
 
 export default ViewModeLayouts;

@@ -636,7 +636,7 @@ async def list_diary_entries(
             )
             .outerjoin(media_count_subquery, DiaryEntry.uuid == media_count_subquery.c.diary_entry_uuid)
             .outerjoin(daily_metadata_alias, DiaryEntry.daily_metadata_id == daily_metadata_alias.id)
-            .where(DiaryEntry.uuid.in_(id_list))
+            .where(and_(DiaryEntry.uuid.in_(id_list), DiaryEntry.user_id == current_user.id))
         )
         # Apply other filters
         # Apply year/month via date-range for index usage
@@ -1283,8 +1283,8 @@ async def commit_diary_media_upload(
         ciphertext = encrypted_content[:-16]
         auth_tag = encrypted_content[-16:]
         
-        # Extract file extension
-        file_extension = assembled.suffix.lower() if assembled.suffix else ""
+        # Extract file extension (strip leading dot)
+        file_extension = assembled.suffix.lstrip('.').lower() if assembled.suffix else ""
         
         # Use diary_encryption utility to write the encrypted file
         # write_encrypted_file expects ciphertext+tag (full encrypted_content)
@@ -1414,7 +1414,7 @@ async def download_diary_media(
             temp_file.write(decrypted_content)
             temp_file.close()
             
-            logger.info(f"Successfully decrypted media {media_id} for user {current_user.id}")
+            logger.info(f"Successfully decrypted media {media_uuid} for user {current_user.id}")
             
             # Return decrypted file
             return FileResponse(
@@ -1429,39 +1429,39 @@ async def download_diary_media(
             )
             
         except InvalidPKMSFile as e:
-            logger.error(f"Corrupt media file for media {media_id}: {e}")
+            logger.error(f"Corrupt media file for media {media_uuid}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Media file is corrupted or has invalid format: {str(e)}"
             )
         except FileNotFoundError:
-            logger.error(f"Media file missing for media {media_id}: {file_path}")
+            logger.error(f"Media file missing for media {media_uuid}: {file_path}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Media file not found on disk"
             )
         except PermissionError:
-            logger.error(f"Permission denied accessing media file {media_id}: {file_path}")
+            logger.error(f"Permission denied accessing media file {media_uuid}: {file_path}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Permission denied accessing media file"
             )
         except ValueError as e:
             # Decryption failed (wrong password, corrupted data, etc.)
-            logger.error(f"Decryption failed for media {media_id}: {e}")
+            logger.error(f"Decryption failed for media {media_uuid}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Failed to decrypt media file - invalid password or corrupted data"
             )
         except OSError as e:
-            logger.error(f"File system error for media {media_id}: {e}")
+            logger.error(f"File system error for media {media_uuid}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=f"File system error: {str(e)}"
             )
         except Exception as e:
             # Catch any other unexpected errors during decryption/file handling
-            logger.error(f"Unexpected error during media decryption {media_id}: {e}")
+            logger.error(f"Unexpected error during media decryption {media_uuid}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="An unexpected error occurred during media decryption"
@@ -1472,7 +1472,7 @@ async def download_diary_media(
         raise
     except Exception as e:
         # Catch remaining unexpected errors (like database connection issues)
-        logger.error(f"Unexpected error downloading diary media {media_id}: {str(e)}")
+        logger.error(f"Unexpected error downloading diary media {media_uuid}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while downloading media"

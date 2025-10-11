@@ -12,6 +12,8 @@ import {
   SimpleGrid,
   ActionIcon,
   LoadingOverlay,
+  MultiSelect,
+  Select,
 } from '@mantine/core';
 import {
   IconSearch,
@@ -36,6 +38,8 @@ const DiarySearch: React.FC<DiarySearchProps> = ({ onEntrySelect }) => {
   const { isUnlocked } = useDiaryStore();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [selectedModules, setSelectedModules] = useState<string[]>(['diary']);
+  const [searchType, setSearchType] = useState<string>('fuzzy');
   const [filters, setFilters] = useState<SearchFilters>({
     modules: ['diary'],
     exclude_diary: false,
@@ -43,6 +47,22 @@ const DiarySearch: React.FC<DiarySearchProps> = ({ onEntrySelect }) => {
   const [availableTags, setAvailableTags] = useState<TagInfo[]>([]);
   const [filtersOpen, { open: openFilters, close: closeFilters }] = useDisclosure(false);
   const [loading, setLoading] = useState(false);
+
+  const moduleOptions = [
+    { value: 'diary', label: 'Diary (metadata only)' },
+    { value: 'notes', label: 'Notes' },
+    { value: 'documents', label: 'Documents' },
+    { value: 'todos', label: 'Todos' },
+    { value: 'archive', label: 'Archive' },
+    { value: 'folders', label: 'Folders' },
+    { value: 'projects', label: 'Projects' },
+  ];
+
+  const searchTypeOptions = [
+    { value: 'fts5', label: 'FTS5 (Fast, Recommended)' },
+    { value: 'fuzzy', label: 'Fuzzy (Title, Description, Tags)' },
+    { value: 'advanced_fuzzy', label: 'Advanced Fuzzy (Full Content - Very Slow)' },
+  ];
 
   React.useEffect(() => {
     searchService
@@ -56,14 +76,51 @@ const DiarySearch: React.FC<DiarySearchProps> = ({ onEntrySelect }) => {
   const performSearch = async (event?: React.FormEvent) => {
     if (event) event.preventDefault();
     if (!query.trim()) return;
+    
+    if (query.trim().length < 3) {
+      notifications.show({
+        title: 'Query too short',
+        message: 'Please enter at least 3 characters to search',
+        color: 'orange'
+      });
+      return;
+    }
+    
+    if (selectedModules.length === 0) {
+      notifications.show({
+        title: 'No modules selected',
+        message: 'Please select at least one module to search in',
+        color: 'orange'
+      });
+      return;
+    }
 
     setLoading(true);
     try {
-      const response: SearchResponse = await searchService.searchFuzzy(query, filters);
+      const effectiveFilters: SearchFilters = {
+        ...filters,
+        modules: selectedModules,
+      };
+      
+      let response: SearchResponse;
+      switch (searchType) {
+        case 'fts5':
+          response = await searchService.searchFTS(query, effectiveFilters);
+          break;
+        case 'advanced_fuzzy':
+          // Advanced fuzzy loads ALL content into memory - SLOW but comprehensive
+          response = await searchService.searchAdvancedFuzzy(query, effectiveFilters);
+          break;
+        case 'fuzzy':
+        default:
+          // Regular fuzzy - metadata only (title, description, tags)
+          response = await searchService.searchFuzzy(query, effectiveFilters);
+          break;
+      }
       setResults(response.results);
       notifications.show({
         title: 'Search Complete',
-        message: `${response.stats.totalResults} diary entries found` + (response.stats.searchTime ? ` in ${response.stats.searchTime}ms` : ''),
+        message: `${response.stats.totalResults} results found` + (response.stats.searchTime ? ` in ${response.stats.searchTime}ms` : ''),
         color: 'blue',
         icon: <IconSearch size={16} />,
       });
@@ -129,8 +186,8 @@ const DiarySearch: React.FC<DiarySearchProps> = ({ onEntrySelect }) => {
       <Stack gap="lg">
         <Group justify="space-between" align="center">
           <div>
-            <Title order={3}>Diary Search</Title>
-            <Text c="dimmed">Search encrypted diary entries (requires diary unlock).</Text>
+            <Title order={3}>Cross-Module Search</Title>
+            <Text c="dimmed">Search across modules. Note: Diary content is encrypted - only metadata (title, tags, date) is searchable.</Text>
           </div>
           <ActionIcon disabled={!isUnlocked} variant="outline" onClick={performSearch}>
             <IconRefresh size={16} />
@@ -148,10 +205,42 @@ const DiarySearch: React.FC<DiarySearchProps> = ({ onEntrySelect }) => {
             <TextInput
               value={query}
               onChange={(event) => setQuery(event.currentTarget.value)}
-              placeholder="Search diary entries (title, tags, content)..."
+              placeholder="Search across your knowledge base..."
               leftSection={<IconSearch size={16} />}
               disabled={!isUnlocked}
             />
+            
+            <Group>
+              <Text size="sm" fw={500}>Search in:</Text>
+              <MultiSelect
+                placeholder="Select modules"
+                data={moduleOptions}
+                value={selectedModules}
+                onChange={setSelectedModules}
+                size="sm"
+                style={{ minWidth: 250 }}
+                disabled={!isUnlocked}
+              />
+            </Group>
+            
+            <Group>
+              <Text size="sm" fw={500}>Search type:</Text>
+              <Select
+                placeholder="Select search type"
+                data={searchTypeOptions}
+                value={searchType}
+                onChange={(value) => setSearchType(value || 'fuzzy')}
+                size="sm"
+                style={{ minWidth: 200 }}
+                disabled={!isUnlocked}
+              />
+              <Text size="xs" c="dimmed">
+                {searchType === 'fts5' && 'Fast indexed search (metadata only)'}
+                {searchType === 'fuzzy' && 'Typo-tolerant (no note content)'}
+                {searchType === 'advanced_fuzzy' && 'Searches everything including note content'}
+              </Text>
+            </Group>
+            
             <Group justify="space-between">
               <Button
                 leftSection={<IconFilter size={16} />}
@@ -160,7 +249,11 @@ const DiarySearch: React.FC<DiarySearchProps> = ({ onEntrySelect }) => {
               >
                 Filters
               </Button>
-              <Button type="submit" leftSection={<IconSearch size={16} />} disabled={!isUnlocked}>
+              <Button 
+                type="submit" 
+                leftSection={<IconSearch size={16} />} 
+                disabled={!isUnlocked || selectedModules.length === 0}
+              >
                 Search
               </Button>
             </Group>
@@ -179,7 +272,6 @@ const DiarySearch: React.FC<DiarySearchProps> = ({ onEntrySelect }) => {
           onClear={() => setFilters({ modules: ['diary'], exclude_diary: false })}
           isOpen={filtersOpen}
           onClose={closeFilters}
-          searchType="fuzzy"
         />
 
         <div style={{ position: 'relative' }}>

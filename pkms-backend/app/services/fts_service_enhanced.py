@@ -43,8 +43,8 @@ class EnhancedFTS5SearchService:
             'notes': {
                 'table_name': 'fts_notes_enhanced',
                 'model': Note,
-                'columns': ['id', 'title', 'content', 'tags_text', 'user_id', 'created_at', 'updated_at', 'is_favorite'],
-                'search_columns': ['id', 'title', 'content', 'tags_text', 'raw_score'],
+                'columns': ['id', 'title', 'tags_text', 'user_id', 'created_at', 'updated_at', 'is_favorite'],
+                'search_columns': ['id', 'title', 'tags_text', 'raw_score'],
                 'id_column': 'id'
             },
             'documents': {

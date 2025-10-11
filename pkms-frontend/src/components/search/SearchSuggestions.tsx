@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Stack, Group, Text, Paper, ActionIcon, Box, ScrollArea, LoadingOverlay, ThemeIcon } from '@mantine/core';
-import { IconSearch, IconArrowRight, IconClock, IconX } from '@tabler/icons-react';
+import { IconSearch, IconArrowRight, IconSparkles, IconX } from '@tabler/icons-react';
 import { searchService } from '../../services/searchService';
 
 type SearchSuggestionsProps = {
@@ -8,13 +8,12 @@ type SearchSuggestionsProps = {
   onChange: (value: string) => void;
   onSearch: () => void;
   placeholder?: string;
-  modules?: string[];
   disabled?: boolean;
   loading?: boolean;
 };
 
 export default function SearchSuggestions(props: SearchSuggestionsProps) {
-  const { value, onChange, onSearch, placeholder, modules, disabled, loading } = props;
+  const { value, onChange, onSearch, placeholder, disabled, loading } = props;
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -23,7 +22,7 @@ export default function SearchSuggestions(props: SearchSuggestionsProps) {
   useEffect(() => {
     let active = true;
     const fetchSuggestions = async () => {
-      if (!value || value.length < 2) {
+      if (!value || value.trim().length < 3) {
         setSuggestions([]);
         return;
       }
@@ -42,7 +41,7 @@ export default function SearchSuggestions(props: SearchSuggestionsProps) {
     return () => {
       active = false;
     };
-  }, [value, modules]);
+  }, [value]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     // Handle arrow navigation only when suggestions exist
@@ -132,7 +131,7 @@ export default function SearchSuggestions(props: SearchSuggestionsProps) {
                   }}
                 >
                   <Group gap="xs">
-                    <IconClock size={14} />
+                    <IconSparkles size={14} />
                     <Text size="sm">{suggestion}</Text>
                   </Group>
                 </Group>
