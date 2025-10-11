@@ -202,7 +202,7 @@ async def _build_document_project_badges(db: AsyncSession, doc_id: int, is_exclu
     
     return badges
 
-def _convert_doc_to_response(doc: Document, project_badges: List[ProjectBadge] = []) -> DocumentResponse:
+def _convert_doc_to_response(doc: Document, project_badges: Optional[List[ProjectBadge]] = None) -> DocumentResponse:
     """Convert Document model to DocumentResponse with relational tags."""
     return DocumentResponse(
         id=doc.id,
@@ -223,7 +223,7 @@ def _convert_doc_to_response(doc: Document, project_badges: List[ProjectBadge] =
         created_at=doc.created_at,
         updated_at=doc.updated_at,
         tags=[t.name for t in doc.tag_objs] if doc.tag_objs else [],
-        projects=project_badges
+        projects=project_badges or []
     )
 
 # Document Endpoints

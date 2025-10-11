@@ -3,6 +3,7 @@ Security utilities for authentication and encryption
 """
 
 import secrets
+import logging
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 from passlib.context import CryptContext
@@ -11,6 +12,8 @@ import hashlib
 import hmac
 
 from app.config import settings, NEPAL_TZ
+
+logger = logging.getLogger(__name__)
 
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -80,10 +83,8 @@ def verify_token(token: str) -> Optional[dict]:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         return payload
-    except JWTError as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"JWT verification failed: {e}")
+    except JWTError:
+        logger.exception("JWT verification failed")
         return None
 
 

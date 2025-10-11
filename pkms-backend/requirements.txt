@@ -13,7 +13,7 @@ aiosqlite==0.19.0           # Async SQLite driver
 
 # Authentication and Security
 passlib==1.7.4              # Password hashing (bcrypt, argon2, etc.)
-bcrypt==4.0.1               # Compatible version with passlib 1.7.4
+bcrypt==3.2.0               # Compatible with passlib 1.7.4 (bcrypt 4.x removed __about__ module)
 python-jose[cryptography]==3.3.0 # JWT, JWE, JWS (token auth)
 python-multipart==0.0.6     # Multipart form parsing (file uploads)
 

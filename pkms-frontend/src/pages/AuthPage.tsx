@@ -30,32 +30,24 @@ export function AuthPage() {
     setAuthMode(mode);
   };
 
+  const handleShowRecovery = (username: string) => {
+    setRecoveryUsername(username);
+    setRecoveryModalOpened(true);
+  };
+
   const renderAuthForm = () => {
     switch (authMode) {
       case 'login':
         return (
           <LoginForm 
             onSwitchToSetup={() => handleSwitchMode('setup')} 
-            onShowRecovery={(username) => {
-              setRecoveryUsername(username);
-              setRecoveryModalOpened(true);
-            }}
+            onShowRecovery={handleShowRecovery}
           />
         );
       case 'setup':
         return (
           <SetupForm 
             onSwitchToLogin={() => handleSwitchMode('login')}
-          />
-        );
-      default:
-        return (
-          <LoginForm 
-            onSwitchToSetup={() => handleSwitchMode('setup')} 
-            onShowRecovery={(username) => {
-              setRecoveryUsername(username);
-              setRecoveryModalOpened(true);
-            }}
           />
         );
     }

@@ -767,6 +767,14 @@ async def get_diary_entries_by_date(
     db: AsyncSession = Depends(get_db)
 ):
     """Get all diary entries for a specific date."""
+    # Require diary to be unlocked
+    diary_password = _get_diary_password_from_session(current_user.id)
+    if not diary_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Diary is locked. Please unlock diary first."
+        )
+    
     result = await db.execute(
         select(DiaryEntry)
         .options(selectinload(DiaryEntry.media))
@@ -834,6 +842,11 @@ async def get_diary_entry_by_id(
     
     Reads encrypted content from file but returns it in API-compatible format.
     """
+    # Require diary to be unlocked
+    diary_password = _get_diary_password_from_session(current_user.id)
+    if not diary_password:
+        raise HTTPException(status_code=401, detail="Diary is locked. Please unlock first.")
+    
     try:
         # Allow lookup by numeric id or uuid
         try:
@@ -1047,7 +1060,7 @@ async def update_diary_entry(
         created_at=entry.created_at,
         updated_at=entry.updated_at,
         media_count=len(entry.media) if hasattr(entry, 'media') else 0,
-        tags=[t.name for t in entry.tag_objs]
+        tags=await _get_entry_tags(db, entry.uuid)
     )
 
 @router.delete("/entries/{entry_ref}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1254,10 +1267,11 @@ async def commit_diary_media_upload(
         file_extension = assembled.suffix.lower() if assembled.suffix else ""
         
         # Use diary_encryption utility to write the encrypted file
+        # write_encrypted_file expects ciphertext+tag (full encrypted_content)
         write_result = write_encrypted_file(
             dest_path=encrypted_file_path,
             iv_b64=base64.b64encode(iv).decode(),
-            encrypted_blob_b64=base64.b64encode(ciphertext).decode(),
+            encrypted_blob_b64=base64.b64encode(encrypted_content).decode(),  # Full output (ciphertext+tag)
             original_extension=file_extension
         )
 

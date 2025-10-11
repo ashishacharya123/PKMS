@@ -220,23 +220,24 @@ class EnhancedFTS5SearchService:
             tag_names = [tag.name for tag in record.tag_objs]
             tags_text = " ".join(tag_names)
             
-            # Build values list
-            values = []
+            # Build named bindings for text()
+            values = {}
             placeholders = []
             for col in columns:
                 if col == 'tags_text':
-                    values.append(tags_text)
+                    values[col] = tags_text
                 else:
-                    values.append(getattr(record, col))
-                placeholders.append('?')
+                    values[col] = getattr(record, col)
+                placeholders.append(f":{col}")
             
             # Insert into FTS5 table
             columns_list = ", ".join(columns)
             placeholders_list = ", ".join(placeholders)
             
-            await db.execute(text(f"""
-                INSERT OR REPLACE INTO {table_name} ({columns_list}) VALUES ({placeholders_list})
-            """), values)
+            await db.execute(
+                text(f"INSERT OR REPLACE INTO {table_name} ({columns_list}) VALUES ({placeholders_list})"),
+                values
+            )
 
     async def search_enhanced(self, db: AsyncSession, query: str, user_id: int, 
                              module_filter: Optional[str] = None, 
@@ -259,8 +260,8 @@ class EnhancedFTS5SearchService:
                 'todos': ('todos', 'todo'),
                 'diary': ('diary', 'diary_entry'),
                 'archive': ('archive_items', 'archive_item'),
-                'archive_folders': ('archive', 'archive_folder'),
-                'projects': ('todos', 'project')
+                'archive_folders': ('folders', 'archive_folder'),
+                'projects': ('projects', 'project')
             }
             
             for table_key, config in self.fts_tables.items():
@@ -296,7 +297,7 @@ class EnhancedFTS5SearchService:
                 SELECT {select_columns}
                 FROM {table_name}
                 WHERE {table_name} MATCH :query AND user_id = :user_id
-                ORDER BY raw_score DESC
+                ORDER BY raw_score ASC
                 LIMIT :limit
             """), {"query": query, "user_id": user_id, "limit": limit})
             
@@ -333,8 +334,8 @@ class EnhancedFTS5SearchService:
         for result in results:
             raw_score = result.get('raw_score', 0)
             
-            # Normalize score to 0-1 range
-            normalized_score = (raw_score - min_score) / score_range if score_range > 0 else 0
+            # Invert BM25 (lower is better) to 0..1 range where 1 is best
+            normalized_score = 1 - ((raw_score - min_score) / score_range) if score_range > 0 else 1
             
             # Apply module weight
             module = result.get('module', 'general')

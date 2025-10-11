@@ -267,14 +267,19 @@ async def logout(
         from app.routers.diary import _clear_diary_session
         _clear_diary_session(current_user.id)
         
-        # Delete session from database
+        # Delete session from database (only current user's session)
         if session_token:
             await db.execute(
-                delete(Session).where(Session.session_token == session_token)
+                delete(Session).where(
+                    and_(
+                        Session.session_token == session_token,
+                        Session.user_id == current_user.id
+                    )
+                )
             )
             await db.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Logout cleanup failed for user {current_user.id}: {e}")
     
     # Clear cookies
     response.delete_cookie(key="pkms_token", samesite="lax")

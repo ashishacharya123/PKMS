@@ -492,7 +492,9 @@ async def archive_note(
         action = "archived" if archive else "unarchived"
         logger.info(f"✅ Successfully {action} note '{note.title}' for user {current_user.username}")
         
-        return await _convert_note_to_response(db, note)
+        # Include project badges for consistency
+        project_badges = await _build_project_badges(db, note.id, note.is_exclusive_mode)
+        return _convert_note_to_response(note, project_badges)
         
     except HTTPException:
         raise

@@ -173,7 +173,10 @@ export function WellnessAnalytics() {
               <YAxis domain={[0, 5]} ticks={[1, 2, 3, 4, 5]} />
               <Tooltip 
                 labelFormatter={(date) => new Date(date).toLocaleDateString()}
-                formatter={(value: any) => [value != null ? value.toFixed(1) : 'No data', 'Mood']}
+                formatter={(value: any) => {
+                  const num = Number(value);
+                  return [Number.isFinite(num) ? num.toFixed(1) : 'No data', 'Mood'];
+                }}
               />
               <Legend />
               <Line 
@@ -402,7 +405,11 @@ export function WellnessAnalytics() {
             label="Chart Type"
             data={CHART_OPTIONS}
             value={selectedChart}
-            onChange={(value) => setSelectedChart(value as ChartType)}
+            onChange={(value) => {
+              if (value !== null) {
+                setSelectedChart(value as ChartType);
+              }
+            }}
             style={{ minWidth: 200 }}
             size="sm"
           />

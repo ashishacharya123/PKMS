@@ -72,12 +72,14 @@ export function ViewModeLayouts<T extends BaseItem>({
             p="xs"
             style={{ 
               cursor: onItemClick ? 'pointer' : 'default',
-              transition: 'all 0.2s ease',
-              ':hover': {
-                transform: onItemClick ? 'translateY(-2px)' : 'none',
-                boxShadow: onItemClick ? '0 4px 12px rgba(0,0,0,0.1)' : 'none'
-              }
+              transition: 'all 0.2s ease'
             }}
+            sx={onItemClick ? {
+              '&:hover': {
+                transform: 'translateY(-2px)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              }
+            } : undefined}
             onClick={() => onItemClick?.(item)}
           >
             <Stack gap={4} align="center">
@@ -107,12 +109,14 @@ export function ViewModeLayouts<T extends BaseItem>({
             padding="md"
             style={{ 
               cursor: onItemClick ? 'pointer' : 'default',
-              transition: 'all 0.2s ease',
-              ':hover': {
-                transform: onItemClick ? 'translateY(-2px)' : 'none',
-                boxShadow: onItemClick ? '0 4px 12px rgba(0,0,0,0.1)' : 'none'
-              }
+              transition: 'all 0.2s ease'
             }}
+            sx={onItemClick ? {
+              '&:hover': {
+                transform: 'translateY(-2px)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              }
+            } : undefined}
             onClick={() => onItemClick?.(item)}
           >
             <Stack gap="sm" align="center">
@@ -159,11 +163,13 @@ export function ViewModeLayouts<T extends BaseItem>({
             p="md"
             style={{ 
               cursor: onItemClick ? 'pointer' : 'default',
-              transition: 'all 0.2s ease',
-              ':hover': {
-                backgroundColor: onItemClick ? 'var(--mantine-color-gray-0)' : 'transparent'
-              }
+              transition: 'all 0.2s ease'
             }}
+            sx={onItemClick ? {
+              '&:hover': {
+                backgroundColor: 'var(--mantine-color-gray-0)'
+              }
+            } : undefined}
             onClick={() => onItemClick?.(item)}
           >
             {renderListItem(item)}

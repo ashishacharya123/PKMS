@@ -140,8 +140,19 @@ const RecoveryModal: React.FC<RecoveryModalProps> = ({
         return;
       }
 
+      // Validate username meets minimum length requirement
+      if (!effectiveUsername || effectiveUsername.length < 3) {
+        form.setFieldError('username', 'Username must be at least 3 characters');
+        notifications.show({
+          title: 'Invalid Username',
+          message: 'Please provide a valid username (at least 3 characters)',
+          color: 'red',
+        });
+        return;
+      }
+
       const success = await resetPasswordWithRecovery({
-        username: effectiveUsername ?? '',
+        username: effectiveUsername,
         answers: answers,
         new_password: values.newPassword,
       });

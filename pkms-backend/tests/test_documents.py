@@ -60,8 +60,8 @@ async def test_handle_document_tags_usage_counts():
     # Verify execute was called for all expected queries
     assert db.execute.await_count >= 4, "Should execute at least 4 queries"
 
-    # Verify existing tag usage count was incremented (kept at same value since it's reused)
-    assert existing_tag.usage_count == 3, "Existing tag count should be preserved when reused"
+    # Verify existing tag usage count was incremented (from 3 to 4 when reused)
+    assert existing_tag.usage_count == 4, "Existing tag count should be incremented when reused"
 
     # Verify db.add was called for the new tag
     assert db.add.call_count >= 1, "Should add new tag to session"

@@ -224,7 +224,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
         retry_after = None
 
     logger.warning(
-        "Rate limit exceeded for %s – retry after %s s",
+        "Rate limit exceeded for %s - retry after %s s",
         request.client.host,
         retry_after or "unknown"
     )

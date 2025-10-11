@@ -62,14 +62,15 @@ async def todos_stats_overview(
     )).scalar() or 0
 
     # Overdue: due_date set, in the past, not done, not archived
-    now_utc = datetime.utcnow()
+    from datetime import date as _date_cls
+    now_date = _date_cls.today()
     overdue_count = (await db.execute(
         select(func.count(Todo.id)).where(and_(
             Todo.user_id == current_user.id,
             Todo.status != 'done',
             Todo.is_archived.is_(False),
             Todo.due_date.is_not(None),
-            Todo.due_date < now_utc
+            Todo.due_date < now_date
         ))
     )).scalar() or 0
 
