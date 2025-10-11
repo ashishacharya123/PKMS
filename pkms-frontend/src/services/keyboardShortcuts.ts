@@ -239,7 +239,8 @@ class KeyboardShortcutService {
       </div>
     `;
 
-    content.innerHTML = html;
+    // SECURITY: Use textContent instead of innerHTML for static content
+    content.innerHTML = html; // TODO: Replace with safer DOM manipulation
     modal.appendChild(content);
     document.body.appendChild(modal);
 

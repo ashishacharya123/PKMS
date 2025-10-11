@@ -13,6 +13,9 @@ from app.database import get_db
 from app.models.user import User, Session
 from app.auth.security import verify_token
 from app.config import settings, NEPAL_TZ
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Security scheme (kept for backward compatibility)
 security = HTTPBearer(auto_error=False)
@@ -62,11 +65,21 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    user_id = payload.get("sub")
-    if user_id is None:
+    user_id_str = payload.get("sub")
+    if user_id_str is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Convert string user_id to integer for database query
+    try:
+        user_id = int(user_id_str)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user ID in token",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
@@ -134,8 +147,21 @@ async def get_optional_user(
         
         return user
         
-    except Exception:
+    except HTTPException:
+        # Re-raise HTTP exceptions (authentication failures)
+        raise
+    except (ValueError, TypeError) as e:
+        # Handle specific token parsing errors
+        logger.warning(f"Invalid token format in get_current_user_optional: {str(e)}")
         return None
+    except Exception as e:
+        # SECURITY: Log unexpected errors but don't expose system details
+        logger.error(f"Unexpected error in get_current_user_optional: {type(e).__name__}")
+        # Don't return None for unexpected errors - this could bypass security
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication service temporarily unavailable"
+        )
 
 
 def require_first_login(user: User = Depends(get_current_user)) -> User:

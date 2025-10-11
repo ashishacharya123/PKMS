@@ -77,34 +77,23 @@ class AuthService {
     return response.data;
   }
 
-  // Local storage management
-  saveAuthData(authResponse: AuthResponse): void {
-    localStorage.setItem('pkms_token', authResponse.accessToken);
-    localStorage.setItem('pkms_user', JSON.stringify({
-      id: authResponse.userId,
-      username: authResponse.username,
-      is_first_login: authResponse.isFirstLogin
-    }));
+  // SECURITY: Removed localStorage usage - using httpOnly cookies instead
+  saveAuthData(_authResponse: AuthResponse): void {
+    // No longer storing sensitive data in localStorage
+    // Tokens are now handled via httpOnly cookies from backend
   }
 
   clearAuthData(): void {
-    localStorage.removeItem('pkms_token');
-    localStorage.removeItem('pkms_user');
+    // No localStorage cleanup needed - using httpOnly cookies
   }
 
   getStoredToken(): string | null {
-    return localStorage.getItem('pkms_token');
+    // SECURITY: No longer reading from localStorage - using httpOnly cookies
+    return null;
   }
 
   getStoredUser(): User | null {
-    const userStr = localStorage.getItem('pkms_user');
-    if (userStr) {
-      try {
-        return JSON.parse(userStr);
-      } catch {
-        return null;
-      }
-    }
+    // SECURITY: No longer reading from localStorage - using httpOnly cookies
     return null;
   }
 

@@ -152,7 +152,8 @@ export function TodosPage() {
   const [projectForm, setProjectForm] = useState({
     name: '',
     description: '',
-    color: '#2196F3'
+    color: '#2196F3',
+    tags: [] as string[]
   });
 
   // Project document upload state
@@ -305,7 +306,8 @@ export function TodosPage() {
     setProjectForm({
       name: '',
       description: '',
-      color: '#2196F3'
+      color: '#2196F3',
+      tags: []
     });
   };
 
@@ -1483,6 +1485,18 @@ export function TodosPage() {
             type="color"
             value={projectForm.color}
             onChange={(e) => setProjectForm({ ...projectForm, color: e.currentTarget.value })}
+          />
+          
+          <TagsInput
+            label="Tags"
+            placeholder="Type to search and add tags"
+            value={projectForm.tags}
+            onChange={(tags) => setProjectForm({ ...projectForm, tags })}
+            data={tagSuggestions}
+            clearable
+            onSearchChange={handleTagSearch}
+            splitChars={[',', ' ']}
+            description="Add tags separated by comma or space. Start typing to see suggestions."
           />
           
           <Group justify="flex-end">

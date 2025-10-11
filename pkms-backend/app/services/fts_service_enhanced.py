@@ -319,8 +319,14 @@ class EnhancedFTS5SearchService:
 
     def _prepare_fts_query(self, query: str) -> str:
         """Prepare query string for FTS5 with proper escaping and hashtag support"""
-        # Remove special characters that could break FTS5
-        cleaned_query = re.sub(r'[^\w\s#]', ' ', query)
+        # SECURITY: Enhanced escaping to prevent FTS5 injection
+        # Remove or escape FTS5 special characters that could cause issues
+        cleaned_query = re.sub(r'[^\w\s#\-]', ' ', query)
+        
+        # SECURITY: Escape FTS5 operators that could be used for injection
+        fts_operators = ['AND', 'OR', 'NOT', 'NEAR', 'MATCH', 'LIKE', 'GLOB', 'REGEXP']
+        for operator in fts_operators:
+            cleaned_query = re.sub(rf'\b{operator}\b', f' {operator.lower()} ', cleaned_query, flags=re.IGNORECASE)
         
         # Handle hashtags (convert #tag to tag)
         cleaned_query = re.sub(r'#(\w+)', r'\1', cleaned_query)

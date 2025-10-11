@@ -271,8 +271,9 @@ async def commit_document_upload(
         # Remove file extension from original name if present
         if original_name.endswith(file_extension):
             original_name = original_name[:-len(file_extension)]
-        # Sanitize filename for filesystem safety
-        safe_original = "".join(c for c in original_name if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
+        # SECURITY: Proper filename sanitization to prevent path traversal
+        from app.utils.security import sanitize_filename
+        safe_original = sanitize_filename(original_name)
         # Limit filename length to prevent filesystem issues
         if len(safe_original) > 100:
             safe_original = safe_original[:100]
@@ -293,6 +294,12 @@ async def commit_document_upload(
 
         # Get file size before database operations
         file_size = dest_path.stat().st_size
+        
+        # SECURITY: Validate file size to prevent DoS attacks
+        from app.utils.security import validate_file_size
+        from app.config import settings
+        validate_file_size(file_size, settings.max_file_size)
+        
         file_path_relative = str(dest_path.relative_to(get_file_storage_dir()))
         
         # Detect file type and extract metadata
@@ -301,16 +308,22 @@ async def commit_document_upload(
             file_content=None  # File is already on disk
         )
 
+        # SECURITY: Validate and sanitize input fields
+        if not payload.title or len(payload.title.strip()) == 0:
+            raise HTTPException(status_code=400, detail="Title is required")
+        sanitized_title = sanitize_text_input(payload.title, 200)
+        sanitized_description = sanitize_text_input(payload.description or "", 1000)
+        
         # Create Document record
         document = Document(
             uuid=file_uuid,
-            title=payload.title,
+            title=sanitized_title,
             original_name=original_name + file_extension,  # Use the cleaned original name
             filename=stored_filename,
             file_path=file_path_relative,
             file_size=file_size,
             mime_type=detection_result["mime_type"],
-            description=payload.description,
+            description=sanitized_description,
             upload_status="completed",
             is_exclusive_mode=payload.is_exclusive_mode or False,
             user_id=current_user.id,
@@ -322,7 +335,9 @@ async def commit_document_upload(
 
         # Handle tags
         if payload.tags:
-            await _handle_document_tags(db, document, payload.tags, current_user.id)
+            # SECURITY: Sanitize tags to prevent XSS injection
+            sanitized_tags = sanitize_tags(payload.tags)
+            await _handle_document_tags(db, document, sanitized_tags, current_user.id)
 
         # Handle projects (with ownership verification)
         if payload.project_ids:
@@ -502,7 +517,7 @@ async def list_documents(
                             id=project.id,
                             name=project.name,
                             color=project.color,
-                            isExclusive=junction.is_exclusive,
+                            is_exclusive=junction.is_exclusive,
                             isDeleted=False
                         ))
                     elif junction.project_name_snapshot:
@@ -511,7 +526,7 @@ async def list_documents(
                             id=None,
                             name=junction.project_name_snapshot,
                             color="#6c757d",  # Gray for deleted
-                            isExclusive=junction.is_exclusive,
+                            is_exclusive=junction.is_exclusive,
                             isDeleted=True
                         ))
                 
@@ -597,13 +612,24 @@ async def update_document(
     update_data = document_data.model_dump(exclude_unset=True)
     
     if "tags" in update_data:
-        await _handle_document_tags(db, doc, update_data.pop("tags"), current_user.id)
+        # SECURITY: Sanitize tags to prevent XSS injection
+        raw_tags = update_data.pop("tags")
+        sanitized_tags = sanitize_tags(raw_tags)
+        await _handle_document_tags(db, doc, sanitized_tags, current_user.id)
 
     # Handle projects if provided (with ownership verification)
     if "project_ids" in update_data:
         await _handle_document_projects(db, doc, update_data.pop("project_ids"), current_user.id)
 
+    # SECURITY: Validate and sanitize update fields
     for key, value in update_data.items():
+        if key in ['title', 'description'] and value is not None:
+            if key == 'title':
+                if not value or len(value.strip()) == 0:
+                    raise HTTPException(status_code=400, detail="Title cannot be empty")
+                value = sanitize_text_input(value, 200)
+            elif key == 'description':
+                value = sanitize_text_input(value, 1000)
         setattr(doc, key, value)
         
     await db.commit()
@@ -628,23 +654,23 @@ async def archive_document(
     User can safely delete the original document later if desired.
     """
     try:
-        logger.info(f"Archiving document {document_id} to folder {archive_request.folder_uuid} for user {current_user.id}")
+        logger.info(f"Archiving document {document_uuid} to folder {archive_request.folder_uuid} for user {current_user.id}")
         
         # Get document
         doc_result = await db.execute(
             select(Document)
             .options(selectinload(Document.tag_objs))
-            .where(and_(Document.id == document_id, Document.user_id == current_user.id))
+            .where(and_(Document.uuid == document_uuid, Document.user_id == current_user.id))
         )
         document = doc_result.scalar_one_or_none()
         if not document:
-            logger.warning(f"Document {document_id} not found for user {current_user.id}")
+            logger.warning(f"Document {document_uuid} not found for user {current_user.id}")
             raise HTTPException(status_code=404, detail="Document not found")
         
         logger.info(f"Found document: {document.title} (is_archived: {document.is_archived})")
         
         if document.is_archived:
-            logger.warning(f"Document {document_id} is already archived")
+            logger.warning(f"Document {document_uuid} is already archived")
             raise HTTPException(status_code=400, detail="Document is already archived")
         
         # Verify archive folder exists and belongs to user
@@ -700,7 +726,7 @@ async def archive_document(
             metadata_json=json.dumps({
                 "source": "documents",
                 "original_document_id": document.id,
-                "archived_at": datetime.now().isoformat()
+                "archived_at": datetime.now(NEPAL_TZ).isoformat()
             })
         )
         
@@ -745,14 +771,14 @@ async def archive_document(
                 )
         
         # Update document to mark as archived
-        logger.info(f"Updating document {document_id} to archived status")
+        logger.info(f"Updating document {document_uuid} to archived status")
         document.is_archived = True
         document.archive_item_uuid = archive_item.uuid
         
         await db.commit()
         await db.refresh(document)
         
-        logger.info(f"Document {document_id} archived successfully - is_archived: {document.is_archived}, archive_item_uuid: {document.archive_item_uuid}")
+        logger.info(f"Document {document_uuid} archived successfully - is_archived: {document.is_archived}, archive_item_uuid: {document.archive_item_uuid}")
         
         return {
             "success": True,
@@ -768,7 +794,7 @@ async def archive_document(
         raise
     except Exception:
         await db.rollback()
-        logger.exception(f"Error archiving document {document_id}")
+        logger.exception(f"Error archiving document {document_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to archive document"

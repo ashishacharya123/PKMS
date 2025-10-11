@@ -1,5 +1,10 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
+
+// TODO: Add audio recording and uploading functionality to diary
+// The diary already supports multiple media types (images, documents, etc.)
+// Audio recording/uploading can be added as another media type
+// This will allow users to record voice notes and attach them to diary entries
 import {
   Container,
   Grid,
@@ -200,8 +205,18 @@ export function DiaryPage() {
   const form = useForm<DiaryFormValues>({
     initialValues: initialFormValues,
     validate: {
-      title: (value) => (value.trim().length > 0 ? null : 'Title is required'),
-      content: (value) => (value.trim().length > 0 ? null : 'Content cannot be empty'),
+      title: (value) => {
+        if (!value || value.trim().length === 0) return 'Title is required';
+        // SECURITY: Basic validation to prevent script injection
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in title';
+        return null;
+      },
+      content: (value) => {
+        if (!value || value.trim().length === 0) return 'Content cannot be empty';
+        // SECURITY: Basic validation to prevent script injection
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in content';
+        return null;
+      },
     },
   });
 
@@ -1273,9 +1288,13 @@ export function DiaryPage() {
         {mediaPreview && (
           <div style={{ maxWidth: '90vw', maxHeight: '80vh' }}>
             <img
-              src={mediaPreview.url}
+              src={mediaPreview.url.startsWith('blob:') || mediaPreview.url.startsWith('data:') ? mediaPreview.url : '#'}
               alt={mediaPreview.name}
               style={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain', borderRadius: 8 }}
+              onError={(e) => {
+                // SECURITY: Prevent loading of invalid URLs
+                (e.target as HTMLImageElement).src = '#';
+              }}
             />
           </div>
         )}

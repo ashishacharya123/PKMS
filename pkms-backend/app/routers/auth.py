@@ -28,7 +28,14 @@ from app.config import settings, NEPAL_TZ
 
 router = APIRouter()
 
-limiter = Limiter(key_func=get_remote_address)
+def get_rate_limit_key(request: Request) -> str:
+    """Enhanced rate limiting key that combines IP and user agent"""
+    client_ip = get_remote_address(request)
+    user_agent = request.headers.get("user-agent", "")
+    # Create a more robust key that's harder to bypass
+    return f"{client_ip}:{hash(user_agent) % 10000}"
+
+limiter = Limiter(key_func=get_rate_limit_key)
 logger = logging.getLogger(__name__)
 
 # Input validation patterns
@@ -131,7 +138,7 @@ async def setup_user(
         max_age=settings.access_token_expire_minutes * 60,  # 30 minutes
         httponly=True,
         secure=(settings.environment == "production"),
-        samesite="lax"
+        samesite="strict"  # SECURITY: Strict SameSite for CSRF protection
     )
 
     # Set refresh token cookie
@@ -139,7 +146,7 @@ async def setup_user(
         key="pkms_refresh",
         value=session_token,
         httponly=True,
-        samesite="lax",
+        samesite="strict",  # SECURITY: Strict SameSite for CSRF protection
         secure=settings.environment == "production",
         max_age=7*24*60*60
     )
@@ -230,7 +237,7 @@ async def login(
         max_age=settings.access_token_expire_minutes * 60,  # 30 minutes
         httponly=True,
         secure=(settings.environment == "production"),
-        samesite="lax"
+        samesite="strict"  # SECURITY: Consistent strict SameSite for CSRF protection
     )
     
     # Set refresh token cookie
@@ -240,7 +247,7 @@ async def login(
         max_age=settings.refresh_token_lifetime_days * 24 * 60 * 60,
         httponly=True,
         secure=(settings.environment == "production"),
-        samesite="lax"
+        samesite="strict"  # SECURITY: Consistent strict SameSite for CSRF protection
     )
     
     return TokenResponse(
@@ -282,8 +289,8 @@ async def logout(
         logger.warning(f"Logout cleanup failed for user {current_user.id}: {e}")
     
     # Clear cookies
-    response.delete_cookie(key="pkms_token", samesite="lax")
-    response.delete_cookie(key="pkms_refresh", samesite="lax")
+    response.delete_cookie(key="pkms_token", samesite="strict")
+    response.delete_cookie(key="pkms_refresh", samesite="strict")
     
     return {"message": "Successfully logged out"}
 
@@ -488,8 +495,12 @@ async def refresh_access_token(
         # Issue new access token
         access_token = create_access_token(data={"sub": str(user.id)})
 
-        # Update last activity but DON'T slide expiry infinitely
-        # Max validity: 1 day from creation, no sliding window
+        # SECURITY: Invalidate the used refresh token to prevent replay attacks
+        # Generate new session token
+        new_session_token = generate_session_token()
+        
+        # Update session with new token
+        session.session_token = new_session_token
         session.last_activity = now
         max_expiry = session.created_at + timedelta(days=1) if session.created_at else now + timedelta(days=1)
         
@@ -509,15 +520,15 @@ async def refresh_access_token(
             max_age=settings.access_token_expire_minutes * 60,  # 30 minutes
             httponly=True,
             secure=(settings.environment == "production"),
-            samesite="lax"
+            samesite="strict"  # SECURITY: Strict SameSite for CSRF protection
         )
 
-        # Refresh cookie max-age
+        # Set new refresh cookie with new token
         response.set_cookie(
             key="pkms_refresh",
-            value=session_token,
+            value=new_session_token,
             httponly=True,
-            samesite="lax",
+            samesite="strict",  # SECURITY: Strict SameSite for CSRF protection
             secure=settings.environment == "production",
             max_age=settings.refresh_token_lifetime_days * 24 * 60 * 60
         )
@@ -578,12 +589,14 @@ async def get_any_login_password_hint(db: AsyncSession = Depends(get_db)):
     """
     Get any login password hint from the system (for single user systems).
     This is intentionally not authenticated to be used on the login page.
+    SECURITY: Returns generic response to prevent user enumeration.
     """
     result = await db.execute(select(User).limit(1))
     user = result.scalar_one_or_none()
 
-    hint = ""
+    # SECURITY: Always return the same structure to prevent user enumeration
     if user and user.login_password_hint:
-        hint = user.login_password_hint
-    
-    return {"hint": hint, "username": user.username if user else ""} 
+        return {"hint": user.login_password_hint, "username": ""}  # Don't leak username
+    else:
+        # Return generic response even if no user exists
+        return {"hint": "", "username": ""} 

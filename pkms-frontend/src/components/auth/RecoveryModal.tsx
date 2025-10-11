@@ -64,10 +64,39 @@ const RecoveryModal: React.FC<RecoveryModalProps> = ({
       confirmPassword: '',
     },
     validate: {
-      newPassword: (value) => 
-        value.length < 8 ? 'Password must be at least 8 characters' : null,
+      newPassword: (value) => {
+        if (!value || value.length < 8) return 'Password must be at least 8 characters';
+        // SECURITY: Basic validation to prevent script injection
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in password';
+        return null;
+      },
       confirmPassword: (value, values) =>
         value !== values.newPassword ? 'Passwords must match' : null,
+      answer1: (value) => {
+        if (!value || value.trim().length === 0) return 'Answer is required';
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in answer';
+        return null;
+      },
+      answer2: (value) => {
+        if (!value || value.trim().length === 0) return 'Answer is required';
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in answer';
+        return null;
+      },
+      answer3: (value) => {
+        if (!value || value.trim().length === 0) return 'Answer is required';
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in answer';
+        return null;
+      },
+      answer4: (value) => {
+        if (!value || value.trim().length === 0) return 'Answer is required';
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in answer';
+        return null;
+      },
+      answer5: (value) => {
+        if (!value || value.trim().length === 0) return 'Answer is required';
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in answer';
+        return null;
+      },
     },
   });
 

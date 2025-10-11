@@ -111,8 +111,9 @@ async def _process_note_links(db: AsyncSession, note: Note, content: str, user_i
     """Extract and process links from note content."""
     import re
     
-    # Simple URL pattern matching
-    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    # SECURITY: Use safer URL pattern to prevent ReDoS attacks
+    # Simplified pattern that avoids catastrophic backtracking
+    url_pattern = r'https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?'
     urls = re.findall(url_pattern, content)
     
     for url in urls:
@@ -319,7 +320,10 @@ async def list_notes(
         ordered_notes = result.scalars().unique().all()
     summaries = []
     for note in ordered_notes:
-        preview = note.content[:200] + "..." if len(note.content) > 200 else note.content
+        # SECURITY: Safe content preview with null check
+        preview = ""
+        if note.content:
+            preview = note.content[:200] + "..." if len(note.content) > 200 else note.content
         project_badges = await _build_project_badges(db, note.id, note.is_exclusive_mode)
         summary = NoteSummary(
             id=note.id,
@@ -346,9 +350,13 @@ async def create_note(
 ):
     """Create a new note with optional project linkage."""
     try:
+        # SECURITY: Sanitize user input to prevent XSS attacks
+        sanitized_title = sanitize_text_input(note_data.title, 200)
+        sanitized_content = sanitize_text_input(note_data.content, 100000)  # 100KB limit
+        
         note = Note(
-            title=note_data.title,
-            content=note_data.content,
+            title=sanitized_title,
+            content=sanitized_content,
             is_exclusive_mode=note_data.is_exclusive_mode or False,
             user_id=current_user.id
         )
@@ -357,7 +365,9 @@ async def create_note(
         
         # Handle tags
         if note_data.tags:
-            await _handle_note_tags(db, note, note_data.tags, current_user.id)
+            # SECURITY: Sanitize tags to prevent XSS injection
+            sanitized_tags = sanitize_tags(note_data.tags)
+            await _handle_note_tags(db, note, sanitized_tags, current_user.id)
         
         # Handle projects
         if note_data.project_ids:
@@ -418,14 +428,24 @@ async def update_note(
     
     # Handle tags if provided
     if "tags" in update_data:
-        await _handle_note_tags(db, note, update_data.pop("tags"), current_user.id)
+        # SECURITY: Sanitize tags to prevent XSS injection
+        raw_tags = update_data.pop("tags")
+        sanitized_tags = sanitize_tags(raw_tags)
+        await _handle_note_tags(db, note, sanitized_tags, current_user.id)
 
     # Handle projects if provided
     if "project_ids" in update_data:
         await _handle_note_projects(db, note, update_data.pop("project_ids"), current_user.id)
 
-    # Update other fields
+    # SECURITY: Validate and sanitize update fields
     for key, value in update_data.items():
+        if key in ['title', 'content'] and value is not None:
+            if key == 'title':
+                if not value or len(value.strip()) == 0:
+                    raise HTTPException(status_code=400, detail="Title cannot be empty")
+                value = sanitize_text_input(value, 200)
+            elif key == 'content':
+                value = sanitize_text_input(value, 100000)  # 100KB limit
         setattr(note, key, value)
 
     # Process links if content was updated

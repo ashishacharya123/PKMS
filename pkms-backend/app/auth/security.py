@@ -80,11 +80,21 @@ def verify_token(token: str) -> Optional[dict]:
     Returns:
         Decoded token data or None if invalid
     """
+    if not token or not isinstance(token, str):
+        logger.warning("Invalid token provided: empty or non-string")
+        return None
+        
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         return payload
-    except JWTError:
-        logger.exception("JWT verification failed")
+    except jwt.ExpiredSignatureError:
+        logger.warning("JWT token has expired")
+        return None
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid JWT token: {str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error during JWT verification: {str(e)}")
         return None
 
 

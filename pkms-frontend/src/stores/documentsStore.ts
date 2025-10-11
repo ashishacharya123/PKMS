@@ -295,6 +295,8 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
         tags: updatedDocument.tags,
+        isExclusiveMode: updatedDocument.isExclusiveMode ?? false,
+        projects: updatedDocument.projects ?? [],
       };
 
       set(state => ({
@@ -363,7 +365,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
         tags: updatedDocument.tags,
-      } as unknown as DocumentSummary;
+        isExclusiveMode: updatedDocument.isExclusiveMode ?? false,
+        projects: updatedDocument.projects ?? [],
+      };
 
       set(state => {
         const exists = state.documents.some(d => d.uuid === updatedDocument.uuid);
@@ -488,8 +492,14 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
           a.click();
           window.document.body.removeChild(a);
         }
-        // Revoke later to allow the new tab to read it first
-        setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+        // SECURITY: Revoke immediately for downloads, delay only for previews
+        if (previewableTypes.includes((document as any).mime_type)) {
+          // For previews, revoke after a short delay to allow tab to load
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+        } else {
+          // For downloads, revoke immediately after download starts
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 100);
+        }
       } catch (err) {
         // Swallow; error handling is done in downloadDocument
       }

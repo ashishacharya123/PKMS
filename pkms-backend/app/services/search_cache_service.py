@@ -4,7 +4,6 @@ Provides Redis-based caching for search results to improve performance and reduc
 """
 
 import json
-import pickle
 import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
@@ -80,7 +79,17 @@ class SearchCacheService:
 
             if cached_data:
                 logger.debug(f"🎯 Cache hit for search: '{query[:50]}...'")
-                return json.loads(cached_data)
+                # SECURITY: Validate JSON structure before deserialization
+                try:
+                    parsed_data = json.loads(cached_data)
+                    # Basic validation - ensure it's a list or dict
+                    if not isinstance(parsed_data, (list, dict)):
+                        logger.warning(f"Invalid cached data structure for query: {query[:50]}")
+                        return None
+                    return parsed_data
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Failed to parse cached JSON for query {query[:50]}: {e}")
+                    return None
 
             logger.debug(f"🔍 Cache miss for search: '{query[:50]}...'")
             return None

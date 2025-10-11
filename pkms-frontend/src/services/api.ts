@@ -35,12 +35,8 @@ class ApiService {
           const isLoginAttempt = error.config?.url?.includes('/auth/login') || 
                                 error.config?.url?.includes('/auth/setup');
           
-          console.error('Network Error:', {
-            url: error.config?.url,
-            method: error.config?.method,
-            message: error.message,
-            code: error.code
-          });
+          // SECURITY: Don't log sensitive information to console
+          console.error('Network Error:', error.message);
           
           // Create a comprehensive network error message
           const networkError = new Error(this.createNetworkErrorMessage(isLoginAttempt));
@@ -272,6 +268,11 @@ class ApiService {
    */
   private playSoundAlert(): void {
     try {
+      // SECURITY: Validate AudioContext availability before use
+      if (!window.AudioContext && !(window as any).webkitAudioContext) {
+        return; // Silently fail if AudioContext not available
+      }
+      
       // Create a simple beep sound using Web Audio API
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       const oscillator = audioContext.createOscillator();

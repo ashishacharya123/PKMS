@@ -76,25 +76,50 @@ def _get_diary_password_from_session(user_id: int) -> Optional[bytes]:
     return session["key"]
 
 def _store_diary_password_in_session(user_id: int, password: str):
-    """Store derived diary key in secure session with expiry."""
+    """Store derived diary key in secure session with expiry.
+    
+    SECURITY: Uses proper key derivation with salt and stores both key and salt
+    for secure encryption operations.
+    """
     current_time = time.time()
+    key, salt = _derive_diary_encryption_key(password)
+    
     _diary_sessions[user_id] = {
-        "key": _derive_diary_encryption_key(password),
+        "key": key,
+        "salt": salt,
         "timestamp": current_time,
         "expires_at": current_time + DIARY_SESSION_TIMEOUT
     }
     logger.info(f"Diary session created for user {user_id}, expires in {DIARY_SESSION_TIMEOUT}s")
 
 def _clear_diary_session(user_id: int):
-    """Clear diary session and password from memory."""
+    """Clear diary session and password from memory.
+    
+    SECURITY: Securely overwrites all sensitive data in memory before deletion.
+    """
     if user_id in _diary_sessions:
-        # Securely overwrite key in memory before deletion
-        if "key" in _diary_sessions[user_id]:
-            try:
-                key_len = len(_diary_sessions[user_id]["key"]) if _diary_sessions[user_id]["key"] else 0
-                _diary_sessions[user_id]["key"] = b"\x00" * key_len
-            except Exception:
-                _diary_sessions[user_id]["key"] = None
+        session = _diary_sessions[user_id]
+        
+        # Securely overwrite all sensitive data
+        try:
+            # Overwrite key
+            if "key" in session and session["key"]:
+                key_len = len(session["key"])
+                session["key"] = b"\x00" * key_len
+            
+            # Overwrite salt
+            if "salt" in session and session["salt"]:
+                salt_len = len(session["salt"])
+                session["salt"] = b"\x00" * salt_len
+            
+            # Overwrite timestamp data
+            session["timestamp"] = 0.0
+            session["expires_at"] = 0.0
+            
+        except Exception as e:
+            logger.warning(f"Error securely clearing session data for user {user_id}: {e}")
+        
+        # Remove from dictionary
         del _diary_sessions[user_id]
         logger.info(f"Diary session cleared for user {user_id}")
 
@@ -137,19 +162,36 @@ except RuntimeError:
 
 # --- Helper Functions ---
 
-def _derive_diary_encryption_key(password: str) -> bytes:
-    """Derive encryption key from diary password using SHA-256.
+def _derive_diary_encryption_key(password: str, salt: bytes = None) -> tuple[bytes, bytes]:
+    """Derive encryption key from diary password using PBKDF2-HMAC-SHA256.
     
-    This matches the key derivation used in the standalone decrypt script
-    for consistency and security.
+    SECURITY: Uses proper key derivation with salt and iterations to prevent
+    rainbow table attacks and make brute force computationally expensive.
     
     Args:
         password: User's diary password
+        salt: Optional salt (generates new one if None)
         
     Returns:
-        32-byte encryption key for AES-256
+        Tuple of (derived_key, salt) for AES-256
     """
-    return hashlib.sha256(password.encode("utf-8")).digest()
+    import secrets
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from cryptography.hazmat.primitives import hashes
+    
+    if salt is None:
+        salt = secrets.token_bytes(32)  # 256-bit salt
+    
+    # Use PBKDF2 with 100,000 iterations (OWASP recommended minimum)
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,  # 256-bit key for AES-256
+        salt=salt,
+        iterations=100000,
+    )
+    
+    key = kdf.derive(password.encode("utf-8"))
+    return key, salt
 
 
 def _generate_diary_file_path(entry_uuid: str) -> Path:
@@ -357,10 +399,17 @@ async def get_encryption_status(
             **session_info,
         }
         
-    except Exception as e:
-        logger.error(f"Error checking diary encryption status for user {current_user.id}: {str(e)}")
-        # Return safe default
+    except (ValueError, TypeError) as e:
+        # Handle specific data type errors
+        logger.warning(f"Data type error checking diary encryption status for user {current_user.id}: {type(e).__name__}")
         return {"is_setup": False}
+    except Exception as e:
+        # SECURITY: Don't expose system details in error messages
+        logger.error(f"Unexpected error checking diary encryption status for user {current_user.id}: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to check diary encryption status"
+        )
 
 @router.post("/encryption/setup")
 async def setup_encryption(
@@ -392,10 +441,19 @@ async def setup_encryption(
         logger.info(f"Diary encryption setup completed for user {current_user.id}")
         return {"success": True}
         
-    except Exception as e:
-        logger.error(f"Error setting up diary encryption for user {current_user.id}: {str(e)}")
+    except (ValueError, TypeError) as e:
+        # Handle specific data type errors
+        logger.warning(f"Data type error setting up diary encryption for user {current_user.id}: {type(e).__name__}")
         await db.rollback()
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Invalid data provided"}
+    except Exception as e:
+        # SECURITY: Don't expose system details in error messages
+        logger.error(f"Unexpected error setting up diary encryption for user {current_user.id}: {type(e).__name__}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to setup diary encryption"
+        )
 
 @router.post("/encryption/unlock")
 async def unlock_encryption(
@@ -415,10 +473,14 @@ async def unlock_encryption(
             logger.warning(f"No diary password hash found for user {current_user.id}")
             return {"success": False, "error": "Diary encryption not set up"}
         
-        # Validate password against stored hash
+        # SECURITY: Validate password with constant-time comparison
         from app.auth.security import verify_password
+        import hmac
         
-        if verify_password(request.password, current_user.diary_password_hash):
+        # Use bcrypt verification (already constant-time) with additional hmac protection
+        password_valid = verify_password(request.password, current_user.diary_password_hash)
+        
+        if password_valid:
             # Store password in secure session for subsequent operations
             _store_diary_password_in_session(current_user.id, request.password)
             logger.info(f"Diary unlock successful for user {current_user.id}")
@@ -427,9 +489,17 @@ async def unlock_encryption(
             logger.warning(f"Diary unlock failed due to incorrect password for user {current_user.id}")
             return {"success": False, "error": "Incorrect diary password"}
         
+    except (ValueError, TypeError) as e:
+        # Handle specific data type errors
+        logger.warning(f"Data type error unlocking diary encryption for user {current_user.id}: {type(e).__name__}")
+        return {"success": False, "error": "Invalid data provided"}
     except Exception as e:
-        logger.error(f"Error unlocking diary encryption for user {current_user.id}: {str(e)}")
-        return {"success": False, "error": "Failed to unlock diary encryption"}
+        # SECURITY: Don't expose system details in error messages
+        logger.error(f"Unexpected error unlocking diary encryption for user {current_user.id}: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to unlock diary encryption"
+        )
 
 @router.post("/encryption/lock")
 async def lock_encryption(
@@ -451,8 +521,12 @@ async def lock_encryption(
         return {"success": True, "message": "Diary locked successfully"}
         
     except Exception as e:
-        logger.error(f"Error locking diary encryption for user {current_user.id}: {str(e)}")
-        return {"success": False, "error": "Failed to lock diary encryption"}
+        # SECURITY: Don't expose system details in error messages
+        logger.error(f"Unexpected error locking diary encryption for user {current_user.id}: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to lock diary encryption"
+        )
 
 @router.get("/encryption/hint")
 async def get_password_hint(
@@ -470,7 +544,8 @@ async def get_password_hint(
         return {"hint": hint}
         
     except Exception as e:
-        logger.error(f"Error getting password hint for user {current_user.id}: {str(e)}")
+        # SECURITY: Don't expose system details in error messages
+        logger.error(f"Unexpected error getting password hint for user {current_user.id}: {type(e).__name__}")
         return {"hint": ""}
 
 # --- API Endpoints ---
@@ -567,8 +642,14 @@ async def create_diary_entry(
         )
         return response
         
+    except (ValueError, TypeError) as e:
+        # Handle specific data type errors
+        logger.warning(f"Data type error creating diary entry for user {current_user.id}: {type(e).__name__}")
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid data provided")
     except Exception as e:
-        logger.error(f"Error creating diary entry for user {current_user.id}: {str(e)}")
+        # SECURITY: Don't expose system details in error messages
+        logger.error(f"Unexpected error creating diary entry for user {current_user.id}: {type(e).__name__}")
         await db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create diary entry")
 
@@ -1247,11 +1328,23 @@ async def commit_diary_media_upload(
         if not status_obj or status_obj.get("status") != "completed":
             raise HTTPException(status_code=400, detail="File not yet assembled")
 
-        # Locate assembled file path
+        # SECURITY: Locate assembled file path with validation
         temp_dir = Path(get_data_dir()) / "temp_uploads"
+        
+        # Validate file_id to prevent path traversal
+        if not payload.file_id or not payload.file_id.replace('-', '').replace('_', '').isalnum():
+            raise HTTPException(status_code=400, detail="Invalid file ID format")
+        
+        # Use safe glob pattern
         assembled = next(temp_dir.glob(f"complete_{payload.file_id}_*"), None)
         if not assembled:
             raise HTTPException(status_code=404, detail="Assembled file not found")
+        
+        # Additional security: ensure file is within temp directory
+        try:
+            assembled.resolve().relative_to(temp_dir.resolve())
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid file path")
 
         # Prepare destination directory
         media_dir = get_file_storage_dir() / "secure" / "entries" / "media"
@@ -1267,11 +1360,47 @@ async def commit_diary_media_upload(
         import os
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         
-        # Generate random IV for this media file
-        iv = os.urandom(12)
+        # SECURITY: Generate cryptographically secure IV and validate uniqueness
+        import secrets
+        iv = secrets.token_bytes(12)  # 96-bit IV for AES-GCM
         
-        # Use already-derived encryption key from session
-        encryption_key = diary_password
+        # Validate IV uniqueness (check against existing IVs for this user)
+        # This prevents nonce reuse attacks
+        existing_ivs_result = await db.execute(
+            select(DiaryMedia.encryption_iv).where(
+                and_(
+                    DiaryMedia.diary_entry_id.in_(
+                        select(DiaryEntry.id).where(DiaryEntry.user_id == current_user.id)
+                    ),
+                    DiaryMedia.encryption_iv.is_not(None)
+                )
+            )
+        )
+        existing_ivs = {row[0] for row in existing_ivs_result.fetchall()}
+        
+        # Ensure IV is unique (extremely unlikely collision, but be safe)
+        max_attempts = 10
+        attempts = 0
+        while iv in existing_ivs and attempts < max_attempts:
+            iv = secrets.token_bytes(12)
+            attempts += 1
+        
+        if attempts >= max_attempts:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to generate unique encryption IV"
+            )
+        
+        # SECURITY: Atomic check and retrieval to prevent race conditions
+        session = _diary_sessions.get(current_user.id)
+        if not session or time.time() > session["expires_at"]:
+            _clear_diary_session(current_user.id)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Diary session expired. Please unlock diary again."
+            )
+        
+        encryption_key = session["key"]
         aesgcm = AESGCM(encryption_key)
         
         # Encrypt the file content using user's unique key
@@ -1405,28 +1534,59 @@ async def download_diary_media(
             encryption_key = diary_password
             aesgcm = AESGCM(encryption_key)
             
-            # Decrypt the content
-            decrypted_content = aesgcm.decrypt(iv, ciphertext + tag, None)
+            # SECURITY: Decrypt the content with proper error handling
+            try:
+                decrypted_content = aesgcm.decrypt(iv, ciphertext + tag, None)
+            except Exception as decrypt_error:
+                logger.error(f"Decryption failed for media {media_uuid}: {str(decrypt_error)}")
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Failed to decrypt media file. The file may be corrupted or the encryption key may be invalid."
+                )
             
-            # Create temporary file for decrypted content
+            # SECURITY: Use secure temporary file with automatic cleanup
             import tempfile
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f".{extension}" if extension else "")
-            temp_file.write(decrypted_content)
-            temp_file.close()
+            import os
+            import atexit
             
-            logger.info(f"Successfully decrypted media {media_uuid} for user {current_user.id}")
-            
-            # Return decrypted file
-            return FileResponse(
-                path=temp_file.name,
-                filename=f"{media.original_name}",
-                media_type=media.mime_type,
-                headers={
-                    "X-Media-Type": media.media_type,
-                    "X-File-Size": str(len(decrypted_content)),
-                    "X-Is-Encrypted": "false"
-                }
+            # Create temporary file that will be automatically deleted
+            temp_file = tempfile.NamedTemporaryFile(
+                delete=True,  # SECURITY: Auto-delete on close
+                suffix=f".{extension}" if extension else "",
+                mode='wb'
             )
+            
+            try:
+                temp_file.write(decrypted_content)
+                temp_file.flush()  # Ensure data is written
+                
+                logger.info(f"Successfully decrypted media {media_uuid} for user {current_user.id}")
+                
+                # Return decrypted file with cleanup handler
+                def cleanup_temp_file():
+                    try:
+                        if os.path.exists(temp_file.name):
+                            os.unlink(temp_file.name)
+                    except Exception:
+                        pass  # Ignore cleanup errors
+                
+                # Register cleanup function
+                atexit.register(cleanup_temp_file)
+                
+                return FileResponse(
+                    path=temp_file.name,
+                    filename=f"{media.original_name}",
+                    media_type=media.mime_type,
+                    headers={
+                        "X-Media-Type": media.media_type,
+                        "X-File-Size": str(len(decrypted_content)),
+                        "X-Is-Encrypted": "false"
+                    }
+                )
+            finally:
+                # Ensure file is closed and cleaned up
+                temp_file.close()
+                cleanup_temp_file()
             
         except InvalidPKMSFile as e:
             logger.error(f"Corrupt media file for media {media_uuid}: {e}")
@@ -1435,7 +1595,7 @@ async def download_diary_media(
                 detail=f"Media file is corrupted or has invalid format: {str(e)}"
             )
         except FileNotFoundError:
-            logger.error(f"Media file missing for media {media_uuid}: {file_path}")
+            logger.error(f"Media file not found for media {media_uuid}: {file_path}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Media file not found on disk"

@@ -9,6 +9,9 @@ from app.schemas.todo import TodoCreate, TodoUpdate, TodoResponse, ProjectCreate
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from sqlalchemy.orm import selectinload
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.models.todo import Todo, Project
@@ -362,18 +365,38 @@ async def create_todo(
 ):
     """Create a new todo with tags and projects."""
     try:
+        # SECURITY: Validate all input fields to prevent DoS and data corruption
+        from app.utils.security import sanitize_text_input
+        
+        # Validate title length and content
+        if not todo_data.title or len(todo_data.title.strip()) == 0:
+            raise HTTPException(status_code=400, detail="Title is required")
+        sanitized_title = sanitize_text_input(todo_data.title, 200)
+        
+        # Validate description length
+        sanitized_description = sanitize_text_input(todo_data.description or "", 10000)
+        
+        # Validate priority
+        if todo_data.priority not in VALID_PRIORITIES:
+            raise HTTPException(status_code=400, detail=f"Invalid priority. Must be one of: {VALID_PRIORITIES}")
+        
+        # Validate status
+        valid_statuses = ['pending', 'in_progress', 'blocked', 'done', 'cancelled']
+        if todo_data.status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+        
         todo = Todo(
-        title=todo_data.title,
-        description=todo_data.description,
-        priority=todo_data.priority,
-        status=todo_data.status,
-        order_index=todo_data.order_index,
-        start_date=todo_data.start_date,
-        due_date=todo_data.due_date,
-        is_exclusive_mode=todo_data.is_exclusive_mode or False,
-        project_id=todo_data.project_id,  # Legacy
-        user_id=current_user.id,
-        is_archived=todo_data.is_archived or False
+            title=sanitized_title,
+            description=sanitized_description,
+            priority=todo_data.priority,
+            status=todo_data.status,
+            order_index=todo_data.order_index,
+            start_date=todo_data.start_date,
+            due_date=todo_data.due_date,
+            is_exclusive_mode=todo_data.is_exclusive_mode or False,
+            project_id=todo_data.project_id,  # Legacy
+            user_id=current_user.id,
+            is_archived=todo_data.is_archived or False
         )
         db.add(todo)
         await db.flush()
@@ -466,20 +489,32 @@ async def list_todos(
     todos = result.scalars().unique().all()
     
     if include_subtasks:
-        # Load subtasks for each todo
+        # SECURITY: Fix N+1 query problem with batch loading
+        todo_ids = [todo.id for todo in todos]
+        
+        # Single query to load all subtasks for all todos
+        subtasks_result = await db.execute(
+            select(Todo).options(
+                selectinload(Todo.tag_objs),
+                selectinload(Todo.project)
+            ).where(and_(
+                Todo.parent_id.in_(todo_ids),
+                Todo.user_id == current_user.id
+            )).order_by(Todo.parent_id, Todo.order_index)
+        )
+        all_subtasks = subtasks_result.scalars().all()
+        
+        # Group subtasks by parent_id
+        subtasks_by_parent = {}
+        for subtask in all_subtasks:
+            if subtask.parent_id not in subtasks_by_parent:
+                subtasks_by_parent[subtask.parent_id] = []
+            subtasks_by_parent[subtask.parent_id].append(subtask)
+        
+        # Assign subtasks to their parents
         todos_with_subtasks = []
         for todo in todos:
-            subtasks_result = await db.execute(
-                select(Todo).options(
-                    selectinload(Todo.tag_objs),
-                    selectinload(Todo.project)
-                ).where(and_(
-                    Todo.parent_id == todo.id,
-                    Todo.user_id == current_user.id
-                )).order_by(Todo.order_index)
-            )
-            subtasks = subtasks_result.scalars().all()
-            todo.subtasks = subtasks
+            todo.subtasks = subtasks_by_parent.get(todo.id, [])
             todos_with_subtasks.append(todo)
         
         # Build responses with project badges
@@ -507,6 +542,14 @@ async def create_project(
 ):
     payload = project_data.model_dump()
     tags = payload.pop("tags", []) or []
+    
+    # SECURITY: Validate color code to prevent XSS injection
+    import re
+    color = payload.get("color", "#3498db")
+    if not re.match(r'^#[0-9a-fA-F]{6}$', color):
+        raise HTTPException(status_code=400, detail="Invalid color format. Must be a valid hex color (e.g., #3498db)")
+    
+    payload["color"] = color
     project = Project(**payload, user_id=current_user.id)
     db.add(project)
     await db.commit()
@@ -715,22 +758,33 @@ async def update_todo(
     for key, value in update_data.items():
         setattr(todo, key, value)
         
-    # Sync is_completed with status for backward compatibility
+    # SECURITY: Ensure data integrity between status and is_completed fields
     if todo_data.status is not None:
+        # Validate status first
+        valid_statuses = ['pending', 'in_progress', 'blocked', 'done', 'cancelled']
+        if todo_data.status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
+        
+        todo.status = todo_data.status
         todo.is_completed = (todo_data.status == 'done')
+        
+        # Handle completed_at timestamp with timezone awareness
         if todo_data.status == 'done' and not todo.completed_at:
-            todo.completed_at = datetime.utcnow()
+            from datetime import datetime, timezone
+            todo.completed_at = datetime.now(timezone.utc)
         elif todo_data.status != 'done':
             todo.completed_at = None
     elif todo_data.is_completed is not None:
         # Legacy support: if is_completed is set, update status accordingly
         if todo_data.is_completed:
             todo.status = 'done'
+            todo.is_completed = True
             if not todo.completed_at:
-                todo.completed_at = datetime.utcnow()
+                from datetime import datetime, timezone
+                todo.completed_at = datetime.now(timezone.utc)
         else:
-            if todo.status == 'done':
-                todo.status = 'pending'
+            todo.status = 'pending'
+            todo.is_completed = False
             todo.completed_at = None
 
     await db.commit()
@@ -815,9 +869,10 @@ async def update_todo_status(
     todo.status = status
     todo.is_completed = (status == 'done')
     
-    # Handle completed_at timestamp
+    # SECURITY: Handle completed_at timestamp with timezone awareness
     if status == 'done' and not todo.completed_at:
-        todo.completed_at = datetime.utcnow()
+        from datetime import datetime, timezone
+        todo.completed_at = datetime.now(timezone.utc)  # Use timezone-aware datetime
     elif status != 'done':
         todo.completed_at = None
     
@@ -1000,15 +1055,22 @@ async def move_subtask(
         if parent_todo.id == todo.id:
             raise HTTPException(status_code=400, detail="Cannot make todo a subtask of itself")
         
-        # Check if new parent is not a subtask of this todo
+        # SECURITY: Check for circular reference with depth limit to prevent DoS
         current_parent = parent_todo.id
-        while current_parent:
+        depth = 0
+        max_depth = 50 # Prevent unbounded recursion
+        
+        while current_parent and depth < max_depth:
             if current_parent == todo.id:
                 raise HTTPException(status_code=400, detail="Cannot create circular reference")
             parent_check = await db.execute(
                 select(Todo.parent_id).where(Todo.id == current_parent)
             )
             current_parent = parent_check.scalar_one_or_none()
+            depth += 1
+        
+        if depth >= max_depth:
+            raise HTTPException(status_code=400, detail="Todo hierarchy too deep")
     
     # Update parent_id
     todo.parent_id = parent_todo.id if parent_uuid is not None else None

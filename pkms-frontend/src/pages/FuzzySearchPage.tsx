@@ -147,7 +147,7 @@ export default function FuzzySearchPage() {
           notes: 'note',
           documents: 'document',
           todos: 'todo',
-          diary: 'diary',
+          // diary: 'diary', // ❌ SECURITY: Diary search removed from global search
           archive: 'archive'
         };
         const mappedModules = selectedModules
@@ -247,12 +247,12 @@ export default function FuzzySearchPage() {
     return 'orange';
   };
 
-  const getThresholdColor = (threshold: number) => {
-    if (threshold >= 80) return 'red';
-    if (threshold >= 65) return 'orange';
-    if (threshold >= 50) return 'blue';
-    return 'green';
-  };
+  // const getThresholdColor = (threshold: number) => {
+  //   if (threshold >= 80) return 'red';
+  //   if (threshold >= 65) return 'orange';
+  //   if (threshold >= 50) return 'blue';
+  //   return 'green';
+  // };
 
   return (
     <Container size="lg" py="md">
