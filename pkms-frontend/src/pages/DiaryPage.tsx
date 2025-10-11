@@ -748,22 +748,22 @@ export function DiaryPage() {
   useEffect(() => {
     let lockTimer: number | null = null;
 
+    // Schedule lock timer if diary is currently unlocked
+    if (store.isUnlocked) {
+      console.log('[DIARY PAGE] User left diary page, will lock after 5 minutes of inactivity...');
+      
+      // Set a timer to lock after 5 minutes
+      lockTimer = setTimeout(() => {
+        console.log('[DIARY PAGE] 5 minutes elapsed, locking diary session...');
+        store.lockSession();
+      }, 5 * 60 * 1000) as unknown as number; // 5 minutes
+    }
+
     return () => {
       // This runs when component unmounts (user navigates away from diary page)
       // Cancel any pending timer first (in case of re-entry)
       if (lockTimer !== null) {
         clearTimeout(lockTimer);
-      }
-      
-      // Schedule lock timer if diary is currently unlocked
-      if (store.isUnlocked) {
-        console.log('[DIARY PAGE] User left diary page, will lock after 5 minutes of inactivity...');
-        
-        // Set a timer to lock after 5 minutes
-        lockTimer = setTimeout(() => {
-          console.log('[DIARY PAGE] 5 minutes elapsed, locking diary session...');
-          store.lockSession();
-        }, 5 * 60 * 1000) as unknown as number; // 5 minutes
       }
     };
   }, [store.isUnlocked]); // Re-run when lock status changes

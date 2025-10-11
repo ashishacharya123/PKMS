@@ -245,13 +245,17 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       const updatedTodo = await todosService.updateTodo(uuid, data);
       
       // Update in todos list
-      set(state => ({
-        todos: state.todos.map(todo => 
-          todo.uuid === updatedTodo?.uuid ? { ...todo, ...updatedTodo } : todo
-        ),
-        currentTodo: state.currentTodo?.uuid === updatedTodo?.uuid ? updatedTodo : state.currentTodo,
-        isUpdating: false
-      }));
+      if (updatedTodo) {
+        set(state => ({
+          todos: state.todos.map(todo => 
+            todo.uuid === updatedTodo.uuid ? { ...todo, ...updatedTodo } : todo
+          ),
+          currentTodo: state.currentTodo?.uuid === updatedTodo.uuid ? updatedTodo : state.currentTodo,
+          isUpdating: false
+        }));
+      } else {
+        set({ isUpdating: false });
+      }
       
       return updatedTodo;
     } catch (error) {

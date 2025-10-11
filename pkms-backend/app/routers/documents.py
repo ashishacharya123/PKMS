@@ -382,142 +382,149 @@ async def list_documents(
     - Items with is_exclusive_mode=True are HIDDEN from main list (only in project dashboards)
     - Items with is_exclusive_mode=False are ALWAYS shown (linked mode)
     """
-    logger.info(f"Listing documents for user {current_user.id} - archived: {archived}, search: {search}, tag: {tag}")
-    
-    if search:
-        # Use FTS5 for full-text search
-        fts_results = await enhanced_fts_service.search_all(db, search, current_user.id, content_types=["documents"], limit=limit, offset=offset)
-        doc_uuids = [r["id"] for r in fts_results if r["type"] == "document"]
-        logger.info(f"FTS5 search returned {len(doc_uuids)} document UUIDs")
+    try:
+        logger.info(f"Listing documents for user {current_user.id} - archived: {archived}, search: {search}, tag: {tag}")
         
-        if not doc_uuids:
-            return []
-        # Fetch documents by UUIDs, preserving FTS5 order
-        query = select(Document).options(selectinload(Document.tag_objs)).where(
-            and_(
-                Document.user_id == current_user.id,
-                Document.is_archived == archived,
-                Document.uuid.in_(doc_uuids),
-                not Document.is_exclusive_mode  # Only show linked (non-exclusive) items
-            )
-        )
-        # Apply filters
-        if tag:
-            query = query.join(Document.tag_objs).where(Tag.name == tag)
-        if mime_type:
-            query = query.where(Document.mime_type.like(f"{mime_type}%"))
-        if is_favorite is not None:
-            query = query.where(Document.is_favorite == is_favorite)
-        if project_id is not None:
-            query = query.where(Document.project_id == project_id)
-        elif project_only:
-            query = query.where(Document.project_id.is_not(None))
-        elif unassigned_only:
-            query = query.where(Document.project_id.is_(None))
-        result = await db.execute(query)
-        documents = result.scalars().unique().all()
-        logger.info(f"FTS5 query returned {len(documents)} documents")
-        
-        # Order documents by FTS5 relevance
-        docs_by_uuid = {d.uuid: d for d in documents}
-        ordered_docs = [docs_by_uuid[uuid] for uuid in doc_uuids if uuid in docs_by_uuid]
-        logger.info(f"Final ordered result: {len(ordered_docs)} documents")
-    else:
-        # Fallback to regular query
-        logger.info(f"Using regular query for archived={archived}")
-        query = select(Document).options(selectinload(Document.tag_objs)).where(
-            and_(
-                Document.user_id == current_user.id,
-                Document.is_archived == archived,
-                not Document.is_exclusive_mode  # Only show linked (non-exclusive) items
-            )
-        )
-        # Apply filters
-        if tag:
-            query = query.join(Document.tag_objs).where(Tag.name == tag)
-        if mime_type:
-            query = query.where(Document.mime_type.like(f"{mime_type}%"))
-        if is_favorite is not None:
-            query = query.where(Document.is_favorite == is_favorite)
-        if project_id is not None:
-            query = query.where(Document.project_id == project_id)
-        elif project_only:
-            query = query.where(Document.project_id.is_not(None))
-        elif unassigned_only:
-            query = query.where(Document.project_id.is_(None))
-        query = query.order_by(Document.created_at.desc()).offset(offset).limit(limit)
-        result = await db.execute(query)
-        ordered_docs = result.scalars().unique().all()
-        logger.info(f"Regular query returned {len(ordered_docs)} documents")
-        
-    # Build responses with project badges - batch load to avoid N+1 queries
-    response = []
-    if ordered_docs:
-        # Collect all document IDs
-        doc_ids = [d.id for d in ordered_docs]
-        
-        # Single query to fetch all document-project junctions
-        junction_result = await db.execute(
-            select(DocumentProjectJunction)
-            .where(DocumentProjectJunction.document_id.in_(doc_ids))
-        )
-        junctions = junction_result.scalars().all()
-        
-        # Collect all project IDs (both live and deleted)
-        project_ids = set()
-        for junction in junctions:
-            if junction.project_id:
-                project_ids.add(junction.project_id)
-        
-        # Single query to fetch all live projects
-        projects = []
-        if project_ids:
-            project_result = await db.execute(
-                select(Project)
-                .where(Project.id.in_(project_ids))
-            )
-            projects = project_result.scalars().all()
-        
-        # Create project lookup map
-        project_map = {p.id: p for p in projects}
-        
-        # Group junctions by document_id
-        junctions_by_doc = {}
-        for junction in junctions:
-            if junction.document_id not in junctions_by_doc:
-                junctions_by_doc[junction.document_id] = []
-            junctions_by_doc[junction.document_id].append(junction)
-        
-        # Build project badges for each document
-        for d in ordered_docs:
-            doc_junctions = junctions_by_doc.get(d.id, [])
-            project_badges = []
+        if search:
+            # Use FTS5 for full-text search
+            fts_results = await enhanced_fts_service.search_all(db, search, current_user.id, content_types=["documents"], limit=limit, offset=offset)
+            doc_uuids = [r["id"] for r in fts_results if r["type"] == "document"]
+            logger.info(f"FTS5 search returned {len(doc_uuids)} document UUIDs")
             
-            for junction in doc_junctions:
-                if junction.project_id and junction.project_id in project_map:
-                    # Live project
-                    project = project_map[junction.project_id]
-                    project_badges.append(ProjectBadge(
-                        id=project.id,
-                        name=project.name,
-                        color=project.color,
-                        isExclusive=junction.is_exclusive,
-                        isDeleted=False
-                    ))
-                elif junction.project_name_snapshot:
-                    # Deleted project (snapshot)
-                    project_badges.append(ProjectBadge(
-                        id=None,
-                        name=junction.project_name_snapshot,
-                        color="#6c757d",  # Gray for deleted
-                        isExclusive=junction.is_exclusive,
-                        isDeleted=True
-                    ))
+            if not doc_uuids:
+                return []
+            # Fetch documents by UUIDs, preserving FTS5 order
+            query = select(Document).options(selectinload(Document.tag_objs)).where(
+                and_(
+                    Document.user_id == current_user.id,
+                    Document.is_archived == archived,
+                    Document.uuid.in_(doc_uuids),
+                    not Document.is_exclusive_mode  # Only show linked (non-exclusive) items
+                )
+            )
+            # Apply filters
+            if tag:
+                query = query.join(Document.tag_objs).where(Tag.name == tag)
+            if mime_type:
+                query = query.where(Document.mime_type.like(f"{mime_type}%"))
+            if is_favorite is not None:
+                query = query.where(Document.is_favorite == is_favorite)
+            if project_id is not None:
+                query = query.where(Document.project_id == project_id)
+            elif project_only:
+                query = query.where(Document.project_id.is_not(None))
+            elif unassigned_only:
+                query = query.where(Document.project_id.is_(None))
+            result = await db.execute(query)
+            documents = result.scalars().unique().all()
+            logger.info(f"FTS5 query returned {len(documents)} documents")
             
-            response.append(_convert_doc_to_response(d, project_badges))
+            # Order documents by FTS5 relevance
+            docs_by_uuid = {d.uuid: d for d in documents}
+            ordered_docs = [docs_by_uuid[uuid] for uuid in doc_uuids if uuid in docs_by_uuid]
+            logger.info(f"Final ordered result: {len(ordered_docs)} documents")
+        else:
+            # Fallback to regular query
+            logger.info(f"Using regular query for archived={archived}")
+            query = select(Document).options(selectinload(Document.tag_objs)).where(
+                and_(
+                    Document.user_id == current_user.id,
+                    Document.is_archived == archived,
+                    not Document.is_exclusive_mode  # Only show linked (non-exclusive) items
+                )
+            )
+            # Apply filters
+            if tag:
+                query = query.join(Document.tag_objs).where(Tag.name == tag)
+            if mime_type:
+                query = query.where(Document.mime_type.like(f"{mime_type}%"))
+            if is_favorite is not None:
+                query = query.where(Document.is_favorite == is_favorite)
+            if project_id is not None:
+                query = query.where(Document.project_id == project_id)
+            elif project_only:
+                query = query.where(Document.project_id.is_not(None))
+            elif unassigned_only:
+                query = query.where(Document.project_id.is_(None))
+            query = query.order_by(Document.created_at.desc()).offset(offset).limit(limit)
+            result = await db.execute(query)
+            ordered_docs = result.scalars().unique().all()
+            logger.info(f"Regular query returned {len(ordered_docs)} documents")
+        
+        # Build responses with project badges - batch load to avoid N+1 queries
+        response = []
+        if ordered_docs:
+            # Collect all document IDs
+            doc_ids = [d.id for d in ordered_docs]
+        
+            # Single query to fetch all document-project junctions
+            junction_result = await db.execute(
+                select(document_projects)
+                .where(document_projects.c.document_id.in_(doc_ids))
+            )
+            junctions = junction_result.fetchall()
+        
+            # Collect all project IDs (both live and deleted)
+            project_ids = set()
+            for junction in junctions:
+                if junction.project_id:
+                    project_ids.add(junction.project_id)
+
+            # Single query to fetch all live projects
+            projects = []
+            if project_ids:
+                project_result = await db.execute(
+                    select(Project)
+                    .where(Project.id.in_(project_ids))
+                )
+                projects = project_result.scalars().all()
+
+            # Create project lookup map
+            project_map = {p.id: p for p in projects}
+
+            # Group junctions by document_id
+            junctions_by_doc = {}
+            for junction in junctions:
+                if junction.document_id not in junctions_by_doc:
+                    junctions_by_doc[junction.document_id] = []
+                junctions_by_doc[junction.document_id].append(junction)
+        
+            # Build project badges for each document
+            for d in ordered_docs:
+                doc_junctions = junctions_by_doc.get(d.id, [])
+                project_badges = []
+                
+                for junction in doc_junctions:
+                    if junction.project_id and junction.project_id in project_map:
+                        # Live project
+                        project = project_map[junction.project_id]
+                        project_badges.append(ProjectBadge(
+                            id=project.id,
+                            name=project.name,
+                            color=project.color,
+                            isExclusive=junction.is_exclusive,
+                            isDeleted=False
+                        ))
+                    elif junction.project_name_snapshot:
+                        # Deleted project (snapshot)
+                        project_badges.append(ProjectBadge(
+                            id=None,
+                            name=junction.project_name_snapshot,
+                            color="#6c757d",  # Gray for deleted
+                            isExclusive=junction.is_exclusive,
+                            isDeleted=True
+                        ))
+                
+                response.append(_convert_doc_to_response(d, project_badges))
     
-    logger.info(f"Returning {len(response)} documents in response")
-    return response
+        logger.info(f"Returning {len(response)} documents in response")
+        return response
+    except Exception as e:
+        logger.exception("Error listing documents")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list documents: {str(e)}"
+        )
 
 @router.get("/{document_uuid}", response_model=DocumentResponse)
 async def get_document(
@@ -607,9 +614,9 @@ async def update_document(
     
     return _convert_doc_to_response(doc, project_badges)
 
-@router.post("/{document_id}/archive")
+@router.post("/{document_uuid}/archive")
 async def archive_document(
-    document_id: int,
+    document_uuid: str,
     archive_request: ArchiveDocumentRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)

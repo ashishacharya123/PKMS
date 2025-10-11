@@ -277,7 +277,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       }
       const updatedDocument = await documentsService.updateDocument(existing.uuid, data);
 
-      // Build full summary
+      // Build full summary with proper type safety
       const documentSummary: DocumentSummary = {
         id: updatedDocument.id,
         uuid: updatedDocument.uuid,
@@ -295,7 +295,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
         tags: updatedDocument.tags,
-      } as unknown as DocumentSummary;
+      };
 
       set(state => ({
         documents: state.documents.map(doc => doc.uuid === updatedDocument.uuid ? documentSummary : doc),

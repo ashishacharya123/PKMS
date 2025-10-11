@@ -345,40 +345,48 @@ async def create_note(
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new note with optional project linkage."""
-    note = Note(
-        title=note_data.title,
-        content=note_data.content,
-        is_exclusive_mode=note_data.is_exclusive_mode or False,
-        user_id=current_user.id
-    )
-    db.add(note)
-    await db.flush()
-    
-    # Handle tags
-    if note_data.tags:
-        await _handle_note_tags(db, note, note_data.tags, current_user.id)
-    
-    # Handle projects
-    if note_data.project_ids:
-        await _handle_note_projects(db, note, note_data.project_ids, current_user.id)
-    
-    # Process links in content
-    await _process_note_links(db, note, note_data.content, current_user.id)
-    
-    await db.commit()
-    
-    # Reload note with tags to avoid lazy loading issues in response conversion
-    result = await db.execute(
-        select(Note).options(selectinload(Note.tag_objs)).where(
-            Note.id == note.id
+    try:
+        note = Note(
+            title=note_data.title,
+            content=note_data.content,
+            is_exclusive_mode=note_data.is_exclusive_mode or False,
+            user_id=current_user.id
         )
-    )
-    note_with_tags = result.scalar_one()
-    
-    # Build project badges
-    project_badges = await _build_project_badges(db, note_with_tags.id, note_with_tags.is_exclusive_mode)
-    
-    return _convert_note_to_response(note_with_tags, project_badges)
+        db.add(note)
+        await db.flush()
+        
+        # Handle tags
+        if note_data.tags:
+            await _handle_note_tags(db, note, note_data.tags, current_user.id)
+        
+        # Handle projects
+        if note_data.project_ids:
+            await _handle_note_projects(db, note, note_data.project_ids, current_user.id)
+        
+        # Process links in content
+        await _process_note_links(db, note, note_data.content, current_user.id)
+        
+        await db.commit()
+        
+        # Reload note with tags to avoid lazy loading issues in response conversion
+        result = await db.execute(
+            select(Note).options(selectinload(Note.tag_objs)).where(
+                Note.id == note.id
+            )
+        )
+        note_with_tags = result.scalar_one()
+        
+        # Build project badges
+        project_badges = await _build_project_badges(db, note_with_tags.id, note_with_tags.is_exclusive_mode)
+        
+        return _convert_note_to_response(note_with_tags, project_badges)
+    except Exception as e:
+        await db.rollback()
+        logger.exception("Error creating note")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create note: {str(e)}"
+        )
 
 @router.get("/{note_uuid}", response_model=NoteResponse)
 async def get_note(

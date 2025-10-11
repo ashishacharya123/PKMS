@@ -25,7 +25,7 @@ interface NotesState {
   // Actions
   loadNotes: () => Promise<void>;
   loadMore: () => Promise<void>;
-  loadNote: (id: number) => Promise<void>;
+  loadNote: (uuid: string) => Promise<void>;
   createNote: (data: CreateNoteRequest) => Promise<Note | null>;
   updateNote: (id: string, data: UpdateNoteRequest) => Promise<Note | null>;
   deleteNote: (id: string) => Promise<boolean>;
@@ -116,11 +116,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
   
-  loadNote: async (id: number) => {
+  loadNote: async (uuid: string) => {
     set({ isLoading: true, error: null });
     
     try {
-      const note = await notesService.getNote(id as unknown as string);
+      const note = await notesService.getNote(uuid);
       set({ currentNote: note, isLoading: false });
     } catch (error) {
       set({ 
@@ -176,11 +176,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
   
-  updateNote: async (_uuid: string, data: UpdateNoteRequest) => {
+  updateNote: async (uuid: string, data: UpdateNoteRequest) => {
     set({ isUpdating: true, error: null });
     
     try {
-      const updatedNote = await notesService.updateNote((get().currentNote?.uuid || '') as string, data);
+      const updatedNote = await notesService.updateNote(uuid, data);
       
       // Convert Note to NoteSummary for the list
       const noteSummary: NoteSummary = {
@@ -190,12 +190,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         file_count: updatedNote.file_count,
         is_favorite: updatedNote.is_favorite,
         is_archived: updatedNote.is_archived,
-        isExclusiveMode: (updatedNote as any).isExclusiveMode ?? false,
+        isExclusiveMode: updatedNote.isExclusiveMode ?? false,
         created_at: updatedNote.created_at,
         updated_at: updatedNote.updated_at,
         tags: updatedNote.tags,
-        preview: updatedNote.content.substring(0, 200) + (updatedNote.content.length > 200 ? '...' : ''),
-        projects: (updatedNote as any).projects ?? []
+        preview: updatedNote.content ? updatedNote.content.substring(0, 200) + (updatedNote.content.length > 200 ? '...' : '') : '',
+        projects: updatedNote.projects ?? []
       };
       
       // Update in notes list
@@ -217,11 +217,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
   
-  deleteNote: async (_uuid: string) => {
+  deleteNote: async (uuid: string) => {
     set({ error: null });
     
     try {
-      await notesService.deleteNote((get().currentNote?.uuid || '') as string);
+      await notesService.deleteNote(uuid);
       
       // Remove from notes list
       set(state => ({

@@ -360,7 +360,9 @@ async def create_todo(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    todo = Todo(
+    """Create a new todo with tags and projects."""
+    try:
+        todo = Todo(
         title=todo_data.title,
         description=todo_data.description,
         priority=todo_data.priority,
@@ -372,34 +374,41 @@ async def create_todo(
         project_id=todo_data.project_id,  # Legacy
         user_id=current_user.id,
         is_archived=todo_data.is_archived or False
-    )
-    db.add(todo)
-    await db.flush()
-
-    if todo_data.tags:
-        await _handle_todo_tags(db, todo, todo_data.tags, current_user.id)
-
-    # Handle projects
-    if todo_data.project_ids:
-        await _handle_todo_projects(db, todo, todo_data.project_ids, current_user.id)
-
-    await db.commit()
-
-    # Reload todo with tags and project to avoid lazy loading issues in response conversion
-    result = await db.execute(
-        select(Todo).options(
-            selectinload(Todo.tag_objs),
-            selectinload(Todo.project)
-        ).where(
-            Todo.id == todo.id
         )
-    )
-    todo_with_tags = result.scalar_one()
-    
-    # Build project badges
-    project_badges = await _build_todo_project_badges(db, todo_with_tags.id, todo_with_tags.is_exclusive_mode)
-    
-    return _convert_todo_to_response(todo_with_tags, project_badges)
+        db.add(todo)
+        await db.flush()
+
+        if todo_data.tags:
+            await _handle_todo_tags(db, todo, todo_data.tags, current_user.id)
+
+        # Handle projects
+        if todo_data.project_ids:
+            await _handle_todo_projects(db, todo, todo_data.project_ids, current_user.id)
+
+        await db.commit()
+
+        # Reload todo with tags and project to avoid lazy loading issues in response conversion
+        result = await db.execute(
+            select(Todo).options(
+                selectinload(Todo.tag_objs),
+                selectinload(Todo.project)
+            ).where(
+                Todo.id == todo.id
+            )
+        )
+        todo_with_tags = result.scalar_one()
+        
+        # Build project badges
+        project_badges = await _build_todo_project_badges(db, todo_with_tags.id, todo_with_tags.is_exclusive_mode)
+        
+        return _convert_todo_to_response(todo_with_tags, project_badges)
+    except Exception as e:
+        await db.rollback()
+        logger.exception("Error creating todo")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create todo: {str(e)}"
+        )
 
 
 @router.get("/", response_model=List[TodoResponse])
@@ -830,16 +839,16 @@ async def update_todo_status(
     return _convert_todo_to_response(todo_with_tags, project_badges)
 
 
-@router.patch("/{todo_id}/reorder", response_model=TodoResponse)
+@router.patch("/{todo_uuid}/reorder", response_model=TodoResponse)
 async def reorder_todo(
-    todo_id: int,
+    todo_uuid: str,
     order_index: int,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Update todo order index for Kanban board positioning."""
     result = await db.execute(
-        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_id == current_user.id))
     )
     todo = result.scalar_one_or_none()
     if not todo:

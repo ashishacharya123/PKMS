@@ -16,6 +16,12 @@ node_modules/
 # Logs
 *.log
 
+# Temporary files
+temp_*.txt
+test-*.txt
+frontend.log
+*.tmp
+
 # OS files
 .DS_Store
 Thumbs.db 
