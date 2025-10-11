@@ -134,9 +134,8 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   const [schemaDrawerOpen, setSchemaDrawerOpen] = useState(false);
   const [allTablesData, setAllTablesData] = useState<any>(null);
   const [allTablesModalOpen, setAllTablesModalOpen] = useState(false);
-  const [allTablesExpanded, setAllTablesExpanded] = useState<boolean>(false);
   
-  // FTS5 tables state
+  // FTS5 tables state (commented out - not currently used)
   // const [ftsTablesData, setFtsTablesData] = useState<any>(null);
   // const [selectedFtsTable, setSelectedFtsTable] = useState<string>('');
   // const [ftsModalOpen, setFtsModalOpen] = useState(false);
@@ -617,7 +616,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
     setRowLimit(5);
     setSchemaDrawerOpen(false);
     setAllTablesModalOpen(false);
-    setAllTablesExpanded(false);
+    // setAllTablesExpanded(false); // State removed
     
     // Show clear confirmation
     notifications.show({
@@ -662,23 +661,24 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   //   }
   // };
 
-  const loadFtsTableSample = async (tableName: string) => {
-    try {
-      setIsLoading(true);
-      const data = await testingService.loadFtsTableSample(tableName, rowLimit);
-      setFtsTableSamples(data);
-      setSelectedFtsTable(tableName);
-    } catch (error) {
-      console.error('Failed to load FTS table sample:', error);
-      notifications.show({
-        title: 'Error',
-        message: `Failed to load sample data for ${tableName}`,
-        color: 'red'
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Commented out - FTS table state setters are not defined
+  // const loadFtsTableSample = async (tableName: string) => {
+  //   try {
+  //     setIsLoading(true);
+  //     const data = await testingService.loadFtsTableSample(tableName, rowLimit);
+  //     setFtsTableSamples(data);
+  //     setSelectedFtsTable(tableName);
+  //   } catch (error) {
+  //     console.error('Failed to load FTS table sample:', error);
+  //     notifications.show({
+  //       title: 'Error',
+  //       message: `Failed to load sample data for ${tableName}`,
+  //       color: 'red'
+  //     });
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // };
 
   const loadPerformanceMetrics = async () => {
     setIsLoading(true);
@@ -793,7 +793,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   };
 
   // Individual CRUD operations
-  const runIndividualCrudOperation = async (operation: string, type: string, params: any = {}) => {
+  const runIndividualCrudOperation = async (operation: string, _type: string, params: any = {}) => {
     setIsLoading(true);
     try {
       let result;
@@ -815,7 +815,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
           throw new Error(`Unknown operation: ${operation}`);
       }
 
-      setIndividualCrudResults(prev => ({
+      setIndividualCrudResults((prev: any) => ({
         ...prev,
         [operation]: result
       }));
@@ -1160,13 +1160,13 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
             <Group justify="space-between">
               <Title order={5}>Database Overview</Title>
               <Badge color="blue" size="lg">
-                {testingService.formatBytes(databaseStats.database_size_bytes)}
+                {testingService.formatBytes((databaseStats as any).database_size_bytes || 0)}
               </Badge>
             </Group>
             
             <SimpleGrid cols={3} spacing="md">
               <Paper withBorder p="md" ta="center">
-                <Text size="xl" fw={700} color="blue">{databaseStats.user_id}</Text>
+                <Text size="xl" fw={700} color="blue">{(databaseStats as any).user_id || 'N/A'}</Text>
                 <Text size="sm" c="dimmed">User ID</Text>
               </Paper>
               <Paper withBorder p="md" ta="center">
@@ -1330,7 +1330,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
                                 </Table.Tr>
                               </Table.Thead>
                               <Table.Tbody>
-                                {schema.columns.map((col) => (
+                                {schema.columns.map((col: any) => (
                                   <Table.Tr key={col.name}>
                                     <Table.Td>
                                       <Group gap="xs">
@@ -1418,7 +1418,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
             </SimpleGrid>
             
             <Accordion>
-              {Object.entries(allTablesData.by_category).map(([category, tables]) => (
+              {Object.entries(allTablesData.by_category).map(([category, tables]: [string, any]) => (
                 <Accordion.Item key={category} value={category}>
                   <Accordion.Control>
                     <Group justify="space-between">
@@ -1428,8 +1428,8 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
                   </Accordion.Control>
                   <Accordion.Panel>
                     <SimpleGrid cols={2} spacing="xs">
-                      {tables.map((tableName) => {
-                        const tableInfo = allTablesData.tables.find(t => t.name === tableName);
+                      {tables.map((tableName: string) => {
+                        const tableInfo = allTablesData.tables.find((t: any) => t.name === tableName);
                         return (
                           <Group key={tableName} justify="space-between" p="xs">
                             <Text size="sm" ff="monospace">{tableName}</Text>

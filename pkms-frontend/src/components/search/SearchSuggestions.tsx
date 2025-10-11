@@ -45,16 +45,27 @@ export default function SearchSuggestions(props: SearchSuggestionsProps) {
   }, [value, modules]);
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!suggestions.length) return;
-
-    if (event.key === 'ArrowDown') {
+    // Handle arrow navigation only when suggestions exist
+    if (suggestions.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setHighlightedIndex((prev) => (prev + 1) % suggestions.length);
+        return;
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setHighlightedIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+        return;
+      }
+    }
+    
+    // Handle Enter key for search
+    if (event.key === 'Enter') {
       event.preventDefault();
-      setHighlightedIndex((prev) => (prev + 1) % suggestions.length);
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setHighlightedIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
+      
+      // Require minimum 3 characters before searching
+      if (value.trim().length < 3) {
+        return;
+      }
       
       // If a suggestion is highlighted, use it
       if (highlightedIndex >= 0 && suggestions[highlightedIndex]) {

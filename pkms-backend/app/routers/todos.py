@@ -269,6 +269,7 @@ def _convert_todo_to_response(todo: Todo, project_badges: Optional[List[ProjectB
     badges = project_badges or []
     return TodoResponse(
         id=todo.id,
+        uuid=getattr(todo, 'uuid', None),
         title=todo.title,
         description=todo.description,
         status=todo.status,
@@ -428,7 +429,8 @@ async def list_todos(
     ).where(
         and_(
             Todo.user_id == current_user.id,
-            Todo.is_exclusive_mode == False  # Only show linked (non-exclusive) items
+            Todo.is_exclusive_mode == False,  # Only show linked (non-exclusive) items
+            Todo.parent_id.is_(None)  # Never list subtasks standalone
         )
     )
 
@@ -449,10 +451,8 @@ async def list_todos(
     if tag:
         query = query.join(Todo.tag_objs).where(Tag.name == tag)
     
-    # Only get top-level todos (no parent_id) when including subtasks
+    # Only get top-level todos; when include_subtasks, we will populate children below
     if include_subtasks:
-        query = query.where(Todo.parent_id.is_(None))
-        
     # Order by order_index first (for Kanban), then priority, then creation date
     result = await db.execute(query.order_by(Todo.order_index, Todo.priority.desc(), Todo.created_at.desc()))
     todos = result.scalars().unique().all()
@@ -531,14 +531,14 @@ async def list_projects(
     
     return projects_with_counts
 
-@router.get("/projects/{project_id}", response_model=ProjectResponse)
+@router.get("/projects/{project_uuid}", response_model=ProjectResponse)
 async def get_project(
-    project_id: int,
+    project_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
-        select(Project).where(and_(Project.id == project_id, Project.user_id == current_user.id))
+        select(Project).where(and_(Project.uuid == project_uuid, Project.user_id == current_user.id))
     )
     project = result.scalar_one_or_none()
     if not project:
@@ -547,15 +547,15 @@ async def get_project(
     todo_count, completed_count = await _get_project_counts(db, project.id)
     return _convert_project_to_response(project, todo_count, completed_count)
 
-@router.put("/projects/{project_id}", response_model=ProjectResponse)
+@router.put("/projects/{project_uuid}", response_model=ProjectResponse)
 async def update_project(
-    project_id: int,
+    project_uuid: str,
     project_data: ProjectCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
-        select(Project).where(and_(Project.id == project_id, Project.user_id == current_user.id))
+        select(Project).where(and_(Project.uuid == project_uuid, Project.user_id == current_user.id))
     )
     project = result.scalar_one_or_none()
     if not project:
@@ -574,9 +574,9 @@ async def update_project(
     todo_count, completed_count = await _get_project_counts(db, project.id)
     return _convert_project_to_response(project, todo_count, completed_count)
 
-@router.delete("/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/projects/{project_uuid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
-    project_id: int,
+    project_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -592,7 +592,7 @@ async def delete_project(
     from sqlalchemy import update, delete as sql_delete
     
     result = await db.execute(
-        select(Project).where(and_(Project.id == project_id, Project.user_id == current_user.id))
+        select(Project).where(and_(Project.uuid == project_uuid, Project.user_id == current_user.id))
     )
     project = result.scalar_one_or_none()
     if not project:
@@ -602,19 +602,19 @@ async def delete_project(
     # This preserves the project name for linked (non-exclusive) items
     await db.execute(
         update(note_projects)
-        .where(note_projects.c.project_id == project_id)
+        .where(note_projects.c.project_id == project.id)
         .values(project_name_snapshot=project.name)
     )
     
     await db.execute(
         update(document_projects)
-        .where(document_projects.c.project_id == project_id)
+        .where(document_projects.c.project_id == project.id)
         .values(project_name_snapshot=project.name)
     )
     
     await db.execute(
         update(todo_projects)
-        .where(todo_projects.c.project_id == project_id)
+        .where(todo_projects.c.project_id == project.id)
         .values(project_name_snapshot=project.name)
     )
     
@@ -624,7 +624,7 @@ async def delete_project(
         select(Note.id)
         .join(note_projects, Note.id == note_projects.c.note_id)
         .where(
-            note_projects.c.project_id == project_id,
+            note_projects.c.project_id == project.id,
             Note.is_exclusive_mode == True
         )
     )
@@ -636,7 +636,7 @@ async def delete_project(
         select(Document.id)
         .join(document_projects, Document.id == document_projects.c.document_id)
         .where(
-            document_projects.c.project_id == project_id,
+            document_projects.c.project_id == project.id,
             Document.is_exclusive_mode == True
         )
     )
@@ -648,7 +648,7 @@ async def delete_project(
         select(Todo.id)
         .join(todo_projects, Todo.id == todo_projects.c.todo_id)
         .where(
-            todo_projects.c.project_id == project_id,
+            todo_projects.c.project_id == project.id,
             Todo.is_exclusive_mode == True
         )
     )
@@ -660,9 +660,9 @@ async def delete_project(
     await db.delete(project)
     await db.commit()
 
-@router.get("/{todo_id}", response_model=TodoResponse)
+@router.get("/{todo_uuid}", response_model=TodoResponse)
 async def get_todo(
-    todo_id: int,
+    todo_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -670,7 +670,7 @@ async def get_todo(
         select(Todo).options(
             selectinload(Todo.tag_objs),
             selectinload(Todo.project)
-        ).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+        ).where(and_(Todo.uuid == todo_uuid, Todo.user_id == current_user.id))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -681,15 +681,15 @@ async def get_todo(
     
     return _convert_todo_to_response(todo, project_badges)
 
-@router.put("/{todo_id}", response_model=TodoResponse)
+@router.put("/{todo_uuid}", response_model=TodoResponse)
 async def update_todo(
-    todo_id: int,
+    todo_uuid: str,
     todo_data: TodoUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
-        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_id == current_user.id))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -743,9 +743,9 @@ async def update_todo(
     
     return _convert_todo_to_response(todo_with_tags, project_badges)
 
-@router.patch("/{todo_id}/archive", response_model=TodoResponse)
+@router.patch("/{todo_uuid}/archive", response_model=TodoResponse)
 async def archive_todo(
-    todo_id: int,
+    todo_uuid: str,
     archive: bool = True,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -754,7 +754,7 @@ async def archive_todo(
         select(Todo).options(
             selectinload(Todo.tag_objs),
             selectinload(Todo.project)
-        ).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+        ).where(and_(Todo.uuid == todo_uuid, Todo.user_id == current_user.id))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -762,16 +762,20 @@ async def archive_todo(
     todo.is_archived = archive
     await db.commit()
     await db.refresh(todo)
-    return _convert_todo_to_response(todo)
+    
+    # Build project badges
+    project_badges = await _build_todo_project_badges(db, todo.id, todo.is_exclusive_mode)
+    
+    return _convert_todo_to_response(todo, project_badges)
 
-@router.delete("/{todo_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{todo_uuid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_todo(
-    todo_id: int,
+    todo_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
-        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_id == current_user.id))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -779,16 +783,16 @@ async def delete_todo(
     await db.delete(todo)
     await db.commit()
 
-@router.patch("/{todo_id}/status", response_model=TodoResponse)
+@router.patch("/{todo_uuid}/status", response_model=TodoResponse)
 async def update_todo_status(
-    todo_id: int,
+    todo_uuid: str,
     status: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Update todo status and sync is_completed field."""
     result = await db.execute(
-        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_id == current_user.id))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -821,7 +825,10 @@ async def update_todo_status(
     )
     todo_with_tags = result.scalar_one()
     
-    return _convert_todo_to_response(todo_with_tags)
+    # Build project badges
+    project_badges = await _build_todo_project_badges(db, todo_with_tags.id, todo_with_tags.is_exclusive_mode)
+    
+    return _convert_todo_to_response(todo_with_tags, project_badges)
 
 
 @router.patch("/{todo_id}/reorder", response_model=TodoResponse)
@@ -852,7 +859,10 @@ async def reorder_todo(
     )
     todo_with_tags = result.scalar_one()
     
-    return _convert_todo_to_response(todo_with_tags)
+    # Build project badges
+    project_badges = await _build_todo_project_badges(db, todo_with_tags.id, todo_with_tags.is_exclusive_mode)
+    
+    return _convert_todo_to_response(todo_with_tags, project_badges)
 
 
 @router.post("/{todo_id}/complete", response_model=TodoResponse)
@@ -868,9 +878,9 @@ async def complete_todo(
 
 # --- Subtask Management Endpoints ---
 
-@router.post("/{todo_id}/subtasks", response_model=TodoResponse)
+@router.post("/{todo_uuid}/subtasks", response_model=TodoResponse)
 async def create_subtask(
-    todo_id: int,
+    todo_uuid: str,
     subtask_data: TodoCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -878,7 +888,7 @@ async def create_subtask(
     """Create a subtask for the specified todo."""
     # Verify parent todo exists and belongs to user
     parent_result = await db.execute(
-        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_id == current_user.id))
     )
     parent_todo = parent_result.scalar_one_or_none()
     if not parent_todo:
@@ -893,7 +903,7 @@ async def create_subtask(
         order_index=subtask_data.order_index or 0,
         start_date=subtask_data.start_date,
         due_date=subtask_data.due_date,
-        parent_id=todo_id,
+        parent_id=parent_todo.id,
         project_id=parent_todo.project_id,  # Inherit project from parent
         user_id=current_user.id
     )
@@ -911,19 +921,22 @@ async def create_subtask(
     )
     subtask_with_tags = result.scalar_one()
     
-    return _convert_todo_to_response(subtask_with_tags)
+    # Build project badges
+    project_badges = await _build_todo_project_badges(db, subtask_with_tags.id, subtask_with_tags.is_exclusive_mode)
+    
+    return _convert_todo_to_response(subtask_with_tags, project_badges)
 
 
-@router.get("/{todo_id}/subtasks", response_model=List[TodoResponse])
+@router.get("/{todo_uuid}/subtasks", response_model=List[TodoResponse])
 async def get_subtasks(
-    todo_id: int,
+    todo_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get all subtasks for the specified todo."""
     # Verify parent todo exists and belongs to user
     parent_result = await db.execute(
-        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_id == current_user.id))
     )
     parent_todo = parent_result.scalar_one_or_none()
     if not parent_todo:
@@ -935,48 +948,54 @@ async def get_subtasks(
             selectinload(Todo.tag_objs),
             selectinload(Todo.project)
         ).where(and_(
-            Todo.parent_id == todo_id,
+            Todo.parent_id == parent_todo.id,
             Todo.user_id == current_user.id
         )).order_by(Todo.order_index)
     )
     subtasks = result.scalars().all()
     
-    return [_convert_todo_to_response(subtask) for subtask in subtasks]
+    # Build project badges for each subtask
+    responses = []
+    for subtask in subtasks:
+        project_badges = await _build_todo_project_badges(db, subtask.id, subtask.is_exclusive_mode)
+        responses.append(_convert_todo_to_response(subtask, project_badges))
+    
+    return responses
 
 
-@router.patch("/{todo_id}/move", response_model=TodoResponse)
+@router.patch("/{todo_uuid}/move", response_model=TodoResponse)
 async def move_subtask(
-    todo_id: int,
-    parent_id: Optional[int] = None,
+    todo_uuid: str,
+    parent_uuid: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Move a subtask to a different parent or make it a top-level todo."""
     # Verify todo exists and belongs to user
     result = await db.execute(
-        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_id == current_user.id))
     )
     todo = result.scalar_one_or_none()
     if not todo:
         raise HTTPException(status_code=404, detail="Todo not found")
     
     # If moving to a new parent, verify it exists and belongs to user
-    if parent_id is not None:
+    if parent_uuid is not None:
         parent_result = await db.execute(
-            select(Todo).where(and_(Todo.id == parent_id, Todo.user_id == current_user.id))
+            select(Todo).where(and_(Todo.uuid == parent_uuid, Todo.user_id == current_user.id))
         )
         parent_todo = parent_result.scalar_one_or_none()
         if not parent_todo:
             raise HTTPException(status_code=404, detail="New parent todo not found")
         
         # Prevent circular references
-        if parent_id == todo_id:
+        if parent_todo.id == todo.id:
             raise HTTPException(status_code=400, detail="Cannot make todo a subtask of itself")
         
         # Check if new parent is not a subtask of this todo
-        current_parent = parent_id
+        current_parent = parent_todo.id
         while current_parent:
-            if current_parent == todo_id:
+            if current_parent == todo.id:
                 raise HTTPException(status_code=400, detail="Cannot create circular reference")
             parent_check = await db.execute(
                 select(Todo.parent_id).where(Todo.id == current_parent)
@@ -984,11 +1003,10 @@ async def move_subtask(
             current_parent = parent_check.scalar_one_or_none()
     
     # Update parent_id
-    todo.parent_id = parent_id
+    todo.parent_id = parent_todo.id if parent_uuid is not None else None
     
     # If moving to a new parent, inherit project
-    if parent_id is not None:
-        parent_todo = await db.get(Todo, parent_id)
+    if parent_uuid is not None:
         todo.project_id = parent_todo.project_id
     
     await db.commit()
@@ -1003,31 +1021,34 @@ async def move_subtask(
     )
     todo_with_tags = result.scalar_one()
     
-    return _convert_todo_to_response(todo_with_tags)
+    # Build project badges
+    project_badges = await _build_todo_project_badges(db, todo_with_tags.id, todo_with_tags.is_exclusive_mode)
+    
+    return _convert_todo_to_response(todo_with_tags, project_badges)
 
 
-@router.patch("/{todo_id}/subtasks/reorder")
+@router.patch("/{todo_uuid}/subtasks/reorder")
 async def reorder_subtasks(
-    todo_id: int,
-    subtask_ids: List[int],
+    todo_uuid: str,
+    subtask_uuids: List[str],
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Reorder subtasks for the specified todo."""
     # Verify parent todo exists and belongs to user
     parent_result = await db.execute(
-        select(Todo).where(and_(Todo.id == todo_id, Todo.user_id == current_user.id))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_id == current_user.id))
     )
     parent_todo = parent_result.scalar_one_or_none()
     if not parent_todo:
         raise HTTPException(status_code=404, detail="Parent todo not found")
     
     # Update order_index for each subtask
-    for index, subtask_id in enumerate(subtask_ids):
+    for index, subtask_uuid in enumerate(subtask_uuids):
         subtask_result = await db.execute(
             select(Todo).where(and_(
-                Todo.id == subtask_id,
-                Todo.parent_id == todo_id,
+                Todo.uuid == subtask_uuid,
+                Todo.parent_id == parent_todo.id,
                 Todo.user_id == current_user.id
             ))
         )

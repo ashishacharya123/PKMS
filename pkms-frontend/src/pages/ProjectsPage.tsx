@@ -115,7 +115,7 @@ export function ProjectsPage() {
     if (!selectedProject || !formData.name.trim()) return;
 
     try {
-      await todosService.updateProject(selectedProject.id, {
+      await todosService.updateProject(selectedProject.uuid!, {
         name: formData.name.trim(),
         description: formData.description.trim(),
         color: formData.color
@@ -146,7 +146,7 @@ export function ProjectsPage() {
     }
 
     try {
-      await todosService.deleteProject(project.id);
+      await todosService.deleteProject(project.uuid!);
       notifications.show({
         title: 'Success',
         message: 'Project deleted successfully',
@@ -164,7 +164,7 @@ export function ProjectsPage() {
 
   const handleArchiveToggle = async (project: Project) => {
     try {
-      await todosService.updateProject(project.id, {
+      await todosService.updateProject(project.uuid!, {
         ...project,
         is_archived: !project.is_archived
       });

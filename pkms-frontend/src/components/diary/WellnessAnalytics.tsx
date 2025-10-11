@@ -160,7 +160,8 @@ export function WellnessAnalytics() {
 
   const renderChart = () => {
     switch (selectedChart) {
-      case 'mood-trend':
+      case 'mood-trend': {
+        if (!wellnessData) return <Text c="dimmed">No data available</Text>;
         return (
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={wellnessData.moodTrend}>
@@ -191,8 +192,10 @@ export function WellnessAnalytics() {
             </LineChart>
           </ResponsiveContainer>
         );
+      }
 
-      case 'sleep-analysis':
+      case 'sleep-analysis': {
+        if (!wellnessData) return <Text c="dimmed">No data available</Text>;
         return (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={wellnessData.sleepTrend}>
@@ -216,8 +219,10 @@ export function WellnessAnalytics() {
             </BarChart>
           </ResponsiveContainer>
         );
+      }
 
-      case 'exercise-frequency':
+      case 'exercise-frequency': {
+        if (!wellnessData) return <Text c="dimmed">No data available</Text>;
         return (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={wellnessData.exerciseTrend}>
@@ -237,8 +242,10 @@ export function WellnessAnalytics() {
             </BarChart>
           </ResponsiveContainer>
         );
+      }
 
-      case 'screen-time':
+      case 'screen-time': {
+        if (!wellnessData) return <Text c="dimmed">No data available</Text>;
         return (
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={wellnessData.screenTimeTrend}>
@@ -265,8 +272,10 @@ export function WellnessAnalytics() {
             </LineChart>
           </ResponsiveContainer>
         );
+      }
 
-      case 'energy-stress':
+      case 'energy-stress': {
+        if (!wellnessData) return <Text c="dimmed">No data available</Text>;
         return (
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={wellnessData.energyTrend.map((e, idx) => ({
@@ -302,8 +311,10 @@ export function WellnessAnalytics() {
             </LineChart>
           </ResponsiveContainer>
         );
+      }
 
-      case 'hydration':
+      case 'hydration': {
+        if (!wellnessData) return <Text c="dimmed">No data available</Text>;
         return (
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={wellnessData.hydrationTrend}>
@@ -327,8 +338,10 @@ export function WellnessAnalytics() {
             </BarChart>
           </ResponsiveContainer>
         );
+      }
 
       case 'mood-sleep-correlation': {
+        if (!wellnessData) return <Text c="dimmed">No data available</Text>;
         const validPoints = wellnessData.moodSleepCorrelation.filter(p => p.mood !== null && p.sleep !== null);
         return (
           <ResponsiveContainer width="100%" height={300}>
@@ -366,6 +379,7 @@ export function WellnessAnalytics() {
       }
 
       case 'wellness-score': {
+        if (!wellnessData) return <Text c="dimmed">No data available</Text>;
         const radarData = Object.entries(wellnessData.wellnessComponents).map(([key, value]) => ({
           metric: key.replace(/([A-Z])/g, ' $1').trim(),
           score: value,

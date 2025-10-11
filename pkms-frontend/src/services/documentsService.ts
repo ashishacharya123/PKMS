@@ -134,16 +134,16 @@ class DocumentsService {
   /**
    * Get a specific document by ID
    */
-  async getDocument(id: number): Promise<Document> {
-    const response = await apiService.get<Document>(`/documents/${id}`);
+  async getDocument(uuid: string): Promise<Document> {
+    const response = await apiService.get<Document>(`/documents/${uuid}`);
     return response.data;
   }
 
   /**
    * Update document metadata and tags
    */
-  async updateDocument(id: number, data: UpdateDocumentRequest): Promise<Document> {
-    const response = await apiService.put<Document>(`/documents/${id}`, data);
+  async updateDocument(uuid: string, data: UpdateDocumentRequest): Promise<Document> {
+    const response = await apiService.put<Document>(`/documents/${uuid}`, data);
     // Invalidate search cache for documents
     // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return response.data;
@@ -152,8 +152,8 @@ class DocumentsService {
   /**
    * Delete a document
    */
-  async deleteDocument(id: number): Promise<{ message: string }> {
-    const response = await apiService.delete<{ message: string }>(`/documents/${id}`);
+  async deleteDocument(uuid: string): Promise<{ message: string }> {
+    const response = await apiService.delete<{ message: string }>(`/documents/${uuid}`);
     // Invalidate search cache for documents
     // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return response.data;
@@ -181,24 +181,24 @@ class DocumentsService {
   /**
    * Download a document file
    */
-  getDownloadUrl(id: number): string {
-    return `${apiService.getAxiosInstance().defaults.baseURL}/documents/${id}/download`;
+  getDownloadUrl(uuid: string): string {
+    return `${apiService.getAxiosInstance().defaults.baseURL}/documents/${uuid}/download`;
   }
 
   /**
    * Download document with authentication
    */
-  async downloadDocument(id: number, onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
-    const url = `/documents/${id}/download`;
-    return coreDownloadService.downloadFile(url, { fileId: id.toString(), onProgress });
+  async downloadDocument(uuid: string, onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
+    const url = `/documents/${uuid}/download`;
+    return coreDownloadService.downloadFile(url, { fileId: uuid, onProgress });
   }
 
   /**
    * Get document preview (thumbnail or text preview)
    */
-  async getDocumentPreview(id: number): Promise<any> {
+  async getDocumentPreview(uuid: string): Promise<any> {
     try {
-      return await apiService.get(`/documents/${id}/preview`);
+      return await apiService.get(`/documents/${uuid}/preview`);
     } catch (error) {
       return null;
     }
@@ -207,8 +207,8 @@ class DocumentsService {
   /**
    * Get preview URL for images
    */
-  getPreviewUrl(id: number): string {
-    return `${apiService.getAxiosInstance().defaults.baseURL}/documents/${id}/preview`;
+  getPreviewUrl(uuid: string): string {
+    return `${apiService.getAxiosInstance().defaults.baseURL}/documents/${uuid}/preview`;
   }
 
   /**
@@ -247,8 +247,8 @@ class DocumentsService {
   /**
    * Archive/unarchive a document
    */
-  async toggleArchive(id: number, archived: boolean): Promise<Document> {
-    return await this.updateDocument(id, { is_archived: archived });
+  async toggleArchive(uuid: string, archived: boolean): Promise<Document> {
+    return await this.updateDocument(uuid, { is_archived: archived });
   }
 
   /**

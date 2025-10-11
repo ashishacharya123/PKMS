@@ -85,7 +85,7 @@ const RecoveryModal: React.FC<RecoveryModalProps> = ({
     
     try {
       // Call backend to get user's security questions
-      const response = await authService.getRecoveryQuestions(effectiveUsername);
+      const response = await authService.getRecoveryQuestions();
       if (response.questions && response.questions.length > 0) {
         const questions = response.questions.map((question: string, index: number) => ({
           question,
@@ -154,6 +154,7 @@ const RecoveryModal: React.FC<RecoveryModalProps> = ({
           message: 'Please provide a valid username (at least 3 characters)',
           color: 'red',
         });
+        setLoading(false);
         return;
       }
 

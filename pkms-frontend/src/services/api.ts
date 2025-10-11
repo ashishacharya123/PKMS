@@ -12,7 +12,7 @@ interface ApiResponse<T> {
 class ApiService {
   private instance: AxiosInstance;
   private tokenExpiryWarningShown: boolean = false;
-  private tokenRefreshPromise: Promise<string | null> | null = null;
+  private tokenRefreshPromise: Promise<void> | null = null;
 
   constructor() {
     this.instance = axios.create({

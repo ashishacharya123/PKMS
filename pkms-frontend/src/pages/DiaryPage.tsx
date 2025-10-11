@@ -188,8 +188,8 @@ export function DiaryPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [photoStatus, setPhotoStatus] = useState<string>('');
-  const [isDailyMetadataLoading, setIsDailyMetadataLoading] = useState(false);
-  const [hasMissingSnapshot, setHasMissingSnapshot] = useState(false);
+  // const [isDailyMetadataLoading, setIsDailyMetadataLoading] = useState(false); // Unused
+  // const [hasMissingSnapshot, setHasMissingSnapshot] = useState(false); // Unused
   const [wellnessHasMissing, setWellnessHasMissing] = useState(true);
   const [wellnessIsLoading, setWellnessIsLoading] = useState(false);
 
@@ -442,18 +442,14 @@ export function DiaryPage() {
       const key = format(targetDate, 'yyyy-MM-dd');
       const cached = store.dailyMetadataCache[key];
       if (cached) {
-        setHasMissingSnapshot(false);
         return cached;
       }
       try {
-        setIsDailyMetadataLoading(true);
         const snapshot = await diaryService.getDailyMetadata(key);
         store.setDailyMetadata(snapshot);
-        setHasMissingSnapshot(false);
         return snapshot;
       } catch (error: any) {
         if (error?.response?.status === 404) {
-          setHasMissingSnapshot(true);
           return null;
         }
         console.error('Failed to load daily metadata', error);
@@ -462,37 +458,35 @@ export function DiaryPage() {
           message: 'Could not load daily wellness data.',
           color: 'red',
         });
-        setHasMissingSnapshot(true);
         return null;
-      } finally {
-        setIsDailyMetadataLoading(false);
       }
     },
     [store],
   );
 
-  const preloadDailyMetadata = useCallback(
-    async (targetDate: Date) => {
-      const snapshot = await ensureDailyMetadata(targetDate);
-      if (snapshot) {
-        form.setValues((prev) => ({
-          ...prev,
-          daily_metrics: {
-            ...initialDailyMetrics,
-            ...snapshot.metrics,
-          },
-          nepali_date: snapshot.nepali_date,
-        }));
-        // Note: weather_code and location are entry-specific, NOT from daily snapshot
-        // They should be set from the entry being edited or left as defaults for new entries
-      } else {
-        form.setFieldValue('daily_metrics', initialDailyMetrics);
-        form.setFieldValue('nepali_date', convertToNepaliDate(targetDate));
-        setHasMissingSnapshot(true);
-      }
-    },
-    [ensureDailyMetadata, form],
-  );
+  // Commented out - unused function
+  // const preloadDailyMetadata = useCallback(
+  //   async (targetDate: Date) => {
+  //     const snapshot = await ensureDailyMetadata(targetDate);
+  //     if (snapshot) {
+  //       form.setValues((prev) => ({
+  //         ...prev,
+  //         daily_metrics: {
+  //           ...initialDailyMetrics,
+  //           ...snapshot.metrics,
+  //         },
+  //         nepali_date: snapshot.nepali_date,
+  //       }));
+  //       // Note: weather_code and location are entry-specific, NOT from daily snapshot
+  //       // They should be set from the entry being edited or left as defaults for new entries
+  //     } else {
+  //       form.setFieldValue('daily_metrics', initialDailyMetrics);
+  //       form.setFieldValue('nepali_date', convertToNepaliDate(targetDate));
+  //       setHasMissingSnapshot(true);
+  //     }
+  //   },
+  //   [ensureDailyMetadata, form],
+  // );
 
   const handleCreateOrUpdateEntry = async (values: DiaryFormValues) => {
     if (!store.encryptionKey) {
@@ -768,6 +762,12 @@ export function DiaryPage() {
 
     return () => {
       // This runs when component unmounts (user navigates away from diary page)
+      // Cancel any pending timer first (in case of re-entry)
+      if (lockTimer !== null) {
+        clearTimeout(lockTimer);
+      }
+      
+      // Schedule lock timer if diary is currently unlocked
       if (store.isUnlocked) {
         console.log('[DIARY PAGE] User left diary page, will lock after 5 minutes of inactivity...');
         
@@ -775,13 +775,10 @@ export function DiaryPage() {
         lockTimer = setTimeout(() => {
           console.log('[DIARY PAGE] 5 minutes elapsed, locking diary session...');
           store.lockSession();
-        }, 5 * 60 * 1000); // 5 minutes
+        }, 5 * 60 * 1000) as unknown as number; // 5 minutes
       }
     };
-
-    // Note: If user returns to diary page within 5 minutes, this component
-    // remounts and the timer is cleared (never executed)
-  }, []); // Empty deps - only run on mount/unmount
+  }, [store.isUnlocked]); // Re-run when lock status changes
 
   // For weather/location
   // Removed unused loadSnapshotToForm function - it called non-existent store.loadDailySnapshot

@@ -16,8 +16,8 @@ class DiaryEntry(Base):
     
     __tablename__ = "diary_entries"
     
-    id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    id = Column(Integer, primary_key=True, index=True)  # Legacy counter (keeps counting lifetime entries)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)  # API identifier
     title = Column(String(255), nullable=False, index=True)
     date = Column(DateTime(timezone=True), nullable=False, index=True)  # Date for the diary entry
     mood = Column(SmallInteger, nullable=True, index=True)  # 1-5 scale
@@ -52,7 +52,7 @@ class DiaryEntry(Base):
 
     def __repr__(self):
         return (
-            f"<DiaryEntry(id={self.id}, title='{self.title}', date={self.date}, "
+            f"<DiaryEntry(id={self.id}, uuid={self.uuid}, title='{self.title}', date={self.date}, "
             f"mood={self.mood}, weather_code={self.weather_code})>"
         )
 
@@ -86,8 +86,8 @@ class DiaryMedia(Base):
     
     __tablename__ = "diary_media"
     
-    id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    id = Column(Integer, primary_key=True, index=True)  # Legacy counter (keeps counting lifetime entries)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)  # API identifier
     diary_entry_uuid = Column(String(36), ForeignKey("diary_entries.uuid", ondelete="CASCADE"), nullable=False, index=True)
     filename = Column(String(255), nullable=False)
     original_name = Column(String(255), nullable=False)
@@ -107,5 +107,5 @@ class DiaryMedia(Base):
     user = relationship("User", back_populates="diary_media")
     
     def __repr__(self):
-        return f"<DiaryMedia(id={self.id}, filename='{self.filename}', media_type='{self.media_type}')>"
+        return f"<DiaryMedia(id={self.id}, uuid={self.uuid}, filename='{self.filename}', media_type='{self.media_type}')>"
 

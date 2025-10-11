@@ -64,6 +64,7 @@ class TodoUpdate(CamelCaseModel):
 
 class TodoResponse(CamelCaseModel):
     id: int
+    uuid: Optional[str] = None
     title: str
     description: Optional[str]
     status: str
@@ -93,6 +94,7 @@ class ProjectCreate(CamelCaseModel):
 
 class ProjectResponse(CamelCaseModel):
     id: int
+    uuid: Optional[str] = None
     name: str
     description: Optional[str]
     color: Optional[str]

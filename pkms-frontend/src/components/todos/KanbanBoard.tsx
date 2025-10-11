@@ -1,20 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Group, Text, Paper, Stack, Badge, ActionIcon, Menu } from '@mantine/core';
 import { IconDots, IconEdit, IconTrash, IconArchive } from '@tabler/icons-react';
-import { Todo, updateTodoStatus, reorderTodo } from '../../services/todosService';
+import { Todo, TodoSummary, updateTodoStatus, reorderTodo } from '../../services/todosService';
 import { useDragAndDrop } from '../../hooks/useDragAndDrop';
 import { SubtaskList } from './SubtaskList';
 
 interface KanbanBoardProps {
   todos: Todo[];
   onTodoUpdate: (todo: Todo) => void;
-  onTodoDelete: (todoId: number) => void;
-  onTodoArchive: (todoId: number) => void;
-  onTodoEdit: (todo: Todo) => void;
-  onSubtaskUpdate: (subtask: Todo) => void;
-  onSubtaskDelete: (subtaskId: number) => void;
-  onSubtaskEdit: (subtask: Todo) => void;
-  onSubtaskCreate: (subtask: Todo) => void;
+  onTodoDelete?: (todoUuid: string) => void;
+  onTodoArchive?: (todoUuid: string) => void;
+  onTodoEdit?: (todo: Todo) => void;
+  onSubtaskUpdate?: (subtask: Todo) => void;
+  onSubtaskDelete?: (subtaskUuid: string) => void;
+  onSubtaskEdit?: (subtask: Todo) => void;
+  onSubtaskCreate?: (subtask: Todo) => void;
 }
 
 interface StatusLane {
@@ -43,7 +43,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   onSubtaskCreate
 }) => {
   const [lanes, setLanes] = useState<StatusLane[]>([]);
-  const { draggedItem, handleDragStart, handleDragOver, handleDrop } = useDragAndDrop();
+  const { draggedItem, handleDragStart, handleDragOver } = useDragAndDrop();
 
   // Organize todos into lanes
   useEffect(() => {
@@ -56,14 +56,14 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     setLanes(organizedLanes);
   }, [todos]);
 
-  const handleStatusChange = async (todoId: number, newStatus: string, newOrderIndex: number) => {
+  const handleStatusChange = async (todoUuid: string, newStatus: string, newOrderIndex: number) => {
     try {
       // Update status first
-      const updatedTodo = await updateTodoStatus(todoId, newStatus);
+      const updatedTodo = await updateTodoStatus(todoUuid, newStatus);
       
       // Then update order if needed
       if (newOrderIndex !== updatedTodo.order_index) {
-        await reorderTodo(todoId, newOrderIndex);
+        await reorderTodo(todoUuid, newOrderIndex);
         updatedTodo.order_index = newOrderIndex;
       }
       
@@ -73,16 +73,16 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
   };
 
-  const handleReorder = async (todoId: number, newOrderIndex: number, currentStatus: string) => {
+  const handleReorder = async (todoUuid: string, newOrderIndex: number, currentStatus: string) => {
     try {
-      await reorderTodo(todoId, newOrderIndex);
+      await reorderTodo(todoUuid, newOrderIndex);
       // Refresh the lanes to show new order
       const updatedLanes = lanes.map(lane => {
         if (lane.id === currentStatus) {
           return {
             ...lane,
             todos: lane.todos.map(todo => 
-              todo.id === todoId 
+              todo.uuid === todoUuid 
                 ? { ...todo, order_index: newOrderIndex }
                 : todo
             ).sort((a, b) => a.order_index - b.order_index)
@@ -96,7 +96,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
   };
 
-  const onDragOver = (e: React.DragEvent, laneId: string) => {
+  const onDragOver = (e: React.DragEvent, _laneId: string) => {
     e.preventDefault();
     handleDragOver(e);
   };
@@ -104,7 +104,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   const onDrop = (e: React.DragEvent, laneId: string) => {
     e.preventDefault();
     if (draggedItem) {
-      const { todoId, sourceStatus, sourceOrderIndex } = draggedItem;
+      const { todoId, sourceStatus } = draggedItem;
       const targetLane = lanes.find(lane => lane.id === laneId);
       
       if (targetLane) {
@@ -178,7 +178,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                   }}
                   draggable
                   onDragStart={(e) => handleDragStart(e, {
-                    todoId: todo.id,
+                    todoId: todo.uuid || '',
                     sourceStatus: lane.id,
                     sourceOrderIndex: index
                   })}
@@ -240,20 +240,20 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                       <Menu.Dropdown>
                         <Menu.Item
                           leftSection={<IconEdit size={14} />}
-                          onClick={() => onTodoEdit(todo)}
+                          onClick={() => onTodoEdit?.(todo)}
                         >
                           Edit
                         </Menu.Item>
                         <Menu.Item
                           leftSection={<IconArchive size={14} />}
-                          onClick={() => onTodoArchive(todo.id)}
+                          onClick={() => todo.uuid && onTodoArchive?.(todo.uuid)}
                         >
                           Archive
                         </Menu.Item>
                         <Menu.Item
                           leftSection={<IconTrash size={14} />}
                           color="red"
-                          onClick={() => onTodoDelete(todo.id)}
+                          onClick={() => todo.uuid && onTodoDelete?.(todo.uuid)}
                         >
                           Delete
                         </Menu.Item>
@@ -266,11 +266,21 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                     <Box mt="sm" pl="md" style={{ borderLeft: '2px solid #e0e0e0' }}>
                       <SubtaskList
                         parentTodo={todo}
-                        subtasks={todo.subtasks}
-                        onSubtaskUpdate={onSubtaskUpdate}
-                        onSubtaskDelete={onSubtaskDelete}
-                        onSubtaskEdit={onSubtaskEdit}
-                        onSubtaskCreate={onSubtaskCreate}
+                        onSubtaskComplete={(subtaskUuid: string, isCompleted: boolean) => {
+                          // Handle subtask completion
+                          if (onSubtaskUpdate) {
+                            const subtask = todo.subtasks?.find(st => st.uuid === subtaskUuid);
+                            if (subtask) {
+                              onSubtaskUpdate({ ...subtask, status: isCompleted ? 'done' : 'pending' });
+                            }
+                          }
+                        }}
+                        onSubtaskDelete={onSubtaskDelete || (() => {})}
+                        onSubtaskEdit={onSubtaskEdit ? (subtask: TodoSummary) => onSubtaskEdit(subtask as any) : () => {}}
+                        onAddSubtask={(parentUuid: string) => {
+                          // Handle add subtask
+                          console.log('Add subtask to:', parentUuid);
+                        }}
                       />
                     </Box>
                   )}

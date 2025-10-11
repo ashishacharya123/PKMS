@@ -1,15 +1,16 @@
 import { Stack, Group, Text, ActionIcon, Checkbox, Badge, Button, Collapse, Box } from '@mantine/core';
 import { IconPlus, IconEdit, IconTrash, IconChevronDown, IconChevronRight } from '@tabler/icons-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { TodoSummary } from '../../services/todosService';
 import { formatDate } from '../common/ViewModeLayouts';
+import { reorderSubtasks } from '../../services/todosService';
 
 interface SubtaskListProps {
   parentTodo: TodoSummary;
-  onSubtaskComplete: (subtaskId: number, isCompleted: boolean) => void;
+  onSubtaskComplete: (subtaskUuid: string, isCompleted: boolean) => void;
   onSubtaskEdit: (subtask: TodoSummary) => void;
-  onSubtaskDelete: (subtaskId: number) => void;
-  onAddSubtask: () => void;
+  onSubtaskDelete: (subtaskUuid: string) => void;
+  onAddSubtask: (parentUuid: string) => void;
 }
 
 export function SubtaskList({
@@ -20,11 +21,48 @@ export function SubtaskList({
   onAddSubtask
 }: SubtaskListProps) {
   const [isExpanded, setIsExpanded] = useState(true);
-  const subtasks = parentTodo.subtasks || [];
-  const hasSubtasks = subtasks.length > 0;
+  const [orderedSubtasks, setOrderedSubtasks] = useState<TodoSummary[]>(parentTodo.subtasks || []);
+  useEffect(() => {
+    setOrderedSubtasks(parentTodo.subtasks || []);
+  }, [parentTodo.subtasks]);
+  const hasSubtasks = orderedSubtasks.length > 0;
 
-  const completedCount = subtasks.filter(st => st.status === 'done').length;
-  const totalCount = subtasks.length;
+  const completedCount = orderedSubtasks.filter(st => st.status === 'done').length;
+  const totalCount = orderedSubtasks.length;
+
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => {
+    e.dataTransfer.setData('text/plain', String(index));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>, dropIndex: number) => {
+    e.preventDefault();
+    const fromIndexStr = e.dataTransfer.getData('text/plain');
+    if (!fromIndexStr) return;
+    const fromIndex = parseInt(fromIndexStr, 10);
+    if (Number.isNaN(fromIndex) || fromIndex === dropIndex) return;
+
+    const updated = [...orderedSubtasks];
+    const [moved] = updated.splice(fromIndex, 1);
+    updated.splice(dropIndex, 0, moved);
+    setOrderedSubtasks(updated);
+
+    const parentUuid = (parentTodo as any).uuid as string | undefined;
+    const subtaskUuids = updated.map(st => (st as any).uuid).filter(Boolean) as string[];
+    if (parentUuid && subtaskUuids.length === updated.length) {
+      try {
+        await reorderSubtasks(parentUuid, subtaskUuids);
+      } catch (err) {
+        // On failure, revert UI
+        setOrderedSubtasks(parentTodo.subtasks || []);
+      }
+    }
+  };
 
   return (
     <Box ml="md" mt="xs">
@@ -46,7 +84,7 @@ export function SubtaskList({
           size="xs"
           variant="subtle"
           leftSection={<IconPlus size={12} />}
-          onClick={onAddSubtask}
+          onClick={() => onAddSubtask(parentTodo.uuid || '')}
         >
           Add Subtask
         </Button>
@@ -54,7 +92,7 @@ export function SubtaskList({
 
       <Collapse in={isExpanded && hasSubtasks}>
         <Stack gap="xs" ml="lg">
-          {subtasks.map((subtask) => (
+          {orderedSubtasks.map((subtask, index) => (
             <Group
               key={subtask.id}
               gap="xs"
@@ -67,11 +105,15 @@ export function SubtaskList({
                   ? 'var(--mantine-color-gray-0)' 
                   : 'transparent'
               }}
+              draggable
+              onDragStart={(e) => handleDragStart(e, index)}
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, index)}
             >
               <Checkbox
                 size="sm"
                 checked={subtask.status === 'done'}
-                onChange={(e) => onSubtaskComplete(subtask.id, e.currentTarget.checked)}
+                onChange={(e) => onSubtaskComplete(subtask.uuid || '', e.currentTarget.checked)}
               />
 
               <Text
@@ -117,7 +159,7 @@ export function SubtaskList({
                   size="sm"
                   variant="subtle"
                   color="red"
-                  onClick={() => onSubtaskDelete(subtask.id)}
+                  onClick={() => onSubtaskDelete(subtask.uuid || '')}
                 >
                   <IconTrash size={14} />
                 </ActionIcon>

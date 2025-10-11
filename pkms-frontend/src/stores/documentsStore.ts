@@ -39,11 +39,11 @@ interface DocumentsState {
   // Actions - Documents
   loadDocuments: () => Promise<void>;
   loadMore: () => Promise<void>;
-  loadDocument: (uuid: string) => Promise<void>;
+  loadDocument: (id: number) => Promise<void>;
   uploadDocument: (file: File, tags?: string[], projectIds?: number[], isExclusive?: boolean) => Promise<Document | null>;
   updateDocument: (uuid: string, data: UpdateDocumentRequest) => Promise<Document | null>;
   deleteDocument: (uuid: string) => Promise<boolean>;
-  toggleArchive: (id: number, archived: boolean) => Promise<Document | null>;
+  toggleArchive: (uuid: string, archived: boolean) => Promise<Document | null>;
   
   // Actions - Search
   searchDocuments: (query: string) => Promise<void>;
@@ -171,13 +171,11 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     }
   },
   
-  loadDocument: async (uuid: string) => {
+  loadDocument: async (id: number) => {
     set({ isLoading: true, error: null });
     
     try {
-      // Convert UUID string to number ID (backend expects numeric ID)
-      const docId = parseInt(uuid, 10);
-      const document = await documentsService.getDocument(docId);
+      const document = await documentsService.getDocument(id as unknown as string);
       set({ currentDocument: document, isLoading: false });
     } catch (error) {
       set({ 
@@ -209,12 +207,14 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         file_path: document.file_path,
         file_size: document.file_size,
         mime_type: document.mime_type,
+        isExclusiveMode: (document as any).isExclusiveMode ?? false,
         is_favorite: document.is_favorite ?? false,
         is_archived: document.is_archived,
         upload_status: document.upload_status || 'completed',
         created_at: document.created_at,
         updated_at: document.updated_at,
-        tags: document.tags
+        tags: document.tags,
+        projects: (document as any).projects ?? []
       };
       
       // Add to documents list if it matches current filters
@@ -275,7 +275,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       if (!existing) {
         throw new Error('Document not found');
       }
-      const updatedDocument = await documentsService.updateDocument(existing.id as unknown as number, data);
+      const updatedDocument = await documentsService.updateDocument(existing.uuid, data);
 
       // Build full summary
       const documentSummary: DocumentSummary = {
@@ -324,7 +324,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         throw new Error('Document not found');
       }
       
-      await documentsService.deleteDocument(document.id);
+      await documentsService.deleteDocument(document.uuid);
       
       // Remove from documents list
       set(state => ({
@@ -341,10 +341,10 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     }
   },
   
-  toggleArchive: async (id: number, archived: boolean) => {
+  toggleArchive: async (uuid: string, archived: boolean) => {
     set({ isUpdating: true, error: null });
     try {
-      const updatedDocument = await documentsService.toggleArchive(id, archived);
+      const updatedDocument = await documentsService.toggleArchive(uuid, archived);
       // Build full summary
       const documentSummary: DocumentSummary = {
         id: updatedDocument.id,
@@ -427,7 +427,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         throw new Error('Document not found');
       }
       
-      const blob = await documentsService.downloadDocument(document.id);
+      const blob = await documentsService.downloadDocument(document.uuid);
       return blob;
     } catch (error) {
       set({ 
@@ -445,7 +445,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       throw new Error('Document not found');
     }
     
-    return documentsService.getDownloadUrl(document.id);
+    return documentsService.getDownloadUrl(document.uuid);
   },
   
   getPreviewUrl: (uuid: string) => {
@@ -456,7 +456,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       throw new Error('Document not found');
     }
     
-    return documentsService.getPreviewUrl(document.id);
+    return documentsService.getPreviewUrl(document.uuid);
   },
   
   previewDocument: (uuid: string) => {
@@ -467,7 +467,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     // Use authenticated download to get a Blob, then open as object URL for preview
     (async () => {
       try {
-        const blob = await documentsService.downloadDocument((document as any).id);
+        const blob = await documentsService.downloadDocument((document as any).uuid);
         if (!blob) return;
         const objectUrl = URL.createObjectURL(blob);
         

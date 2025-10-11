@@ -24,7 +24,7 @@ export default function NoteViewPage() {
       try {
         setIsLoading(true);
         setError(null);
-        const noteData = await notesService.getNote(parseInt(id));
+        const noteData = await notesService.getNote(id);
         setNote(noteData);
       } catch (err) {
         setError(err as Error);
@@ -40,7 +40,7 @@ export default function NoteViewPage() {
   const handleToggleArchive = async () => {
     if (!note) return;
     try {
-      await notesService.toggleArchive(note.id, !note.is_archived);
+      await notesService.toggleArchive(note.uuid, !note.is_archived);
       // Update local state after successful toggle
       setNote({ ...note, is_archived: !note.is_archived });
       notifications.show({
@@ -62,7 +62,7 @@ export default function NoteViewPage() {
       confirmProps: { color: 'red' },
       onConfirm: async () => {
         try {
-          await notesService.deleteNote(note.id);
+          await notesService.deleteNote(note.uuid);
           // queryClient.invalidateQueries({ queryKey: ['notes'] });
           notifications.show({ title: 'Note Deleted', message: 'The note was deleted successfully', color: 'green' });
           navigate('/notes');
@@ -110,7 +110,7 @@ export default function NoteViewPage() {
             )}
           </Group>
           <Group>
-            <Button variant="subtle" leftSection={<IconEdit size={16} />} onClick={() => navigate(`/notes/${note.id}/edit`)}>
+            <Button variant="subtle" leftSection={<IconEdit size={16} />} onClick={() => navigate(`/notes/${note.uuid}/edit`)}>
               Edit
             </Button>
             <Button

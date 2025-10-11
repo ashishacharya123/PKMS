@@ -459,16 +459,16 @@ async def list_documents(
     logger.info(f"Returning {len(response)} documents in response")
     return response
 
-@router.get("/{document_id}", response_model=DocumentResponse)
+@router.get("/{document_uuid}", response_model=DocumentResponse)
 async def get_document(
-    document_id: int,
+    document_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get a specific document by ID."""
+    """Get a specific document by UUID."""
     result = await db.execute(
         select(Document).options(selectinload(Document.tag_objs)).where(
-            and_(Document.id == document_id, Document.user_id == current_user.id)
+            and_(Document.uuid == document_uuid, Document.user_id == current_user.id)
         )
     )
     doc = result.scalar_one_or_none()
@@ -480,16 +480,16 @@ async def get_document(
     
     return _convert_doc_to_response(doc, project_badges)
 
-@router.get("/{document_id}/download")
+@router.get("/{document_uuid}/download")
 async def download_document(
-    document_id: int,
+    document_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Download a document file."""
     result = await db.execute(
         select(Document).where(
-            and_(Document.id == document_id, Document.user_id == current_user.id)
+            and_(Document.uuid == document_uuid, Document.user_id == current_user.id)
         )
     )
     doc = result.scalar_one_or_none()
@@ -510,9 +510,9 @@ async def download_document(
         }
     )
 
-@router.put("/{document_id}", response_model=DocumentResponse)
+@router.put("/{document_uuid}", response_model=DocumentResponse)
 async def update_document(
-    document_id: int,
+    document_uuid: str,
     document_data: DocumentUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -520,7 +520,7 @@ async def update_document(
     """Update document metadata and tags."""
     result = await db.execute(
         select(Document).options(selectinload(Document.tag_objs)).where(
-            and_(Document.id == document_id, Document.user_id == current_user.id)
+            and_(Document.uuid == document_uuid, Document.user_id == current_user.id)
         )
     )
     doc = result.scalar_one_or_none()
@@ -707,9 +707,9 @@ async def archive_document(
             detail="Failed to archive document"
         )
 
-@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{document_uuid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
-    document_id: int,
+    document_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -720,7 +720,7 @@ async def delete_document(
     """
     result = await db.execute(
         select(Document).where(
-            and_(Document.id == document_id, Document.user_id == current_user.id)
+            and_(Document.uuid == document_uuid, Document.user_id == current_user.id)
         )
     )
     doc = result.scalar_one_or_none()

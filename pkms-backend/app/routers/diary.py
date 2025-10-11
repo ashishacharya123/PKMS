@@ -1349,9 +1349,9 @@ async def commit_diary_media_upload(
             detail="Failed to commit media upload"
         )
 
-@router.get("/media/{media_id}/download")
+@router.get("/media/{media_uuid}/download")
 async def download_diary_media(
-    media_id: int,
+    media_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -1373,7 +1373,7 @@ async def download_diary_media(
             .join(DiaryEntry)
             .where(
                 and_(
-                    DiaryMedia.id == media_id,
+                    DiaryMedia.uuid == media_uuid,
                     DiaryEntry.user_id == current_user.id
                 )
             )

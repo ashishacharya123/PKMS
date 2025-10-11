@@ -6,8 +6,8 @@ import { Todo } from '../../services/todosService';
 interface TimelineViewProps {
   todos: Todo[];
   onTodoEdit: (todo: Todo) => void;
-  onTodoDelete: (todoId: number) => void;
-  onTodoArchive: (todoId: number) => void;
+  onTodoDelete?: (todoId: number, title: string) => void;
+  onTodoArchive?: (todoId: number) => void;
 }
 
 interface TimelineTodo extends Todo {
@@ -284,14 +284,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                       </Menu.Item>
                       <Menu.Item
                         leftSection={<IconArchive size={12} />}
-                        onClick={() => onTodoArchive(todo.id)}
+                        onClick={() => onTodoArchive && onTodoArchive(todo.id)}
                       >
                         Archive
                       </Menu.Item>
                       <Menu.Item
                         leftSection={<IconTrash size={12} />}
                         color="red"
-                        onClick={() => onTodoDelete(todo.id)}
+                        onClick={() => onTodoDelete && onTodoDelete(todo.id, todo.title)}
                       >
                         Delete
                       </Menu.Item>

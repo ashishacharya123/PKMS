@@ -45,8 +45,8 @@ export interface CalendarStats {
 class UnifiedCalendarService {
   private events: CalendarEvent[] = [];
 
-  // Public getter for events
-  public getEvents(): CalendarEvent[] {
+  // Public getter for all events
+  public getAllEvents(): CalendarEvent[] {
     return this.events;
   }
   private cacheKey = 'pkms_calendar_events';
@@ -443,12 +443,13 @@ export const unifiedCalendar = new UnifiedCalendarService();
 // React hook for using the unified calendar
 export const useUnifiedCalendar = () => {
   return {
-    events: unifiedCalendar.getEvents(),
+    events: unifiedCalendar.getAllEvents(),
     addNoteEvent: unifiedCalendar.addNoteEvent.bind(unifiedCalendar),
     addTodoEvent: unifiedCalendar.addTodoEvent.bind(unifiedCalendar),
     addDiaryEvent: unifiedCalendar.addDiaryEvent.bind(unifiedCalendar),
     addProjectEvent: unifiedCalendar.addProjectEvent.bind(unifiedCalendar),
     addDocumentEvent: unifiedCalendar.addDocumentEvent.bind(unifiedCalendar),
+    getAllEvents: unifiedCalendar.getAllEvents.bind(unifiedCalendar),
     getEvents: unifiedCalendar.getEvents.bind(unifiedCalendar),
     getMonthEvents: unifiedCalendar.getMonthEvents.bind(unifiedCalendar),
     getWeekEvents: unifiedCalendar.getWeekEvents.bind(unifiedCalendar),

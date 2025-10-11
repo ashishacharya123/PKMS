@@ -129,12 +129,12 @@ async def _process_note_links(db: AsyncSession, note: Note, content: str, user_i
             )
             db.add(link)
 
-async def _get_note_with_relations(db: AsyncSession, note_id: int, user_id: int) -> NoteResponse:
+async def _get_note_with_relations(db: AsyncSession, note_uuid: str, user_id: int) -> NoteResponse:
     """Get note with all related data."""
     result = await db.execute(
         select(Note)
         .options(selectinload(Note.tag_objs), selectinload(Note.files))
-        .where(and_(Note.id == note_id, Note.user_id == user_id))
+        .where(and_(Note.uuid == note_uuid, Note.user_id == user_id))
     )
     note = result.scalar_one_or_none()
     
@@ -380,18 +380,18 @@ async def create_note(
     
     return _convert_note_to_response(note_with_tags, project_badges)
 
-@router.get("/{note_id}", response_model=NoteResponse)
+@router.get("/{note_uuid}", response_model=NoteResponse)
 async def get_note(
-    note_id: int,
+    note_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get a specific note by ID."""
-    return await _get_note_with_relations(db, note_id, current_user.id)
+    """Get a specific note by UUID."""
+    return await _get_note_with_relations(db, note_uuid, current_user.id)
 
-@router.put("/{note_id}", response_model=NoteResponse)
+@router.put("/{note_uuid}", response_model=NoteResponse)
 async def update_note(
-    note_id: int,
+    note_uuid: str,
     note_data: NoteUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -399,7 +399,7 @@ async def update_note(
     """Update an existing note."""
     result = await db.execute(
         select(Note).options(selectinload(Note.tag_objs)).where(
-            and_(Note.id == note_id, Note.user_id == current_user.id)
+            and_(Note.uuid == note_uuid, Note.user_id == current_user.id)
         )
     )
     note = result.scalar_one_or_none()
@@ -439,29 +439,29 @@ async def update_note(
     
     return _convert_note_to_response(note_with_tags, project_badges)
 
-@router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{note_uuid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_note(
-    note_id: int,
+    note_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a note and its associated files."""
     result = await db.execute(
         select(Note).options(selectinload(Note.files), selectinload(Note.tag_objs)).where(
-            and_(Note.id == note_id, Note.user_id == current_user.id)
+            and_(Note.uuid == note_uuid, Note.user_id == current_user.id)
         )
     )
     note = result.scalar_one_or_none()
     if not note:
-        logger.warning(f"Attempted to delete non-existent note with ID: {note_id} for user: {current_user.id}")
+        logger.warning(f"Attempted to delete non-existent note with UUID: {note_uuid} for user: {current_user.id}")
         raise HTTPException(status_code=404, detail="Note not found")
 
-    logger.info(f"Attempting to delete note with ID: {note_id} for user: {current_user.id}")
+    logger.info(f"Attempting to delete note with UUID: {note_uuid} for user: {current_user.id}")
 
     try:
         # Delete associated files from disk
         if note.files:
-            logger.info(f"Deleting {len(note.files)} associated files for note ID: {note_id}")
+            logger.info(f"Deleting {len(note.files)} associated files for note UUID: {note_uuid}")
             for note_file in note.files:
                 try:
                     file_path = get_data_dir() / note_file.file_path
@@ -481,19 +481,19 @@ async def delete_note(
                 logger.debug(f"Tag '{tag.name}' usage count: {tag.usage_count + 1} -> {tag.usage_count}")
 
         # Delete note (cascade will handle note_tags associations automatically)
-        logger.info(f"Deleting note record with ID: {note_id} from the database.")
+        logger.info(f"Deleting note record with UUID: {note_uuid} from the database.")
         await db.delete(note)
         await db.commit()
-        logger.info(f"✅ Successfully deleted note with ID: {note_id}")
+        logger.info(f"✅ Successfully deleted note with UUID: {note_uuid}")
         
     except Exception as e:
         await db.rollback()
-        logger.error(f"❌ Failed to delete note with ID: {note_id}. Error: {str(e)}")
+        logger.error(f"❌ Failed to delete note with UUID: {note_uuid}. Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete note due to an internal error: {str(e)}")
 
-@router.patch("/{note_id}/archive", response_model=NoteResponse)
+@router.patch("/{note_uuid}/archive", response_model=NoteResponse)
 async def archive_note(
-    note_id: int,
+    note_uuid: str,
     archive: bool = True,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -502,7 +502,7 @@ async def archive_note(
     try:
         # Get note
         result = await db.execute(
-            select(Note).where(and_(Note.id == note_id, Note.user_id == current_user.id))
+            select(Note).where(and_(Note.uuid == note_uuid, Note.user_id == current_user.id))
         )
         note = result.scalar_one_or_none()
         if not note:
@@ -532,9 +532,9 @@ async def archive_note(
 
 # --- File Attachment Endpoints ---
 
-@router.get("/{note_id}/files", response_model=List[NoteFileResponse])
+@router.get("/{note_uuid}/files", response_model=List[NoteFileResponse])
 async def get_note_files(
-    note_id: int,
+    note_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -542,7 +542,7 @@ async def get_note_files(
     # First get the note to verify it exists and get the UUID
     note_result = await db.execute(
         select(Note).where(
-            and_(Note.id == note_id, Note.user_id == current_user.id)
+            and_(Note.uuid == note_uuid, Note.user_id == current_user.id)
         )
     )
     note = note_result.scalar_one_or_none()
@@ -764,9 +764,9 @@ async def delete_note_file(
     
     return {"message": "File deleted successfully"}
 
-@router.get("/{note_id}/links", response_model=List[LinkResponse])
+@router.get("/{note_uuid}/links", response_model=List[LinkResponse])
 async def get_note_links(
-    note_id: int,
+    note_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -774,7 +774,7 @@ async def get_note_links(
     # Verify note exists and belongs to user
     note_result = await db.execute(
         select(Note.content).where(
-            and_(Note.id == note_id, Note.user_id == current_user.id)
+            and_(Note.uuid == note_uuid, Note.user_id == current_user.id)
         )
     )
     note = note_result.scalar_one_or_none()

@@ -65,14 +65,14 @@ export function ProjectDashboardPage() {
       setLoading(true);
       
       // Load project details
-      const projectData = await todosService.getProject(parseInt(projectId!));
+      const projectData = await todosService.getProject(projectId!);
       setProject(projectData);
       
       // Load all items for this project
       const [notesData, docsData, todosData] = await Promise.all([
-        notesService.listNotes({ project_id: parseInt(projectId!) }),
-        documentsService.listDocuments({ project_id: parseInt(projectId!) }),
-        todosService.getTodos({ project_id: parseInt(projectId!) })
+        notesService.listNotes({}),
+        documentsService.listDocuments({}),
+        todosService.getTodos({})
       ]);
       
       setNotes(notesData);
@@ -106,7 +106,7 @@ export function ProjectDashboardPage() {
     }
 
     try {
-      await todosService.deleteProject(project.id);
+      await todosService.deleteProject(project.uuid!);
       notifications.show({
         title: 'Success',
         message: 'Project deleted successfully',

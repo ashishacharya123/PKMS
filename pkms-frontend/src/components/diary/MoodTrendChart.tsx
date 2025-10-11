@@ -15,7 +15,7 @@ import {
 } from '@mantine/core';
 import { IconTrendingUp, IconTrendingDown, IconMinus, IconRefresh } from '@tabler/icons-react';
 import { useDiaryStore } from '../../stores/diaryStore';
-import { format, parseISO, subDays, isAfter, isBefore } from 'date-fns';
+import { format, parseISO, subDays, isAfter } from 'date-fns';
 
 interface MoodDataPoint {
   date: string;
@@ -119,7 +119,7 @@ export function MoodTrendChart({ compact = false, height }: { compact?: boolean;
   }, [trendData]);
 
   const weeklyPattern = useMemo(() => {
-    if (!trendData.length) return {};
+    if (!trendData.length) return [];
 
     const dayGroups = trendData.reduce((acc, point) => {
       if (!acc[point.dayOfWeek]) {

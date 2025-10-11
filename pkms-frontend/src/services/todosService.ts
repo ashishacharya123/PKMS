@@ -12,6 +12,7 @@ export interface ProjectBadge {
 
 export interface Project {
   id: number;
+  uuid?: string;
   name: string;
   description?: string;
   color: string;
@@ -37,6 +38,7 @@ export interface ProjectUpdate {
 
 export interface Todo {
   id: number;
+  uuid?: string;
   title: string;
   description?: string;
   project_id?: number;  // Legacy single project
@@ -94,6 +96,7 @@ export interface TodoUpdate {
 
 export interface TodoSummary {
   id: number;
+  uuid?: string;
   title: string;
   project_name?: string;  // Legacy single project name
   isExclusiveMode: boolean;
@@ -153,18 +156,18 @@ class TodosService {
     return response.data;
   }
 
-  async getProject(projectId: number): Promise<Project> {
-    const response = await apiService.get<Project>(`${this.baseUrl}/projects/${projectId}`);
+  async getProject(projectUuid: string): Promise<Project> {
+    const response = await apiService.get<Project>(`${this.baseUrl}/projects/${projectUuid}`);
     return response.data;
   }
 
-  async updateProject(projectId: number, projectData: ProjectUpdate): Promise<Project> {
-    const response = await apiService.put<Project>(`${this.baseUrl}/projects/${projectId}`, projectData);
+  async updateProject(projectUuid: string, projectData: ProjectUpdate): Promise<Project> {
+    const response = await apiService.put<Project>(`${this.baseUrl}/projects/${projectUuid}`, projectData);
     return response.data;
   }
 
-  async deleteProject(projectId: number): Promise<void> {
-    await apiService.delete(`${this.baseUrl}/projects/${projectId}`);
+  async deleteProject(projectUuid: string): Promise<void> {
+    await apiService.delete(`${this.baseUrl}/projects/${projectUuid}`);
   }
 
   // Todo methods
@@ -185,37 +188,37 @@ class TodosService {
     return response.data;
   }
 
-  async getTodo(todoId: number): Promise<Todo> {
-    const response = await apiService.get<Todo>(`${this.baseUrl}/${todoId}`);
+  async getTodo(todoUuid: string): Promise<Todo> {
+    const response = await apiService.get<Todo>(`${this.baseUrl}/${todoUuid}`);
     return response.data;
   }
 
-  async updateTodo(todoId: number, todoData: TodoUpdate): Promise<Todo> {
-    const response = await apiService.put<Todo>(`${this.baseUrl}/${todoId}`, todoData);
+  async updateTodo(todoUuid: string, todoData: TodoUpdate): Promise<Todo> {
+    const response = await apiService.put<Todo>(`${this.baseUrl}/${todoUuid}`, todoData);
     return response.data;
   }
 
-  async completeTodo(todoId: number): Promise<Todo> {
-    const response = await apiService.post<Todo>(`${this.baseUrl}/${todoId}/complete`);
+  async completeTodo(todoUuid: string): Promise<Todo> {
+    const response = await apiService.post<Todo>(`${this.baseUrl}/${todoUuid}/complete`);
     return response.data;
   }
 
-  async updateTodoStatus(todoId: number, status: string): Promise<Todo> {
-    const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoId}/status?status=${status}`);
+  async updateTodoStatus(todoUuid: string, status: string): Promise<Todo> {
+    const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoUuid}/status?status=${status}`);
     return response.data;
   }
 
-  async reorderTodo(todoId: number, orderIndex: number): Promise<Todo> {
-    const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoId}/reorder?order_index=${orderIndex}`);
+  async reorderTodo(todoUuid: string, orderIndex: number): Promise<Todo> {
+    const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoUuid}/reorder?order_index=${orderIndex}`);
     return response.data;
   }
 
-  async deleteTodo(todoId: number): Promise<void> {
-    await apiService.delete(`${this.baseUrl}/${todoId}`);
+  async deleteTodo(todoUuid: string): Promise<void> {
+    await apiService.delete(`${this.baseUrl}/${todoUuid}`);
   }
 
-  async archiveTodo(todoId: number, archive: boolean = true): Promise<Todo> {
-    const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoId}/archive?archive=${archive}`);
+  async archiveTodo(todoUuid: string, archive: boolean = true): Promise<Todo> {
+    const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoUuid}/archive?archive=${archive}`);
     return response.data;
   }
 
@@ -348,28 +351,27 @@ export const {
 } = todosService; 
 
 // Subtask management functions
-export const createSubtask = async (parentId: number, subtaskData: Omit<TodoCreate, 'parent_id'>): Promise<Todo> => {
-  const response = await apiService.post(`/todos/${parentId}/subtasks`, {
-    ...subtaskData,
-    parent_id: parentId
+export const createSubtask = async (parentUuid: string, subtaskData: Omit<TodoCreate, 'parent_id'>): Promise<Todo> => {
+  const response = await apiService.post(`/todos/${parentUuid}/subtasks`, {
+    ...subtaskData
   });
   return response.data as Todo;
 };
 
-export const getSubtasks = async (parentId: number): Promise<Todo[]> => {
-  const response = await apiService.get(`/todos/${parentId}/subtasks`);
+export const getSubtasks = async (parentUuid: string): Promise<Todo[]> => {
+  const response = await apiService.get(`/todos/${parentUuid}/subtasks`);
   return response.data as Todo[];
 };
 
-export const moveSubtask = async (subtaskId: number, newParentId: number | null): Promise<Todo> => {
-  const response = await apiService.patch(`/todos/${subtaskId}/move`, {
-    parent_id: newParentId
+export const moveSubtask = async (subtaskUuid: string, newParentUuid: string | null): Promise<Todo> => {
+  const response = await apiService.patch(`/todos/${subtaskUuid}/move`, {
+    parent_uuid: newParentUuid
   });
   return response.data as Todo;
 };
 
-export const reorderSubtasks = async (parentId: number, subtaskIds: number[]): Promise<void> => {
-  await apiService.patch(`/todos/${parentId}/subtasks/reorder`, {
-    subtask_ids: subtaskIds
+export const reorderSubtasks = async (parentUuid: string, subtaskUuids: string[]): Promise<void> => {
+  await apiService.patch(`/todos/${parentUuid}/subtasks/reorder`, {
+    subtask_uuids: subtaskUuids
   });
 }; 

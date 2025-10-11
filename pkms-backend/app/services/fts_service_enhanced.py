@@ -270,7 +270,17 @@ class EnhancedFTS5SearchService:
                 # Check if this module should be searched
                 if not module_filter or module_filter == module_name:
                     results = await self._search_table(db, config, prepared_query, user_id, limit)
-                    all_results.extend([{**r, 'module': module_name, 'type': type_name} for r in results])
+                    for row in results:
+                        identifier = row.get(config['id_column'])
+                        if identifier is None:
+                            logger.warning("Skipping %s result without %s", table_key, config['id_column'])
+                            continue
+                        all_results.append({
+                            **row,
+                            'module': module_name,
+                            'type': type_name,
+                            'id': identifier,  # Restore 'id' for backward compatibility
+                        })
             
             # Normalize scores across modules and sort by relevance
             normalized_results = self._normalize_scores(all_results)

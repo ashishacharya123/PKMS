@@ -18,8 +18,8 @@ class Document(Base):
     
     __tablename__ = "documents"
     
-    id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    id = Column(Integer, primary_key=True, index=True)  # Legacy counter (keeps counting lifetime entries)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)  # API identifier
     title = Column(String(255), nullable=False, index=True)
     filename = Column(String(255), nullable=False)  # Stored filename on disk
     original_name = Column(String(255), nullable=False)  # Original uploaded name
@@ -45,4 +45,4 @@ class Document(Base):
     projects = relationship("Project", secondary=document_projects, back_populates="documents_multi")
     
     def __repr__(self):
-        return f"<Document(id={self.id}, title='{self.title}', filename='{self.filename}')>" 
+        return f"<Document(id={self.id}, uuid={self.uuid}, title='{self.title}')>" 

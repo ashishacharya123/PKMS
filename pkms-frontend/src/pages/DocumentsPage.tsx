@@ -277,7 +277,7 @@ export function DocumentsPage() {
 
   const handleToggleArchive = async (doc: any) => {
     try {
-      await toggleArchive(doc.id, !doc.is_archived);
+      await toggleArchive(doc.uuid, !doc.is_archived);
       notifications.show({
         title: doc.is_archived ? 'Document Unarchived' : 'Document Archived',
         message: `"${doc.original_name}" has been ${doc.is_archived ? 'unarchived' : 'archived'}`,

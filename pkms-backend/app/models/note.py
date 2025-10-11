@@ -18,8 +18,8 @@ class Note(Base):
     
     __tablename__ = "notes"
     
-    id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    id = Column(Integer, primary_key=True, index=True)  # Legacy counter (keeps counting lifetime entries)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)  # API identifier
     title = Column(String(255), nullable=False, index=True)
     content = Column(Text, nullable=False)
     is_favorite = Column(Boolean, default=False, index=True)
@@ -39,7 +39,7 @@ class Note(Base):
     projects = relationship("Project", secondary=note_projects, back_populates="notes")
     
     def __repr__(self):
-        return f"<Note(id={self.id}, title='{self.title}')>"
+        return f"<Note(id={self.id}, uuid={self.uuid}, title='{self.title}')>"
 
 
 class NoteFile(Base):
@@ -47,8 +47,8 @@ class NoteFile(Base):
     
     __tablename__ = "note_files"
     
-    id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    id = Column(Integer, primary_key=True, index=True)  # Legacy counter (keeps counting lifetime entries)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)  # API identifier
     note_uuid = Column(String(36), ForeignKey("notes.uuid", ondelete="CASCADE"), nullable=False, index=True)
     filename = Column(String(255), nullable=False)
     original_name = Column(String(255), nullable=False)
@@ -66,4 +66,4 @@ class NoteFile(Base):
     user = relationship("User", back_populates="note_files")
     
     def __repr__(self):
-        return f"<NoteFile(id={self.id}, filename='{self.filename}', note_uuid='{self.note_uuid}')>" 
+        return f"<NoteFile(id={self.id}, uuid={self.uuid}, filename='{self.filename}')>" 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 interface DraggedItem {
-  todoId: number;
+  todoId: string; // UUID
   sourceStatus: string;
   sourceOrderIndex: number;
 }

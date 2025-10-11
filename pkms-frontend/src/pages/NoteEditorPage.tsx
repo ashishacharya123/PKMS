@@ -69,7 +69,7 @@ export function NoteEditorPage() {
       try {
         setIsLoading(true);
         setError(null);
-        const noteData = await notesService.getNote(parseInt(id));
+        const noteData = await notesService.getNote(id);
         setCurrentNote(noteData);
       } catch (err) {
         setError(err as Error);
@@ -104,7 +104,7 @@ export function NoteEditorPage() {
   });
 
   const updateNoteMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Parameters<typeof notesService.updateNote>[1] }) => notesService.updateNote(id, data),
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof notesService.updateNote>[1] }) => notesService.updateNote(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['note', id] });
       queryClient.invalidateQueries({ queryKey: ['notes'] });
@@ -133,7 +133,7 @@ export function NoteEditorPage() {
       setIsExclusive(currentNote.isExclusiveMode || false);
       setHasUnsavedChanges(false);
       // Load attachments for this note
-      notesService.getNoteFiles(currentNote.id).then(setNoteFiles).catch(() => setNoteFiles([]));
+      notesService.getNoteFiles(currentNote.uuid).then(setNoteFiles).catch(() => setNoteFiles([]));
     } else if (!isEditing) {
       setTitle('');
       setContent('');
@@ -195,7 +195,7 @@ export function NoteEditorPage() {
 
     try {
       if (isEditing) {
-        await updateNoteMutation.mutateAsync({ id: parseInt(id!), data: noteData });
+        await updateNoteMutation.mutateAsync({ id: id!, data: noteData });
       } else {
         await createNoteMutation.mutateAsync(noteData);
       }
@@ -219,7 +219,7 @@ export function NoteEditorPage() {
     try {
       setIsUploadingAttachment(true);
       await notesService.uploadFile(attachmentFile, currentNote.uuid);
-      const files = await notesService.getNoteFiles(currentNote.id);
+      const files = await notesService.getNoteFiles(currentNote.uuid);
       setNoteFiles(files);
       setAttachmentFile(null);
       notifications.show({ title: 'Uploaded', message: 'Image attached to note', color: 'green' });
@@ -275,7 +275,7 @@ export function NoteEditorPage() {
       if (!noteData.title) return;
       // Silent autosave without user-facing notification
       notesService
-        .updateNote(parseInt(id!), noteData)
+        .updateNote(id!, noteData)
         .then(() => {
           queryClient.invalidateQueries({ queryKey: ['note', id] });
           queryClient.invalidateQueries({ queryKey: ['notes'] });

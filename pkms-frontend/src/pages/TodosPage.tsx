@@ -335,11 +335,11 @@ export function TodosPage() {
     }
   };
 
-  const handleCompleteTodo = async (id: number) => {
-    await completeTodo(id);
+  const handleCompleteTodo = async (uuid: string) => {
+    await completeTodo(uuid);
   };
 
-  const handleDeleteTodo = (id: number, title: string) => {
+  const handleDeleteTodo = (uuid: string, title: string) => {
     modals.openConfirmModal({
       title: 'Delete Todo',
       children: (
@@ -348,7 +348,7 @@ export function TodosPage() {
       labels: { confirm: 'Delete', cancel: 'Cancel' },
       confirmProps: { color: 'red' },
       onConfirm: async () => {
-        const success = await deleteTodo(id);
+        const success = await deleteTodo(uuid);
         if (success) {
           notifications.show({ title: 'Todo Deleted', message: 'The todo was deleted successfully', color: 'green' });
         } else {
@@ -464,10 +464,16 @@ export function TodosPage() {
       case 'kanban':
         return (
           <KanbanBoard
-            todos={paginatedTodos}
-            onTodoUpdate={handleCompleteTodo}
-            onTodoDelete={handleDeleteTodo}
-            onTodoArchive={archiveTodo}
+            todos={paginatedTodos as any}
+            onTodoUpdate={(todo) => handleCompleteTodo((todo as any).uuid)}
+            onTodoDelete={(todoId: number) => {
+              const t = paginatedTodos.find(x => x.id === todoId);
+              if (t) handleDeleteTodo((t as any).uuid, t.title);
+            }}
+            onTodoArchive={(todoId: number) => {
+              const t = paginatedTodos.find(x => x.id === todoId);
+              if (t) (t as any).is_archived ? unarchiveTodo((t as any).uuid) : archiveTodo((t as any).uuid);
+            }}
             onTodoEdit={() => {
               setEditingTodo(null); // Clear editing todo for new modal
               setTodoForm({
@@ -489,15 +495,15 @@ export function TodosPage() {
       case 'calendar':
         return (
           <CalendarView
-            todos={paginatedTodos}
+            todos={paginatedTodos as any}
             onTodoEdit={(todo) => {
               setEditingTodo(todo as any); // Cast to any since editingTodo expects Todo but we have TodoSummary
               setTodoForm({
                 title: todo.title,
-                description: '', // TodoSummary doesn't have description
-                project_id: todo.project_id || null,
-                projectIds: [],
-                isExclusive: false,
+                description: (todo as any).description || '',
+                project_id: (todo as any).project_id || null,
+                projectIds: (todo as any).projects?.map((p: any) => p.id) || [],
+                isExclusive: (todo as any).isExclusiveMode ?? (todo as any).is_exclusive_mode ?? false,
                 start_date: todo.start_date || '',
                 due_date: todo.due_date || '',
                 priority: todo.priority,
@@ -505,32 +511,44 @@ export function TodosPage() {
               });
               setTodoModalOpen(true);
             }}
-            onTodoDelete={handleDeleteTodo}
-            onTodoArchive={archiveTodo}
+            onTodoDelete={(todoId: number, title: string) => {
+              const t = paginatedTodos.find(x => x.id === todoId);
+              if (t) handleDeleteTodo((t as any).uuid, title);
+            }}
+            onTodoArchive={(todoId: number) => {
+              const t = paginatedTodos.find(x => x.id === todoId);
+              if (t) (t as any).is_archived ? unarchiveTodo((t as any).uuid) : archiveTodo((t as any).uuid);
+            }}
           />
         );
       
       case 'timeline':
         return (
           <TimelineView
-            todos={paginatedTodos}
-            onTodoEdit={() => {
-              setEditingTodo(null); // Clear editing todo for new modal
+            todos={paginatedTodos as any}
+            onTodoEdit={(todo) => {
+              setEditingTodo(todo as any);
               setTodoForm({
-                title: '',
-                description: '',
-                project_id: null,
-                projectIds: [],
-                isExclusive: false,
-                start_date: '',
-                due_date: '',
-                priority: 1,
-                tags: []
+                title: todo.title,
+                description: (todo as any).description || '',
+                project_id: (todo as any).project_id || null,
+                projectIds: (todo as any).projects?.map((p: any) => p.id) || [],
+                isExclusive: (todo as any).isExclusiveMode ?? (todo as any).is_exclusive_mode ?? false,
+                start_date: todo.start_date || '',
+                due_date: todo.due_date || '',
+                priority: todo.priority,
+                tags: todo.tags || []
               });
               setTodoModalOpen(true);
             }}
-            onTodoDelete={handleDeleteTodo}
-            onTodoArchive={archiveTodo}
+            onTodoDelete={(todoId: number, title: string) => {
+              const t = paginatedTodos.find(x => x.id === todoId);
+              if (t) handleDeleteTodo((t as any).uuid, title);
+            }}
+            onTodoArchive={(todoId: number) => {
+              const t = paginatedTodos.find(x => x.id === todoId);
+              if (t) (t as any).is_archived ? unarchiveTodo((t as any).uuid) : archiveTodo((t as any).uuid);
+            }}
           />
         );
       
@@ -539,7 +557,7 @@ export function TodosPage() {
         return (
           <ViewModeLayouts
             items={paginatedTodos.map(todo => ({...todo, id: todo.id})) as any[]}
-            viewMode={viewMode}
+            viewMode={viewMode as any}
             isLoading={isLoading}
             emptyMessage={
               searchQuery || currentStatus || currentPriority || currentProjectId
@@ -551,11 +569,11 @@ export function TodosPage() {
               setEditingTodo(todo);
               setTodoForm({
                 title: todo.title,
-                description: '',
+                description: todo.description || '',
                 project_id: todo.project_id,
-                projectIds: [],
-                isExclusive: false,
-                start_date: '',
+                projectIds: todo.projects?.map((p: any) => p.id) || [],
+                isExclusive: todo.isExclusiveMode ?? todo.is_exclusive_mode ?? false,
+                start_date: todo.start_date || '',
                 due_date: todo.due_date || '',
                 priority: todo.priority,
                 tags: todo.tags || []
@@ -603,7 +621,7 @@ export function TodosPage() {
                   <Group gap="md">
                   <Checkbox
                     checked={todo.status === 'done'}
-                    onChange={() => handleCompleteTodo(todo.id)}
+                    onChange={() => handleCompleteTodo((todo as any).uuid)}
                     disabled={todo.status === 'done'}
                     onClick={(e) => e.stopPropagation()}
                   />
@@ -724,9 +742,9 @@ export function TodosPage() {
                     {todo.status !== 'completed' && (
                       <Menu.Item 
                         leftSection={<IconCheck size={14} />}
-                        onClick={(e) => {
+                    onClick={(e) => {
                           e.stopPropagation();
-                          handleCompleteTodo(todo.id);
+                        handleCompleteTodo(todo.uuid);
                         }}
                       >
                         Complete
@@ -737,7 +755,7 @@ export function TodosPage() {
                       leftSection={todo.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
                       onClick={(e) => {
                         e.stopPropagation();
-                        todo.is_archived ? unarchiveTodo(todo.id) : archiveTodo(todo.id);
+                        todo.is_archived ? unarchiveTodo(todo.uuid) : archiveTodo(todo.uuid);
                       }}
                     >
                       {todo.is_archived ? 'Unarchive' : 'Archive'}
@@ -747,7 +765,7 @@ export function TodosPage() {
                       color="red"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDeleteTodo(todo.id, todo.title);
+                        handleDeleteTodo(todo.uuid, todo.title);
                       }}
                     >
                       Delete
@@ -790,6 +808,8 @@ export function TodosPage() {
                        title: todo.title,
                        description: '',
                        project_id: todo.project_id,
+                       projectIds: todo.projects?.map((p: any) => p.id) || [],
+                       isExclusive: todo.isExclusiveMode ?? todo.is_exclusive_mode ?? false,
                        start_date: '',
                        due_date: todo.due_date || '',
                        priority: todo.priority,
@@ -863,6 +883,8 @@ export function TodosPage() {
                         title: todo.title,
                         description: '',
                         project_id: todo.project_id,
+                        projectIds: todo.projects?.map((p: any) => p.id) || [],
+                        isExclusive: todo.isExclusiveMode ?? todo.is_exclusive_mode ?? false,
                         start_date: '',
                         due_date: todo.due_date || '',
                         priority: todo.priority,
@@ -878,7 +900,7 @@ export function TodosPage() {
                       leftSection={<IconCheck size={14} />}
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleCompleteTodo(todo.id);
+                        handleCompleteTodo((todo as any).uuid);
                       }}
                     >
                       Complete
@@ -889,7 +911,7 @@ export function TodosPage() {
                     leftSection={todo.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
                     onClick={(e) => {
                       e.stopPropagation();
-                      todo.is_archived ? unarchiveTodo(todo.id) : archiveTodo(todo.id);
+                        (todo as any).is_archived ? unarchiveTodo((todo as any).uuid) : archiveTodo((todo as any).uuid);
                     }}
                   >
                     {todo.is_archived ? 'Unarchive' : 'Archive'}
@@ -899,7 +921,7 @@ export function TodosPage() {
                     color="red"
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleDeleteTodo(todo.id, todo.title);
+                        handleDeleteTodo((todo as any).uuid, todo.title);
                     }}
                   >
                     Delete
@@ -931,7 +953,7 @@ export function TodosPage() {
       const subtask = parentTodo.subtasks?.find(st => st.id === subtaskId);
       if (!subtask) return;
 
-      const updatedSubtask = await todosService.updateTodo(subtaskId, {
+      const updatedSubtask = await todosService.updateTodo((subtask as any).uuid, {
         ...subtask,
         status: isCompleted ? 'done' : 'pending'
       });
@@ -959,7 +981,10 @@ export function TodosPage() {
 
   const handleSubtaskDelete = async (subtaskId: number) => {
     try {
-      await todosService.deleteTodo(subtaskId);
+      const parent = todos.find(t => t.subtasks?.some(st => st.id === subtaskId));
+      const st = parent?.subtasks?.find(st => st.id === subtaskId) as any;
+      if (!st) return;
+      await todosService.deleteTodo(st.uuid);
       
       // Find the parent todo and update it
       const parentTodo = todos.find(todo => todo.subtasks?.some(st => st.id === subtaskId));
@@ -990,6 +1015,18 @@ export function TodosPage() {
 
   const handleSubtaskEdit = (subtask: TodoSummary) => {
     setEditingTodo(subtask as any);
+    // Hydrate form with subtask data
+    setTodoForm({
+      title: subtask.title,
+      description: (subtask as any).description || '',
+      project_id: (subtask as any).project_id,
+      projectIds: (subtask as any).projects?.map((p: any) => p.id) || [],
+      isExclusive: (subtask as any).isExclusiveMode ?? (subtask as any).is_exclusive_mode ?? false,
+      start_date: (subtask as any).start_date || '',
+      due_date: (subtask as any).due_date || '',
+      priority: subtask.priority,
+      tags: subtask.tags || []
+    });
     setTodoModalOpen(true);
   };
 
@@ -1195,10 +1232,10 @@ export function TodosPage() {
               
               <Group gap="xs">
                 <ViewMenu 
-                  currentView={viewMode}
-                  onChange={(mode) => {
-                    setViewMode(mode);
-                    updatePreference('todos', mode);
+                  currentView={viewMode as any}
+                  onChange={(mode: any) => {
+                    setViewMode(mode as any);
+                    updatePreference('todos', mode as any);
                   }}
                   disabled={isLoading}
                 />
@@ -1535,7 +1572,8 @@ export function TodosPage() {
                     projectUploadFile,
                     projectUploadTags,
                     (p) => setProjectUploadProgress(p),
-                    selectedProjectIdForUpload
+                    [selectedProjectIdForUpload],
+                    true
                   );
                   setProjectUploadModalOpen(false);
                   setProjectUploadFile(null);

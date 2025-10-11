@@ -28,15 +28,15 @@ class Todo(Base):
     
     __tablename__ = "todos"
     
-    id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(String(36), unique=True, default=lambda: str(uuid4()), index=True)
+    id = Column(Integer, primary_key=True, index=True)  # Legacy counter (keeps counting lifetime entries)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)  # API identifier
     title = Column(String(255), nullable=False)
     description = Column(Text)
     status = Column(Enum(TodoStatus), default=TodoStatus.PENDING, nullable=False)
     order_index = Column(Integer, default=0, nullable=False)  # For Kanban ordering
     
     # Phase 2: Subtasks and Dependencies
-    parent_id = Column(Integer, ForeignKey("todos.id"), nullable=True)  # For subtasks
+    parent_id = Column(Integer, ForeignKey("todos.id", ondelete="CASCADE"), nullable=True)  # For subtasks
     blocked_by = Column(Text, nullable=True)  # JSON array of blocking todo IDs
     
     # Phase 2: Time Tracking
@@ -69,10 +69,10 @@ class Todo(Base):
     projects = relationship("Project", secondary=todo_projects, back_populates="todos_multi")
     
     # Phase 2: Subtask relationships
-    subtasks = relationship("Todo", backref="parent", remote_side=[id])
+    subtasks = relationship("Todo", backref="parent", remote_side=[id], cascade="all, delete-orphan")
     
     def __repr__(self):
-        return f"<Todo(id={self.id}, title='{self.title}', status='{self.status}')>"
+        return f"<Todo(id={self.id}, uuid={self.uuid}, title='{self.title}', status='{self.status}')>"
 
 
 class Project(Base):
@@ -80,8 +80,8 @@ class Project(Base):
     
     __tablename__ = "projects"
     
-    id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    id = Column(Integer, primary_key=True, index=True)  # Legacy counter (keeps counting lifetime entries)
+    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)  # API identifier
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
     color = Column(String(7), default="#3498db")  # Hex color code
@@ -107,4 +107,4 @@ class Project(Base):
     todos_multi = relationship("Todo", secondary=todo_projects, back_populates="projects")
     
     def __repr__(self):
-        return f"<Project(id={self.id}, name='{self.name}')>" 
+        return f"<Project(id={self.id}, uuid={self.uuid}, name='{self.name}')>" 

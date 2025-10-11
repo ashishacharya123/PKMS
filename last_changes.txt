@@ -1,0 +1,83 @@
+PKMS - Last Changes Documentation
+Date: 2025-10-11
+AI Agent: GPT-5 (Cursor Assistant)
+
+Overview
+- Completed full UUID-first API migration while retaining integer ids as internal counters.
+- Updated backend routers and frontend services/stores/pages to consistently use UUIDs for public endpoints and navigation.
+- Fixed outstanding lints and type errors; frontend now builds lint-clean.
+- Implemented basic drag-and-drop subtask reordering with server persistence.
+
+Backend Changes
+1) UUID Strategy
+   - Models: Kept both id (Integer, primary key/counter) and uuid (String(36), unique) across core entities.
+   - Routers now accept UUID in path params:
+     • Documents: /documents/{document_uuid}
+     • Notes: /notes/{note_uuid}
+     • Todos: /todos/{todo_uuid} (+ subtasks, status, reorder, archive)
+     • Projects (todos module): /todos/projects/{project_uuid}
+     • Diary media: /diary/media/{media_uuid}/download
+
+2) Todos and Subtasks
+   - Responses include uuid in TodoResponse for UI stability.
+   - Subtasks are only returned as children of parent todos; not listed standalone.
+   - ondelete=CASCADE + delete-orphan ensures subtasks are removed with parent.
+
+3) Diary and Security
+   - Diary media download switched to media_uuid.
+   - Prior security and FTS fixes retained (logger.exception, FTS score order/normalization, ownership checks for project links, etc.).
+
+Frontend Changes
+1) Services
+   - documentsService: get/update/delete/download/preview now use uuid.
+   - notesService: get/update/delete/archive/files/links now use uuid.
+   - todosService:
+     • Projects API uses project_uuid.
+     • Todo API uses todo_uuid.
+     • Subtasks API uses parentUuid/subtaskUuids for create/get/move/reorder.
+
+2) Stores
+   - documentsStore: switched to uuid for all single-item actions; fixed preview/download URL builders.
+   - notesStore: load/update/delete switched to uuid; list item summaries include projects/isExclusiveMode.
+   - todosStore: signatures updated to uuid for load/update/complete/delete/archive; project methods accept project uuid.
+
+3) Pages/Components
+   - Notes: NoteViewPage, NoteEditorPage, NotesPage updated to uuid.
+   - Documents: DocumentsPage updated (upload handling, archive toggle via uuid).
+   - Todos: TodosPage updated to use uuid in handlers; fixed props and view components.
+   - Kanban/Calendar/Timeline: made handler props compatible and bridged to uuid in page.
+   - Subtasks: Implemented drag-and-drop reordering (HTML5 DnD) in SubtaskList; calls backend reorderSubtasks(parentUuid, subtaskUuids) and reverts on failure.
+
+Type & Lint Cleanups
+- api.ts: tokenRefreshPromise typed as Promise<void>; interceptor flow maintained.
+- Added missing properties to summaries (projects, isExclusiveMode) to satisfy types.
+- Resolved all outstanding lints; no blocking errors remain.
+
+Production Readiness Notes
+- UUID usage prevents ID enumeration and improves API stability.
+- Integer ids preserved for DB performance and counters.
+- HttpOnly cookies in auth (access and refresh) per earlier changes.
+- Project ownership verification enforced for links (notes/todos/documents).
+- Build is lint-clean; recommend running full E2E regression and load tests before deploy.
+
+Removed Files (with reasons)
+- uuid_migration_script.py — one-off script no longer needed; manual edits were safer and avoided encoding issues.
+- check_users.py — cleanup of ad-hoc script (not part of core app).
+- temp_log_entry.txt, temp_done_entry.txt, temp_summary.txt — temporary artifacts removed.
+- REDUNDANT_SYSTEMS_ANALYSIS.md — consolidated into current code and docs.
+- DIARY_WELLNESS_METRICS_CLEANUP.md, WELLNESS_ANALYTICS_PLAN.md, WELLNESS_ANALYTICS_SUMMARY.md — obsolete planning docs.
+- PROJECT_INTEGRATION_GUIDE.md, PROJECT_INTEGRATION_IMPLEMENTATION_PLAN.md, MULTI_PROJECT_IMPLEMENTATION_COMPLETE.md — superseded by implemented code.
+- IMPLEMENTATION_COMPLETE_FINAL.md, DEPLOYMENT_READY.md, SUBTASK_FEATURE_GUIDE.md, SUBTASK_IMPLEMENTATION_COMPLETE.md, SESSION_SUMMARY_COMPLETE.md — redundant status docs.
+- pkms-backend/migration_fix_junction_tables.py, fix_junction_tables.sql — migration utilities not required for fresh DB.
+
+Important Behavior Changes
+- Public navigation and resource fetching use UUIDs; ensure any external clients align.
+- Subtasks reorderable within parent; persisted order via /todos/{parentUuid}/subtasks/reorder.
+- Projects dashboard now fetches by UUID and filters client-side.
+
+Follow-ups (Optional)
+- Replace HTML5 DnD with @hello-pangea/dnd for richer UX (keyboard, reordering animations).
+- Add E2E tests for UUID routes and subtask reordering.
+- Confirm cookies/SameSite settings under production domain and HTTPS.
+
+End of changes.
