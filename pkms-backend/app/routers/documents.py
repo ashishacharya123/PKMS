@@ -354,10 +354,7 @@ async def commit_document_upload(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"Error committing document upload: {str(e)}")
-        logger.error(f"Full exception details: {type(e).__name__}: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.exception("Error committing document upload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to commit document upload: {str(e)}"
@@ -615,8 +612,8 @@ async def archive_document(
         try:
             shutil.copy2(original_file_path, archive_file_path)
             logger.info(f"Copied file to archive: {archive_file_path}")
-        except Exception as e:
-            logger.error(f"Failed to copy file to archive: {e}")
+        except Exception:
+            logger.exception("Failed to copy file to archive")
             raise HTTPException(status_code=500, detail="Failed to copy file to archive")
         
         # Create ArchiveItem record
@@ -702,9 +699,9 @@ async def archive_document(
     except HTTPException:
         await db.rollback()
         raise
-    except Exception as e:
+    except Exception:
         await db.rollback()
-        logger.error(f"Error archiving document {document_id}: {str(e)}")
+        logger.exception(f"Error archiving document {document_id}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to archive document"

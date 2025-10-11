@@ -105,8 +105,8 @@ class EnhancedFTS5SearchService:
             logger.info("Enhanced FTS5 virtual tables initialized successfully")
             return True
             
-        except Exception as e:
-            logger.error(f"Failed to initialize enhanced FTS5 tables: {e}")
+        except Exception:
+            logger.exception("Failed to initialize enhanced FTS5 tables")
             return False
 
     async def _create_fts_table(self, db: AsyncSession, config: Dict[str, Any]) -> None:
@@ -179,8 +179,8 @@ class EnhancedFTS5SearchService:
             
             logger.info("FTS5 triggers created successfully")
             
-        except Exception as e:
-            logger.error(f"Failed to create FTS5 triggers: {e}")
+        except Exception:
+            logger.exception("Failed to create FTS5 triggers")
             raise
 
     async def populate_enhanced_fts_tables(self, db: AsyncSession) -> bool:
@@ -199,8 +199,8 @@ class EnhancedFTS5SearchService:
             logger.info("Enhanced FTS5 tables populated with existing data")
             return True
             
-        except Exception as e:
-            logger.error(f"Failed to populate enhanced FTS5 tables: {e}")
+        except Exception:
+            logger.exception("Failed to populate enhanced FTS5 tables")
             await db.rollback()
             return False
 
@@ -279,8 +279,8 @@ class EnhancedFTS5SearchService:
             logger.info(f"Enhanced FTS5 search completed: '{query}' - {len(sorted_results)} results for user {user_id}")
             return sorted_results[:limit]
             
-        except Exception as e:
-            logger.error(f"Enhanced FTS5 search failed: {e}")
+        except Exception:
+            logger.exception("Enhanced FTS5 search failed")
             return []
 
     async def _search_table(self, db: AsyncSession, config: Dict[str, Any], query: str, user_id: int, limit: int) -> List[Dict[str, Any]]:
@@ -303,8 +303,8 @@ class EnhancedFTS5SearchService:
             
             return [dict(row._mapping) for row in result]
             
-        except Exception as e:
-            logger.error(f"Failed to search {config['table_name']}: {e}")
+        except Exception:
+            logger.exception(f"Failed to search {config['table_name']}")
             return []
 
     def _prepare_fts_query(self, query: str) -> str:
@@ -362,8 +362,8 @@ class EnhancedFTS5SearchService:
             logger.info("Enhanced FTS5 tables optimized")
             return True
             
-        except Exception as e:
-            logger.error(f"Failed to optimize enhanced FTS5 tables: {e}")
+        except Exception:
+            logger.exception("Failed to optimize enhanced FTS5 tables")
             return False
 
     async def get_enhanced_fts_stats(self, db: AsyncSession) -> Dict[str, Any]:
@@ -400,8 +400,8 @@ class EnhancedFTS5SearchService:
             
             return stats
             
-        except Exception as e:
-            logger.error(f"Failed to get enhanced FTS5 stats: {e}")
+        except Exception:
+            logger.exception("Failed to get enhanced FTS5 stats")
             return {}
 
 
@@ -437,8 +437,8 @@ class EnhancedFTS5SearchService:
             
             return [row[0] for row in result.fetchall()]
             
-        except Exception as e:
-            logger.error(f"Error searching archive items: {e}")
+        except Exception:
+            logger.exception("Error searching archive items")
             return []
 
     async def search_archive_folders(self, db: AsyncSession, query: str, user_id: int, 
@@ -468,8 +468,8 @@ class EnhancedFTS5SearchService:
             
             return [row[0] for row in result.fetchall()]
             
-        except Exception as e:
-            logger.error(f"Error searching archive folders: {e}")
+        except Exception:
+            logger.exception("Error searching archive folders")
             return []
 
     async def search_diary_entries(self, db: AsyncSession, query: str, user_id: int, 
@@ -499,8 +499,8 @@ class EnhancedFTS5SearchService:
             
             return [row[0] for row in result.fetchall()]
             
-        except Exception as e:
-            logger.error(f"Error searching diary entries: {e}")
+        except Exception:
+            logger.exception("Error searching diary entries")
             return []
 
     async def search_all(self, db: AsyncSession, query: str, user_id: int,
@@ -570,8 +570,8 @@ class EnhancedFTS5SearchService:
             suggestions.sort(key=lambda x: (x['score'], x['text']), reverse=True)
             return suggestions[:limit]
 
-        except Exception as e:
-            logger.error(f"Search suggestions error: {str(e)}")
+        except Exception:
+            logger.exception("Search suggestions error")
             return []
 
     def _get_suggestion_type(self, module: str) -> str:

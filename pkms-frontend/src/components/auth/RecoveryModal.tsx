@@ -73,12 +73,19 @@ const RecoveryModal: React.FC<RecoveryModalProps> = ({
 
   // Load user's security questions
   const loadUserQuestions = async () => {
+    // Validate username before loading questions
+    if (!effectiveUsername || effectiveUsername.length < 3) {
+      setQuestionsError('Please provide a valid username (at least 3 characters)');
+      setLoadingQuestions(false);
+      return;
+    }
+    
     setLoadingQuestions(true);
     setQuestionsError(null);
     
     try {
       // Call backend to get user's security questions
-      const response = await authService.getRecoveryQuestions();
+      const response = await authService.getRecoveryQuestions(effectiveUsername);
       if (response.questions && response.questions.length > 0) {
         const questions = response.questions.map((question: string, index: number) => ({
           question,

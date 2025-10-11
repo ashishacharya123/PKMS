@@ -1168,7 +1168,21 @@ async def get_entry_media(
         select(DiaryMedia).where(DiaryMedia.diary_entry_uuid == entry_uuid)
     )
     media_items = media_res.scalars().all()
-    return media_items
+    
+    # Serialize ORM objects to DiaryMediaResponse
+    return [
+        DiaryMediaResponse(
+            uuid=media.uuid,
+            entry_id=media.diary_entry_uuid,
+            filename_encrypted=media.filename,
+            mime_type=media.mime_type,
+            size_bytes=media.file_size,
+            media_type=media.media_type,
+            duration_seconds=None,  # Could be extracted for audio/video
+            created_at=media.created_at
+        )
+        for media in media_items
+    ]
 
 @router.post("/media/upload/commit", response_model=DiaryMediaResponse)
 async def commit_diary_media_upload(
@@ -1274,7 +1288,7 @@ async def commit_diary_media_upload(
         
         # Use diary_encryption utility to write the encrypted file
         # write_encrypted_file expects ciphertext+tag (full encrypted_content)
-        write_result = write_encrypted_file(
+        write_encrypted_file(
             dest_path=encrypted_file_path,
             iv_b64=base64.b64encode(iv).decode(),
             encrypted_blob_b64=base64.b64encode(encrypted_content).decode(),  # Full output (ciphertext+tag)

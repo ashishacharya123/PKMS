@@ -233,8 +233,9 @@ async def _build_project_badges(db: AsyncSession, note_id: int, is_exclusive: bo
     
     return badges
 
-def _convert_note_to_response(note: Note, project_badges: List[ProjectBadge] = []) -> NoteResponse:
+def _convert_note_to_response(note: Note, project_badges: Optional[List[ProjectBadge]] = None) -> NoteResponse:
     """Convert Note model to NoteResponse."""
+    badges = project_badges or []
     return NoteResponse(
         id=note.id,
         uuid=note.uuid,
@@ -247,7 +248,7 @@ def _convert_note_to_response(note: Note, project_badges: List[ProjectBadge] = [
         created_at=note.created_at,
         updated_at=note.updated_at,
         tags=[t.name for t in note.tag_objs] if note.tag_objs else [],
-        projects=project_badges
+        projects=badges
     )
 
 # --- Note Endpoints ---

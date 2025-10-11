@@ -264,8 +264,9 @@ async def _build_todo_project_badges(db: AsyncSession, todo_id: int, is_exclusiv
     
     return badges
 
-def _convert_todo_to_response(todo: Todo, project_badges: List[ProjectBadge] = []) -> TodoResponse:
+def _convert_todo_to_response(todo: Todo, project_badges: Optional[List[ProjectBadge]] = None) -> TodoResponse:
     """Convert Todo model to TodoResponse with relational tags."""
+    badges = project_badges or []
     return TodoResponse(
         id=todo.id,
         title=todo.title,
@@ -287,7 +288,7 @@ def _convert_todo_to_response(todo: Todo, project_badges: List[ProjectBadge] = [
         created_at=todo.created_at,
         updated_at=todo.updated_at,
         tags=[t.name for t in todo.tag_objs] if todo.tag_objs else [],
-        projects=project_badges
+        projects=badges
     )
 
 async def _handle_project_tags(db: AsyncSession, project: Project, tag_names: List[str], user_id: int):
