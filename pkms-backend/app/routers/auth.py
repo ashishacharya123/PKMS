@@ -6,7 +6,7 @@ Handles user registration, login, logout, and password recovery
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie, Query
 from fastapi.security import HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete, func, and_
 from app.schemas.auth import UserSetup, UserLogin, PasswordChange, RecoveryReset, RecoveryKeyResponse, TokenResponse, UserResponse, RefreshTokenRequest, UsernameBody, LoginPasswordHintUpdate
 from typing import List, Optional
 from datetime import datetime, timedelta

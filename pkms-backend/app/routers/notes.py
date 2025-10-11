@@ -148,14 +148,37 @@ async def _get_note_with_relations(db: AsyncSession, note_id: int, user_id: int)
 
 
 
-async def _handle_note_projects(db: AsyncSession, note: Note, project_ids: List[int]):
-    """Link note to projects via junction table."""
-    # First, clear existing project links
+async def _handle_note_projects(db: AsyncSession, note: Note, project_ids: List[int], user_id: int):
+    """Link note to projects via junction table.
+    
+    Verifies user owns all requested projects before linking.
+    """
+    # SECURITY: Verify user owns all requested projects
+    if project_ids:
+        result = await db.execute(
+            select(Project.id).where(
+                and_(
+                    Project.id.in_(project_ids),
+                    Project.user_id == user_id
+                )
+            )
+        )
+        owned_project_ids = {row[0] for row in result.fetchall()}
+        
+        # Check if any requested project IDs are not owned by user
+        invalid_ids = set(project_ids) - owned_project_ids
+        if invalid_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"You do not have access to project(s): {', '.join(map(str, invalid_ids))}"
+            )
+    
+    # Clear existing project links
     await db.execute(
         delete(note_projects).where(note_projects.c.note_id == note.id)
     )
     
-    # Add new project links
+    # Add new project links (now verified)
     if project_ids:
         for project_id in project_ids:
             await db.execute(
@@ -336,7 +359,7 @@ async def create_note(
     
     # Handle projects
     if note_data.project_ids:
-        await _handle_note_projects(db, note, note_data.project_ids)
+        await _handle_note_projects(db, note, note_data.project_ids, current_user.id)
     
     # Process links in content
     await _process_note_links(db, note, note_data.content, current_user.id)
@@ -390,7 +413,7 @@ async def update_note(
 
     # Handle projects if provided
     if "project_ids" in update_data:
-        await _handle_note_projects(db, note, update_data.pop("project_ids"))
+        await _handle_note_projects(db, note, update_data.pop("project_ids"), current_user.id)
 
     # Update other fields
     for key, value in update_data.items():

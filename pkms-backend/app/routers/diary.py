@@ -777,7 +777,10 @@ async def get_diary_entries_by_date(
     
     result = await db.execute(
         select(DiaryEntry)
-        .options(selectinload(DiaryEntry.media))
+        .options(
+            selectinload(DiaryEntry.media),
+            selectinload(DiaryEntry.daily_metadata)
+        )
         .where(
             and_(
                 func.date(DiaryEntry.date) == entry_date,
@@ -857,7 +860,10 @@ async def get_diary_entry_by_id(
 
         result = await db.execute(
             select(DiaryEntry)
-            .options(selectinload(DiaryEntry.media))
+            .options(
+                selectinload(DiaryEntry.media),
+                selectinload(DiaryEntry.daily_metadata)
+            )
             .where(
                 and_(condition, DiaryEntry.user_id == current_user.id)
             )

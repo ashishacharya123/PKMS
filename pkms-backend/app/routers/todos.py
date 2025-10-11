@@ -181,14 +181,37 @@ async def _get_project_counts(db: AsyncSession, project_id: int) -> tuple[int, i
     return total_count, completed_count
 
 
-async def _handle_todo_projects(db: AsyncSession, todo: Todo, project_ids: List[int]):
-    """Link todo to projects via junction table."""
-    # First, clear existing project links
+async def _handle_todo_projects(db: AsyncSession, todo: Todo, project_ids: List[int], user_id: int):
+    """Link todo to projects via junction table.
+    
+    Verifies user owns all requested projects before linking.
+    """
+    # SECURITY: Verify user owns all requested projects before clearing existing links
+    if project_ids:
+        result = await db.execute(
+            select(Project.id).where(
+                and_(
+                    Project.id.in_(project_ids),
+                    Project.user_id == user_id
+                )
+            )
+        )
+        owned_project_ids = {row[0] for row in result.fetchall()}
+        
+        # Check if any requested project IDs are not owned by user
+        invalid_ids = set(project_ids) - owned_project_ids
+        if invalid_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"You do not have access to project(s): {', '.join(map(str, invalid_ids))}"
+            )
+    
+    # Clear existing project links (only after validation)
     await db.execute(
         delete(todo_projects).where(todo_projects.c.todo_id == todo.id)
     )
     
-    # Add new project links
+    # Add new project links (now verified)
     if project_ids:
         for project_id in project_ids:
             await db.execute(
@@ -356,7 +379,7 @@ async def create_todo(
 
     # Handle projects
     if todo_data.project_ids:
-        await _handle_todo_projects(db, todo, todo_data.project_ids)
+        await _handle_todo_projects(db, todo, todo_data.project_ids, current_user.id)
 
     await db.commit()
 
@@ -678,7 +701,7 @@ async def update_todo(
 
     # Handle projects if provided
     if "project_ids" in update_data:
-        await _handle_todo_projects(db, todo, update_data.pop("project_ids"))
+        await _handle_todo_projects(db, todo, update_data.pop("project_ids"), current_user.id)
 
     for key, value in update_data.items():
         setattr(todo, key, value)
