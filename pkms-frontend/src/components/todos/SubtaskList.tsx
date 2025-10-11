@@ -52,8 +52,8 @@ export function SubtaskList({
     updated.splice(dropIndex, 0, moved);
     setOrderedSubtasks(updated);
 
-    const parentUuid = (parentTodo as any).uuid as string | undefined;
-    const subtaskUuids = updated.map(st => (st as any).uuid).filter(Boolean) as string[];
+    const parentUuid = parentTodo.uuid;
+    const subtaskUuids = updated.map(st => st.uuid);
     if (parentUuid && subtaskUuids.length === updated.length) {
       try {
         await reorderSubtasks(parentUuid, subtaskUuids);

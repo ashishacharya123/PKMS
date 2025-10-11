@@ -792,49 +792,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
     }
   };
 
-  // Individual CRUD operations
-  const runIndividualCrudOperation = async (operation: string, _type: string, params: any = {}) => {
-    setIsLoading(true);
-    try {
-      let result;
-      
-      switch (operation) {
-        case 'create_note':
-          result = await testingService.createTestNote(params.title, params.content);
-          break;
-        case 'create_document':
-          result = await testingService.createTestDocument(params.filename, params.contentType, params.fileSize);
-          break;
-        case 'create_todo':
-          result = await testingService.createTestTodo(params.title, params.description, params.priority);
-          break;
-        case 'cleanup':
-          result = await testingService.cleanupTestItem(params.itemType, params.itemId);
-          break;
-        default:
-          throw new Error(`Unknown operation: ${operation}`);
-      }
-
-      setIndividualCrudResults((prev: any) => ({
-        ...prev,
-        [operation]: result
-      }));
-      
-      notifications.show({
-        title: `${operation.replace('_', ' ').toUpperCase()} Operation`,
-        message: result.status === 'success' ? result.message : `Failed: ${result.error}`,
-        color: result.status === 'success' ? 'green' : 'red'
-      });
-    } catch (error) {
-      notifications.show({
-        title: 'Operation Failed',
-        message: `Error: ${error}`,
-        color: 'red'
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Individual CRUD operations removed - not used
 
   const downloadTestResults = () => {
     const allResults = {

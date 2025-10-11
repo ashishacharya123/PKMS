@@ -118,9 +118,10 @@ async def advanced_fuzzy_search(
         diary_rows = (await db.execute(select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.user_id == user_id))).scalars().all()
         for entry in diary_rows:
             diary_tags = [t.name for t in getattr(entry, 'tag_objs', [])] if hasattr(entry, 'tag_objs') else []
-            meta = json.loads(entry.metadata_json) if entry.metadata_json else {}
-            meta_flat = ' '.join([str(v) for v in meta.values()])
-            search_blob = f"{entry.title or ''} {' '.join(diary_tags)} {meta_flat} {entry.date}"
+            # Include structured fields like weather_code and location
+            weather = f"weather_{entry.weather_code}" if entry.weather_code else ""
+            location = entry.location or ""
+            search_blob = f"{entry.title or ''} {' '.join(diary_tags)} {weather} {location} {entry.date}"
             score = fuzz.token_set_ratio(query, search_blob)
             results.append({
                 "type": "diary",
@@ -267,10 +268,11 @@ async def fuzzy_search_light(
         diary_rows = (await db.execute(select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.user_id == user_id))).scalars().all()
         for entry in diary_rows:
             diary_tags = [t.name for t in getattr(entry, 'tag_objs', [])] if hasattr(entry, 'tag_objs') else []
-            meta = json.loads(entry.metadata_json) if entry.metadata_json else {}
-            meta_flat = ' '.join([str(v) for v in meta.values()])
+            # Include structured fields like weather_code and location
+            weather = f"weather_{entry.weather_code}" if entry.weather_code else ""
+            location = entry.location or ""
             # LIGHT: title + tags + metadata (same as advanced - no content anyway)
-            search_blob = f"{entry.title or ''} {' '.join(diary_tags)} {meta_flat} {entry.date}"
+            search_blob = f"{entry.title or ''} {' '.join(diary_tags)} {weather} {location} {entry.date}"
             score = fuzz.token_set_ratio(query, search_blob)
             results.append({
                 "type": "diary",

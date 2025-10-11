@@ -46,7 +46,7 @@ interface TodosState {
   loadTodo: (uuid: string) => Promise<void>;
   createTodo: (data: TodoCreate) => Promise<Todo | null>;
   updateTodo: (uuid: string, data: TodoUpdate) => Promise<Todo | null>;
-  updateTodoWithSubtasks: (todoId: number, updater: (todo: TodoSummary) => TodoSummary) => void;
+  updateTodoWithSubtasks: (todoUuid: string, updater: (todo: TodoSummary) => TodoSummary) => void;
   completeTodo: (uuid: string) => Promise<Todo | null>;
   deleteTodo: (uuid: string) => Promise<boolean>;
   archiveTodo: (uuid: string) => Promise<void>;
@@ -193,8 +193,10 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       // Convert Todo to TodoSummary for the list
       const todoSummary: TodoSummary = {
         id: todo.id,
+        uuid: todo.uuid,
         title: todo.title,
         project_name: todo.project_name,
+        isExclusiveMode: todo.isExclusiveMode,
         due_date: todo.due_date,
         priority: todo.priority,
         status: todo.status,
@@ -202,7 +204,8 @@ export const useTodosStore = create<TodosState>((set, get) => ({
         created_at: todo.created_at,
         tags: todo.tags,
         days_until_due: todo.days_until_due,
-        is_archived: todo.is_archived
+        is_archived: todo.is_archived,
+        projects: todo.projects || []
       };
       
       // Add to todos list if it matches current filters
@@ -261,10 +264,10 @@ export const useTodosStore = create<TodosState>((set, get) => ({
   },
 
   // Subtask management
-  updateTodoWithSubtasks: (todoId: number, updater: (todo: TodoSummary) => TodoSummary) => {
+  updateTodoWithSubtasks: (todoUuid: string, updater: (todo: TodoSummary) => TodoSummary) => {
     set(state => ({
       todos: state.todos.map(todo => 
-        todo.id === todoId ? updater(todo) : todo
+        todo.uuid === todoUuid ? updater(todo) : todo
       )
     }));
   },
@@ -278,8 +281,10 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       // Convert Todo to TodoSummary for the list
       const todoSummary: TodoSummary = {
         id: completedTodo.id,
+        uuid: completedTodo.uuid,
         title: completedTodo.title,
         project_name: completedTodo.project_name,
+        isExclusiveMode: completedTodo.isExclusiveMode,
         due_date: completedTodo.due_date,
         priority: completedTodo.priority,
         status: completedTodo.status,
@@ -287,7 +292,8 @@ export const useTodosStore = create<TodosState>((set, get) => ({
         created_at: completedTodo.created_at,
         tags: completedTodo.tags,
         days_until_due: completedTodo.days_until_due,
-        is_archived: completedTodo.is_archived
+        is_archived: completedTodo.is_archived,
+        projects: completedTodo.projects || []
       };
       
       // Update in todos list
@@ -378,11 +384,11 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     }
   },
   
-  loadProject: async (id: number) => {
+  loadProject: async (uuid: string) => {
     set({ isLoading: true, error: null });
     
     try {
-      const project = await todosService.getProject(id);
+      const project = await todosService.getProject(uuid);
       set({ currentProject: project, isLoading: false });
     } catch (error) {
       set({ 
@@ -414,18 +420,18 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     }
   },
   
-  updateProject: async (id: number, data: ProjectUpdate) => {
+  updateProject: async (uuid: string, data: ProjectUpdate) => {
     set({ isUpdating: true, error: null });
     
     try {
-      const updatedProject = await todosService.updateProject(id, data);
+      const updatedProject = await todosService.updateProject(uuid, data);
       
       // Update in projects list
       set(state => ({
         projects: state.projects.map(project => 
-          project.id === id ? updatedProject : project
+          project.uuid === uuid ? updatedProject : project
         ),
-        currentProject: state.currentProject?.id === id ? updatedProject : state.currentProject,
+        currentProject: state.currentProject?.uuid === uuid ? updatedProject : state.currentProject,
         isUpdating: false
       }));
       
@@ -439,21 +445,24 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     }
   },
   
-  deleteProject: async (id: number) => {
+  deleteProject: async (uuid: string) => {
     set({ error: null });
     
     try {
-      await todosService.deleteProject(id);
+      await todosService.deleteProject(uuid);
+      
+      // Find the project to get its id for the filter comparison
+      const state = get();
+      const project = state.projects.find(p => p.uuid === uuid);
       
       // Remove from projects list
       set(state => ({
-        projects: state.projects.filter(project => project.id !== id),
-        currentProject: state.currentProject?.id === id ? null : state.currentProject
+        projects: state.projects.filter(project => project.uuid !== uuid),
+        currentProject: state.currentProject?.uuid === uuid ? null : state.currentProject
       }));
       
       // If this was the current project filter, clear it
-      const state = get();
-      if (state.currentProjectId === id) {
+      if (project && state.currentProjectId === project.id) {
         set({ currentProjectId: null });
         get().loadTodos();
       }

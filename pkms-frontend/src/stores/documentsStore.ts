@@ -39,7 +39,7 @@ interface DocumentsState {
   // Actions - Documents
   loadDocuments: () => Promise<void>;
   loadMore: () => Promise<void>;
-  loadDocument: (id: number) => Promise<void>;
+  loadDocument: (uuid: string) => Promise<void>;
   uploadDocument: (file: File, tags?: string[], projectIds?: number[], isExclusive?: boolean) => Promise<Document | null>;
   updateDocument: (uuid: string, data: UpdateDocumentRequest) => Promise<Document | null>;
   deleteDocument: (uuid: string) => Promise<boolean>;
@@ -171,11 +171,11 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     }
   },
   
-  loadDocument: async (id: number) => {
+  loadDocument: async (uuid: string) => {
     set({ isLoading: true, error: null });
     
     try {
-      const document = await documentsService.getDocument(id as unknown as string);
+      const document = await documentsService.getDocument(uuid);
       set({ currentDocument: document, isLoading: false });
     } catch (error) {
       set({ 

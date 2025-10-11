@@ -259,7 +259,7 @@ class EnhancedFTS5SearchService:
                 'documents': ('documents', 'document'),
                 'todos': ('todos', 'todo'),
                 'diary': ('diary', 'diary_entry'),
-                'archive': ('archive_items', 'archive_item'),
+                'archive_items': ('archive_items', 'archive_item'),
                 'archive_folders': ('folders', 'archive_folder'),
                 'projects': ('projects', 'project')
             }

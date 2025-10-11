@@ -158,7 +158,7 @@ async def _handle_document_projects(db: AsyncSession, doc: Document, project_ids
         # Optional: warn if any requested projects were not owned by user
         if len(allowed_project_ids) < len(project_ids):
             forbidden_ids = set(project_ids) - set(allowed_project_ids)
-            print(f"Warning: User {user_id} attempted to link to projects they don't own: {forbidden_ids}")
+            logger.warning("User attempted to link to projects they don't own", user_id=user_id, forbidden_ids=list(forbidden_ids))
 
 async def _build_document_project_badges(db: AsyncSession, doc_id: int, is_exclusive: bool) -> List[ProjectBadge]:
     """Build project badges from junction table (live projects and deleted snapshots)."""
@@ -450,11 +450,71 @@ async def list_documents(
         ordered_docs = result.scalars().unique().all()
         logger.info(f"Regular query returned {len(ordered_docs)} documents")
         
-    # Build responses with project badges
+    # Build responses with project badges - batch load to avoid N+1 queries
     response = []
-    for d in ordered_docs:
-        project_badges = await _build_document_project_badges(db, d.id, d.is_exclusive_mode)
-        response.append(_convert_doc_to_response(d, project_badges))
+    if ordered_docs:
+        # Collect all document IDs
+        doc_ids = [d.id for d in ordered_docs]
+        
+        # Single query to fetch all document-project junctions
+        junction_result = await db.execute(
+            select(DocumentProjectJunction)
+            .where(DocumentProjectJunction.document_id.in_(doc_ids))
+        )
+        junctions = junction_result.scalars().all()
+        
+        # Collect all project IDs (both live and deleted)
+        project_ids = set()
+        for junction in junctions:
+            if junction.project_id:
+                project_ids.add(junction.project_id)
+        
+        # Single query to fetch all live projects
+        projects = []
+        if project_ids:
+            project_result = await db.execute(
+                select(Project)
+                .where(Project.id.in_(project_ids))
+            )
+            projects = project_result.scalars().all()
+        
+        # Create project lookup map
+        project_map = {p.id: p for p in projects}
+        
+        # Group junctions by document_id
+        junctions_by_doc = {}
+        for junction in junctions:
+            if junction.document_id not in junctions_by_doc:
+                junctions_by_doc[junction.document_id] = []
+            junctions_by_doc[junction.document_id].append(junction)
+        
+        # Build project badges for each document
+        for d in ordered_docs:
+            doc_junctions = junctions_by_doc.get(d.id, [])
+            project_badges = []
+            
+            for junction in doc_junctions:
+                if junction.project_id and junction.project_id in project_map:
+                    # Live project
+                    project = project_map[junction.project_id]
+                    project_badges.append(ProjectBadge(
+                        id=project.id,
+                        name=project.name,
+                        color=project.color,
+                        isExclusive=junction.is_exclusive,
+                        isDeleted=False
+                    ))
+                elif junction.project_name_snapshot:
+                    # Deleted project (snapshot)
+                    project_badges.append(ProjectBadge(
+                        id=None,
+                        name=junction.project_name_snapshot,
+                        color="#6c757d",  # Gray for deleted
+                        isExclusive=junction.is_exclusive,
+                        isDeleted=True
+                    ))
+            
+            response.append(_convert_doc_to_response(d, project_badges))
     
     logger.info(f"Returning {len(response)} documents in response")
     return response

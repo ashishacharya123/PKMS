@@ -959,7 +959,7 @@ export function TodosPage() {
       });
 
       if (updatedSubtask) {
-        updateTodoWithSubtasks(parentTodo.id, (todo) => {
+        updateTodoWithSubtasks(parentTodo.uuid, (todo) => {
           if (todo.subtasks) {
             const updatedSubtasks = todo.subtasks.map(st => 
               (st as any).uuid === subtaskUuid ? { ...st, status: isCompleted ? 'done' : 'pending' } : st
@@ -989,7 +989,7 @@ export function TodosPage() {
       // Find the parent todo and update it
       const parentTodo = todos.find(todo => todo.subtasks?.some(st => (st as any).uuid === subtaskUuid));
       if (parentTodo) {
-        updateTodoWithSubtasks(parentTodo.id, (todo) => {
+        updateTodoWithSubtasks(parentTodo.uuid, (todo) => {
           if (todo.subtasks) {
             const updatedSubtasks = todo.subtasks.filter(st => (st as any).uuid !== subtaskUuid);
             return { ...todo, subtasks: updatedSubtasks };

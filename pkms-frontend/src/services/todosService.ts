@@ -12,7 +12,7 @@ export interface ProjectBadge {
 
 export interface Project {
   id: number;
-  uuid?: string;
+  uuid: string;
   name: string;
   description?: string;
   color: string;
@@ -38,7 +38,7 @@ export interface ProjectUpdate {
 
 export interface Todo {
   id: number;
-  uuid?: string;
+  uuid: string;
   title: string;
   description?: string;
   project_id?: number;  // Legacy single project
@@ -96,7 +96,7 @@ export interface TodoUpdate {
 
 export interface TodoSummary {
   id: number;
-  uuid?: string;
+  uuid: string;
   title: string;
   project_name?: string;  // Legacy single project name
   isExclusiveMode: boolean;
