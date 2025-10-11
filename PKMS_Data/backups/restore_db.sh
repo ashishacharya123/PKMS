@@ -165,9 +165,10 @@ echo "   Source: $selected_backup"
 echo "   Target: /app/data/pkm_metadata.db"
 
 docker-compose cp "$selected_backup" pkms-backend:/app/data/pkm_metadata.db
-if [ $? -ne 0 ]; then
+rc=$?
+if [ $rc -ne 0 ]; then
     echo "❌ Failed to restore database from backup"
-    echo "Error code: $?"
+    echo "Error code: $rc"
     echo
     echo "Trying to start Docker services anyway..."
     docker-compose up -d
@@ -182,9 +183,10 @@ sleep 2
 echo
 echo "[3/4] Starting Docker services..."
 docker-compose up -d
-if [ $? -ne 0 ]; then
+rc=$?
+if [ $rc -ne 0 ]; then
     echo "❌ Failed to start Docker services"
-    echo "Error code: $?"
+    echo "Error code: $rc"
     echo
     echo "Database was restored but services failed to start."
     echo "Please check Docker logs: docker-compose logs"

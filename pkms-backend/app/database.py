@@ -80,6 +80,20 @@ async def get_db() -> AsyncSession:
 
 
 @asynccontextmanager
+async def get_db_ensured():
+    """Database session with guaranteed cleanup"""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Database session error: {e}")
+            raise
+        finally:
+            await session.close()
+
+
+@asynccontextmanager
 async def get_db_session() -> AsyncSession:
     """Context manager for database sessions"""
     async with AsyncSessionLocal() as session:

@@ -502,10 +502,15 @@ async def refresh_access_token(
         # Update session with new token (this invalidates the old one)
         session.session_token = new_session_token
         session.last_activity = now
-        max_expiry = session.created_at + timedelta(days=1) if session.created_at else now + timedelta(days=1)
+        
+        # Handle potential naive datetimes for created_at
+        created_at = session.created_at
+        if created_at and created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=NEPAL_TZ)
+        max_expiry = created_at + timedelta(days=1) if created_at else now + timedelta(days=1)
         
         # Don't extend beyond 1 day from creation
-        if session.expires_at < max_expiry:
+        if expires_at < max_expiry:
             # Can still extend a bit, but not beyond max_expiry
             potential_new_expiry = now + timedelta(days=settings.refresh_token_lifetime_days)
             session.expires_at = min(potential_new_expiry, max_expiry)
@@ -524,13 +529,16 @@ async def refresh_access_token(
         )
 
         # Set new refresh cookie with new token
+        from datetime import datetime, timezone
+        # Use the timezone-aware expires_at we already processed
+        remaining = int((expires_at - now).total_seconds()) if expires_at else settings.refresh_token_lifetime_days * 24 * 60 * 60
         response.set_cookie(
             key="pkms_refresh",
             value=new_session_token,
             httponly=True,
             samesite="strict",  # SECURITY: Strict SameSite for CSRF protection
             secure=settings.environment == "production",
-            max_age=settings.refresh_token_lifetime_days * 24 * 60 * 60
+            max_age=max(0, remaining)
         )
 
         return TokenResponse(

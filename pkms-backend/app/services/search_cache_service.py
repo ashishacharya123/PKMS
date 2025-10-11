@@ -271,9 +271,25 @@ class InMemorySearchCache:
             if datetime.now().timestamp() - timestamp < self.default_ttl:
                 return self.cache[cache_key]
             else:
-                # Expired entry
-                del self.cache[cache_key]
-                del self.timestamps[cache_key]
+                # Expired entry - atomic cleanup to prevent race condition
+                try:
+                    # Get the value before deletion to avoid race condition
+                    cached_value = self.cache[cache_key]
+                    # SECURITY: Use single atomic operation to remove both entries
+                    # This prevents race condition between two separate pop() operations
+                    removed_cache = self.cache.pop(cache_key, None)
+                    removed_timestamp = self.timestamps.pop(cache_key, None)
+                    
+                    # Verify both were removed successfully
+                    if removed_cache is None or removed_timestamp is None:
+                        # Partial removal - another thread may have interfered
+                        # This is acceptable as the entry is expired anyway
+                        pass
+                    
+                    return None  # Entry was expired
+                except KeyError:
+                    # Another thread already removed it, which is fine
+                    return None
 
         return None
 

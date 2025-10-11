@@ -639,18 +639,19 @@ async def commit_note_file_upload(
         file_uuid = str(uuid_lib.uuid4())
         file_extension = assembled.suffix
         stored_filename = f"{file_uuid}{file_extension}"
-        dest_path = files_dir / stored_filename
+        temp_dest_path = files_dir / f"temp_{stored_filename}"  # Temporary location
+        final_dest_path = files_dir / stored_filename  # Final location
 
-        # Move assembled file to final location
-        assembled.rename(dest_path)
+        # Move assembled file to TEMPORARY location first
+        assembled.rename(temp_dest_path)
 
         # Get file info before database operations to avoid sync I/O in async context
-        file_size = dest_path.stat().st_size
-        file_path_relative = str(dest_path.relative_to(get_data_dir()))
+        file_size = temp_dest_path.stat().st_size
+        file_path_relative = str(final_dest_path.relative_to(get_data_dir()))
         
         # Detect file type
         detection_result = await file_detector.detect_file_type(
-            file_path=dest_path,
+            file_path=temp_dest_path,
             file_content=None
         )
 
@@ -679,6 +680,20 @@ async def commit_note_file_upload(
         await db.commit()
         await db.refresh(note_file)
 
+        # SECURITY: Move file to final location ONLY after successful DB commit
+        try:
+            temp_dest_path.rename(final_dest_path)
+            logger.info(f"✅ File moved to final location: {final_dest_path}")
+        except Exception as move_error:
+            logger.error(f"❌ Failed to move file to final location: {move_error}")
+            # Clean up temp file
+            try:
+                if temp_dest_path.exists():
+                    temp_dest_path.unlink()
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail="Failed to finalize file storage")
+
         # Clean up temporary file tracking
         if payload.file_id in chunk_manager.uploads:
             del chunk_manager.uploads[payload.file_id]
@@ -698,9 +713,21 @@ async def commit_note_file_upload(
         
     except HTTPException:
         await db.rollback()
+        # Clean up temp file on HTTP exception
+        try:
+            if 'temp_dest_path' in locals() and temp_dest_path.exists():
+                temp_dest_path.unlink()
+        except Exception:
+            pass
         raise
     except Exception as e:
         await db.rollback()
+        # Clean up temp file on DB rollback
+        try:
+            if 'temp_dest_path' in locals() and temp_dest_path.exists():
+                temp_dest_path.unlink()
+        except Exception:
+            pass
         logger.error(f"❌ Error committing note file upload: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

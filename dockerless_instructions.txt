@@ -158,5 +158,5 @@ redis-cli info
 
 ---
 
-**You're welcome, bitch!** This setup gives you a lightweight Dockerless Python setup with optional Redis for performance, and minimal dependencies for maximum portability!
+**You're welcome!** This setup gives you a lightweight Dockerless Python setup with optional Redis for performance, and minimal dependencies for maximum portability!
 ```

@@ -24,7 +24,7 @@ PKMS provides three different backup methods, each optimized for different scena
 - **General purpose** - works for everything
 
 ### File Naming
-```
+```text
 pkm_metadata_backup_YYYYMMDD_HHMMSS.db
 ```
 
@@ -49,7 +49,7 @@ pkm_metadata_backup_YYYYMMDD_HHMMSS.db
 - **Storage optimization** - reduce backup size
 
 ### File Naming
-```
+```text
 pkm_metadata_vacuum_YYYYMMDD_HHMMSS.db
 ```
 
@@ -74,7 +74,7 @@ pkm_metadata_vacuum_YYYYMMDD_HHMMSS.db
 - **Critical operations** - before risky changes
 
 ### File Naming
-```
+```text
 pkm_metadata_full_YYYYMMDD_HHMMSS.db
 pkm_metadata_full_YYYYMMDD_HHMMSS.db-wal
 pkm_metadata_full_YYYYMMDD_HHMMSS.db-shm

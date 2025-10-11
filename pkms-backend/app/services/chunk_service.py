@@ -116,6 +116,12 @@ class ChunkUploadManager:
                 chunk_dir = Path(get_data_dir()) / "temp_uploads" / file_id
                 output_path = Path(get_data_dir()) / "temp_uploads" / f"complete_{file_id}_{upload['filename']}"
                 
+                # SECURITY: Validate total file size before reading chunks into memory
+                # This prevents large files from crashing the server
+                MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
+                if upload['total_size'] > MAX_FILE_SIZE:
+                    raise ValueError(f"File too large: {upload['total_size']} bytes (max: {MAX_FILE_SIZE})")
+                
                 # Assemble chunks with verification
                 async with aiofiles.open(output_path, 'wb') as outfile:
                     for chunk_num in range(upload['total_chunks']):
@@ -139,8 +145,29 @@ class ChunkUploadManager:
                 # Update status
                 upload['status'] = 'completed'
                 
-                # Clean up chunks
-                shutil.rmtree(chunk_dir)
+                # Clean up chunks with robust Windows file locking handling
+                try:
+                    shutil.rmtree(chunk_dir)
+                except (PermissionError, OSError) as e:
+                    # Windows file locking issue - try alternative cleanup
+                    logger.warning(f"Failed to remove chunk directory {chunk_dir}: {e}")
+                    try:
+                        # Try to remove files individually
+                        for file_path in chunk_dir.rglob('*'):
+                            if file_path.is_file():
+                                try:
+                                    file_path.unlink()
+                                except (PermissionError, OSError):
+                                    # File is locked, mark for later cleanup
+                                    logger.warning(f"Could not remove locked file: {file_path}")
+                        # Try to remove empty directories
+                        try:
+                            chunk_dir.rmdir()
+                        except OSError:
+                            pass  # Directory not empty, will be cleaned up later
+                    except Exception as cleanup_error:
+                        logger.error(f"Chunk cleanup failed completely: {cleanup_error}")
+                        # Don't fail the operation, just log the issue
                 
                 return output_path
                 

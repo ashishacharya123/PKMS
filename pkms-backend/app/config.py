@@ -200,7 +200,6 @@ def get_redis_url() -> str:
     # Validate Redis URL format if provided
     if not redis_url.startswith("redis://"):
         # Log warning but don't crash - allow fallback to in-memory cache
-        import warnings
         warnings.warn(
             f"Invalid Redis URL format: '{redis_url}'. "
             "Must start with 'redis://'. Falling back to in-memory cache.",

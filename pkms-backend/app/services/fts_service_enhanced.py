@@ -346,14 +346,26 @@ class EnhancedFTS5SearchService:
         # Find min and max scores for normalization
         min_score = min(r.get('raw_score', 0) for r in results)
         max_score = max(r.get('raw_score', 0) for r in results)
-        score_range = max_score - min_score if max_score != min_score else 1
+        
+        # Handle division by zero when all scores are identical
+        if max_score == min_score:
+            # All scores are identical, assign equal normalized scores
+            normalized_score = 0.5  # Middle of range
+        else:
+            score_range = max_score - min_score
         
         normalized_results = []
         for result in results:
             raw_score = result.get('raw_score', 0)
             
-            # Invert BM25 (lower is better) to 0..1 range where 1 is best
-            normalized_score = 1 - ((raw_score - min_score) / score_range) if score_range > 0 else 1
+            if max_score == min_score:
+                # All scores identical - use equal normalized score
+                normalized_score = 0.5
+            else:
+                # CORRECTED: BM25 scores work like golf - lower scores are better
+                # Invert the normalization so lower raw_score = higher normalized_score
+                # Normalize to 0..1 range where 1 is best (lower raw_score = better)
+                normalized_score = 1.0 - ((raw_score - min_score) / score_range)
             
             # Apply module weight
             module = result.get('module', 'general')
@@ -565,10 +577,13 @@ class EnhancedFTS5SearchService:
                     LIMIT :module_limit
                 """)
 
+                # Calculate module limit ensuring at least 1 suggestion per module
+                module_limit = max(1, limit // len(active_modules)) if active_modules else limit
+                
                 result = await db.execute(suggestion_sql, {
                     'prefix_query': prefix_query,
                     'user_id': user_id,
-                    'module_limit': max(2, limit // len(active_modules)) if active_modules else limit
+                    'module_limit': module_limit
                 })
 
                 module_suggestions = [

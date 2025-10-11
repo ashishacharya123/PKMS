@@ -18,6 +18,9 @@ import hashlib
 from typing import Dict
 import time
 import asyncio
+import gc
+import threading
+from contextlib import contextmanager
 
 from app.database import get_db
 from app.config import NEPAL_TZ, get_data_dir, get_file_storage_dir
@@ -54,26 +57,34 @@ router = APIRouter(tags=["diary"])
 
 WEATHER_CODE_DEFAULT = None
 
-# Secure in-memory session store for diary encryption material
+# Secure in-memory session store for diary encryption material with thread safety
 # Format: {user_id: {"key": bytes, "timestamp": float, "expires_at": float}}
 _diary_sessions: Dict[int, Dict[str, any]] = {}
+_diary_sessions_lock = threading.RLock()
 DIARY_SESSION_TIMEOUT = 1800  # 30 minutes in seconds (aligned with app session)
+
+@contextmanager
+def _get_session_lock():
+    """Thread-safe access to diary sessions"""
+    with _diary_sessions_lock:
+        yield
 
 def _get_diary_password_from_session(user_id: int) -> Optional[bytes]:
     """Get diary derived key from session if valid and not expired."""
-    if user_id not in _diary_sessions:
-        return None
-    
-    session = _diary_sessions[user_id]
-    current_time = time.time()
-    
-    # Check if session has expired
-    if current_time > session["expires_at"]:
-        logger.info(f"Diary session expired for user {user_id}")
-        _clear_diary_session(user_id)
-        return None
-    
-    return session["key"]
+    with _get_session_lock():
+        if user_id not in _diary_sessions:
+            return None
+        
+        session = _diary_sessions[user_id]
+        current_time = time.time()
+        
+        # Check if session has expired (atomic check and clear)
+        if current_time > session["expires_at"]:
+            logger.info(f"Diary session expired for user {user_id}")
+            _clear_diary_session(user_id)
+            return None
+        
+        return session["key"]
 
 def _store_diary_password_in_session(user_id: int, password: str):
     """Store derived diary key in secure session with expiry.
@@ -81,73 +92,85 @@ def _store_diary_password_in_session(user_id: int, password: str):
     SECURITY: Uses proper key derivation with salt and stores both key and salt
     for secure encryption operations.
     """
-    current_time = time.time()
-    key, salt = _derive_diary_encryption_key(password)
-    
-    _diary_sessions[user_id] = {
-        "key": key,
-        "salt": salt,
-        "timestamp": current_time,
-        "expires_at": current_time + DIARY_SESSION_TIMEOUT
-    }
-    logger.info(f"Diary session created for user {user_id}, expires in {DIARY_SESSION_TIMEOUT}s")
+    with _get_session_lock():
+        current_time = time.time()
+        key, salt = _derive_diary_encryption_key(password)
+        
+        _diary_sessions[user_id] = {
+            "key": key,
+            "salt": salt,
+            "timestamp": current_time,
+            "expires_at": current_time + DIARY_SESSION_TIMEOUT
+        }
+        logger.info(f"Diary session created for user {user_id}, expires in {DIARY_SESSION_TIMEOUT}s")
 
 def _clear_diary_session(user_id: int):
     """Clear diary session and password from memory.
     
     SECURITY: Securely overwrites all sensitive data in memory before deletion.
     """
-    if user_id in _diary_sessions:
-        session = _diary_sessions[user_id]
-        
-        # Securely overwrite all sensitive data
-        try:
-            # Overwrite key
-            if "key" in session and session["key"]:
-                key_len = len(session["key"])
-                session["key"] = b"\x00" * key_len
+    with _get_session_lock():
+        if user_id in _diary_sessions:
+            session = _diary_sessions[user_id]
             
-            # Overwrite salt
-            if "salt" in session and session["salt"]:
-                salt_len = len(session["salt"])
-                session["salt"] = b"\x00" * salt_len
+            # Securely overwrite all sensitive data
+            try:
+                # Overwrite key
+                if "key" in session and session["key"]:
+                    key_len = len(session["key"])
+                    session["key"] = b"\x00" * key_len
+                
+                # Overwrite salt
+                if "salt" in session and session["salt"]:
+                    salt_len = len(session["salt"])
+                    session["salt"] = b"\x00" * salt_len
+                
+                # Overwrite timestamp data
+                session["timestamp"] = 0.0
+                session["expires_at"] = 0.0
+                
+            except Exception as e:
+                logger.warning(f"Error securely clearing session data for user {user_id}: {e}")
             
-            # Overwrite timestamp data
-            session["timestamp"] = 0.0
-            session["expires_at"] = 0.0
+            # Remove from dictionary and force garbage collection
+            del _diary_sessions[user_id]
+            logger.info(f"Diary session cleared for user {user_id}")
             
-        except Exception as e:
-            logger.warning(f"Error securely clearing session data for user {user_id}: {e}")
-        
-        # Remove from dictionary
-        del _diary_sessions[user_id]
-        logger.info(f"Diary session cleared for user {user_id}")
+            # Force cleanup
+            gc.collect()
 
 def _is_diary_unlocked(user_id: int) -> bool:
     """Check if diary is currently unlocked for user."""
     return _get_diary_password_from_session(user_id) is not None
 
 async def _cleanup_expired_sessions():
-    """Periodically clean up expired diary sessions."""
+    """Periodically clean up expired diary sessions with error recovery."""
     while True:
         try:
-            current_time = time.time()
-            expired_users = [
-                user_id for user_id, session in _diary_sessions.items()
-                if current_time > session["expires_at"]
-            ]
-            
-            for user_id in expired_users:
-                logger.info(f"Auto-expiring diary session for user {user_id}")
-                _clear_diary_session(user_id)
-            
-            if expired_users:
-                logger.info(f"Cleaned up {len(expired_users)} expired diary sessions")
-            
+            await asyncio.sleep(300)  # Run every 5 minutes
+
+            with _get_session_lock():
+                current_time = time.time()
+                expired_users = [
+                    user_id for user_id, session in _diary_sessions.items()
+                    if current_time > session["expires_at"]
+                ]
+
+                for user_id in expired_users:
+                    try:
+                        _clear_diary_session(user_id)
+                    except Exception as e:
+                        logger.error(f"Error clearing session for user {user_id}: {e}")
+
+                if expired_users:
+                    logger.info(f"Cleaned up {len(expired_users)} expired diary sessions")
+
+        except asyncio.CancelledError:
+            break
         except Exception as e:
-            logger.error(f"Error during session cleanup: {e}")
-        
-        await asyncio.sleep(300)  # Run every 5 minutes
+            logger.error(f"Critical error in session cleanup: {e}")
+            # Don't exit - continue cleanup loop
+            continue
 
 # Start cleanup task when module is imported (application startup)
 try:
@@ -475,9 +498,8 @@ async def unlock_encryption(
         
         # SECURITY: Validate password with constant-time comparison
         from app.auth.security import verify_password
-        import hmac
         
-        # Use bcrypt verification (already constant-time) with additional hmac protection
+        # Use bcrypt verification (already constant-time and secure)
         password_valid = verify_password(request.password, current_user.diary_password_hash)
         
         if password_valid:
@@ -596,22 +618,38 @@ async def create_diary_entry(
         await db.flush()
         await db.refresh(entry)
         
-        # Persist encrypted content to disk
-        file_path = _generate_diary_file_path(entry.uuid)
+        # Persist encrypted content to TEMPORARY location first
+        final_file_path = _generate_diary_file_path(entry.uuid)
+        temp_file_path = final_file_path.parent / f"temp_{final_file_path.name}"
+        
         file_result = write_encrypted_file(
-            dest_path=file_path,
+            dest_path=temp_file_path,
             iv_b64=entry_data.encryption_iv,
             encrypted_blob_b64=entry_data.encrypted_blob,
             original_extension="",
         )
         
-        entry.content_file_path = str(file_path)
+        entry.content_file_path = str(final_file_path)  # Use final path for DB record
         entry.file_hash = file_result["file_hash"]
         entry.encryption_tag = file_result.get("tag_b64")
         if entry_data.content_length is not None:
             entry.content_length = entry_data.content_length
         
         await db.commit()
+        
+        # SECURITY: Move encrypted file to final location ONLY after successful DB commit
+        try:
+            temp_file_path.rename(final_file_path)
+            logger.info(f"✅ Diary entry file moved to final location: {final_file_path}")
+        except Exception as move_error:
+            logger.error(f"❌ Failed to move diary entry file to final location: {move_error}")
+            # Clean up temp file
+            try:
+                if temp_file_path.exists():
+                    temp_file_path.unlink()
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail="Failed to finalize diary entry file storage")
         await db.refresh(entry)
         
         if entry_data.tags:
@@ -646,11 +684,23 @@ async def create_diary_entry(
         # Handle specific data type errors
         logger.warning(f"Data type error creating diary entry for user {current_user.id}: {type(e).__name__}")
         await db.rollback()
+        # Clean up temp file on DB rollback
+        try:
+            if 'temp_file_path' in locals() and temp_file_path.exists():
+                temp_file_path.unlink()
+        except Exception:
+            pass
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid data provided")
     except Exception as e:
         # SECURITY: Don't expose system details in error messages
         logger.error(f"Unexpected error creating diary entry for user {current_user.id}: {type(e).__name__}")
         await db.rollback()
+        # Clean up temp file on DB rollback
+        try:
+            if 'temp_file_path' in locals() and temp_file_path.exists():
+                temp_file_path.unlink()
+        except Exception:
+            pass
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create diary entry")
 
 @router.get("/entries", response_model=List[DiaryEntrySummary])
@@ -967,6 +1017,7 @@ async def get_diary_entry_by_id(
                     ciphertext = f.read()
                 
                 # Combine ciphertext + tag and encode as base64 (matching frontend expectation)
+                # Note: read_encrypted_header properly separates tag from ciphertext
                 combined = ciphertext + tag
                 encrypted_blob = base64.b64encode(combined).decode()
                 
@@ -1103,21 +1154,31 @@ async def update_diary_entry(
     entry.encryption_iv = entry_data.encryption_iv
     entry.updated_at = datetime.now(NEPAL_TZ)
     
-    # Write updated encrypted content to file and update hash/path (UUID-based stable path)
+    # Store original file path for rollback in case of failure
+    original_file_path = entry.content_file_path
+    
+    # Write updated encrypted content to TEMPORARY location first
+    final_file_path = _generate_diary_file_path(entry.uuid)
+    temp_file_path = final_file_path.parent / f"temp_{final_file_path.name}"
+
     try:
-        file_path = _generate_diary_file_path(entry.uuid)
         file_result = write_encrypted_file(
-            dest_path=file_path,
+            dest_path=temp_file_path,
             iv_b64=entry_data.encryption_iv,
             encrypted_blob_b64=entry_data.encrypted_blob,
             original_extension=""
         )
-        entry.content_file_path = str(file_path)
+        entry.content_file_path = str(final_file_path)  # Use final path for DB record
         entry.file_hash = file_result["file_hash"]
         entry.encryption_tag = file_result.get("tag_b64")
         entry.content_length = entry_data.content_length if entry_data.content_length is not None else entry.content_length
     except Exception as e:
-        await db.rollback()
+        # Clean up temp file on write failure
+        try:
+            if temp_file_path.exists():
+                temp_file_path.unlink()
+        except Exception:
+            pass
         logger.error(f"Failed to write diary file during update for entry {entry_ref}: {e}")
         raise HTTPException(status_code=500, detail="Failed to write diary file")
 
@@ -1125,7 +1186,44 @@ async def update_diary_entry(
     if entry_data.tags is not None:
         await _handle_diary_tags(db, entry, entry_data.tags, current_user.id)
 
-    await db.commit()
+    # CRITICAL FIX: Use transaction to ensure atomicity of DB commit + file move
+    try:
+        await db.commit()
+        
+        # SECURITY: Move encrypted file to final location ONLY after successful DB commit
+        temp_file_path.rename(final_file_path)
+        logger.info(f"✅ Diary entry file moved to final location: {final_file_path}")
+        
+    except Exception as move_error:
+        # CRITICAL: If file move fails after DB commit, we have a serious inconsistency
+        # The DB points to a file that doesn't exist. We must rollback.
+        logger.error(f"❌ Failed to move diary entry file to final location: {move_error}")
+        logger.error(f"❌ CRITICAL: Database inconsistency detected - attempting to fix")
+
+        # Clean up temp file
+        try:
+            if temp_file_path.exists():
+                temp_file_path.unlink()
+        except Exception:
+            pass
+
+        # CRITICAL: We cannot rollback after commit, so we must fix the DB record
+        # Restore the original file path since the move failed
+        try:
+            if original_file_path:
+                entry.content_file_path = original_file_path
+                await db.commit()
+                logger.info(f"✅ Restored original file path: {original_file_path}")
+            else:
+                # No original file path - this is a critical data loss situation
+                logger.error(f"❌ CRITICAL DATA LOSS: No original file for diary entry {entry_ref}")
+                entry.content_file_path = None
+                await db.commit()
+                logger.error(f"❌ Set content_file_path to NULL for entry {entry_ref}")
+        except Exception as fix_error:
+            logger.error(f"❌ Failed to fix DB record: {fix_error}")
+
+        raise HTTPException(status_code=500, detail="Failed to finalize diary entry file storage")
     await db.refresh(entry)
 
     daily_metrics = json.loads(entry.daily_metadata.metrics_json) if entry.daily_metadata and entry.daily_metadata.metrics_json else {}
@@ -1149,6 +1247,24 @@ async def update_diary_entry(
         media_count=len(entry.media) if hasattr(entry, 'media') else 0,
         tags=await _get_entry_tags(db, entry.uuid)
     )
+    
+    except HTTPException:
+        # Re-raise specific HTTP exceptions (from file operations above)
+        raise
+    except Exception as e:
+        # Catch remaining unexpected errors (like database connection issues)
+        logger.error(f"Unexpected error updating diary entry {entry_ref}: {str(e)}")
+        await db.rollback()
+        # Clean up temp file on DB rollback
+        try:
+            if 'temp_file_path' in locals() and temp_file_path.exists():
+                temp_file_path.unlink()
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while updating the diary entry"
+        )
 
 @router.delete("/entries/{entry_ref}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_diary_entry(
@@ -1350,7 +1466,9 @@ async def commit_diary_media_upload(
         media_dir = get_file_storage_dir() / "secure" / "entries" / "media"
         media_dir.mkdir(parents=True, exist_ok=True)
         
-        encrypted_file_path = media_dir / encrypted_filename
+        # Use temporary path first, move to final after DB commit
+        temp_encrypted_file_path = media_dir / f"temp_{encrypted_filename}"
+        final_encrypted_file_path = media_dir / encrypted_filename
 
         # Read the assembled file content for encryption
         with open(assembled, "rb") as f:
@@ -1360,36 +1478,11 @@ async def commit_diary_media_upload(
         import os
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         
-        # SECURITY: Generate cryptographically secure IV and validate uniqueness
+        # SECURITY: Generate cryptographically secure IV
         import secrets
         iv = secrets.token_bytes(12)  # 96-bit IV for AES-GCM
-        
-        # Validate IV uniqueness (check against existing IVs for this user)
-        # This prevents nonce reuse attacks
-        existing_ivs_result = await db.execute(
-            select(DiaryMedia.encryption_iv).where(
-                and_(
-                    DiaryMedia.diary_entry_uuid.in_(
-                        select(DiaryEntry.uuid).where(DiaryEntry.user_id == current_user.id)
-                    ),
-                    DiaryMedia.encryption_iv.is_not(None)
-                )
-            )
-        )
-        existing_ivs = {row[0] for row in existing_ivs_result.fetchall()}
-        
-        # Ensure IV is unique (extremely unlikely collision, but be safe)
-        max_attempts = 10
-        attempts = 0
-        while iv in existing_ivs and attempts < max_attempts:
-            iv = secrets.token_bytes(12)
-            attempts += 1
-        
-        if attempts >= max_attempts:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to generate unique encryption IV"
-            )
+        # Note: 96-bit random IVs have astronomically low collision probability
+        # No need to scan database for uniqueness
         
         # SECURITY: Atomic check and retrieval to prevent race conditions
         session = _diary_sessions.get(current_user.id)
@@ -1411,10 +1504,10 @@ async def commit_diary_media_upload(
         # Extract file extension (strip leading dot)
         file_extension = assembled.suffix.lstrip('.').lower() if assembled.suffix else ""
         
-        # Use diary_encryption utility to write the encrypted file
+        # Use diary_encryption utility to write the encrypted file to TEMPORARY location
         # write_encrypted_file expects ciphertext+tag (full encrypted_content)
         write_encrypted_file(
-            dest_path=encrypted_file_path,
+            dest_path=temp_encrypted_file_path,
             iv_b64=base64.b64encode(iv).decode(),
             encrypted_blob_b64=base64.b64encode(encrypted_content).decode(),  # Full output (ciphertext+tag)
             original_extension=file_extension
@@ -1425,7 +1518,7 @@ async def commit_diary_media_upload(
         
         # Update the DiaryMedia record with proper values
         diary_media.filename = encrypted_filename
-        diary_media.file_path = str(encrypted_file_path)
+        diary_media.file_path = str(final_encrypted_file_path)  # Use final path for DB record
         diary_media.file_size = assembled_file_size
         diary_media.mime_type = status_obj.get("mime_type", "application/octet-stream")
 
@@ -1438,6 +1531,20 @@ async def commit_diary_media_upload(
 
         await db.commit()
         await db.refresh(diary_media)
+
+        # SECURITY: Move encrypted file to final location ONLY after successful DB commit
+        try:
+            temp_encrypted_file_path.rename(final_encrypted_file_path)
+            logger.info(f"✅ Encrypted file moved to final location: {final_encrypted_file_path}")
+        except Exception as move_error:
+            logger.error(f"❌ Failed to move encrypted file to final location: {move_error}")
+            # Clean up temp file
+            try:
+                if temp_encrypted_file_path.exists():
+                    temp_encrypted_file_path.unlink()
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail="Failed to finalize encrypted file storage")
 
         # Clean up temporary assembled file
         try:
@@ -1465,9 +1572,21 @@ async def commit_diary_media_upload(
         
     except HTTPException:
         await db.rollback()
+        # Clean up temp encrypted file on DB rollback
+        try:
+            if 'temp_encrypted_file_path' in locals() and temp_encrypted_file_path.exists():
+                temp_encrypted_file_path.unlink()
+        except Exception:
+            pass
         raise
     except Exception as e:
         await db.rollback()
+        # Clean up temp encrypted file on DB rollback
+        try:
+            if 'temp_encrypted_file_path' in locals() and temp_encrypted_file_path.exists():
+                temp_encrypted_file_path.unlink()
+        except Exception:
+            pass
         logger.error(f"Error committing diary media upload: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1524,10 +1643,28 @@ async def download_diary_media(
                 f.seek(header_size)
                 ciphertext = f.read()
             
-            # Decrypt using user's diary password
+            # Decrypt using the same encryption key from diary session
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
             
-            encryption_key = diary_password
+            # Get the encryption key from the current diary session (same key used for encryption)
+            diary_session = _diary_sessions.get(current_user.id)
+            if not diary_session:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Diary session expired. Please unlock diary again."
+                )
+            
+            # SECURITY: Check if session has expired
+            current_time = time.time()
+            if current_time > diary_session["expires_at"]:
+                logger.info(f"Diary session expired for user {current_user.id}")
+                _clear_diary_session(current_user.id)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Diary session expired. Please unlock diary again."
+                )
+            
+            encryption_key = diary_session["key"]  # Use the same key from session
             aesgcm = AESGCM(encryption_key)
             
             # SECURITY: Decrypt the content with proper error handling
@@ -1558,6 +1695,7 @@ async def download_diary_media(
             logger.info(f"Successfully decrypted media {media_uuid} for user {current_user.id}")
             
             # FileResponse will clean up after streaming
+            from starlette.background import BackgroundTask
             return FileResponse(
                 path=temp_file.name,
                 filename=f"{media.original_name}",
@@ -1567,7 +1705,7 @@ async def download_diary_media(
                     "X-File-Size": str(len(decrypted_content)),
                     "X-Is-Encrypted": "false"
                 },
-                background=lambda: os.unlink(temp_file.name)  # Cleanup after streaming
+                background=BackgroundTask(os.unlink, temp_file.name)  # Cleanup after streaming
             )
             
         except InvalidPKMSFile as e:

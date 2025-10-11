@@ -160,13 +160,14 @@ async def _handle_document_projects(db: AsyncSession, doc: Document, project_ids
             forbidden_ids = set(project_ids) - set(allowed_project_ids)
             logger.warning("User attempted to link to projects they don't own", user_id=user_id, forbidden_ids=list(forbidden_ids))
 
-async def _build_document_project_badges(db: AsyncSession, doc_id: int, is_exclusive: bool) -> List[ProjectBadge]:
+async def _build_document_project_badges(db: AsyncSession, doc_id: int) -> List[ProjectBadge]:
     """Build project badges from junction table (live projects and deleted snapshots)."""
     # Query junction table for this document
     result = await db.execute(
         select(
             document_projects.c.project_id,
-            document_projects.c.project_name_snapshot
+            document_projects.c.project_name_snapshot,
+            document_projects.c.is_exclusive
         ).where(document_projects.c.document_id == doc_id)
     )
     
@@ -174,6 +175,7 @@ async def _build_document_project_badges(db: AsyncSession, doc_id: int, is_exclu
     for row in result:
         project_id = row.project_id
         snapshot_name = row.project_name_snapshot
+        is_exclusive = row.is_exclusive
         
         if project_id is not None:
             # Live project - fetch current details
@@ -196,7 +198,7 @@ async def _build_document_project_badges(db: AsyncSession, doc_id: int, is_exclu
                     id=None,
                     name=snapshot_name,
                     color="#6c757d",  # Gray for deleted projects
-                    is_exclusive=False,  # Was linked (survived deletion)
+                    is_exclusive=is_exclusive,
                     is_deleted=True
                 ))
     
@@ -279,32 +281,33 @@ async def commit_document_upload(
             safe_original = safe_original[:100]
         
         stored_filename = f"{safe_original}_{file_uuid}{file_extension}"
-        dest_path = docs_dir / stored_filename
+        temp_dest_path = docs_dir / f"temp_{stored_filename}"  # Temporary location
+        final_dest_path = docs_dir / stored_filename  # Final location
 
-        # Move assembled file to final location; handle cross-device moves (EXDEV)
+        # Move assembled file to TEMPORARY location first; handle cross-device moves (EXDEV)
         try:
-            assembled.rename(dest_path)
+            assembled.rename(temp_dest_path)
         except OSError as move_err:
             import errno as _errno
             if getattr(move_err, 'errno', None) == _errno.EXDEV:
                 # Fallback to shutil.move which copies across devices, then unlinks
-                shutil.move(str(assembled), str(dest_path))
+                shutil.move(str(assembled), str(temp_dest_path))
             else:
                 raise
 
         # Get file size before database operations
-        file_size = dest_path.stat().st_size
+        file_size = temp_dest_path.stat().st_size
         
         # SECURITY: Validate file size to prevent DoS attacks
         from app.utils.security import validate_file_size
         from app.config import settings
         validate_file_size(file_size, settings.max_file_size)
         
-        file_path_relative = str(dest_path.relative_to(get_file_storage_dir()))
+        file_path_relative = str(final_dest_path.relative_to(get_file_storage_dir()))
         
         # Detect file type and extract metadata
         detection_result = await file_detector.detect_file_type(
-            file_path=dest_path,
+            file_path=temp_dest_path,
             file_content=None  # File is already on disk
         )
 
@@ -345,6 +348,20 @@ async def commit_document_upload(
 
         await db.commit()
         
+        # SECURITY: Move file to final location ONLY after successful DB commit
+        try:
+            temp_dest_path.rename(final_dest_path)
+            logger.info(f"✅ File moved to final location: {final_dest_path}")
+        except Exception as move_error:
+            logger.error(f"❌ Failed to move file to final location: {move_error}")
+            # Clean up temp file
+            try:
+                if temp_dest_path.exists():
+                    temp_dest_path.unlink()
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail="Failed to finalize file storage")
+        
         # Reload document with tags to avoid lazy loading issues in response conversion
         result = await db.execute(
             select(Document).options(selectinload(Document.tag_objs)).where(
@@ -354,7 +371,7 @@ async def commit_document_upload(
         document_with_tags = result.scalar_one()
 
         # Build project badges
-        project_badges = await _build_document_project_badges(db, document_with_tags.id, document_with_tags.is_exclusive_mode)
+        project_badges = await _build_document_project_badges(db, document_with_tags.id)
 
         # Clean up temporary file tracking
         if payload.file_id in chunk_manager.uploads:
@@ -366,9 +383,21 @@ async def commit_document_upload(
         
     except HTTPException:
         await db.rollback()
+        # Clean up temp file on DB rollback
+        try:
+            if 'temp_dest_path' in locals() and temp_dest_path.exists():
+                temp_dest_path.unlink()
+        except Exception:
+            pass
         raise
     except Exception as e:
         await db.rollback()
+        # Clean up temp file on DB rollback
+        try:
+            if 'temp_dest_path' in locals() and temp_dest_path.exists():
+                temp_dest_path.unlink()
+        except Exception:
+            pass
         logger.exception("Error committing document upload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -403,12 +432,22 @@ async def list_documents(
         if search:
             # Use FTS5 for full-text search
             fts_results = await enhanced_fts_service.search_all(db, search, current_user.id, content_types=["documents"], limit=limit, offset=offset)
-            doc_uuids = [r["id"] for r in fts_results if r["type"] == "document"]
-            logger.info(f"FTS5 search returned {len(doc_uuids)} document UUIDs")
+            
+            # Create mapping of document UUID to FTS score for proper ordering
+            fts_scores = {}
+            doc_uuids = []
+            for r in fts_results:
+                if r["type"] == "document":
+                    doc_uuids.append(r["id"])
+                    # Use 0.1 as default (lowest relevance) instead of 0.0 to maintain 0.0-1.0 range
+                    fts_scores[r["id"]] = r.get("normalized_score", 0.1)
+            
+            logger.info(f"FTS5 search returned {len(doc_uuids)} document UUIDs with scores")
             
             if not doc_uuids:
                 return []
-            # Fetch documents by UUIDs, preserving FTS5 order
+            
+            # Fetch documents by UUIDs
             query = select(Document).options(selectinload(Document.tag_objs)).where(
                 and_(
                     Document.user_id == current_user.id,
@@ -434,10 +473,18 @@ async def list_documents(
             documents = result.scalars().unique().all()
             logger.info(f"FTS5 query returned {len(documents)} documents")
             
-            # Order documents by FTS5 relevance
-            docs_by_uuid = {d.uuid: d for d in documents}
-            ordered_docs = [docs_by_uuid[uuid] for uuid in doc_uuids if uuid in docs_by_uuid]
-            logger.info(f"Final ordered result: {len(ordered_docs)} documents")
+            # PROPER FIX: Order documents by FTS5 relevance score
+            # Create a list of (document, score) tuples, handling missing scores gracefully
+            doc_score_pairs = []
+            for doc in documents:
+                score = fts_scores.get(doc.uuid, 0.1)  # Default to 0.1 (lowest relevance) if no FTS score
+                doc_score_pairs.append((doc, score))
+            
+            # Sort by score (descending) to get most relevant first
+            doc_score_pairs.sort(key=lambda x: x[1], reverse=True)
+            ordered_docs = [doc for doc, score in doc_score_pairs]
+            
+            logger.info(f"Final ordered result: {len(ordered_docs)} documents (ordered by FTS relevance)")
         else:
             # Fallback to regular query
             logger.info(f"Using regular query for archived={archived}")
@@ -518,7 +565,7 @@ async def list_documents(
                             name=project.name,
                             color=project.color,
                             is_exclusive=junction.is_exclusive,
-                            isDeleted=False
+                            is_deleted=False
                         ))
                     elif junction.project_name_snapshot:
                         # Deleted project (snapshot)
@@ -527,7 +574,7 @@ async def list_documents(
                             name=junction.project_name_snapshot,
                             color="#6c757d",  # Gray for deleted
                             is_exclusive=junction.is_exclusive,
-                            isDeleted=True
+                            is_deleted=True
                         ))
                 
                 response.append(_convert_doc_to_response(d, project_badges))
@@ -558,7 +605,7 @@ async def get_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     
     # Build project badges
-    project_badges = await _build_document_project_badges(db, doc.id, doc.is_exclusive_mode)
+    project_badges = await _build_document_project_badges(db, doc.id)
     
     return _convert_doc_to_response(doc, project_badges)
 
@@ -636,7 +683,7 @@ async def update_document(
     await db.refresh(doc)
     
     # Build project badges
-    project_badges = await _build_document_project_badges(db, doc.id, doc.is_exclusive_mode)
+    project_badges = await _build_document_project_badges(db, doc.id)
     
     return _convert_doc_to_response(doc, project_badges)
 
@@ -719,7 +766,7 @@ async def archive_document(
             file_path=str(archive_file_path.relative_to(get_file_storage_dir())),
             file_size=document.file_size,
             mime_type=document.mime_type,
-            extracted_text=document.extracted_text,
+            extracted_text=getattr(document, "extracted_text", None),
             user_id=current_user.id,
             is_archived=False,  # In archive module, items start as not archived
             is_favorite=document.is_favorite,
@@ -766,7 +813,7 @@ async def archive_document(
                 await db.execute(
                     archive_tags.insert().values(
                         item_uuid=archive_item.uuid,
-                        tag_id=archive_tag.id
+                        tag_uuid=archive_tag.uuid
                     )
                 )
         

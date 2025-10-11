@@ -76,27 +76,33 @@ echo    To restore a backup, run: restore_db.bat
 echo    To create a backup, run: create_backup.bat
 echo.
 
-:: Check for very old backups
+:: Check for very old backups using PowerShell for robust date comparison
 set old_backup_count=0
 for %%f in (*.db) do (
-    :: Check if file is older than 30 days (simplified check)
-    for %%d in ("%%f") do (
-        set file_date=%%~td
-        echo !file_date! | findstr /r "2024\|2023\|2022\|2021\|2020" >nul && set /a old_backup_count+=1
+    :: Use PowerShell to check if file is older than 1 year
+    for /f %%i in ('powershell -command "if ((Get-Item '%%f').LastWriteTime -lt (Get-Date).AddYears(-1)) { 1 } else { 0 }"') do (
+        if %%i==1 set /a old_backup_count+=1
     )
 )
 
 if %old_backup_count% GTR 0 (
-    echo ⚠️  Note: %old_backup_count% backup(s) appear to be older than 1 year
-    echo    Consider cleaning up old backups to save disk space
+    echo ⚠️  Note: %old_backup_count% backup(s) are older than 1 year
+    echo    Consider reviewing old backups to save disk space
     echo.
 )
 
-:: Check disk space
+:: Check disk space using WMIC for reliable cross-locale support
 echo 💾 Disk space information:
-for /f "tokens=3" %%a in ('dir /-c ^| find "bytes free"') do set free_space=%%a
-set /a free_space_mb=!free_space!/1024/1024
-echo    Free space: !free_space_mb! MB
+for /f "tokens=3 delims= " %%a in ('wmic logicaldisk where "DeviceID='%~d0'" get FreeSpace /value ^| find "FreeSpace"') do set free_space=%%a
+
+:: Validate and convert to MB
+if "%free_space%"=="" (
+    echo    Warning: Could not determine free space
+    set free_space_mb=0
+) else (
+    set /a free_space_mb=!free_space!/1024/1024
+    echo    Free space: !free_space_mb! MB
+)
 echo.
 
 if !free_space_mb! LSS 1000 (
