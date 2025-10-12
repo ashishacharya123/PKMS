@@ -1874,9 +1874,26 @@ async def commit_uploaded_file(
         if not payload.folder_uuid:
             raise HTTPException(status_code=400, detail="folder_uuid is required")
         
-        # Check assembled file status
+        # Check assembled file status and wait for completion if needed
         status = await chunk_manager.get_upload_status(payload.file_id)
-        if not status or status.get("status") != "completed":
+        if not status:
+            raise HTTPException(status_code=404, detail="Upload not found")
+        
+        # If still assembling, wait for completion with timeout
+        if status.get("status") == "assembling":
+            logger.info(f"File {payload.file_id} still assembling, waiting for completion...")
+            max_wait = 30  # seconds
+            for i in range(max_wait):
+                await asyncio.sleep(1)
+                status = await chunk_manager.get_upload_status(payload.file_id)
+                if status.get("status") == "completed":
+                    break
+                elif status.get("status") == "failed":
+                    raise HTTPException(status_code=400, detail="File assembly failed")
+            else:
+                raise HTTPException(status_code=408, detail="Assembly timeout - file took too long to assemble")
+        
+        if status.get("status") != "completed":
             raise HTTPException(status_code=400, detail="File not yet assembled or assembly failed")
 
         # Locate assembled file path

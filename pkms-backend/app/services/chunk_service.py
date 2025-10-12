@@ -5,6 +5,7 @@ Handles chunked file uploads with progress tracking and error handling
 
 import asyncio
 import aiofiles
+import json
 from pathlib import Path
 from typing import Dict, Optional, BinaryIO
 import logging
@@ -29,19 +30,71 @@ class ChunkUploadManager:
         self.uploads: Dict[str, Dict] = {}
         self.assembly_semaphore = asyncio.Semaphore(CONCURRENT_ASSEMBLIES)
         self.cleanup_task = None
+        self.state_file = Path(get_data_dir()) / "chunk_upload_state.json"
     
     async def start(self):
-        """Start the cleanup task"""
+        """Start the cleanup task and load persisted state"""
+        await self._load_state_from_file()
         self.cleanup_task = asyncio.create_task(self._cleanup_loop())
     
     async def stop(self):
-        """Stop the cleanup task"""
+        """Stop the cleanup task and save state"""
         if self.cleanup_task:
             self.cleanup_task.cancel()
             try:
                 await self.cleanup_task
             except asyncio.CancelledError:
                 pass
+        await self._save_state_to_file()
+    
+    async def _save_state_to_file(self):
+        """Save upload state to file for persistence across restarts"""
+        try:
+            # Convert sets to lists for JSON serialization
+            serializable_uploads = {}
+            for file_id, upload in self.uploads.items():
+                serializable_upload = upload.copy()
+                if 'received_chunks' in serializable_upload:
+                    serializable_upload['received_chunks'] = list(serializable_upload['received_chunks'])
+                # Convert datetime to string
+                if 'last_update' in serializable_upload and serializable_upload['last_update']:
+                    serializable_upload['last_update'] = serializable_upload['last_update'].isoformat()
+                serializable_uploads[file_id] = serializable_upload
+            
+            async with aiofiles.open(self.state_file, 'w') as f:
+                await f.write(json.dumps(serializable_uploads, indent=2))
+            logger.debug(f"Saved upload state to {self.state_file}")
+        except Exception as e:
+            logger.error(f"Failed to save upload state: {e}")
+    
+    async def _load_state_from_file(self):
+        """Load upload state from file on startup"""
+        try:
+            if not self.state_file.exists():
+                logger.debug("No existing upload state file found")
+                return
+            
+            async with aiofiles.open(self.state_file, 'r') as f:
+                content = await f.read()
+                if not content.strip():
+                    logger.debug("Upload state file is empty")
+                    return
+                
+                serializable_uploads = json.loads(content)
+                
+                # Convert back to proper types
+                for file_id, upload in serializable_uploads.items():
+                    if 'received_chunks' in upload:
+                        upload['received_chunks'] = set(upload['received_chunks'])
+                    # Convert string back to datetime
+                    if 'last_update' in upload and upload['last_update']:
+                        upload['last_update'] = datetime.fromisoformat(upload['last_update'])
+                    self.uploads[file_id] = upload
+                
+                logger.info(f"Loaded {len(self.uploads)} upload states from {self.state_file}")
+        except Exception as e:
+            logger.error(f"Failed to load upload state: {e}")
+            # Continue with empty state if loading fails
     
     async def save_chunk(self, file_id: str, chunk_number: int, chunk_data: BinaryIO, filename: str, total_chunks: int, total_size: int) -> Dict:
         """Save a chunk to disk and update progress"""
@@ -87,6 +140,9 @@ class ChunkUploadManager:
             # Check if upload is complete
             if len(upload['received_chunks']) == total_chunks:
                 upload['status'] = 'assembling'
+            
+            # Save state after important changes
+            await self._save_state_to_file()
             
             return {
                 'file_id': file_id,
@@ -145,6 +201,9 @@ class ChunkUploadManager:
                 # Update status
                 upload['status'] = 'completed'
                 
+                # Save state after completion
+                await self._save_state_to_file()
+                
                 # Clean up chunks with robust Windows file locking handling
                 try:
                     shutil.rmtree(chunk_dir)
@@ -174,7 +233,10 @@ class ChunkUploadManager:
             except Exception as e:
                 logger.error(f"Error assembling file {file_id}: {str(e)}")
                 if file_id in self.uploads:
-                    self.uploads[file_id]['status'] = 'error'
+                    self.uploads[file_id]['status'] = 'failed'
+                    self.uploads[file_id]['error'] = str(e)
+                    # Save state after failure
+                    await self._save_state_to_file()
                 raise
     
     async def get_upload_status(self, file_id: str) -> Optional[Dict]:
@@ -221,6 +283,9 @@ class ChunkUploadManager:
                 
                 # Remove from tracking
                 del self.uploads[file_id]
+                
+                # Save state after cleanup
+                await self._save_state_to_file()
                 
                 logger.info(f"Cleaned up expired upload {file_id}")
             except Exception as e:

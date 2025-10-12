@@ -76,6 +76,14 @@ async def upload_chunk(
                 logger.info(f"Assembly completed for file_id: {meta['file_id']}")
             except Exception as e:
                 logger.error(f"Assembly failed for file_id: {meta['file_id']}: {str(e)}")
+                # Set failure status so commit endpoint knows assembly failed
+                try:
+                    status = await chunk_manager.get_upload_status(meta["file_id"])
+                    if status:
+                        status["status"] = "failed"
+                        status["error"] = str(e)
+                except Exception as status_error:
+                    logger.error(f"Failed to update status for failed assembly: {status_error}")
         
         asyncio.create_task(assembly_task())
 
