@@ -70,14 +70,25 @@ export function ProjectDashboardPage() {
       
       // Load all items for this project
       const [notesData, docsData, todosData] = await Promise.all([
-        notesService.listNotes({}),
-        documentsService.listDocuments({}),
-        todosService.getTodos({})
+        notesService.listNotes({}), // TODO: Add project filtering by UUID
+        documentsService.listDocuments({}), // TODO: Add project filtering by UUID
+        todosService.getTodos({}) // TODO: Add project filtering by UUID
       ]);
-      
-      setNotes(notesData);
-      setDocuments(docsData);
-      setTodos(todosData);
+
+      // Filter items by project (temporary solution until services support UUID filtering)
+      const filteredNotes = notesData.filter(note =>
+        note.projects?.some(p => p.id === projectData.id)
+      );
+      const filteredDocs = docsData.filter(doc =>
+        doc.projects?.some(p => p.id === projectData.id)
+      );
+      const filteredTodos = todosData.filter(todo =>
+        todo.projects?.some(p => p.id === projectData.id)
+      );
+
+      setNotes(filteredNotes);
+      setDocuments(filteredDocs);
+      setTodos(filteredTodos as Todo[]);
     } catch (error) {
       console.error('Failed to load project data:', error);
       notifications.show({
@@ -293,10 +304,10 @@ export function ProjectDashboardPage() {
                   <Stack gap="xs">
                     {notes.map(note => (
                       <ItemCard
-                        key={note.id}
+                        key={note.uuid}
                         item={note}
                         type="note"
-                        onNavigate={() => navigate(`/notes/${note.id}`)}
+                        onNavigate={() => navigate(`/notes/${note.uuid}`)}
                       />
                     ))}
                   </Stack>
@@ -310,10 +321,10 @@ export function ProjectDashboardPage() {
                   <Stack gap="xs">
                     {documents.map(doc => (
                       <ItemCard
-                        key={doc.id}
+                        key={doc.uuid}
                         item={doc}
                         type="document"
-                        onNavigate={() => navigate(`/documents?doc=${doc.id}`)}
+                        onNavigate={() => navigate(`/documents?doc=${doc.uuid}`)}
                       />
                     ))}
                   </Stack>
@@ -327,10 +338,10 @@ export function ProjectDashboardPage() {
                   <Stack gap="xs">
                     {todos.map(todo => (
                       <ItemCard
-                        key={todo.id}
+                        key={todo.uuid}
                         item={todo}
                         type="todo"
-                        onNavigate={() => navigate(`/todos?todo=${todo.id}`)}
+                        onNavigate={() => navigate(`/todos?todo=${todo.uuid}`)}
                       />
                     ))}
                   </Stack>
@@ -361,10 +372,10 @@ export function ProjectDashboardPage() {
                   <Stack gap="xs">
                     {exclusiveNotes.map(note => (
                       <ItemCard
-                        key={note.id}
+                        key={note.uuid}
                         item={note}
                         type="note"
-                        onNavigate={() => navigate(`/notes/${note.id}`)}
+                        onNavigate={() => navigate(`/notes/${note.uuid}`)}
                       />
                     ))}
                   </Stack>
@@ -377,10 +388,10 @@ export function ProjectDashboardPage() {
                   <Stack gap="xs">
                     {exclusiveDocs.map(doc => (
                       <ItemCard
-                        key={doc.id}
+                        key={doc.uuid}
                         item={doc}
                         type="document"
-                        onNavigate={() => navigate(`/documents?doc=${doc.id}`)}
+                        onNavigate={() => navigate(`/documents?doc=${doc.uuid}`)}
                       />
                     ))}
                   </Stack>
@@ -393,10 +404,10 @@ export function ProjectDashboardPage() {
                   <Stack gap="xs">
                     {exclusiveTodos.map(todo => (
                       <ItemCard
-                        key={todo.id}
+                        key={todo.uuid}
                         item={todo}
                         type="todo"
-                        onNavigate={() => navigate(`/todos?todo=${todo.id}`)}
+                        onNavigate={() => navigate(`/todos?todo=${todo.uuid}`)}
                       />
                     ))}
                   </Stack>
@@ -427,10 +438,10 @@ export function ProjectDashboardPage() {
                   <Stack gap="xs">
                     {linkedNotes.map(note => (
                       <ItemCard
-                        key={note.id}
+                        key={note.uuid}
                         item={note}
                         type="note"
-                        onNavigate={() => navigate(`/notes/${note.id}`)}
+                        onNavigate={() => navigate(`/notes/${note.uuid}`)}
                       />
                     ))}
                   </Stack>
@@ -443,10 +454,10 @@ export function ProjectDashboardPage() {
                   <Stack gap="xs">
                     {linkedDocs.map(doc => (
                       <ItemCard
-                        key={doc.id}
+                        key={doc.uuid}
                         item={doc}
                         type="document"
-                        onNavigate={() => navigate(`/documents?doc=${doc.id}`)}
+                        onNavigate={() => navigate(`/documents?doc=${doc.uuid}`)}
                       />
                     ))}
                   </Stack>
@@ -459,10 +470,10 @@ export function ProjectDashboardPage() {
                   <Stack gap="xs">
                     {linkedTodos.map(todo => (
                       <ItemCard
-                        key={todo.id}
+                        key={todo.uuid}
                         item={todo}
                         type="todo"
-                        onNavigate={() => navigate(`/todos?todo=${todo.id}`)}
+                        onNavigate={() => navigate(`/todos?todo=${todo.uuid}`)}
                       />
                     ))}
                   </Stack>

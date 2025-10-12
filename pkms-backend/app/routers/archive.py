@@ -932,12 +932,6 @@ async def upload_item(
         except Exception:
             pass
         
-        # Clean up partially uploaded file if it exists (legacy cleanup)
-        try:
-            if 'file_path' in locals() and Path(file_path).exists():
-                Path(file_path).unlink()
-        except Exception as cleanup_error:
-            logger.error(f"❌ Failed to cleanup file: {str(cleanup_error)}")
         
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1848,11 +1842,15 @@ async def upload_files(
                     temp_path.rename(final_path)
                     logger.info(f"✅ File moved to final location: {final_path}")
                     # Update DB record to point to final path
-                    await db.execute(
-                        update(ArchiveItem)
-                        .where(ArchiveItem.file_path == str(temp_path))
-                        .values(file_path=str(final_path))
-                    )
+                    try:
+                        await db.execute(
+                            update(ArchiveItem)
+                            .where(ArchiveItem.file_path == str(temp_path))
+                            .values(file_path=str(final_path))
+                        )
+                    except Exception as db_error:
+                        logger.error(f"❌ Failed to update database record for file path: {db_error}")
+                        raise Exception(f"Database update failed: {str(db_error)}")
                 else:
                     logger.warning(f"⚠️ Temp file not found: {temp_path}")
                     raise Exception(f"Temp file missing: {temp_path}")

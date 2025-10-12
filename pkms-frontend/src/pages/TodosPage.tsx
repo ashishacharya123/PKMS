@@ -523,7 +523,7 @@ export function TodosPage() {
             }}
           />
         );
-      
+
       case 'timeline':
         return (
           <TimelineView
@@ -553,7 +553,7 @@ export function TodosPage() {
             }}
           />
         );
-      
+
       case 'list':
       default:
         return (
