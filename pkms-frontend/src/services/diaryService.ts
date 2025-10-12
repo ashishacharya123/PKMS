@@ -263,14 +263,14 @@ class DiaryService {
   }
 
   async getMediaAsObjectURL(
-    mediaId: number,
+    mediaUuid: string,
     onProgress?: (progress: { progress: number; status: string }) => void
   ): Promise<string> {
     try {
-      const downloadUrl = `${this.baseUrl}/media/${mediaId}/download`;
-      
+      const downloadUrl = `${this.baseUrl}/media/${mediaUuid}/download`;
+
       return await coreDownloadService.downloadAsObjectURL(downloadUrl, {
-        fileId: `diary-media-${mediaId}`,
+        fileId: `diary-media-${mediaUuid}`,
         onProgress: onProgress ? (progress) => {
           onProgress({
             progress: progress.progress,
@@ -289,8 +289,8 @@ class DiaryService {
     return response.data as any[];
   }
 
-  async deleteMedia(mediaId: number): Promise<void> {
-    await apiService.delete(`${this.baseUrl}/media/${mediaId}`);
+  async deleteMedia(mediaUuid: string): Promise<void> {
+    await apiService.delete(`${this.baseUrl}/media/${mediaUuid}`);
   }
 }
 

@@ -6,7 +6,7 @@ Handles hierarchical file and folder organization with enhanced security
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_, desc, delete, text
+from sqlalchemy import select, func, and_, or_, desc, delete, text, update
 from sqlalchemy.orm import selectinload
 from app.schemas.archive import (
     FolderCreate,
@@ -54,8 +54,14 @@ async def get_filesystem_path(folder_uuid: str, db: AsyncSession) -> str:
     # Build path by traversing up the hierarchy using UUIDs
     path_parts = [folder.uuid]
     current_parent = folder.parent_uuid
+    visited = {folder.uuid}  # Track visited folders to detect cycles
     
     while current_parent:
+        if current_parent in visited:
+            logger.error(f"Cycle detected in folder hierarchy: {current_parent}")
+            break
+        visited.add(current_parent)
+        
         parent_result = await db.execute(
             select(ArchiveFolder).where(ArchiveFolder.uuid == current_parent)
         )
@@ -86,8 +92,14 @@ async def get_display_path(folder_uuid: str, db: AsyncSession) -> str:
     # Build path by traversing up the hierarchy using names
     path_parts = [folder.name]
     current_parent = folder.parent_uuid
+    visited = {folder.uuid}  # Track visited folders to detect cycles
     
     while current_parent:
+        if current_parent in visited:
+            logger.error(f"Cycle detected in folder hierarchy: {current_parent}")
+            break
+        visited.add(current_parent)
+        
         parent_result = await db.execute(
             select(ArchiveFolder).where(ArchiveFolder.uuid == current_parent)
         )
@@ -922,8 +934,8 @@ async def upload_item(
         
         # Clean up partially uploaded file if it exists (legacy cleanup)
         try:
-            if 'final_file_path' in locals() and final_file_path.exists():
-                final_file_path.unlink()
+            if 'file_path' in locals() and Path(file_path).exists():
+                Path(file_path).unlink()
         except Exception as cleanup_error:
             logger.error(f"❌ Failed to cleanup file: {str(cleanup_error)}")
         
@@ -1391,7 +1403,8 @@ async def _handle_item_tags(db: AsyncSession, item: ArchiveItem, tag_names: List
     existing_rows = await db.execute(
         select(archive_tags.c.tag_uuid).where(archive_tags.c.item_uuid == item.uuid)
     )
-    existing_tag_uuids = {row[0] for row in existing_rows.fetchall()}
+    rows = existing_rows.scalars().all()
+    existing_tag_uuids = set(rows)
 
     # Clear existing tags
     await db.execute(delete(archive_tags).where(archive_tags.c.item_uuid == item.uuid))
@@ -1430,10 +1443,16 @@ async def _handle_item_tags(db: AsyncSession, item: ArchiveItem, tag_names: List
             db.add(tag)
             await db.flush()
         else:
-            # Adjust removed set and increment usage count
+            # Check if this is a new association
+            is_new_association = tag.uuid not in existing_tag_uuids
+            
+            # Adjust removed set
             if tag.uuid in removed_tag_uuids:
                 removed_tag_uuids.remove(tag.uuid)
-            tag.usage_count += 1
+            
+            # Only increment count if this is a new association
+            if is_new_association:
+                tag.usage_count += 1
         
         # Create association
         await db.execute(
@@ -1789,7 +1808,7 @@ async def upload_files(
                 
                 archive_item = await _create_archive_item(
                     db=db,
-                    file_path=final_file_path,  # Use final path for DB record
+                    file_path=temp_file_path,  # Use temp path initially
                     folder_uuid=folder_uuid,
                     original_filename=file.filename,
                     stored_filename=safe_filename,
@@ -1822,24 +1841,35 @@ async def upload_files(
                     detail=f"Failed to upload file {file.filename}"
                 )
         
-        await db.commit()
-        
-        # SECURITY: Move all temp files to final locations ONLY after successful DB commit
+        # Move all temp files to final locations BEFORE DB commit
         for temp_path, final_path in temp_file_paths:
             try:
                 if temp_path.exists():
                     temp_path.rename(final_path)
                     logger.info(f"✅ File moved to final location: {final_path}")
+                    # Update DB record to point to final path
+                    await db.execute(
+                        update(ArchiveItem)
+                        .where(ArchiveItem.file_path == str(temp_path))
+                        .values(file_path=str(final_path))
+                    )
                 else:
                     logger.warning(f"⚠️ Temp file not found: {temp_path}")
+                    raise Exception(f"Temp file missing: {temp_path}")
             except Exception as move_error:
                 logger.error(f"❌ Failed to move file to final location: {move_error}")
-                # Clean up temp file
-                try:
-                    if temp_path.exists():
-                        temp_path.unlink()
-                except Exception:
-                    pass
+                # Rollback and cleanup on any file move failure
+                await db.rollback()
+                for tp, fp in temp_file_paths:
+                    try:
+                        if tp.exists():
+                            tp.unlink()
+                    except Exception:
+                        pass
+                raise HTTPException(status_code=500, detail="Failed to finalize file storage")
+        
+        # Only commit after all files are moved successfully
+        await db.commit()
         
         logger.info(f"🎉 Successfully uploaded {len(uploaded_files)} files")
         
