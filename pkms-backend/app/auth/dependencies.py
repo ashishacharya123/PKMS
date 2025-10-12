@@ -155,13 +155,9 @@ async def get_optional_user(
         logger.warning(f"Invalid token format in get_current_user_optional: {str(e)}")
         return None
     except Exception as e:
-        # SECURITY: Log unexpected errors but don't expose system details
+        # SECURITY: Optional auth should NEVER crash the request
         logger.error(f"Unexpected error in get_current_user_optional: {type(e).__name__}")
-        # Don't return None for unexpected errors - this could bypass security
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Authentication service temporarily unavailable"
-        )
+        return None  # ALWAYS return None for optional auth
 
 
 def require_first_login(user: User = Depends(get_current_user)) -> User:

@@ -19,8 +19,8 @@ from typing import Dict
 import time
 import asyncio
 import gc
-import threading
-from contextlib import contextmanager
+import asyncio
+from contextlib import asynccontextmanager
 
 from app.database import get_db
 from app.config import NEPAL_TZ, get_data_dir, get_file_storage_dir
@@ -57,21 +57,21 @@ router = APIRouter(tags=["diary"])
 
 WEATHER_CODE_DEFAULT = None
 
-# Secure in-memory session store for diary encryption material with thread safety
+# Secure in-memory session store for diary encryption material with async safety
 # Format: {user_id: {"key": bytes, "timestamp": float, "expires_at": float}}
 _diary_sessions: Dict[int, Dict[str, any]] = {}
-_diary_sessions_lock = threading.RLock()
+_diary_sessions_lock = asyncio.Lock()
 DIARY_SESSION_TIMEOUT = 1800  # 30 minutes in seconds (aligned with app session)
 
-@contextmanager
-def _get_session_lock():
-    """Thread-safe access to diary sessions"""
-    with _diary_sessions_lock:
+@asynccontextmanager
+async def _get_session_lock():
+    """Async-safe access to diary sessions"""
+    async with _diary_sessions_lock:
         yield
 
-def _get_diary_password_from_session(user_id: int) -> Optional[bytes]:
+async def _get_diary_password_from_session(user_id: int) -> Optional[bytes]:
     """Get diary derived key from session if valid and not expired."""
-    with _get_session_lock():
+    async with _get_session_lock():
         if user_id not in _diary_sessions:
             return None
         
@@ -81,18 +81,18 @@ def _get_diary_password_from_session(user_id: int) -> Optional[bytes]:
         # Check if session has expired (atomic check and clear)
         if current_time > session["expires_at"]:
             logger.info(f"Diary session expired for user {user_id}")
-            _clear_diary_session(user_id)
+            await _clear_diary_session(user_id)
             return None
         
         return session["key"]
 
-def _store_diary_password_in_session(user_id: int, password: str):
+async def _store_diary_password_in_session(user_id: int, password: str):
     """Store derived diary key in secure session with expiry.
     
     SECURITY: Uses proper key derivation with salt and stores both key and salt
     for secure encryption operations.
     """
-    with _get_session_lock():
+    async with _get_session_lock():
         current_time = time.time()
         key, salt = _derive_diary_encryption_key(password)
         
@@ -104,12 +104,12 @@ def _store_diary_password_in_session(user_id: int, password: str):
         }
         logger.info(f"Diary session created for user {user_id}, expires in {DIARY_SESSION_TIMEOUT}s")
 
-def _clear_diary_session(user_id: int):
+async def _clear_diary_session(user_id: int):
     """Clear diary session and password from memory.
     
     SECURITY: Securely overwrites all sensitive data in memory before deletion.
     """
-    with _get_session_lock():
+    async with _get_session_lock():
         if user_id in _diary_sessions:
             session = _diary_sessions[user_id]
             
@@ -139,9 +139,9 @@ def _clear_diary_session(user_id: int):
             # Force cleanup
             gc.collect()
 
-def _is_diary_unlocked(user_id: int) -> bool:
+async def _is_diary_unlocked(user_id: int) -> bool:
     """Check if diary is currently unlocked for user."""
-    return _get_diary_password_from_session(user_id) is not None
+    return await _get_diary_password_from_session(user_id) is not None
 
 async def _cleanup_expired_sessions():
     """Periodically clean up expired diary sessions with error recovery."""
@@ -149,7 +149,7 @@ async def _cleanup_expired_sessions():
         try:
             await asyncio.sleep(300)  # Run every 5 minutes
 
-            with _get_session_lock():
+            async with _get_session_lock():
                 current_time = time.time()
                 expired_users = [
                     user_id for user_id, session in _diary_sessions.items()
@@ -158,7 +158,7 @@ async def _cleanup_expired_sessions():
 
                 for user_id in expired_users:
                     try:
-                        _clear_diary_session(user_id)
+                        await _clear_diary_session(user_id)
                     except Exception as e:
                         logger.error(f"Error clearing session for user {user_id}: {e}")
 
@@ -399,7 +399,7 @@ async def get_encryption_status(
     try:
         # Simple check: encryption is setup if user has diary_password_hash
         is_setup = current_user.diary_password_hash is not None
-        is_unlocked = _is_diary_unlocked(current_user.id) if is_setup else False
+        is_unlocked = await _is_diary_unlocked(current_user.id) if is_setup else False
         
         # Additional security info for monitoring
         session_info = {}
@@ -504,7 +504,7 @@ async def unlock_encryption(
         
         if password_valid:
             # Store password in secure session for subsequent operations
-            _store_diary_password_in_session(current_user.id, request.password)
+            await _store_diary_password_in_session(current_user.id, request.password)
             logger.info(f"Diary unlock successful for user {current_user.id}")
             return {"success": True, "session_expires_in": DIARY_SESSION_TIMEOUT}
         else:
@@ -537,7 +537,7 @@ async def lock_encryption(
         logger.info(f"Diary lock requested for user {current_user.id}")
         
         # Clear the session (password) from memory
-        _clear_diary_session(current_user.id)
+        await _clear_diary_session(current_user.id)
         
         logger.info(f"Diary locked successfully for user {current_user.id}")
         return {"success": True, "message": "Diary locked successfully"}
@@ -719,7 +719,7 @@ async def list_diary_entries(
     """List diary entries with filtering. Uses FTS5 for text search if search_title is provided."""
     
     # Check if diary is unlocked
-    diary_password = _get_diary_password_from_session(current_user.id)
+    diary_password = await _get_diary_password_from_session(current_user.id)
     if not diary_password:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -899,7 +899,7 @@ async def get_diary_entries_by_date(
 ):
     """Get all diary entries for a specific date."""
     # Require diary to be unlocked
-    diary_password = _get_diary_password_from_session(current_user.id)
+    diary_password = await _get_diary_password_from_session(current_user.id)
     if not diary_password:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -977,7 +977,7 @@ async def get_diary_entry_by_id(
     Reads encrypted content from file but returns it in API-compatible format.
     """
     # Require diary to be unlocked
-    diary_password = _get_diary_password_from_session(current_user.id)
+    diary_password = await _get_diary_password_from_session(current_user.id)
     if not diary_password:
         raise HTTPException(status_code=401, detail="Diary is locked. Please unlock first.")
     
@@ -1278,7 +1278,7 @@ async def delete_diary_entry(
     """
     try:
         # Check if diary is unlocked first
-        diary_password = _get_diary_password_from_session(current_user.id)
+        diary_password = await _get_diary_password_from_session(current_user.id)
         if not diary_password:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -1341,7 +1341,7 @@ async def get_entry_media(
 ):
     """Get all media associated with a diary entry."""
     # Check if diary is unlocked first
-    diary_password = _get_diary_password_from_session(current_user.id)
+    diary_password = await _get_diary_password_from_session(current_user.id)
     if not diary_password:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1394,7 +1394,7 @@ async def commit_diary_media_upload(
     """
     try:
         # Check if diary is unlocked first
-        diary_password = _get_diary_password_from_session(current_user.id)
+        diary_password = await _get_diary_password_from_session(current_user.id)
         if not diary_password:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -1487,7 +1487,7 @@ async def commit_diary_media_upload(
         # SECURITY: Atomic check and retrieval to prevent race conditions
         session = _diary_sessions.get(current_user.id)
         if not session or time.time() > session["expires_at"]:
-            _clear_diary_session(current_user.id)
+            await _clear_diary_session(current_user.id)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Diary session expired. Please unlock diary again."
@@ -1606,7 +1606,7 @@ async def download_diary_media(
     """
     try:
         # SECURITY: Check diary is unlocked and get password from session  
-        diary_password = _get_diary_password_from_session(current_user.id)
+        diary_password = await _get_diary_password_from_session(current_user.id)
         if not diary_password:
             logger.warning(f"Diary not unlocked for download attempt by user {current_user.id}")
             raise HTTPException(status_code=401, detail="Diary is locked. Please unlock first.")
@@ -1658,7 +1658,7 @@ async def download_diary_media(
             current_time = time.time()
             if current_time > diary_session["expires_at"]:
                 logger.info(f"Diary session expired for user {current_user.id}")
-                _clear_diary_session(current_user.id)
+                await _clear_diary_session(current_user.id)
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Diary session expired. Please unlock diary again."

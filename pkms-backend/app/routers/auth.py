@@ -169,15 +169,6 @@ async def login(
 ):
     """Authenticate user and return access token"""
     
-    # First check if any users exist in the system
-    user_count = await db.scalar(select(func.count(User.id)))
-    
-    if user_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No user account exists. Please create an account first by clicking 'Create account'."
-        )
-    
     # Check if user exists
     result = await db.execute(
         select(User).where(User.username == user_data.username)
@@ -185,10 +176,18 @@ async def login(
     user = result.scalar_one_or_none()
     
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password. Please check your credentials and try again."
-        )
+        # Check if system has ANY users for proper error message
+        user_count = await db.scalar(select(func.count(User.id)))
+        if user_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No user account exists. Please create an account first by clicking 'Create account'."
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password. Please check your credentials and try again."
+            )
     
     if not verify_password(user_data.password, user.password_hash):
         raise HTTPException(
@@ -367,10 +366,12 @@ async def reset_password(
         user_res = await db.execute(select(User).where(User.username == recovery_data.username))
         user = user_res.scalar_one_or_none()
     else:
-        users_res = await db.execute(select(User))
-        users = users_res.scalars().all()
-        if len(users) == 1:
-            user = users[0]
+        # Count users instead of loading all
+        user_count = await db.scalar(select(func.count(User.id)))
+        if user_count == 1:
+            # Get the single user
+            user_res = await db.execute(select(User).limit(1))
+            user = user_res.scalar_one_or_none()
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -503,18 +504,15 @@ async def refresh_access_token(
         session.session_token = new_session_token
         session.last_activity = now
         
-        # Handle potential naive datetimes for created_at
-        created_at = session.created_at
-        if created_at and created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=NEPAL_TZ)
-        max_expiry = created_at + timedelta(days=1) if created_at else now + timedelta(days=1)
-        
-        # Don't extend beyond 1 day from creation
-        if expires_at < max_expiry:
-            # Can still extend a bit, but not beyond max_expiry
-            potential_new_expiry = now + timedelta(days=settings.refresh_token_lifetime_days)
-            session.expires_at = min(potential_new_expiry, max_expiry)
-        # else: already at max, don't extend
+        # SIMPLE LOGIC: Extend by configured days from NOW
+        new_expiry = now + timedelta(days=settings.refresh_token_lifetime_days)
+
+        # But don't extend beyond 1 day total from session creation (security limit)
+        created_at = session.created_at.replace(tzinfo=NEPAL_TZ) if session.created_at.tzinfo is None else session.created_at
+        max_expiry = created_at + timedelta(days=1)
+
+        # Use the earlier of the two dates
+        session.expires_at = min(new_expiry, max_expiry)
         
         await db.commit()
 

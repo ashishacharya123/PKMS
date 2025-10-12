@@ -73,22 +73,39 @@ class DiaryAccessMiddleware:
         )
 
         if include_diary:
-            # Check referer header to see if request comes from diary module
-            referer = request.headers.get('referer', '')
-
-            # Check if the request originates from diary module
-            is_from_diary = (
-                '/diary' in referer or
-                '/search/diary' in referer or
-                request.headers.get('X-Diary-Context', '').lower() == 'true'
-            )
-
-            if not is_from_diary:
-                logger.warning(f"🚫 Unauthorized diary search attempt from: {referer}")
+            # SECURITY: Check session token/cookie instead of fakeable headers
+            session_token = request.cookies.get('pkms_refresh')
+            if not session_token:
+                logger.warning("🚫 Diary search attempt without valid session")
                 raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Diary search is only available within the diary module"
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Authentication required for diary search"
                 )
+
+            # Verify session exists and is valid
+            from app.database import get_db
+            from app.models.user import Session
+            from sqlalchemy import select
+            from datetime import datetime
+            
+            async with get_db() as db:
+                result = await db.execute(select(Session).where(Session.session_token == session_token))
+                session = result.scalar_one_or_none()
+                if not session or session.expires_at < datetime.now():
+                    logger.warning("🚫 Diary search attempt with expired session")
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Session expired"
+                    )
+
+                # Check if user has unlocked diary
+                from app.routers.diary import _get_diary_password_from_session
+                if not await _get_diary_password_from_session(session.user_id):
+                    logger.warning(f"🚫 Diary search attempt without unlocked diary for user {session.user_id}")
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Diary must be unlocked to search"
+                    )
 
         # Always exclude diary unless explicitly requested and authorized
         if not include_diary:
