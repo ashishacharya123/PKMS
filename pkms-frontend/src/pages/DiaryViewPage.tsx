@@ -49,7 +49,7 @@ export default function DiaryViewPage() {
           const mediaList = await diaryService.getEntryMedia(full.uuid);
           const firstPhoto = (mediaList || []).find((m: any) => m.media_type === 'photo');
           if (firstPhoto) {
-            const blob = await diaryService.downloadMedia(firstPhoto.id);
+            const blob = await diaryService.downloadMedia(firstPhoto.uuid);
             const url = URL.createObjectURL(blob);
             setPhotoUrl(url);
           } else {

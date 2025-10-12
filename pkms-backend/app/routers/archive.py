@@ -867,13 +867,20 @@ async def upload_item(
             tags=all_tags
         )
         
-        await db.commit()
-        await db.refresh(item)
-        
-        # SECURITY: Move file to final location ONLY after successful DB commit
+        # CRITICAL FIX: Move file to final location BEFORE DB commit
         try:
+            # Ensure destination directory exists
+            final_file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Perform atomic move operation
             temp_file_path.rename(final_file_path)
+            
+            # Verify file exists and is writable
+            if not final_file_path.exists():
+                raise Exception("File move completed but destination file does not exist")
+            
             logger.info(f"✅ File moved to final location: {final_file_path}")
+            
         except Exception as move_error:
             logger.error(f"❌ Failed to move file to final location: {move_error}")
             # Clean up temp file
@@ -882,7 +889,13 @@ async def upload_item(
                     temp_file_path.unlink()
             except Exception:
                 pass
+            # Rollback database transaction
+            await db.rollback()
             raise HTTPException(status_code=500, detail="Failed to finalize file storage")
+        
+        # Only commit DB after successful file move
+        await db.commit()
+        await db.refresh(item)
         
         logger.info(f"✅ Uploaded file '{original_filename}' to folder '{folder.name}' for user {current_user.username}")
         

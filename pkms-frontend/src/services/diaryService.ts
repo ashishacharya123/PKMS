@@ -241,14 +241,14 @@ class DiaryService {
   }
 
   async downloadMedia(
-    mediaId: number,
+    mediaUuid: string,
     onProgress?: (progress: { progress: number; status: string }) => void
   ): Promise<Blob> {
     try {
-      const downloadUrl = `${this.baseUrl}/media/${mediaId}/download`;
+      const downloadUrl = `${this.baseUrl}/media/${mediaUuid}/download`;
       
       return await coreDownloadService.downloadFile(downloadUrl, {
-        fileId: `diary-media-${mediaId}`,
+        fileId: `diary-media-${mediaUuid}`,
         onProgress: onProgress ? (progress) => {
           onProgress({
             progress: progress.progress,

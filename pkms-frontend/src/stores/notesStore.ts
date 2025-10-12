@@ -225,8 +225,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       
       // Remove from notes list
       set(state => ({
-        notes: state.notes.filter(note => note.uuid !== (state.currentNote?.uuid || '')),
-        currentNote: null
+        notes: state.notes.filter(note => note.uuid !== uuid),
+        currentNote: state.currentNote?.uuid === uuid ? null : state.currentNote
       }));
       
       return true;
