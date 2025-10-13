@@ -12,6 +12,9 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/dates/styles.css';
 
+// Import centralized design system variables
+import './styles/variables.css';
+
 // Import custom overrides to fix deprecation warnings
 import './styles/mantine-override.css';
 

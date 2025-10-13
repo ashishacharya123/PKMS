@@ -12,7 +12,7 @@ import {
   Tooltip,
   ActionIcon
 } from '@mantine/core';
-import { IconCalendar, IconMoodSmile, IconMapPin, IconEye, IconAlertCircle } from '@tabler/icons-react';
+import { IconCalendar, IconMapPin, IconEye, IconAlertCircle } from '@tabler/icons-react';
 import { useDiaryStore } from '../../stores/diaryStore';
 import { DiaryEntrySummary } from '../../types/diary';
 import { format, parseISO, subDays, subWeeks, subMonths, subYears } from 'date-fns';
@@ -75,10 +75,11 @@ const moodColors: Record<number, string> = {
   5: 'blue'
 };
 
-export function HistoricalEntries({ onViewEntry }: { onViewEntry: (entry: DiaryEntrySummary) => void }) {
+export function HistoricalEntries({ onViewEntry, selectedDate }: { onViewEntry: (entry: DiaryEntrySummary) => void; selectedDate?: Date }) {
   const { entries, isUnlocked } = useDiaryStore();
   const [historicalEntries, setHistoricalEntries] = useState<Record<string, DiaryEntrySummary | null>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const dateToId = (d: Date) => `hist-${format(d, 'yyyy-MM-dd')}`;
 
   useEffect(() => {
     if (!isUnlocked || !entries.length) return;
@@ -91,7 +92,7 @@ export function HistoricalEntries({ onViewEntry }: { onViewEntry: (entry: DiaryE
       const dateStr = format(targetDate, 'yyyy-MM-dd');
       
       // Find entry for this specific date
-      const entry = entries.find(e => {
+      const entry = entries.find((e: DiaryEntrySummary) => {
         const entryDate = format(parseISO(e.date), 'yyyy-MM-dd');
         return entryDate === dateStr;
       });
@@ -103,6 +104,16 @@ export function HistoricalEntries({ onViewEntry }: { onViewEntry: (entry: DiaryE
     setIsLoading(false);
   }, [entries, isUnlocked]);
 
+  // Auto-scroll to selected date’s card if present
+  useEffect(() => {
+    if (!selectedDate) return;
+    const id = dateToId(selectedDate);
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [selectedDate]);
+
   if (!isUnlocked) {
     return null;
   }
@@ -113,7 +124,7 @@ export function HistoricalEntries({ onViewEntry }: { onViewEntry: (entry: DiaryE
 
     if (!entry) {
       return (
-        <Card withBorder p="md" style={{ opacity: 0.6 }}>
+        <Card withBorder p="md" style={{ opacity: 0.6 }} id={dateToId(targetDate)}>
           <Stack gap="xs">
             <Group justify="space-between">
               <Text size="sm" fw={500} c="dimmed">
@@ -136,6 +147,7 @@ export function HistoricalEntries({ onViewEntry }: { onViewEntry: (entry: DiaryE
         withBorder 
         p="md" 
         style={{ cursor: 'pointer', transition: 'all 0.2s' }}
+        id={dateToId(targetDate)}
         onClick={() => onViewEntry(entry)}
         className="historical-entry-card"
       >

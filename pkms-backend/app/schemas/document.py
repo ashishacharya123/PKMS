@@ -34,7 +34,7 @@ class DocumentUpdate(CamelCaseModel):
     tags: Optional[List[str]] = Field(None, max_items=20)
     is_favorite: Optional[bool] = None
     is_archived: Optional[bool] = None
-    project_ids: Optional[List[int]] = Field(None, max_items=10, description="List of project IDs to link this document to")
+    project_ids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this document to")
     is_exclusive_mode: Optional[bool] = Field(None, description="If True, document is exclusive to projects and deleted when any project is deleted")
 
 class DocumentResponse(CamelCaseModel):
@@ -50,7 +50,6 @@ class DocumentResponse(CamelCaseModel):
     is_favorite: bool
     is_archived: bool
     is_exclusive_mode: bool
-    project_id: Optional[int] = None  # Legacy single project
     archive_item_uuid: Optional[str] = None
     upload_status: str
     created_at: datetime
@@ -63,8 +62,7 @@ class CommitDocumentUploadRequest(CamelCaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=1000)
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
-    project_id: Optional[int] = Field(None, description="Legacy: Associate this document to a single project")
-    project_ids: Optional[List[int]] = Field(default_factory=list, max_items=10, description="List of project IDs to link this document to")
+    project_ids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this document to")
     is_exclusive_mode: Optional[bool] = Field(default=False, description="If True, document is exclusive to projects and deleted when any project is deleted")
 
     @validator('tags')

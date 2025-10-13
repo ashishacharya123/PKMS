@@ -17,7 +17,7 @@ import {
   ActionIcon,
   Tooltip,
   Progress,
-  TextInput,
+  TextInput
 } from '@mantine/core';
 import {
   IconNotes,
@@ -25,26 +25,40 @@ import {
   IconChecklist,
   IconBook,
   IconArchive,
-
   IconFileText,
   IconCalendarEvent,
   IconClipboardList,
   IconRefresh,
   IconAlertCircle,
   IconTrendingUp,
-  IconDatabase,
-  IconSearch
+  IconSearch,
+  IconFolder,
+  IconChevronRight
 } from '@tabler/icons-react';
 import { useAuthStore } from '../stores/authStore';
-import { dashboardService, type DashboardStats } from '../services/dashboardService';
+import { dashboardService, type DashboardStats, type QuickStats } from '../services/dashboardService';
+import { todosService, type Project } from '../services/todosService';
+import StorageBreakdownCard from '../components/dashboard/StorageBreakdownCard';
 
 // Update interfaces to match backend response
 interface ModuleStats {
   notes: { total: number; recent: number };
   documents: { total: number; recent: number };
-  todos: { total: number; pending: number; completed: number; overdue: number };
+  todos: { 
+    total: number; 
+    pending: number; 
+    inProgress?: number;
+    blocked?: number;
+    done?: number;
+    cancelled?: number;
+    completed: number; 
+    overdue: number;
+    dueToday?: number;
+    completedToday?: number;
+  };
   diary: { entries: number; streak: number };
   archive: { folders: number; items: number };
+  projects?: { active: number };
 }
 
 interface QuickAction {
@@ -141,6 +155,7 @@ export function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [quick, setQuick] = useState<QuickStats | null>(null);
 
   useAuthenticatedEffect(() => {
     loadDashboardData();
@@ -165,9 +180,13 @@ export function DashboardPage() {
     
     try {
       console.log('[Dashboard] Loading dashboard data…');
-      const dashboardStats = await dashboardService.getDashboardStats();
+      const [dashboardStats, quickStats] = await Promise.all([
+        dashboardService.getDashboardStats(),
+        dashboardService.getQuickStats()
+      ]);
       console.log('[Dashboard] Stats received:', dashboardStats);
       setStats(dashboardStats);
+      setQuick(quickStats);
     } catch (err) {
       setError('Failed to load dashboard data');
       console.error('Dashboard load error:', err);
@@ -178,6 +197,7 @@ export function DashboardPage() {
         todos: { total: 0, pending: 0, completed: 0, overdue: 0 },
         diary: { entries: 0, streak: 0 },
         archive: { folders: 0, items: 0 },
+        projects: { active: 0 },
         last_updated: new Date().toISOString()
       });
     } finally {
@@ -269,6 +289,10 @@ export function DashboardPage() {
           </>
         )}
 
+        {quick && quick.storage_by_module && (
+          <StorageBreakdownCard total={quick.storage_used_mb} byModule={quick.storage_by_module} />
+        )}
+
         {title === 'Documents' && (
           <>
             <Group justify="space-between">
@@ -286,27 +310,51 @@ export function DashboardPage() {
 
         {title === 'Todos' && (
           <>
-            <Group justify="space-between">
-              <Text size="sm">Pending</Text>
-              <Text size="sm" fw={500}>
-                {moduleStats?.pending || 0}
-              </Text>
-            </Group>
-            <Group justify="space-between">
-              <Text size="sm">Completed</Text>
-              <Text size="sm" fw={500} c="green">{moduleStats?.completed || 0}</Text>
-            </Group>
+            {(moduleStats?.inProgress || 0) > 0 && (
+              <Group justify="space-between">
+                <Text size="sm">In Progress</Text>
+                <Badge size="sm" variant="light" color="cyan">
+                  {moduleStats?.inProgress}
+                </Badge>
+              </Group>
+            )}
+            {(moduleStats?.pending || 0) > 0 && (
+              <Group justify="space-between">
+                <Text size="sm">Pending</Text>
+                <Badge size="sm" variant="light" color="gray">
+                  {moduleStats?.pending}
+                </Badge>
+              </Group>
+            )}
+            {(moduleStats?.blocked || 0) > 0 && (
+              <Group justify="space-between">
+                <Text size="sm">Blocked</Text>
+                <Badge size="sm" variant="filled" color="red">
+                  {moduleStats?.blocked}
+                </Badge>
+              </Group>
+            )}
+            {(moduleStats?.done || 0) > 0 && (
+              <Group justify="space-between">
+                <Text size="sm">Done</Text>
+                <Badge size="sm" variant="light" color="blue">
+                  {moduleStats?.done}
+                </Badge>
+              </Group>
+            )}
             {(moduleStats?.overdue || 0) > 0 && (
               <Group justify="space-between">
-                <Text size="sm" c="red">Overdue</Text>
-                <Text size="sm" fw={500} c="red">{moduleStats?.overdue}</Text>
+                <Text size="sm">Overdue</Text>
+                <Badge size="sm" variant="filled" color="orange">
+                  {moduleStats?.overdue}
+                </Badge>
               </Group>
             )}
             {(moduleStats?.total || 0) > 0 && (
               <Progress 
-                value={dashboardService.calculateCompletionPercentage(moduleStats?.completed || 0, moduleStats?.total || 0)} 
+                value={dashboardService.calculateCompletionPercentage(moduleStats?.done || moduleStats?.completed || 0, moduleStats?.total || 0)} 
                 size="sm" 
-                color="green" 
+                color="blue" 
                 mt="xs"
               />
             )}
@@ -360,6 +408,116 @@ export function DashboardPage() {
       </div>
     </Button>
   );
+
+  // Project Cards Section Component
+  const ProjectCardsSection = () => {
+    const [projects, setProjects] = useState<Project[]>([]);
+    const [loadingProjects, setLoadingProjects] = useState(true);
+
+    useEffect(() => {
+      const loadProjects = async () => {
+        try {
+          const data = await todosService.getProjects();
+          setProjects(data);
+        } catch (error) {
+          console.error('Failed to load projects:', error);
+        } finally {
+          setLoadingProjects(false);
+        }
+      };
+      loadProjects();
+    }, []);
+
+    if (loadingProjects) {
+      return (
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} height={120} radius="md" />
+          ))}
+        </SimpleGrid>
+      );
+    }
+
+    if (projects.length === 0) {
+      return null;
+    }
+
+    return (
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+        {projects.slice(0, 6).map((project) => {
+          const completionPercentage = project.todo_count > 0 
+            ? Math.round((project.completed_count / project.todo_count) * 100) 
+            : 0;
+          
+          return (
+            <Card
+              key={project.id}
+              padding="lg"
+              radius="md"
+              withBorder
+              style={{ cursor: 'pointer' }}
+              onClick={() => navigate(`/projects/${project.uuid}`)}
+            >
+              <Stack gap="md">
+                <Group justify="space-between" wrap="nowrap">
+                  <Group gap="sm" style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: '50%',
+                        backgroundColor: project.color || '#2196F3',
+                        flexShrink: 0
+                      }}
+                    />
+                    <Text fw={600} size="sm" truncate style={{ flex: 1 }}>
+                      {project.name}
+                    </Text>
+                  </Group>
+                  <ActionIcon variant="subtle" size="sm" color="gray">
+                    <IconChevronRight size={16} />
+                  </ActionIcon>
+                </Group>
+
+                {project.description && (
+                  <Text size="xs" c="dimmed" lineClamp={2}>
+                    {project.description}
+                  </Text>
+                )}
+
+                <div>
+                  <Group justify="space-between" mb={4}>
+                    <Text size="xs" c="dimmed">Progress</Text>
+                    <Text size="sm" fw={600} c={completionPercentage === 100 ? 'green' : 'blue'}>
+                      {completionPercentage}%
+                    </Text>
+                  </Group>
+                  <Progress
+                    value={completionPercentage}
+                    size="sm"
+                    radius="xl"
+                    color={completionPercentage === 100 ? 'green' : 'blue'}
+                  />
+                </div>
+
+                <Group gap="md" justify="space-between">
+                  <Badge size="sm" variant="light" color="gray">
+                    <IconFolder size={12} style={{ marginRight: 4 }} />
+                    {project.todo_count} tasks
+                  </Badge>
+                  {project.completed_count > 0 && (
+                    <Badge size="sm" variant="light" color="green">
+                      {project.completed_count} done
+                    </Badge>
+                  )}
+                </Group>
+              </Stack>
+            </Card>
+          );
+        })}
+      </SimpleGrid>
+    );
+  };
 
   if (isLoading) {
     return (
@@ -462,7 +620,14 @@ export function DashboardPage() {
             <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md">
               <div>
                 <Text size="sm" c="dimmed">Active Projects</Text>
-                <Text fw={600} size="lg">-</Text>
+                <Text fw={600} size="lg" c={(stats?.projects?.active || 0) > 0 ? 'pink' : undefined}>
+                  {stats?.projects?.active || 0}
+                </Text>
+                {(stats?.projects?.active || 0) > 0 && (
+                  <Button size="xs" variant="light" color="pink" mt={6} onClick={() => navigate('/projects')}>
+                    View projects
+                  </Button>
+                )}
               </div>
               <div>
                 <Text size="sm" c="dimmed">Overdue Tasks</Text>
@@ -470,9 +635,11 @@ export function DashboardPage() {
                   {stats?.todos?.overdue || 0}
                 </Text>
                 <Group gap={6} mt={6} wrap="wrap">
-                  <Button size="xs" variant="light" color="red" onClick={() => navigate('/todos?overdue=true')}>
-                    View overdue
-                  </Button>
+                  {(stats?.todos?.overdue || 0) > 0 && (
+                    <Button size="xs" variant="light" color="red" onClick={() => navigate('/todos?overdue=true')}>
+                      View overdue
+                    </Button>
+                  )}
                   <Button size="xs" variant="light" onClick={() => navigate('/todos')}>
                     View today
                   </Button>
@@ -485,14 +652,31 @@ export function DashboardPage() {
                 </Text>
               </div>
               <div>
-                <Text size="sm" c="dimmed">Storage Used</Text>
-                <Group gap="xs">
-                  <IconDatabase size={16} />
-                  <Text fw={600} size="lg">-</Text>
+                <Text size="sm" c="dimmed">Todo Status</Text>
+                <Group gap="xs" wrap="wrap" mt={4}>
+                  {(stats?.todos?.inProgress || 0) > 0 && (
+                    <Badge variant="light" color="cyan" size="sm">
+                      {stats?.todos?.inProgress} in progress
+                    </Badge>
+                  )}
+                  {(stats?.todos?.blocked || 0) > 0 && (
+                    <Badge variant="filled" color="red" size="sm">
+                      {stats?.todos?.blocked} blocked
+                    </Badge>
+                  )}
+                  {(stats?.todos?.done || 0) > 0 && (
+                    <Badge variant="light" color="blue" size="sm">
+                      {stats?.todos?.done} done
+                    </Badge>
+                  )}
                 </Group>
               </div>
             </SimpleGrid>
           </Card>
+        )}
+
+        {quick && quick.storage_by_module && (
+          <StorageBreakdownCard total={quick.storage_used_mb} byModule={quick.storage_by_module} />
         )}
 
         {/* Today Panel (conditional fields) */}
@@ -551,6 +735,14 @@ export function DashboardPage() {
             ))}
           </SimpleGrid>
         </div>
+
+        {/* Active Projects */}
+        {stats?.projects && stats.projects.active > 0 && (
+          <div>
+            <Text fw={600} size="lg" mb="md">Active Projects</Text>
+            <ProjectCardsSection />
+          </div>
+        )}
 
         {/* Recent Updates */}
         <div>

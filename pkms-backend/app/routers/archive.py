@@ -113,7 +113,7 @@ async def get_display_path(folder_uuid: str, db: AsyncSession) -> str:
     
     return "/" + "/".join(path_parts) + "/"
 
-async def validate_folder_name(name: str, parent_uuid: Optional[str], user_id: int, db: AsyncSession, exclude_uuid: Optional[str] = None) -> None:
+async def validate_folder_name(name: str, parent_uuid: Optional[str], user_uuid: str, db: AsyncSession, exclude_uuid: Optional[str] = None) -> None:
     """Validate folder name is unique at the same level"""
     # Sanitize folder name
     sanitized_name = name.strip()
@@ -130,7 +130,7 @@ async def validate_folder_name(name: str, parent_uuid: Optional[str], user_id: i
         and_(
             ArchiveFolder.name == sanitized_name,
             ArchiveFolder.parent_uuid == parent_uuid,
-            ArchiveFolder.user_id == user_id
+            ArchiveFolder.user_uuid == user_uuid
         )
     )
     
@@ -186,7 +186,8 @@ from app.models.tag_associations import archive_tags
 from app.models.tag import Tag
 from app.models.user import User
 from app.auth.dependencies import get_current_user
-from app.services.fts_service_enhanced import enhanced_fts_service
+from app.services.tag_service import tag_service
+from app.services.search_service import search_service
 # from app.services.ai_service import analyze_content, is_ai_enabled
 from app.utils.security import (
     sanitize_folder_name,
@@ -216,15 +217,15 @@ def folder_cache(maxsize: int = 128):
     the same folders. Cache is per-user and respects query parameters.
     """
     def decorator(func):
-        # Create a simple cache key from user_id and critical parameters
+        # Create a simple cache key from user_uuid and critical parameters
         def cache_key(*args, **kwargs):
-            # Extract user_id from current_user parameter
-            user_id = None
+            # Extract user_uuid from current_user parameter
+            user_uuid = None
             if 'current_user' in kwargs:
-                user_id = getattr(kwargs['current_user'], 'id', None)
+                user_uuid = getattr(kwargs['current_user'], 'uuid', None)
             
             # Extract key parameters that affect results
-            key_parts = [user_id]
+            key_parts = [user_uuid]
             for param in ['parent_uuid', 'root_uuid', 'archived', 'search']:
                 if param in kwargs:
                     key_parts.append((param, kwargs[param]))
@@ -327,7 +328,7 @@ async def create_folder(
                 and_(
                     ArchiveFolder.parent_uuid == folder_data.parent_uuid,
                     func.lower(ArchiveFolder.name) == func.lower(folder_data.name),
-                    ArchiveFolder.user_id == current_user.id
+                    ArchiveFolder.user_uuid == current_user.uuid
                     # Archive folders don't use is_archived flag - all are active by being in archive
                 )
             )
@@ -347,7 +348,7 @@ async def create_folder(
                 select(ArchiveFolder).where(
                     and_(
                         ArchiveFolder.uuid == folder_data.parent_uuid,
-                        ArchiveFolder.user_id == current_user.id
+                        ArchiveFolder.user_uuid == current_user.uuid
                     )
                 )
             )
@@ -359,14 +360,14 @@ async def create_folder(
                 )
         
         # Validate folder name is unique at this level
-        await validate_folder_name(folder_data.name, folder_data.parent_uuid, current_user.id, db)
+        await validate_folder_name(folder_data.name, folder_data.parent_uuid, current_user.uuid, db)
         
         # Create new folder (no path column needed - we generate paths dynamically)
         folder = ArchiveFolder(
             name=folder_data.name.strip(),
             description=folder_data.description,
             parent_uuid=folder_data.parent_uuid,
-            user_id=current_user.id
+            user_uuid=current_user.uuid
         )
         
         db.add(folder)
@@ -419,8 +420,12 @@ async def list_folders(
         # Sanitize search query if provided
         if search:
             search = sanitize_search_query(search)
-            # Use centralized FTS5 search
-            uuid_list = await enhanced_fts_service.search_archive_folders(db, search, current_user.id)
+            # Use unified FTS5 search
+            fts_results = await search_service.search(db, current_user.uuid, search, item_types=["archive_folder"], limit=100)
+            if not fts_results:
+                return []
+            # Extract UUIDs from FTS results
+            uuid_list = [r["uuid"] for r in fts_results if r["type"] == "archive_folder"]
             if not uuid_list:
                 return []
             # Fetch full rows, preserving FTS5 order
@@ -472,9 +477,13 @@ async def get_folder_tree(
     """Get hierarchical folder tree structure, or flat FTS5 search results if search is provided."""
     from sqlalchemy import text
     if search:
-        # Use centralized FTS5 search for folders
+        # Use unified FTS5 search for folders
         search = sanitize_search_query(search)
-        uuid_list = await enhanced_fts_service.search_archive_folders(db, search, current_user.id)
+        fts_results = await search_service.search(db, current_user.uuid, search, item_types=["archive_folder"], limit=100)
+        if not fts_results:
+            return []
+        # Extract UUIDs from FTS results
+        uuid_list = [r["uuid"] for r in fts_results if r["type"] == "archive_folder"]
         if not uuid_list:
             return []
         # Fetch full rows, preserving FTS5 order
@@ -494,7 +503,7 @@ async def get_folder_tree(
             # Get folders
             folder_query = select(ArchiveFolder).where(
                 and_(
-                    ArchiveFolder.user_id == current_user.id,
+                    ArchiveFolder.user_uuid == current_user.uuid,
                     ArchiveFolder.parent_uuid == parent_uuid
                 )
             )
@@ -509,7 +518,7 @@ async def get_folder_tree(
                 items_query = select(ArchiveItem).where(
                     and_(
                         ArchiveItem.folder_uuid == folder.uuid,
-                        ArchiveItem.user_id == current_user.id
+                        ArchiveItem.user_uuid == current_user.uuid
                     )
                 )
                 # Archive items don't need archived filtering - they're all active in archive
@@ -542,7 +551,7 @@ async def get_folder_breadcrumb(
     while current_folder_uuid:
         folder_query = select(ArchiveFolder).where(
             ArchiveFolder.uuid == current_folder_uuid,
-            ArchiveFolder.user_id == current_user.id
+            ArchiveFolder.user_uuid == current_user.uuid
         )
         result = await db.execute(folder_query)
         folder = result.scalar_one_or_none()
@@ -631,7 +640,7 @@ async def delete_folder(
         
         # Get folder (simplified for single user)
         result = await db.execute(
-            select(ArchiveFolder).where(ArchiveFolder.uuid == folder_uuid)
+            select(ArchiveFolder).options(selectinload(ArchiveFolder.tag_objs)).where(ArchiveFolder.uuid == folder_uuid)
         )
         folder = result.scalar_one_or_none()
         
@@ -661,6 +670,9 @@ async def delete_folder(
                     status_code=400,
                     detail="Folder is not empty. Use force=true to delete non-empty folder."
                 )
+        
+        # Decrement tag usage counts BEFORE deleting folder
+        await tag_service.decrement_tags_on_delete(db, folder)
         
         # Delete folder and all contents (CASCADE handles this atomically)
         await db.delete(folder)
@@ -802,7 +814,7 @@ async def upload_item(
                 and_(
                     ArchiveItem.folder_uuid == folder_uuid,
                     func.lower(ArchiveItem.name) == func.lower(item_name),
-                    ArchiveItem.user_id == current_user.id
+                    ArchiveItem.user_uuid == current_user.uuid
                     # Archive items don't need archived filtering - they're all active in archive
                 )
             )
@@ -873,7 +885,7 @@ async def upload_item(
             stored_filename=stored_filename,
             mime_type=mime_type,
             file_size=file_size,
-            user_id=current_user.id,
+            user_uuid=current_user.uuid,
             name=item_name,
             description=item_description,
             tags=all_tags
@@ -908,6 +920,9 @@ async def upload_item(
         # Only commit DB after successful file move
         await db.commit()
         await db.refresh(item)
+        
+        # Index in search
+        await search_service.index_item(db, item, 'archive')
         
         logger.info(f"✅ Uploaded file '{original_filename}' to folder '{folder.name}' for user {current_user.username}")
         
@@ -957,7 +972,7 @@ async def list_folder_items(
         select(ArchiveFolder).where(
             and_(
                 ArchiveFolder.uuid == folder_uuid,
-                ArchiveFolder.user_id == current_user.id
+                ArchiveFolder.user_uuid == current_user.uuid
             )
         )
     )
@@ -1059,10 +1074,13 @@ async def update_item(
         
         # Handle tags
         if item_data.tags is not None:
-            await _handle_item_tags(db, item, item_data.tags)
+            await tag_service.handle_tags(db, item, item_data.tags, current_user.id, "archive", archive_tags)
         
         await db.commit()
         await db.refresh(item)
+        
+        # Index in search
+        await search_service.index_item(db, item, 'archive')
         
         return await _get_item_with_relations(db, item.uuid)
         
@@ -1089,7 +1107,7 @@ async def delete_item(
         
         # Get item (simplified for single user)
         result = await db.execute(
-            select(ArchiveItem).where(ArchiveItem.uuid == item_uuid)
+            select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.uuid == item_uuid)
         )
         item = result.scalar_one_or_none()
         
@@ -1109,6 +1127,12 @@ async def delete_item(
                 Path(item.thumbnail_path).unlink()
             except Exception as e:
                 logger.warning(f"⚠️ Failed to delete thumbnail: {str(e)}")
+        
+        # Decrement tag usage counts BEFORE deleting item
+        await tag_service.decrement_tags_on_delete(db, item)
+
+        # Remove from search index BEFORE deleting item
+        await search_service.remove_item(db, item_uuid)
         
         # Delete item from database
         await db.delete(item)
@@ -1208,12 +1232,16 @@ async def search_items(
     """Search for items with FTS5 (name, filename, description, metadata, tags) and filter by tag/mime type."""
     from sqlalchemy import text
     try:
-        # Sanitize search query and use centralized FTS5 search
+        # Use unified FTS5 search
         search_query = sanitize_search_query(query)
-        uuid_list = await enhanced_fts_service.search_archive_items(
-            db, search_query, current_user.id, tag=tag, 
-            limit=page_size, offset=(page-1)*page_size
+        fts_results = await search_service.search(
+            db, current_user.uuid, search_query,
+            item_types=["archive_item"], limit=page_size, offset=(page-1)*page_size
         )
+        if not fts_results:
+            return []
+        # Extract UUIDs from FTS results
+        uuid_list = [r["uuid"] for r in fts_results if r["type"] == "archive_item"]
         if not uuid_list:
             return []
         # Fetch full rows, preserving FTS5 order
@@ -1390,78 +1418,6 @@ async def _get_item_summary(db: AsyncSession, item_uuid: str) -> ItemSummary:
         preview=preview
     )
 
-async def _handle_item_tags(db: AsyncSession, item: ArchiveItem, tag_names: List[str]):
-    """Handle item tag associations with proper module_type"""
-    
-    # Fetch existing associations
-    existing_rows = await db.execute(
-        select(archive_tags.c.tag_uuid).where(archive_tags.c.item_uuid == item.uuid)
-    )
-    rows = existing_rows.scalars().all()
-    existing_tag_uuids = set(rows)
-
-    # Clear existing tags
-    await db.execute(delete(archive_tags).where(archive_tags.c.item_uuid == item.uuid))
-
-    removed_tag_uuids = existing_tag_uuids.copy()
-    normalized_names = [t.strip() for t in (tag_names or []) if t and t.strip()]
-    if not normalized_names:
-        # Decrement counts for all removed tags
-        if removed_tag_uuids:
-            tag_rows = await db.execute(select(Tag).where(Tag.uuid.in_(removed_tag_uuids)))
-            for tag in tag_rows.scalars():
-                if tag.usage_count > 0:
-                    tag.usage_count -= 1
-        return
-
-    for tag_name in normalized_names:
-        # Get or create tag with proper module_type
-        result = await db.execute(
-            select(Tag).where(and_(
-                Tag.name == tag_name,
-                Tag.user_id == item.user_id,
-                Tag.module_type == "archive"
-            ))
-        )
-        tag = result.scalar_one_or_none()
-        
-        if not tag:
-            # Create new tag with archive module_type
-            tag = Tag(
-                name=tag_name, 
-                user_id=item.user_id,
-                module_type="archive",
-                usage_count=1,
-                color="#8b5cf6"  # Purple color for archive tags
-            )
-            db.add(tag)
-            await db.flush()
-        else:
-            # Check if this is a new association
-            is_new_association = tag.uuid not in existing_tag_uuids
-            
-            # Adjust removed set
-            if tag.uuid in removed_tag_uuids:
-                removed_tag_uuids.remove(tag.uuid)
-            
-            # Only increment count if this is a new association
-            if is_new_association:
-                tag.usage_count += 1
-        
-        # Create association
-        await db.execute(
-            archive_tags.insert().values(
-                item_uuid=item.uuid,
-                tag_uuid=tag.uuid
-            )
-        )
-
-    # Decrement counts for tags that were removed
-    if removed_tag_uuids:
-        tag_rows = await db.execute(select(Tag).where(Tag.uuid.in_(removed_tag_uuids)))
-        for tag in tag_rows.scalars():
-            if tag.usage_count > 0:
-                tag.usage_count -= 1
 
 # --- START: COPIED FROM documents.py router ---
 
@@ -1656,7 +1612,7 @@ async def _create_archive_item(
         # Handle tags if provided
         if tags:
             try:
-                await _handle_item_tags(db, item, tags)
+                await tag_service.handle_tags(db, item, tags, current_user.id, "archive", archive_tags)
             except Exception as e:
                 logger.warning(f"⚠️ Tag handling failed: {str(e)}")
         
@@ -1693,31 +1649,10 @@ async def upload_files(
             if not folder:
                 raise HTTPException(status_code=404, detail="Folder not found")
         
-        # Parse tags
-        tag_list = []
+        # Parse tags for later use with TagService
+        tag_names = []
         if tags:
             tag_names = [tag.strip() for tag in tags.split(",") if tag.strip()]
-            for tag_name in tag_names:
-                # Find or create tag
-                tag_query = select(Tag).where(
-                    and_(
-                        Tag.name == tag_name,
-                        Tag.module_type == "archive",
-                        Tag.user_id == current_user.id
-                    )
-                )
-                tag_result = await db.execute(tag_query)
-                tag = tag_result.scalar_one_or_none()
-                if not tag:
-                    tag = Tag(
-                        name=tag_name,
-                        module_type="archive",
-                        user_id=current_user.id,
-                        color="#6366f1"
-                    )
-                    db.add(tag)
-                    await db.flush()
-                tag_list.append(tag)
         
         uploaded_files = []
         temp_file_paths = []  # Track temp paths for cleanup
@@ -1798,7 +1733,7 @@ async def upload_files(
                 }
                 
                 # Extract tag names for the shared helper
-                tag_names = [tag.name for tag in tag_list] if tag_list else None
+                # Use the parsed tag_names directly
                 
                 archive_item = await _create_archive_item(
                     db=db,
@@ -1808,7 +1743,7 @@ async def upload_files(
                     stored_filename=safe_filename,
                     mime_type=detection_result["mime_type"],
                     file_size=len(file_content),
-                    user_id=current_user.id,
+                    user_uuid=current_user.uuid,
                     name=Path(file.filename).stem,
                     description=description,
                     tags=tag_names,
@@ -1948,7 +1883,7 @@ async def commit_uploaded_file(
             select(ArchiveFolder).where(
                 and_(
                     ArchiveFolder.uuid == payload.folder_uuid,
-                    ArchiveFolder.user_id == current_user.id
+                    ArchiveFolder.user_uuid == current_user.uuid
                 )
             )
         )
@@ -1990,7 +1925,7 @@ async def commit_uploaded_file(
                     shutil.move(str(assembled), str(dest_path))
                 else:
                     # File removed successfully, now rename
-                    assembled.rename(dest_path)
+            assembled.rename(dest_path)
             else:
                 # Destination doesn't exist, safe to rename
                 assembled.rename(dest_path)
@@ -2034,7 +1969,7 @@ async def commit_uploaded_file(
             stored_filename=stored_filename,
             mime_type=status.get("mime_type", "application/octet-stream"),
             file_size=final_file_size,
-            user_id=current_user.id,
+            user_uuid=current_user.uuid,
             name=payload.name,
             description=payload.description,
             tags=payload.tags
@@ -2083,8 +2018,8 @@ async def debug_fts_status(
         result = await db.execute(text("""
             SELECT COUNT(*) as archive_items_count 
             FROM archive_items 
-            WHERE user_id = :user_id
-        """), {"user_id": current_user.id})
+            WHERE user_uuid = :user_uuid
+        """), {"user_uuid": current_user.uuid})
         archive_items_count = result.scalar()
         
         # Check FTS table
@@ -2092,27 +2027,27 @@ async def debug_fts_status(
             fts_result = await db.execute(text("""
                 SELECT COUNT(*) as fts_count 
                 FROM fts_archive_items 
-                WHERE user_id = :user_id
-            """), {"user_id": current_user.id})
+                WHERE user_uuid = :user_uuid
+            """), {"user_uuid": current_user.uuid})
             fts_count = fts_result.scalar()
         except Exception as e:
             fts_count = f"Error: {str(e)}"
         
         # Test a simple search
         try:
-            search_result = await enhanced_fts_service.search_archive_items(db, "test", current_user.id, limit=5)
+            search_result = await search_service.search(db, current_user.uuid, "test", item_types=["archive_item"], limit=5)
             search_working = True
             search_results_count = len(search_result)
         except Exception as e:
             search_working = False
             search_results_count = f"Error: {str(e)}"
-        
+
         return {
             "archive_items_count": archive_items_count,
             "fts_items_count": fts_count,
             "fts_search_working": search_working,
             "test_search_results": search_results_count,
-            "fts_tables_initialized": enhanced_fts_service.tables_initialized
+            "fts_tables_initialized": "unified_fts5_enabled"
         }
         
     except Exception as e:
@@ -2144,7 +2079,7 @@ async def rename_folder(
             select(ArchiveFolder).where(
                 and_(
                     ArchiveFolder.uuid == folder_uuid,
-                    ArchiveFolder.user_id == current_user.id
+                    ArchiveFolder.user_uuid == current_user.uuid
                 )
             )
         )
@@ -2157,7 +2092,7 @@ async def rename_folder(
             )
         
         # Validate new folder name is unique at this level
-        await validate_folder_name(new_name, folder.parent_uuid, current_user.id, db, exclude_uuid=folder.uuid)
+        await validate_folder_name(new_name, folder.parent_uuid, current_user.uuid, db, exclude_uuid=folder.uuid)
         
         # Update the folder name
         folder.name = new_name.strip()
@@ -2192,7 +2127,7 @@ async def rename_item(
             select(ArchiveItem).where(
                 and_(
                     ArchiveItem.uuid == item_uuid,
-                    ArchiveItem.user_id == current_user.id
+                    ArchiveItem.user_uuid == current_user.uuid
                 )
             )
         )
@@ -2236,7 +2171,7 @@ async def download_folder(
             select(ArchiveFolder).where(
                 and_(
                     ArchiveFolder.uuid == folder_uuid,
-                    ArchiveFolder.user_id == current_user.id
+                    ArchiveFolder.user_uuid == current_user.uuid
                 )
             )
         )

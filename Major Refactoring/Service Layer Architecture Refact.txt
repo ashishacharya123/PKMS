@@ -1,0 +1,218 @@
+# Service Layer Architecture Refactor (Refined)
+
+## Overview
+
+Implement a proper service layer following Gemini's detailed refactoring plan. Since we have no existing database, we can safely perform large-scale schema changes and refactoring without migration concerns.
+
+## Core Issues Addressed
+
+- **Bug #39**: Tag handling logic duplicated across 4+ routers
+- **Bug #111**: No service layer - business logic in routers
+- **Bug #31**: Tag usage_count logic scattered and inconsistent
+- **Bug #26**: Tag usage_count not decremented on item deletion
+- **Bug #24**: Wrong order of operations on delete
+- **Bugs #111-120**: Architectural issues from Gemini analysis
+
+## Phase 1: Fix Tag Model Schema (CRITICAL FIRST STEP)
+
+**File:** `pkms-backend/app/models/tag.py`
+
+**Changes Required:**
+
+1. Add `usage_count` column (Integer, default=0) - tracks how many items use this tag
+2. Add `module_type` column (String(50), required, indexed) - differentiates tags across modules
+3. Replace global `unique=True` on `name` with composite unique constraint: `UniqueConstraint('name', 'user_id', 'module_type')`
+4. This allows same tag name in different modules (e.g., 'urgent' in notes vs todos)
+
+**Why Critical:** Current Tag model is incompatible with the required business logic. Without this, no service layer code will work.
+
+## Phase 2: Regenerate Database Schema
+
+**Actions:**
+
+1. Delete existing database file: `PKMS_Data/pkms.db` (if exists)
+2. Run schema generation: `cd pkms-backend && python generate_schema.py`
+3. Verify all tables created with new Tag constraints
+
+**Safe Because:** User confirmed no existing data, so we can freely recreate schema.
+
+## Phase 3: Create TagService (Core Service)
+
+**File:** `pkms-backend/app/services/tag_service.py`
+
+**Key Methods:**
+
+```python
+class TagService:
+    async def handle_tags(
+        db, item, new_tag_names, user_id, module_type, association_table
+    ):
+        # 1. Get current tags for item
+        # 2. Determine tags to add/remove
+        # 3. Decrement usage_count for removed tags
+        # 4. Clear existing associations
+        # 5. Create new associations + increment counts
+        # 6. Only increment if tag is newly added (not already associated)
+    
+    async def decrement_tags_on_delete(db, item):
+        # Decrement usage_count for all tags on item
+        # Called before deleting an item
+```
+
+**Benefits:**
+
+- Single source of truth for tag logic
+- Automatic usage_count management
+- Consistent across all modules
+- Fixes Bug #39, #26, #31
+
+## Phase 4: Refactor Notes Router
+
+**File:** `pkms-backend/app/routers/notes.py`
+
+**Changes:**
+
+1. Import: `from app.services.tag_service import tag_service` and `from app.models.tag_associations import note_tags`
+2. Delete `_handle_note_tags()` function (now redundant)
+3. In `create_note()`: Replace `_handle_note_tags()` call with:
+   ```python
+   await tag_service.handle_tags(db, note, sanitized_tags, current_user.id, "notes", note_tags)
+   ```
+
+4. In `update_note()`: Same replacement
+5. In `delete_note()`: Before `await db.delete(note)`, add:
+   ```python
+   await tag_service.decrement_tags_on_delete(db, note)
+   ```
+
+6. Remove old manual tag decrement logic
+
+## Phase 5: Refactor Documents Router
+
+**File:** `pkms-backend/app/routers/documents.py`
+
+**Changes:**
+
+1. Import: `from app.services.tag_service import tag_service` and `from app.models.tag_associations import document_tags`
+2. Delete `_handle_document_tags()` function
+3. Replace all calls with: `await tag_service.handle_tags(db, document, tags, user_id, "documents", document_tags)`
+4. Add `decrement_tags_on_delete()` call before document deletion
+
+## Phase 6: Refactor Todos Router
+
+**File:** `pkms-backend/app/routers/todos.py`
+
+**Changes:**
+
+1. Import: `from app.services.tag_service import tag_service` and `from app.models.tag_associations import todo_tags`
+2. Delete `_handle_todo_tags()` function
+3. Replace all calls with: `await tag_service.handle_tags(db, todo, tags, user_id, "todos", todo_tags)`
+4. Add `decrement_tags_on_delete()` call before todo deletion
+
+## Phase 7: Refactor Archive Router
+
+**File:** `pkms-backend/app/routers/archive.py`
+
+**Changes:**
+
+1. Import: `from app.services.tag_service import tag_service` and `from app.models.tag_associations import archive_item_tags, archive_folder_tags`
+2. Delete `_handle_item_tags()` function
+3. Replace calls for items: `await tag_service.handle_tags(db, item, tags, user_id, "archive_items", archive_item_tags)`
+4. Replace calls for folders: `await tag_service.handle_tags(db, folder, tags, user_id, "archive_folders", archive_folder_tags)`
+5. Add `decrement_tags_on_delete()` calls before deletions
+
+## Phase 8: Refactor Diary Router
+
+**File:** `pkms-backend/app/routers/diary.py`
+
+**Changes:**
+
+1. Import: `from app.services.tag_service import tag_service` and `from app.models.tag_associations import diary_entry_tags`
+2. Delete `_handle_diary_tags()` function
+3. Replace all calls with: `await tag_service.handle_tags(db, entry, tags, user_id, "diary_entries", diary_entry_tags)`
+4. Add `decrement_tags_on_delete()` call before entry deletion
+
+## Phase 9: Create Additional Services (Future Phases)
+
+After TagService is working across all routers, create:
+
+1. **FileManagementService** (`app/services/file_management_service.py`):
+
+   - `write_file_atomic(temp_path, final_path, content)` - Temp → final with rollback
+   - `delete_file_atomic(file_path)` - Delete with backup/restore
+   - `move_file_atomic(src, dest)` - Atomic move with integrity check
+
+2. **ProjectService** (`app/services/project_service.py`):
+
+   - `create_project(db, project_data, user_id)`
+   - `delete_project(db, project_uuid)` - Cascade deletes with file cleanup
+   - `link_item_to_project(db, item_uuid, project_uuid, is_exclusive)`
+
+3. **NoteService** (`app/services/note_service.py`):
+
+   - `create_note(db, note_data, user_id)` - Use TagService internally
+   - `delete_note(db, note_uuid)` - Atomic file + DB deletion
+
+4. **DocumentService**, **TodoService**, **ArchiveService** - Similar patterns
+
+## Phase 10: Testing Strategy
+
+**Create:** `tests/services/test_tag_service.py`
+
+**Test Cases:**
+
+1. Tag creation with usage_count = 1
+2. Tag reuse increments usage_count correctly
+3. Tag removal decrements usage_count
+4. Item deletion decrements all associated tags
+5. Module_type isolation (same tag name in different modules)
+6. Composite unique constraint enforcement
+
+**Run Tests After Each Router Refactor:**
+
+```bash
+cd pkms-backend
+pytest tests/services/test_tag_service.py -v
+```
+
+## Phase 11: Schema Enhancements (Optional)
+
+Based on Gemini analysis, consider adding:
+
+- `deleted_at` timestamp columns for soft deletes
+- `file_hash` columns for integrity verification
+- Audit columns (`created_by`, `modified_by`, `modified_at`)
+
+**Decision:** Defer until core service layer is stable.
+
+## Implementation Order (Critical Path)
+
+1. ✅ Fix Tag model schema
+2. ✅ Regenerate database
+3. ✅ Create TagService
+4. ✅ Refactor notes.py (test thoroughly)
+5. ✅ Refactor documents.py
+6. ✅ Refactor todos.py
+7. ✅ Refactor archive.py
+8. ✅ Refactor diary.py
+9. ✅ Create basic tests
+10. ✅ Verify all Gemini bugs resolved
+
+## Success Criteria
+
+- [ ] Tag model has `usage_count` and `module_type` columns
+- [ ] Composite unique constraint on (name, user_id, module_type)
+- [ ] TagService is the ONLY place with tag association logic
+- [ ] All 5 routers (notes, documents, todos, archive, diary) use TagService
+- [ ] No `_handle_*_tags()` functions remain in routers
+- [ ] Tag usage_count is always accurate (increments on add, decrements on remove/delete)
+- [ ] All tests pass
+- [ ] Bug #39, #26, #31, #111 confirmed resolved
+
+## Migration Notes
+
+- **NO MIGRATION SCRIPTS NEEDED** - fresh database
+- Each router can be refactored independently
+- Test after each router refactoring
+- Maintain backward compatibility in API responses
+- No breaking changes to frontend

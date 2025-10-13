@@ -29,6 +29,10 @@ export interface Note {
   updated_at: string;
   tags: string[];
   projects: ProjectBadge[];
+  
+  // NEW: Additional fields
+  note_type?: string;
+  version?: number;
 }
 
 export interface NoteSummary {
@@ -44,6 +48,10 @@ export interface NoteSummary {
   tags: string[];
   preview: string;
   projects: ProjectBadge[];
+  
+  // NEW: Additional fields
+  note_type?: string;
+  version?: number;
 }
 
 export interface NoteFile {

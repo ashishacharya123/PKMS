@@ -18,19 +18,36 @@ class Note(Base):
     
     __tablename__ = "notes"
     
-    id = Column(Integer, primary_key=True, index=True)  # Legacy counter (keeps counting lifetime entries)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)  # API identifier
+    id = Column(Integer, autoincrement=True, nullable=False, index=True)  # Legacy counter (keeps counting lifetime entries)
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
     title = Column(String(255), nullable=False, index=True)
     content = Column(Text, nullable=False)
+    size_bytes = Column(BigInteger, default=0, nullable=False)  # Size of content in bytes
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
     is_exclusive_mode = Column(Boolean, default=False, index=True)  # If True, note is deleted when any of its projects are deleted
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Audit trail
+    created_by = Column(String(36), ForeignKey("users.uuid"), nullable=False)
+    
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
     
-    # FTS5 Search Support
-    tags_text = Column(Text, nullable=True, default="")  # Denormalized tags for FTS5 search
+    
+    # Classification
+    note_type = Column(String(50), default='general', index=True)  # general, meeting, idea, reference
+    
+    # Lightweight Versioning (diff-based)
+    version = Column(Integer, default=1)
+    content_diff = Column(Text, nullable=True)  # Stores diff from previous version
+    last_version_uuid = Column(String(36), ForeignKey('notes.uuid'), nullable=True)  # Points to previous version
+    
+    # Soft Delete
+    is_deleted = Column(Boolean, default=False, index=True)
+    
+    # Search optimization removed - word_count and reading_time_minutes not needed
+    
     
     # Relationships
     user = relationship("User", back_populates="notes")
@@ -47,8 +64,8 @@ class NoteFile(Base):
     
     __tablename__ = "note_files"
     
-    id = Column(Integer, primary_key=True, index=True)  # Legacy counter (keeps counting lifetime entries)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)  # API identifier
+    id = Column(Integer, autoincrement=True, nullable=False, index=True)  # Legacy counter (keeps counting lifetime entries)
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
     note_uuid = Column(String(36), ForeignKey("notes.uuid", ondelete="CASCADE"), nullable=False, index=True)
     filename = Column(String(255), nullable=False)
     original_name = Column(String(255), nullable=False)
@@ -57,7 +74,7 @@ class NoteFile(Base):
     mime_type = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)  # Optional description/caption
     is_archived = Column(Boolean, default=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
     

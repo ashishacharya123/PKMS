@@ -2,7 +2,10 @@
 Tag Model for Content Organization
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey
+from sqlalchemy import (
+    Column, Integer, String, Text, DateTime, Boolean, ForeignKey,
+    UniqueConstraint
+)
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
@@ -20,16 +23,28 @@ class Tag(Base):
     
     __tablename__ = "tags"
     
-    id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
-    name = Column(String(100), nullable=False, unique=True, index=True)
+    id = Column(Integer, autoincrement=True, nullable=False, index=True)
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    name = Column(String(100), nullable=False, index=True)
     description = Column(Text, nullable=True)
     color = Column(String(7), default="#3498db")  # Hex color code
+    
+    # CRITICAL: Tracks usage for cleanup and UI sorting.
+    usage_count = Column(Integer, default=0, nullable=False)
+    
+    # CRITICAL: Differentiates tags for different modules (e.g., 'notes', 'todos').
+    module_type = Column(String(50), nullable=False, index=True)
+    
     is_system = Column(Boolean, default=False, index=True)  # System tags can't be deleted
     is_archived = Column(Boolean, default=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    
+    # CRITICAL: Ensures a user can't have the same tag name within the same module.
+    __table_args__ = (
+        UniqueConstraint('name', 'user_uuid', 'module_type', name='_user_module_tag_uc'),
+    )
     
     # Relationships to content models
     notes = relationship("Note", secondary=note_tags, back_populates="tag_objs")
@@ -42,4 +57,4 @@ class Tag(Base):
     links = relationship("Link", secondary=link_tags, back_populates="tag_objs")
     
     def __repr__(self):
-        return f"<Tag(id={self.id}, name='{self.name}', color='{self.color}')>" 
+        return f"<Tag(id={self.id}, name='{self.name}', module='{self.module_type}')>" 

@@ -43,6 +43,9 @@ class DiaryEntryCreate(CamelCaseModel):
     content_length: Optional[int] = None  # plaintext character count
     daily_metrics: Optional[Dict[str, Any]] = None
     nepali_date: Optional[str] = None
+    daily_income: Optional[int] = Field(None, ge=0)  # Income in NPR
+    daily_expense: Optional[int] = Field(None, ge=0)  # Expense in NPR
+    is_office_day: Optional[bool] = False  # Was this an office/work day?
     is_template: Optional[bool] = False
     from_template_id: Optional[str] = None
     tags: Optional[List[str]] = None
@@ -77,6 +80,9 @@ class DiaryEntryResponse(CamelCaseModel):
     location: Optional[str]
     daily_metrics: Dict[str, Any]
     nepali_date: Optional[str]
+    daily_income: Optional[int] = 0  # Income in NPR
+    daily_expense: Optional[int] = 0  # Expense in NPR
+    is_office_day: Optional[bool] = False  # Was this an office/work day?
     is_template: bool
     from_template_id: Optional[str]
     created_at: datetime
@@ -119,6 +125,7 @@ class DiaryEntrySummary(CamelCaseModel):
     encryption_iv: str
     tags: List[str] = []
     content_length: int
+    is_favorite: Optional[bool] = False
 
     @validator("daily_metrics", pre=True, always=True)
     def parse_daily_metrics_summary(cls, v):
@@ -158,6 +165,20 @@ class WellnessTrendPoint(CamelCaseModel):
 class WellnessStats(CamelCaseModel):
     """Comprehensive wellness analytics across all metrics"""
     
+class WeeklyHighlights(CamelCaseModel):
+    period_start: str
+    period_end: str
+    notes_created: int
+    documents_uploaded: int
+    todos_completed: int
+    diary_entries: int
+    archive_items_added: int
+    projects_created: int
+    projects_completed: int
+    total_income: float
+    total_expense: float
+    net_savings: float
+
     # Period info
     period_start: str
     period_end: str

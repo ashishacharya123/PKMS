@@ -28,11 +28,14 @@ from app.models.tag_associations import document_tags
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag_associations import archive_tags
 from app.models.associations import document_projects
+from app.services.tag_service import tag_service
 from app.auth.dependencies import get_current_user
 from app.utils.security import sanitize_text_input, sanitize_tags
 from app.services.chunk_service import chunk_manager
 from app.services.file_detection import FileTypeDetectionService
-from app.services.fts_service_enhanced import enhanced_fts_service
+from app.services.project_service import project_service
+from app.services.file_management_service import file_management_service
+from app.services.search_service import search_service
 from app.schemas.document import (
     DocumentResponse,
     CommitDocumentUploadRequest,
@@ -51,158 +54,8 @@ file_detector = FileTypeDetectionService()
 # Models are now in app/schemas/document.py
 
 # Helper Functions
-async def _handle_document_tags(db: AsyncSession, doc: Document, tag_names: List[str], user_id: int):
-    """Handle document tag associations and update usage counts."""
-    from sqlalchemy import delete
 
-    # Fetch existing associations
-    existing_tag_rows = await db.execute(
-        select(document_tags.c.tag_uuid).where(document_tags.c.document_uuid == doc.uuid)
-    )
-    existing_tag_uuids = {row[0] for row in existing_tag_rows.fetchall()}
 
-    existing_tags = []
-    if existing_tag_uuids:
-        tag_rows = await db.execute(
-            select(Tag).where(Tag.uuid.in_(existing_tag_uuids))
-        )
-        existing_tags = tag_rows.scalars().all()
-
-    # Determine removed tags
-    removed_tag_uuids = existing_tag_uuids.copy()
-
-    # Clear associations
-    await db.execute(
-        delete(document_tags).where(document_tags.c.document_uuid == doc.uuid)
-    )
-
-    normalized_names = [t.strip() for t in (tag_names or []) if t and t.strip()]
-
-    if not normalized_names:
-        for tag in existing_tags:
-            if tag.usage_count > 0:
-                tag.usage_count -= 1
-        return
-
-    for tag_name in normalized_names:
-        result = await db.execute(
-            select(Tag).where(
-                and_(
-                    Tag.name == tag_name,
-                    Tag.user_id == user_id,
-                    Tag.module_type == "documents"
-                )
-            )
-        )
-        tag = result.scalar_one_or_none()
-
-        if not tag:
-            tag = Tag(
-                name=tag_name,
-                user_id=user_id,
-                module_type="documents",
-                usage_count=1,
-                color="#f59e0b"
-            )
-            db.add(tag)
-            await db.flush()
-        else:
-            if tag.uuid in removed_tag_uuids:
-                removed_tag_uuids.remove(tag.uuid)
-            tag.usage_count += 1
-
-        await db.execute(
-            document_tags.insert().values(
-                document_uuid=doc.uuid,
-                tag_uuid=tag.uuid
-            )
-        )
-
-    for tag in existing_tags:
-        if tag.uuid in removed_tag_uuids and tag.usage_count > 0:
-            tag.usage_count -= 1
-
-async def _handle_document_projects(db: AsyncSession, doc: Document, project_ids: List[int], user_id: int):
-    """Link document to projects via junction table (with ownership verification)."""
-    from sqlalchemy import delete, and_
-    from app.models.todo import Project
-    
-    # First, clear existing project links
-    await db.execute(
-        delete(document_projects).where(document_projects.c.document_id == doc.id)
-    )
-    
-    # Add new project links (only for projects owned by the user)
-    if project_ids:
-        # Verify ownership: only link projects that belong to this user
-        result = await db.execute(
-            select(Project.id).where(
-                and_(
-                    Project.id.in_(project_ids),
-                    Project.user_id == user_id
-                )
-            )
-        )
-        allowed_project_ids = [row[0] for row in result.fetchall()]
-        
-        # Insert links only for allowed projects
-        for project_id in allowed_project_ids:
-            await db.execute(
-                document_projects.insert().values(
-                    document_id=doc.id,
-                    project_id=project_id,
-                    project_name_snapshot=None  # Will be set on project deletion
-                )
-            )
-        
-        # Optional: warn if any requested projects were not owned by user
-        if len(allowed_project_ids) < len(project_ids):
-            forbidden_ids = set(project_ids) - set(allowed_project_ids)
-            logger.warning("User attempted to link to projects they don't own", user_id=user_id, forbidden_ids=list(forbidden_ids))
-
-async def _build_document_project_badges(db: AsyncSession, doc_id: int) -> List[ProjectBadge]:
-    """Build project badges from junction table (live projects and deleted snapshots)."""
-    # Query junction table for this document
-    result = await db.execute(
-        select(
-            document_projects.c.project_id,
-            document_projects.c.project_name_snapshot,
-            document_projects.c.is_exclusive
-        ).where(document_projects.c.document_id == doc_id)
-    )
-    
-    badges = []
-    for row in result:
-        project_id = row.project_id
-        snapshot_name = row.project_name_snapshot
-        is_exclusive = row.is_exclusive
-        
-        if project_id is not None:
-            # Live project - fetch current details
-            project_result = await db.execute(
-                select(Project).where(Project.id == project_id)
-            )
-            project = project_result.scalar_one_or_none()
-            if project:
-                badges.append(ProjectBadge(
-                    id=project.id,
-                    name=project.name,
-                    color=project.color,
-                    is_exclusive=is_exclusive,
-                    is_deleted=False
-                ))
-        else:
-            # Deleted project - use snapshot
-            if snapshot_name:
-                badges.append(ProjectBadge(
-                    id=None,
-                    name=snapshot_name,
-                    color="#6c757d",  # Gray for deleted projects
-                    is_exclusive=is_exclusive,
-                    is_deleted=True
-                ))
-    
-    return badges
 
 def _convert_doc_to_response(doc: Document, project_badges: Optional[List[ProjectBadge]] = None) -> DocumentResponse:
     """Convert Document model to DocumentResponse with relational tags."""
@@ -219,7 +72,7 @@ def _convert_doc_to_response(doc: Document, project_badges: Optional[List[Projec
         is_favorite=doc.is_favorite,
         is_archived=doc.is_archived,
         is_exclusive_mode=doc.is_exclusive_mode,
-        project_id=doc.project_id,  # Legacy
+        # Project info now comes from junction table via project_service.build_badges
         archive_item_uuid=doc.archive_item_uuid,
         upload_status=doc.upload_status,
         created_at=doc.created_at,
@@ -237,167 +90,41 @@ async def commit_document_upload(
 ):
     """Finalize a previously chunk-uploaded document file and create DB record.
     
-    Uses the core chunk upload service for efficient uploading, then creates
-    the document record with proper file organization.
+    Uses the centralized FileManagementService for atomic file operations.
     """
     try:
         logger.info(f"Committing document upload: {payload.title}")
         
-        # Check assembled file status
-        status_obj = await chunk_manager.get_upload_status(payload.file_id)
-        logger.info(f"File status: {status_obj}")
-        if not status_obj or status_obj.get("status") != "completed":
-            logger.warning(f"File not ready - status: {status_obj.get('status') if status_obj else 'None'}")
-            raise HTTPException(status_code=400, detail=f"File not yet assembled - status: {status_obj.get('status') if status_obj else 'None'}")
-
-        # Locate assembled file path
-        temp_dir = Path(get_data_dir()) / "temp_uploads"
-        logger.info(f"Looking for assembled file in: {temp_dir}")
-        assembled = next(temp_dir.glob(f"complete_{payload.file_id}_*"), None)
-        if not assembled:
-            # List what files are actually in temp_dir for debugging
-            available_files = list(temp_dir.glob("*"))
-            logger.error(f"Assembled file not found. Available files: {available_files}")
-            raise HTTPException(status_code=404, detail=f"Assembled file not found in {temp_dir}")
-
-        # Prepare destination directory on Windows bind mount for accessibility
-        docs_dir = get_file_storage_dir() / "assets" / "documents"
-        docs_dir.mkdir(parents=True, exist_ok=True)
-
-        # Generate human-readable filename: originalname_UUID.ext
-        file_uuid = str(uuid_lib.uuid4())
-        file_extension = assembled.suffix
-        
-        # Extract original filename from assembled filename (remove chunk prefixes)
-        original_name = assembled.name.replace(f"complete_{payload.file_id}_", "")
-        # Remove file extension from original name if present
-        if original_name.endswith(file_extension):
-            original_name = original_name[:-len(file_extension)]
-        # SECURITY: Proper filename sanitization to prevent path traversal
-        from app.utils.security import sanitize_filename
-        safe_original = sanitize_filename(original_name)
-        # Limit filename length to prevent filesystem issues
-        if len(safe_original) > 100:
-            safe_original = safe_original[:100]
-        
-        stored_filename = f"{safe_original}_{file_uuid}{file_extension}"
-        temp_dest_path = docs_dir / f"temp_{stored_filename}"  # Temporary location
-        final_dest_path = docs_dir / stored_filename  # Final location
-
-        # Move assembled file to TEMPORARY location first; handle cross-device moves (EXDEV)
-        try:
-            assembled.rename(temp_dest_path)
-        except OSError as move_err:
-            import errno as _errno
-            if getattr(move_err, 'errno', None) == _errno.EXDEV:
-                # Fallback to shutil.move which copies across devices, then unlinks
-                shutil.move(str(assembled), str(temp_dest_path))
-            else:
-                raise
-
-        # Get file size before database operations
-        file_size = temp_dest_path.stat().st_size
-        
-        # SECURITY: Validate file size to prevent DoS attacks
-        from app.utils.security import validate_file_size
-        from app.config import settings
-        validate_file_size(file_size, settings.max_file_size)
-        
-        file_path_relative = str(final_dest_path.relative_to(get_file_storage_dir()))
-        
-        # Detect file type and extract metadata
-        detection_result = await file_detector.detect_file_type(
-            file_path=temp_dest_path,
-            file_content=None  # File is already on disk
+        # Use centralized FileManagementService for document upload
+        document_with_tags = await file_management_service.commit_document_upload(
+            db=db,
+            upload_id=payload.file_id,
+            title=payload.title,
+            description=payload.description,
+            tags=payload.tags,
+            project_ids=payload.project_ids,
+            is_exclusive_mode=payload.is_exclusive_mode,
+            user_id=current_user.uuid,
+            document_model=Document,
+            tag_service=tag_service,
+            project_service=project_service,
+            document_tags=document_tags,
+            document_projects=document_projects
         )
 
-        # SECURITY: Validate and sanitize input fields
-        if not payload.title or len(payload.title.strip()) == 0:
-            raise HTTPException(status_code=400, detail="Title is required")
-        sanitized_title = sanitize_text_input(payload.title, 200)
-        sanitized_description = sanitize_text_input(payload.description or "", 1000)
-        
-        # Create Document record
-        document = Document(
-            uuid=file_uuid,
-            title=sanitized_title,
-            original_name=original_name + file_extension,  # Use the cleaned original name
-            filename=stored_filename,
-            file_path=file_path_relative,
-            file_size=file_size,
-            mime_type=detection_result["mime_type"],
-            description=sanitized_description,
-            upload_status="completed",
-            is_exclusive_mode=payload.is_exclusive_mode or False,
-            user_id=current_user.id,
-            project_id=payload.project_id  # Legacy support
-        )
-        
-        db.add(document)
-        await db.flush()  # Get the ID for tag associations
-
-        # Handle tags
-        if payload.tags:
-            # SECURITY: Sanitize tags to prevent XSS injection
-            sanitized_tags = sanitize_tags(payload.tags)
-            await _handle_document_tags(db, document, sanitized_tags, current_user.id)
-
-        # Handle projects (with ownership verification)
-        if payload.project_ids:
-            await _handle_document_projects(db, document, payload.project_ids, current_user.id)
-
-        await db.commit()
-        
-        # SECURITY: Move file to final location ONLY after successful DB commit
-        try:
-            temp_dest_path.rename(final_dest_path)
-            logger.info(f"✅ File moved to final location: {final_dest_path}")
-        except Exception as move_error:
-            logger.error(f"❌ Failed to move file to final location: {move_error}")
-            # Clean up temp file
-            try:
-                if temp_dest_path.exists():
-                    temp_dest_path.unlink()
-            except Exception:
-                pass
-            raise HTTPException(status_code=500, detail="Failed to finalize file storage")
-        
-        # Reload document with tags to avoid lazy loading issues in response conversion
-        result = await db.execute(
-            select(Document).options(selectinload(Document.tag_objs)).where(
-                Document.id == document.id
-            )
-        )
-        document_with_tags = result.scalar_one()
+        # Index in search
+        await search_service.index_item(db, document_with_tags, 'document')
 
         # Build project badges
-        project_badges = await _build_document_project_badges(db, document_with_tags.id)
+        project_badges = await project_service.build_badges(db, document_with_tags.uuid, document_with_tags.is_exclusive_mode, document_projects, "document_uuid")
 
-        # Clean up temporary file tracking
-        if payload.file_id in chunk_manager.uploads:
-            del chunk_manager.uploads[payload.file_id]
-
-        logger.info(f"Document committed successfully: {stored_filename}")
+        logger.info(f"Document committed successfully: {document_with_tags.filename}")
         
         return _convert_doc_to_response(document_with_tags, project_badges)
         
     except HTTPException:
-        await db.rollback()
-        # Clean up temp file on DB rollback
-        try:
-            if 'temp_dest_path' in locals() and temp_dest_path.exists():
-                temp_dest_path.unlink()
-        except Exception:
-            pass
         raise
     except Exception as e:
-        await db.rollback()
-        # Clean up temp file on DB rollback
-        try:
-            if 'temp_dest_path' in locals() and temp_dest_path.exists():
-                temp_dest_path.unlink()
-        except Exception:
-            pass
         logger.exception("Error committing document upload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -411,9 +138,8 @@ async def list_documents(
     mime_type: Optional[str] = Query(None),
     archived: Optional[bool] = Query(False),
     is_favorite: Optional[bool] = Query(None),
-    project_id: Optional[int] = Query(None, description="Filter documents by project_id"),
     project_only: Optional[bool] = Query(False, description="Only documents attached to a project"),
-    unassigned_only: Optional[bool] = Query(False, description="Only documents without a project_id"),
+    unassigned_only: Optional[bool] = Query(False, description="Only documents without project associations"),
     limit: int = Query(50, le=100),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user),
@@ -427,20 +153,20 @@ async def list_documents(
     - Items with is_exclusive_mode=False are ALWAYS shown (linked mode)
     """
     try:
-        logger.info(f"Listing documents for user {current_user.id} - archived: {archived}, search: {search}, tag: {tag}")
+        logger.info(f"Listing documents for user {current_user.uuid} - archived: {archived}, search: {search}, tag: {tag}")
         
         if search:
-            # Use FTS5 for full-text search
-            fts_results = await enhanced_fts_service.search_all(db, search, current_user.id, content_types=["documents"], limit=limit, offset=offset)
-            
+            # Use unified FTS5 search
+            fts_results = await search_service.search(db, current_user.uuid, search, item_types=["document"], limit=limit)
+
             # Create mapping of document UUID to FTS score for proper ordering
             fts_scores = {}
             doc_uuids = []
             for r in fts_results:
                 if r["type"] == "document":
-                    doc_uuids.append(r["id"])
-                    # Use 0.1 as default (lowest relevance) instead of 0.0 to maintain 0.0-1.0 range
-                    fts_scores[r["id"]] = r.get("normalized_score", 0.1)
+                    doc_uuids.append(r["uuid"])
+                    # Use search service score directly (normalized between 0 and 1)
+                    fts_scores[r["uuid"]] = r.get("score", 0.1)
             
             logger.info(f"FTS5 search returned {len(doc_uuids)} document UUIDs with scores")
             
@@ -450,7 +176,7 @@ async def list_documents(
             # Fetch documents by UUIDs
             query = select(Document).options(selectinload(Document.tag_objs)).where(
                 and_(
-                    Document.user_id == current_user.id,
+                    Document.user_uuid == current_user.uuid,
                     Document.is_archived == archived,
                     Document.uuid.in_(doc_uuids),
                     Document.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
@@ -463,13 +189,14 @@ async def list_documents(
                 query = query.where(Document.mime_type.like(f"{mime_type}%"))
             if is_favorite is not None:
                 query = query.where(Document.is_favorite == is_favorite)
-            if project_id is not None:
-                query = query.where(Document.project_id == project_id)
-            elif project_only:
-                query = query.where(Document.project_id.is_not(None))
+            if project_only:
+                # Filter documents that have project associations
+                query = query.join(document_projects, Document.uuid == document_projects.c.document_uuid)
             elif unassigned_only:
-                query = query.where(Document.project_id.is_(None))
-            result = await db.execute(query)
+                # Filter documents that have NO project associations
+                query = query.outerjoin(document_projects, Document.uuid == document_projects.c.document_uuid)
+                query = query.where(document_projects.c.document_uuid.is_(None))
+            result = await db.execute(query.order_by(Document.is_favorite.desc(), Document.created_at.desc()))
             documents = result.scalars().unique().all()
             logger.info(f"FTS5 query returned {len(documents)} documents")
             
@@ -490,7 +217,7 @@ async def list_documents(
             logger.info(f"Using regular query for archived={archived}")
             query = select(Document).options(selectinload(Document.tag_objs)).where(
                 and_(
-                    Document.user_id == current_user.id,
+                    Document.user_uuid == current_user.uuid,
                     Document.is_archived == archived,
                     Document.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
                 )
@@ -502,64 +229,65 @@ async def list_documents(
                 query = query.where(Document.mime_type.like(f"{mime_type}%"))
             if is_favorite is not None:
                 query = query.where(Document.is_favorite == is_favorite)
-            if project_id is not None:
-                query = query.where(Document.project_id == project_id)
-            elif project_only:
-                query = query.where(Document.project_id.is_not(None))
+            if project_only:
+                # Filter documents that have project associations
+                query = query.join(document_projects, Document.uuid == document_projects.c.document_uuid)
             elif unassigned_only:
-                query = query.where(Document.project_id.is_(None))
+                # Filter documents that have NO project associations
+                query = query.outerjoin(document_projects, Document.uuid == document_projects.c.document_uuid)
+                query = query.where(document_projects.c.document_uuid.is_(None))
             query = query.order_by(Document.created_at.desc()).offset(offset).limit(limit)
-            result = await db.execute(query)
+        result = await db.execute(query.order_by(Document.is_favorite.desc(), Document.created_at.desc()))
             ordered_docs = result.scalars().unique().all()
             logger.info(f"Regular query returned {len(ordered_docs)} documents")
         
         # Build responses with project badges - batch load to avoid N+1 queries
         response = []
         if ordered_docs:
-            # Collect all document IDs
-            doc_ids = [d.id for d in ordered_docs]
+            # Collect all document UUIDs
+            doc_uuids = [d.uuid for d in ordered_docs]
         
             # Single query to fetch all document-project junctions
             junction_result = await db.execute(
                 select(document_projects)
-                .where(document_projects.c.document_id.in_(doc_ids))
+                .where(document_projects.c.document_uuid.in_(doc_uuids))
             )
             junctions = junction_result.fetchall()
         
-            # Collect all project IDs (both live and deleted)
-            project_ids = set()
+            # Collect all project UUIDs (both live and deleted)
+            project_uuids = set()
             for junction in junctions:
-                if junction.project_id:
-                    project_ids.add(junction.project_id)
+                if junction.project_uuid:
+                    project_uuids.add(junction.project_uuid)
 
             # Single query to fetch all live projects
             projects = []
-            if project_ids:
+            if project_uuids:
                 project_result = await db.execute(
                     select(Project)
-                    .where(Project.id.in_(project_ids))
+                    .where(Project.uuid.in_(project_uuids))
                 )
                 projects = project_result.scalars().all()
 
             # Create project lookup map
-            project_map = {p.id: p for p in projects}
+            project_map = {p.uuid: p for p in projects}
 
-            # Group junctions by document_id
+            # Group junctions by document_uuid
             junctions_by_doc = {}
             for junction in junctions:
-                if junction.document_id not in junctions_by_doc:
-                    junctions_by_doc[junction.document_id] = []
-                junctions_by_doc[junction.document_id].append(junction)
+                if junction.document_uuid not in junctions_by_doc:
+                    junctions_by_doc[junction.document_uuid] = []
+                junctions_by_doc[junction.document_uuid].append(junction)
         
             # Build project badges for each document
             for d in ordered_docs:
-                doc_junctions = junctions_by_doc.get(d.id, [])
+                doc_junctions = junctions_by_doc.get(d.uuid, [])
                 project_badges = []
                 
                 for junction in doc_junctions:
-                    if junction.project_id and junction.project_id in project_map:
+                    if junction.project_uuid and junction.project_uuid in project_map:
                         # Live project
-                        project = project_map[junction.project_id]
+                        project = project_map[junction.project_uuid]
                         project_badges.append(ProjectBadge(
                             id=project.id,
                             name=project.name,
@@ -597,7 +325,7 @@ async def get_document(
     """Get a specific document by UUID."""
     result = await db.execute(
         select(Document).options(selectinload(Document.tag_objs)).where(
-            and_(Document.uuid == document_uuid, Document.user_id == current_user.id)
+            and_(Document.uuid == document_uuid, Document.user_uuid == current_user.uuid)
         )
     )
     doc = result.scalar_one_or_none()
@@ -605,7 +333,7 @@ async def get_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     
     # Build project badges
-    project_badges = await _build_document_project_badges(db, doc.id)
+    project_badges = await project_service.build_badges(db, doc.uuid, doc.is_exclusive_mode, document_projects, "document_uuid")
     
     return _convert_doc_to_response(doc, project_badges)
 
@@ -618,7 +346,7 @@ async def download_document(
     """Download a document file."""
     result = await db.execute(
         select(Document).where(
-            and_(Document.uuid == document_uuid, Document.user_id == current_user.id)
+            and_(Document.uuid == document_uuid, Document.user_uuid == current_user.uuid)
         )
     )
     doc = result.scalar_one_or_none()
@@ -649,7 +377,7 @@ async def update_document(
     """Update document metadata and tags."""
     result = await db.execute(
         select(Document).options(selectinload(Document.tag_objs)).where(
-            and_(Document.uuid == document_uuid, Document.user_id == current_user.id)
+            and_(Document.uuid == document_uuid, Document.user_uuid == current_user.uuid)
         )
     )
     doc = result.scalar_one_or_none()
@@ -662,11 +390,11 @@ async def update_document(
         # SECURITY: Sanitize tags to prevent XSS injection
         raw_tags = update_data.pop("tags")
         sanitized_tags = sanitize_tags(raw_tags)
-        await _handle_document_tags(db, doc, sanitized_tags, current_user.id)
+        await tag_service.handle_tags(db, doc, sanitized_tags, current_user.uuid, "documents", document_tags)
 
     # Handle projects if provided (with ownership verification)
     if "project_ids" in update_data:
-        await _handle_document_projects(db, doc, update_data.pop("project_ids"), current_user.id)
+        await project_service.handle_associations(db, doc, update_data.pop("project_ids"), current_user.id, document_projects, "document_uuid")
 
     # SECURITY: Validate and sanitize update fields
     for key, value in update_data.items():
@@ -682,8 +410,11 @@ async def update_document(
     await db.commit()
     await db.refresh(doc)
     
+    # Index in search
+    await search_service.index_item(db, doc, 'document')
+    
     # Build project badges
-    project_badges = await _build_document_project_badges(db, doc.id)
+    project_badges = await project_service.build_badges(db, doc.uuid, doc.is_exclusive_mode, document_projects, "document_uuid")
     
     return _convert_doc_to_response(doc, project_badges)
 
@@ -701,17 +432,17 @@ async def archive_document(
     User can safely delete the original document later if desired.
     """
     try:
-        logger.info(f"Archiving document {document_uuid} to folder {archive_request.folder_uuid} for user {current_user.id}")
+        logger.info(f"Archiving document {document_uuid} to folder {archive_request.folder_uuid} for user {current_user.uuid}")
         
         # Get document
         doc_result = await db.execute(
             select(Document)
             .options(selectinload(Document.tag_objs))
-            .where(and_(Document.uuid == document_uuid, Document.user_id == current_user.id))
+            .where(and_(Document.uuid == document_uuid, Document.user_uuid == current_user.uuid))
         )
         document = doc_result.scalar_one_or_none()
         if not document:
-            logger.warning(f"Document {document_uuid} not found for user {current_user.id}")
+            logger.warning(f"Document {document_uuid} not found for user {current_user.uuid}")
             raise HTTPException(status_code=404, detail="Document not found")
         
         logger.info(f"Found document: {document.title} (is_archived: {document.is_archived})")
@@ -725,13 +456,13 @@ async def archive_document(
             select(ArchiveFolder).where(
                 and_(
                     ArchiveFolder.uuid == archive_request.folder_uuid,
-                    ArchiveFolder.user_id == current_user.id
+                    ArchiveFolder.user_uuid == current_user.uuid
                 )
             )
         )
         archive_folder = folder_result.scalar_one_or_none()
         if not archive_folder:
-            logger.warning(f"Archive folder {archive_request.folder_uuid} not found for user {current_user.id}")
+            logger.warning(f"Archive folder {archive_request.folder_uuid} not found for user {current_user.uuid}")
             raise HTTPException(status_code=404, detail="Archive folder not found")
         
         # Check if document file exists
@@ -767,7 +498,7 @@ async def archive_document(
             file_size=document.file_size,
             mime_type=document.mime_type,
             extracted_text=getattr(document, "extracted_text", None),
-            user_id=current_user.id,
+            user_id=current_user.uuid,
             is_archived=False,  # In archive module, items start as not archived
             is_favorite=document.is_favorite,
             metadata_json=json.dumps({
@@ -780,42 +511,10 @@ async def archive_document(
         db.add(archive_item)
         await db.flush()  # Get the UUID
         
-        # Copy tags if requested
+        # Copy tags if requested using TagService
         if archive_request.copy_tags and document.tag_objs:
-            for doc_tag in document.tag_objs:
-                # Create or find equivalent tag for archive module
-                archive_tag_result = await db.execute(
-                    select(Tag).where(
-                        and_(
-                            Tag.name == doc_tag.name,
-                            Tag.user_id == current_user.id,
-                            Tag.module_type.in_(["archive", "general"])
-                        )
-                    )
-                )
-                archive_tag = archive_tag_result.scalar_one_or_none()
-                
-                if not archive_tag:
-                    # Create new tag for archive
-                    archive_tag = Tag(
-                        name=doc_tag.name,
-                        user_id=current_user.id,
-                        module_type="archive",
-                        color=doc_tag.color,
-                        usage_count=1
-                    )
-                    db.add(archive_tag)
-                    await db.flush()
-                else:
-                    archive_tag.usage_count += 1
-                
-                # Create tag association
-                await db.execute(
-                    archive_tags.insert().values(
-                        item_uuid=archive_item.uuid,
-                        tag_uuid=archive_tag.uuid
-                    )
-                )
+            tag_names = [tag.name for tag in document.tag_objs]
+            await tag_service.handle_tags(db, archive_item, tag_names, current_user.uuid, "archive", archive_tags)
         
         # Update document to mark as archived
         logger.info(f"Updating document {document_uuid} to archived status")
@@ -859,8 +558,8 @@ async def delete_document(
     The archived copy in the Archive module remains intact and accessible.
     """
     result = await db.execute(
-        select(Document).where(
-            and_(Document.uuid == document_uuid, Document.user_id == current_user.id)
+        select(Document).options(selectinload(Document.tag_objs)).where(
+            and_(Document.uuid == document_uuid, Document.user_uuid == current_user.uuid)
         )
     )
     doc = result.scalar_one_or_none()
@@ -882,6 +581,12 @@ async def delete_document(
     except Exception as e:
         logger.warning(f"Could not delete file {doc.file_path}: {e}")
         # Continue with database deletion even if file deletion fails
+    
+    # Decrement tag usage counts BEFORE deleting document
+    await tag_service.decrement_tags_on_delete(db, doc)
+
+    # Remove from search index BEFORE deleting document
+    await search_service.remove_item(db, document_uuid)
         
     await db.delete(doc)
     await db.commit()
