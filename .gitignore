@@ -28,3 +28,6 @@ Thumbs.db
 # Ignore accidental backend-local SQLite copies
 pkms-backend/data/
 pkms-backend/PKMS_Data/ 
+
+# Ignore all text files
+*.txt
