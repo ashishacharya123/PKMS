@@ -126,7 +126,7 @@ async def get_dashboard_stats(
         )
         
         # Calculate diary streak (consecutive days with entries)
-        diary_streak = await _calculate_diary_streak(db, user_id)
+        diary_streak = await _calculate_diary_streak(db, current_user.uuid)
         
         # Archive Statistics
         archive_folders = await db.scalar(
@@ -269,7 +269,7 @@ async def get_quick_stats(
         )
         
         # Diary streak
-        diary_streak = await _calculate_diary_streak(db, user_id)
+        diary_streak = await _calculate_diary_streak(db, current_user.uuid)
         
         # Storage used (approximate from file sizes)
         storage_result = await db.scalar(
@@ -296,13 +296,13 @@ async def get_quick_stats(
             detail=f"Failed to load quick statistics: {str(e)}"
         )
 
-async def _calculate_diary_streak(db: AsyncSession, user_id: int) -> int:
+async def _calculate_diary_streak(db: AsyncSession, user_uuid: str) -> int:
     """Calculate the current consecutive diary writing streak"""
     try:
         # Get the most recent diary entries ordered by date descending
         result = await db.execute(
             select(DiaryEntry.date)
-            .where(DiaryEntry.user_id == user_id)
+            .where(DiaryEntry.user_uuid == user_uuid)
             .order_by(DiaryEntry.date.desc())
             .limit(365)  # Look at most recent year
         )

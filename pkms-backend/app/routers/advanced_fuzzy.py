@@ -42,10 +42,11 @@ async def advanced_fuzzy_search(
         selected_modules = allowed_modules
     # --- TODOS & PROJECTS ---
     if "todo" in selected_modules:
-        todo_rows = (await db.execute(select(Todo).options(selectinload(Todo.tag_objs)).where(Todo.user_id == user_id))).scalars().all()
-        project_map = {p.id: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.user_id == user_id))).scalars().all()}
+        todo_rows = (await db.execute(select(Todo).options(selectinload(Todo.tag_objs), selectinload(Todo.projects)).where(Todo.user_uuid == user_uuid))).scalars().all()
+        project_map = {p.uuid: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.user_uuid == user_uuid))).scalars().all()}
         for todo in todo_rows:
-            project = project_map.get(todo.project_id)
+            # Get first project from M2M relationship
+            project = todo.projects[0] if todo.projects else None
             todo_tags = [t.name for t in getattr(todo, 'tag_objs', [])] if hasattr(todo, 'tag_objs') else []
             search_blob = f"{todo.title or ''} {todo.description or ''} {' '.join(todo_tags)} {project.name if project else ''}"
             score = fuzz.token_set_ratio(query, search_blob)
@@ -61,7 +62,7 @@ async def advanced_fuzzy_search(
                 "score": score
             })
     if "project" in selected_modules:
-        project_map = {p.id: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.user_id == user_id))).scalars().all()}
+        project_map = {p.uuid: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.user_uuid == user_uuid))).scalars().all()}
         for project in project_map.values():
             project_tags = [t.name for t in getattr(project, 'tag_objs', [])] if hasattr(project, 'tag_objs') else []
             search_blob = f"{project.name or ''} {project.description or ''} {' '.join(project_tags)}"
@@ -184,10 +185,11 @@ async def fuzzy_search_light(
     
     # --- TODOS & PROJECTS ---
     if "todo" in selected_modules:
-        todo_rows = (await db.execute(select(Todo).options(selectinload(Todo.tag_objs)).where(Todo.user_id == user_id))).scalars().all()
-        project_map = {p.id: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.user_id == user_id))).scalars().all()}
+        todo_rows = (await db.execute(select(Todo).options(selectinload(Todo.tag_objs), selectinload(Todo.projects)).where(Todo.user_uuid == user_uuid))).scalars().all()
+        project_map = {p.uuid: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.user_uuid == user_uuid))).scalars().all()}
         for todo in todo_rows:
-            project = project_map.get(todo.project_id)
+            # Get first project from M2M relationship
+            project = todo.projects[0] if todo.projects else None
             todo_tags = [t.name for t in getattr(todo, 'tag_objs', [])] if hasattr(todo, 'tag_objs') else []
             # LIGHT: title + description + tags + project name (same as advanced)
             search_blob = f"{todo.title or ''} {todo.description or ''} {' '.join(todo_tags)} {project.name if project else ''}"
@@ -205,7 +207,7 @@ async def fuzzy_search_light(
             })
     
     if "project" in selected_modules:
-        project_map = {p.id: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.user_id == user_id))).scalars().all()}
+        project_map = {p.uuid: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.user_uuid == user_uuid))).scalars().all()}
         for project in project_map.values():
             project_tags = [t.name for t in getattr(project, 'tag_objs', [])] if hasattr(project, 'tag_objs') else []
             # LIGHT: name + description + tags (same as advanced)

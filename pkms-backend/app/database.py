@@ -36,11 +36,17 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # Create async engine
+db_url = get_database_url()
+sqlite_aiosqlite = db_url.startswith("sqlite+aiosqlite")
 engine = create_async_engine(
-    get_database_url(),
+    db_url,
     echo=settings.debug,  # Log SQL queries in debug mode
-    poolclass=StaticPool,  # Better for SQLite
-    connect_args={"check_same_thread": False, "timeout": 20} if "sqlite" in get_database_url() else {}
+    # Note: StaticPool is best for in-memory DB/tests; for file-backed SQLite prefer default pool
+    poolclass=StaticPool if db_url.endswith(":memory:") else None,
+    connect_args=(
+        {"timeout": 20} if sqlite_aiosqlite
+        else {"check_same_thread": False, "timeout": 20} if db_url.startswith("sqlite") else {}
+    ),
 )
 
 # SQLite Foreign Key Event Listener
@@ -113,14 +119,15 @@ async def verify_table_schema(table_name: str) -> None:
     try:
         async with get_db_session() as session:
             result = await session.execute(
-                text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name=:name"),
+                {"name": table_name},
             )
             if result.fetchone():
                 logger.info(f"✅ Table '{table_name}' exists")
             else:
                 logger.warning(f"⚠️ Table '{table_name}' not found")
     except Exception as e:
-        logger.error(f"❌ Error verifying table '{table_name}': {e}")
+        logger.exception(f"❌ Error verifying table '{table_name}'")
 
 
 async def init_db():

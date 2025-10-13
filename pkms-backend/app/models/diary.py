@@ -20,14 +20,14 @@ class DiaryEntry(Base):
     uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)  # API identifier
     title = Column(String(255), nullable=False, index=True)
     date = Column(DateTime(timezone=True), nullable=False, index=True)  # Date for the diary entry
-    mood = Column(SmallInteger, nullable=True, index=True)  # 1-5 scale
-    weather_code = Column(SmallInteger, nullable=True, index=True)  # Enum-coded weather (0-6)
+    mood = Column(SmallInteger, nullable=True, index=True, CheckConstraint('mood >= 1 AND mood <= 5'))  # 1-5 scale
+    weather_code = Column(SmallInteger, nullable=True, index=True, CheckConstraint('weather_code >= 0 AND weather_code <= 6'))  # Enum-coded weather (0-6)
     location = Column(String(100), nullable=True)
-    day_of_week = Column(SmallInteger, nullable=True, index=True)
+    day_of_week = Column(SmallInteger, nullable=True, index=True, CheckConstraint('day_of_week >= 0 AND day_of_week <= 6'))
     media_count = Column(Integer, nullable=False, default=0)
     content_length = Column(Integer, nullable=False, default=0)
     content_file_path = Column(String(500), nullable=True)
-    file_hash = Column(String(128), nullable=True)
+    file_hash = Column(String(64), nullable=True)  # SHA256 produces 64-char hex
     encryption_tag = Column(String(255), nullable=True)
     encryption_iv = Column(String(255), nullable=True)
     is_favorite = Column(Boolean, default=False, index=True)

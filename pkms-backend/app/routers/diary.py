@@ -562,7 +562,7 @@ async def get_password_hint(
     try:
         # Return hint from User model
         hint = current_user.diary_password_hint or ""
-        logger.info(f"Password hint requested for user {current_user.id}")
+        logger.info(f"Password hint requested for user {current_user.uuid}")
         return {"hint": hint}
         
     except Exception as e:

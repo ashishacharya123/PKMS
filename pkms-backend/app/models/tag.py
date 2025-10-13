@@ -22,7 +22,7 @@ class Tag(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
-    name = Column(String(100), nullable=False, unique=True, index=True)
+    name = Column(String(100, collation="NOCASE"), nullable=False, unique=True, index=True)
     description = Column(Text, nullable=True)
     color = Column(String(7), default="#3498db")  # Hex color code
     is_system = Column(Boolean, default=False, index=True)  # System tags can't be deleted
@@ -42,4 +42,4 @@ class Tag(Base):
     links = relationship("Link", secondary=link_tags, back_populates="tag_objs")
     
     def __repr__(self):
-        return f"<Tag(id={self.id}, name='{self.name}', color='{self.color}')>" 
+        return f"<Tag(uuid={self.uuid}, id={self.id}, name='{self.name}', color='{self.color}')>" 

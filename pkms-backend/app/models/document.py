@@ -45,4 +45,4 @@ class Document(Base):
     projects = relationship("Project", secondary=document_projects, back_populates="documents_multi")
     
     def __repr__(self):
-        return f"<Document(id={self.id}, uuid={self.uuid}, title='{self.title}')>" 
+        return f"<Document(uuid={self.uuid}, id={self.id}, title='{self.title}')>" 

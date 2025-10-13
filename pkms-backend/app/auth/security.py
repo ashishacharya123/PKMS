@@ -7,7 +7,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 from passlib.context import CryptContext
-from jose import JWTError, jwt
+from jose import jwt
+from jose.exceptions import ExpiredSignatureError, JWTError
 import hashlib
 import hmac
 
@@ -87,10 +88,10 @@ def verify_token(token: str) -> Optional[dict]:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         return payload
-    except jwt.ExpiredSignatureError:
+    except ExpiredSignatureError:
         logger.warning("JWT token has expired")
         return None
-    except jwt.InvalidTokenError as e:
+    except JWTError as e:
         logger.warning(f"Invalid JWT token: {str(e)}")
         return None
     except Exception as e:

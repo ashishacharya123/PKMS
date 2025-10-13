@@ -52,8 +52,8 @@ class Todo(Base):
     start_date = Column(Date, nullable=True)
     due_date = Column(Date, nullable=True)
     completed_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=func.now(), nullable=False)
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
     
     # Foreign keys
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -72,7 +72,7 @@ class Todo(Base):
     subtasks = relationship("Todo", backref="parent", remote_side=[id], cascade="all, delete-orphan")
     
     def __repr__(self):
-        return f"<Todo(id={self.id}, uuid={self.uuid}, title='{self.title}', status='{self.status}')>"
+        return f"<Todo(id={self.id}, uuid={self.uuid}, title='{self.title}', status='{self.status.value}')>"
 
 
 class Project(Base):
