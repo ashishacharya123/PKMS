@@ -15,6 +15,17 @@ WEATHER_CODE_LABELS = {
 }
 
 
+WEATHER_CODE_LABELS = {
+    0: "clear",
+    1: "partly_cloudy",
+    2: "cloudy",
+    3: "rain",
+    4: "storm",
+    5: "snow",
+    6: "scorching_sun",
+}
+
+
 class CamelCaseModel(BaseModel):
     model_config = ConfigDict(
         alias_generator=to_camel,
@@ -23,13 +34,16 @@ class CamelCaseModel(BaseModel):
     )
 
 
+
 class EncryptionSetupRequest(CamelCaseModel):
     password: str
     hint: Optional[str] = None
 
 
+
 class EncryptionUnlockRequest(CamelCaseModel):
     password: str
+
 
 
 class DiaryEntryCreate(CamelCaseModel):
@@ -43,7 +57,29 @@ class DiaryEntryCreate(CamelCaseModel):
     content_length: Optional[int] = None  # plaintext character count
     daily_metrics: Optional[Dict[str, Any]] = None
     nepali_date: Optional[str] = None
+    daily_income: Optional[int] = Field(None, ge=0)  # Income in NPR
+    daily_expense: Optional[int] = Field(None, ge=0)  # Expense in NPR
+    is_office_day: Optional[bool] = False  # Was this an office/work day?
     is_template: Optional[bool] = False
+    from_template_id: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+    @validator("weather_code")
+    def validate_weather_code(cls, v):
+        if v is None:
+            return v
+        if v not in WEATHER_CODE_LABELS:
+            raise ValueError("Invalid weather_code")
+        return v
+
+    @validator("daily_metrics", pre=True, always=True)
+    def default_daily_metrics(cls, v):
+        return v or {}
+
+    @validator("tags", pre=True, always=True)
+    def default_tags(cls, v):
+        return v or []
+
     from_template_id: Optional[str] = None
     tags: Optional[List[str]] = None
 
@@ -77,14 +113,21 @@ class DiaryEntryResponse(CamelCaseModel):
     location: Optional[str]
     daily_metrics: Dict[str, Any]
     nepali_date: Optional[str]
+    daily_income: Optional[int] = 0  # Income in NPR
+    daily_expense: Optional[int] = 0  # Expense in NPR
+    is_office_day: Optional[bool] = False  # Was this an office/work day?
     is_template: bool
+    from_template_id: Optional[str]
     from_template_id: Optional[str]
     created_at: datetime
     updated_at: datetime
     media_count: int
     tags: List[str] = []
     content_length: int
+    content_length: int
 
+    @validator("daily_metrics", pre=True, always=True)
+    def parse_daily_metrics(cls, v):
     @validator("daily_metrics", pre=True, always=True)
     def parse_daily_metrics(cls, v):
         if isinstance(v, str):
@@ -111,7 +154,13 @@ class DiaryEntrySummary(CamelCaseModel):
     location: Optional[str]
     daily_metrics: Dict[str, Any]
     nepali_date: Optional[str]
+    weather_code: Optional[int]
+    weather_label: Optional[str] = None
+    location: Optional[str]
+    daily_metrics: Dict[str, Any]
+    nepali_date: Optional[str]
     is_template: bool
+    from_template_id: Optional[str]
     from_template_id: Optional[str]
     created_at: datetime
     media_count: int
@@ -119,10 +168,23 @@ class DiaryEntrySummary(CamelCaseModel):
     encryption_iv: str
     tags: List[str] = []
     content_length: int
+    is_favorite: Optional[bool] = False
 
     @validator("daily_metrics", pre=True, always=True)
     def parse_daily_metrics_summary(cls, v):
         if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return {}
+        return v or {}
+
+    @validator("weather_label", always=True)
+    def set_weather_label_summary(cls, v, values):
+        code = values.get("weather_code")
+        return WEATHER_CODE_LABELS.get(code) if code is not None else None
+
+
             try:
                 return json.loads(v)
             except json.JSONDecodeError:
@@ -142,6 +204,7 @@ class DiaryCalendarData(CamelCaseModel):
     media_count: int
 
 
+
 class MoodStats(CamelCaseModel):
     average_mood: Optional[float]
     mood_distribution: Dict[int, int]
@@ -158,6 +221,20 @@ class WellnessTrendPoint(CamelCaseModel):
 class WellnessStats(CamelCaseModel):
     """Comprehensive wellness analytics across all metrics"""
     
+class WeeklyHighlights(CamelCaseModel):
+    period_start: str
+    period_end: str
+    notes_created: int
+    documents_uploaded: int
+    todos_completed: int
+    diary_entries: int
+    archive_items_added: int
+    projects_created: int
+    projects_completed: int
+    total_income: float
+    total_expense: float
+    net_savings: float
+
     # Period info
     period_start: str
     period_end: str
@@ -250,6 +327,7 @@ class DiaryMediaResponse(CamelCaseModel):
     created_at: datetime
 
 
+
 class DiaryMediaUpload(CamelCaseModel):
     caption: Optional[str] = Field(None, max_length=500)
     media_type: str = Field(..., description="Type: photo, video, voice")
@@ -267,6 +345,7 @@ class CommitDiaryMediaRequest(CamelCaseModel):
     entry_id: str
     caption: Optional[str] = None
     media_type: str = Field(..., description="Type: photo, video, voice")
+
 
     @validator('media_type')
     def validate_media_type(cls, v):

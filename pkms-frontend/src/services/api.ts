@@ -327,7 +327,7 @@ class ApiService {
     try {
       this.tokenRefreshPromise = this.refreshToken();
       await this.tokenRefreshPromise;
-      
+
       // Cookie is already refreshed by server automatically
       notifications.show({
         title: '✅ Session Extended',
@@ -340,7 +340,7 @@ class ApiService {
       (this as any).finalExpiryPromptShown = false;
     } catch (error: any) {
       console.error('Failed to extend session:', error);
-      
+
       // Do not force logout on transient failure; let normal 401 handling take over if needed
       const detail = error?.response?.data?.detail || error?.message || 'Session extension failed';
       notifications.show({
@@ -353,6 +353,49 @@ class ApiService {
       // Intentionally avoid handleTokenExpiry() here to prevent unexpected logout
     } finally {
       this.tokenRefreshPromise = null;
+    }
+  }
+
+  /**
+   * Reindex all user content for search functionality
+   */
+  async reindexSearchContent(): Promise<void> {
+    try {
+      notifications.show({
+        id: 'search-reindex-loading',
+        title: '🔄 Starting Re-index',
+        message: 'Re-indexing your content. This may take a moment...',
+        color: 'blue',
+        loading: true,
+        autoClose: false,
+      });
+
+      const response = await this.post('/search/reindex', {});
+
+      // Close the loading notification
+      notifications.hide('search-reindex-loading');
+
+      if (response.status === 200) {
+        notifications.show({
+          title: '✅ Re-index Complete',
+          message: 'All your content has been successfully re-indexed!',
+          color: 'green',
+          autoClose: 4000,
+        });
+      }
+    } catch (error: any) {
+      // Close the loading notification
+      notifications.hide('search-reindex-loading');
+
+      console.error('Failed to reindex search content:', error);
+      const detail = error?.response?.data?.detail || error?.message || 'Re-indexing failed';
+
+      notifications.show({
+        title: '❌ Re-index Failed',
+        message: `${detail}. Please try again later.`,
+        color: 'red',
+        autoClose: 5000,
+      });
     }
   }
 

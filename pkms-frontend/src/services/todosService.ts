@@ -21,6 +21,12 @@ export interface Project {
   updated_at: string;
   todo_count: number;
   completed_count: number;
+  
+  // NEW: Additional fields
+  status?: string;
+  start_date?: string;
+  end_date?: string;
+  progress_percentage?: number;
 }
 
 export interface ProjectCreate {
@@ -48,6 +54,7 @@ export interface Todo {
   due_date?: string;
   priority: number;
   status: string;  // Now matches backend
+  todo_type?: string;  // task, checklist, subtask
   order_index: number;  // New field for Kanban ordering
   parent_id?: number;  // For subtasks
   subtasks?: Todo[];  // Nested subtasks
@@ -59,13 +66,27 @@ export interface Todo {
   is_archived: boolean;
   is_favorite?: boolean;
   projects: ProjectBadge[];
+  
+  // NEW: Additional fields
+  completion_percentage?: number;
+  estimate_minutes?: number;
+  actual_minutes?: number;
+  
+  // NEW: Checklist functionality
+  checklist_items?: ChecklistItem[];
+}
+
+export interface ChecklistItem {
+  text: string;
+  completed: boolean;
+  order: number;
 }
 
 export interface TodoCreate {
   title: string;
   description?: string;
   project_id?: number;  // Legacy single project
-  projectIds?: number[];  // Multi-project support
+  projectIds?: string[];  // Multi-project support (UUIDs)
   isExclusiveMode?: boolean;
   parent_id?: number;  // For creating subtasks
   start_date?: string;
@@ -81,7 +102,7 @@ export interface TodoUpdate {
   title?: string;
   description?: string;
   project_id?: number;  // Legacy single project
-  projectIds?: number[];  // Multi-project support
+  projectIds?: string[];  // Multi-project support (UUIDs)
   isExclusiveMode?: boolean;
   parent_id?: number;  // For moving subtasks
   start_date?: string;
@@ -215,11 +236,6 @@ class TodosService {
 
   async deleteTodo(todoUuid: string): Promise<void> {
     await apiService.delete(`${this.baseUrl}/${todoUuid}`);
-  }
-
-  async archiveTodo(todoUuid: string, archive: boolean = true): Promise<Todo> {
-    const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoUuid}/archive?archive=${archive}`);
-    return response.data;
   }
 
   /* ---------------------------------------------------------------------- */

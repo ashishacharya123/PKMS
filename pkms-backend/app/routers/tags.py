@@ -18,8 +18,8 @@ from app.models.user import User
 
 router = APIRouter(tags=["Tags"])
 
-# Simple in-process cache: {(user_id, query): (timestamp, suggestions)}
-_CACHE: Dict[Tuple[int, str], Tuple[float, List[str]]] = {}
+# Simple in-process cache: {(user_uuid, query): (timestamp, suggestions)}
+_CACHE: Dict[Tuple[str, str], Tuple[float, List[str]]] = {}
 _CACHE_TTL_S = 5  # seconds
 
 
@@ -33,7 +33,7 @@ async def autocomplete_tags(
 ):
     """Get tag autocomplete suggestions for tagging interface."""
     # Check cache first
-    cache_key = (current_user.id, q.lower())
+    cache_key = (current_user.uuid, q.lower())
     now = time.time()
     if cache_key in _CACHE:
         ts, cached = _CACHE[cache_key]
@@ -42,7 +42,7 @@ async def autocomplete_tags(
 
     # Fetch all tag names for this user (distinct names)
     result = await db.execute(
-        select(Tag.name).where(Tag.user_id == current_user.id)
+        select(Tag.name).where(Tag.user_uuid == current_user.uuid)
     )
     tag_names = [row[0] for row in result.fetchall()]
 
@@ -53,7 +53,7 @@ async def autocomplete_tags(
     if not q:
         result = await db.execute(
             select(Tag.name)
-            .where(Tag.user_id == current_user.id)
+            .where(Tag.user_uuid == current_user.uuid)
             .order_by(Tag.usage_count.desc(), Tag.name)
             .limit(limit)
         )
@@ -106,7 +106,7 @@ async def autocomplete_tags_enhanced(
     try:
         query = select(Tag.name, Tag.color, Tag.module_type).where(
             and_(
-                Tag.user_id == current_user.id,
+                Tag.user_uuid == current_user.uuid,
                 Tag.name.ilike(pattern)
             )
         )

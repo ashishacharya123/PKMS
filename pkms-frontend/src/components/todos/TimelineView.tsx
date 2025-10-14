@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Group, Text, Paper, Stack, Badge, ActionIcon, Menu, Button, Select } from '@mantine/core';
-import { IconDots, IconEdit, IconTrash, IconArchive } from '@tabler/icons-react';
+import { Box, Group, Text, Paper, Stack, Badge, ActionIcon, Menu, Button, Select, Progress, Tooltip } from '@mantine/core';
+import { IconDots, IconEdit, IconTrash, IconArchive, IconClock, IconUsers, IconWorld } from '@tabler/icons-react';
 import { Todo } from '../../services/todosService';
 
 interface TimelineViewProps {
@@ -267,6 +267,33 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                         {todo.project_name}
                       </Badge>
                     )}
+                  </Group>
+
+                  {/* NEW: Completion Progress */}
+                  {todo.completion_percentage !== undefined && todo.completion_percentage > 0 && (
+                    <Progress 
+                      value={todo.completion_percentage} 
+                      size="xs" 
+                      color={todo.completion_percentage === 100 ? 'green' : 'blue'}
+                      style={{ height: '2px' }}
+                    />
+                  )}
+
+                  {/* NEW: Time Tracking & Collaboration Icons */}
+                  <Group gap={2} justify="space-between">
+                    <Group gap={2}>
+                      {todo.estimate_minutes && (
+                        <Tooltip label={`Est: ${Math.round(todo.estimate_minutes / 60)}h ${todo.estimate_minutes % 60}m`}>
+                          <IconClock size={8} color="gray" />
+                        </Tooltip>
+                      )}
+                      {todo.actual_minutes && (
+                        <Tooltip label={`Actual: ${Math.round(todo.actual_minutes / 60)}h ${todo.actual_minutes % 60}m`}>
+                          <IconClock size={8} color="blue" />
+                        </Tooltip>
+                      )}
+                    </Group>
+                    
                   </Group>
 
                   <Menu>

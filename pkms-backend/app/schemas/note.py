@@ -22,7 +22,7 @@ class NoteCreate(CamelCaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     content: str = Field(..., min_length=0, max_length=50000)
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
-    project_ids: Optional[List[int]] = Field(default_factory=list, max_items=10, description="List of project IDs to link this note to")
+    project_ids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this note to")
     is_exclusive_mode: Optional[bool] = Field(default=False, description="If True, note is exclusive to projects and deleted when any project is deleted")
 
     @field_validator('title')
@@ -36,7 +36,7 @@ class NoteUpdate(CamelCaseModel):
     tags: Optional[List[str]] = Field(None, max_items=20)
     is_archived: Optional[bool] = None
     is_favorite: Optional[bool] = None
-    project_ids: Optional[List[int]] = Field(None, max_items=10, description="List of project IDs to link this note to")
+    project_ids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this note to")
     is_exclusive_mode: Optional[bool] = Field(None, description="If True, note is exclusive to projects and deleted when any project is deleted")
 
     @field_validator('title')
