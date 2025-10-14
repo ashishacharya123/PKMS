@@ -16,14 +16,14 @@ class CamelCaseModel(BaseModel):
 
 class UserSetup(CamelCaseModel):
     username: str = Field(..., min_length=3, max_length=50)
-    password: str = Field(..., min_length=8, max_length=128)
+    password: str = Field(..., min_length=8, max_length=72)  # Bcrypt limitation
     email: Optional[EmailStr] = None
     login_password_hint: Optional[str] = Field(None, max_length=255)
     
     recovery_questions: List[str] = Field(..., min_items=2, max_items=5)
     recovery_answers: List[str] = Field(..., min_items=2, max_items=5)
     
-    diary_password: str = Field(..., min_length=8, max_length=128)
+    diary_password: str = Field(..., min_length=8, max_length=72)  # Bcrypt limitation
     diary_password_hint: Optional[str] = Field(None, max_length=255)
     
     @validator('username')
@@ -72,7 +72,7 @@ class UserSetup(CamelCaseModel):
 
 class UserLogin(CamelCaseModel):
     username: str = Field(..., min_length=3, max_length=50)
-    password: str = Field(..., min_length=1, max_length=128)
+    password: str = Field(..., min_length=1, max_length=72)  # Bcrypt limitation
     
     @validator('username')
     def validate_username(cls, v):
@@ -81,8 +81,8 @@ class UserLogin(CamelCaseModel):
         return v
 
 class PasswordChange(CamelCaseModel):
-    current_password: str = Field(..., min_length=1, max_length=128)
-    new_password: str = Field(..., min_length=8, max_length=128)
+    current_password: str = Field(..., min_length=1, max_length=72)  # Bcrypt limitation
+    new_password: str = Field(..., min_length=8, max_length=72)  # Bcrypt limitation
     
     @validator('new_password')
     def validate_new_password(cls, v):
@@ -93,7 +93,7 @@ class PasswordChange(CamelCaseModel):
 class RecoveryReset(CamelCaseModel):
     username: Optional[str] = Field(None, min_length=3, max_length=50)
     answers: List[str] = Field(..., min_items=2, max_items=5)
-    new_password: str = Field(..., min_length=8, max_length=128)
+    new_password: str = Field(..., min_length=8, max_length=72)  # Bcrypt limitation
     
     @validator('answers')
     def validate_answers(cls, v):
@@ -123,7 +123,14 @@ class UserResponse(CamelCaseModel):
     id: int
     username: str
     email: Optional[str]
+    is_active: bool
+    is_first_login: bool
+    settings_json: str
+    login_password_hint: Optional[str]
+    diary_password_hint: Optional[str]
     created_at: datetime
+    updated_at: datetime
+    last_login: Optional[datetime]
 
 class RefreshTokenRequest(CamelCaseModel):
     pass

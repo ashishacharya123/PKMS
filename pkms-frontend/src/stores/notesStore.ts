@@ -25,10 +25,10 @@ interface NotesState {
   // Actions
   loadNotes: () => Promise<void>;
   loadMore: () => Promise<void>;
-  loadNote: (id: number) => Promise<void>;
+  loadNote: (uuid: string) => Promise<void>;
   createNote: (data: CreateNoteRequest) => Promise<Note | null>;
-  updateNote: (id: number, data: UpdateNoteRequest) => Promise<Note | null>;
-  deleteNote: (id: number) => Promise<boolean>;
+  updateNote: (id: string, data: UpdateNoteRequest) => Promise<Note | null>;
+  deleteNote: (id: string) => Promise<boolean>;
   
   // Filters
   setTag: (tag: string | null) => void;
@@ -116,11 +116,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
   
-  loadNote: async (id: number) => {
+  loadNote: async (uuid: string) => {
     set({ isLoading: true, error: null });
     
     try {
-      const note = await notesService.getNote(id);
+      const note = await notesService.getNote(uuid);
       set({ currentNote: note, isLoading: false });
     } catch (error) {
       set({ 
@@ -144,10 +144,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         file_count: note.file_count,
         is_favorite: note.is_favorite,
         is_archived: note.is_archived,
+        isExclusiveMode: (note as any).isExclusiveMode ?? false,
         created_at: note.created_at,
         updated_at: note.updated_at,
         tags: note.tags,
-        preview: note.content.substring(0, 200) + (note.content.length > 200 ? '...' : '')
+        preview: note.content.substring(0, 200) + (note.content.length > 200 ? '...' : ''),
+        projects: (note as any).projects ?? []
       };
       
       // Add to notes list if it matches current filters
@@ -174,11 +176,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
   
-  updateNote: async (id: number, data: UpdateNoteRequest) => {
+  updateNote: async (uuid: string, data: UpdateNoteRequest) => {
     set({ isUpdating: true, error: null });
     
     try {
-      const updatedNote = await notesService.updateNote(id, data);
+      const updatedNote = await notesService.updateNote(uuid, data);
       
       // Convert Note to NoteSummary for the list
       const noteSummary: NoteSummary = {
@@ -188,18 +190,20 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         file_count: updatedNote.file_count,
         is_favorite: updatedNote.is_favorite,
         is_archived: updatedNote.is_archived,
+        isExclusiveMode: updatedNote.isExclusiveMode ?? false,
         created_at: updatedNote.created_at,
         updated_at: updatedNote.updated_at,
         tags: updatedNote.tags,
-        preview: updatedNote.content.substring(0, 200) + (updatedNote.content.length > 200 ? '...' : '')
+        preview: updatedNote.content ? updatedNote.content.substring(0, 200) + (updatedNote.content.length > 200 ? '...' : '') : '',
+        projects: updatedNote.projects ?? []
       };
       
       // Update in notes list
       set(state => ({
         notes: state.notes.map(note => 
-          note.id === id ? noteSummary : note
+          note.uuid === noteSummary.uuid ? noteSummary : note
         ),
-        currentNote: state.currentNote?.id === id ? updatedNote : state.currentNote,
+        currentNote: state.currentNote?.uuid === updatedNote.uuid ? updatedNote : state.currentNote,
         isUpdating: false
       }));
       
@@ -213,16 +217,16 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
   
-  deleteNote: async (id: number) => {
+  deleteNote: async (uuid: string) => {
     set({ error: null });
     
     try {
-      await notesService.deleteNote(id);
+      await notesService.deleteNote(uuid);
       
       // Remove from notes list
       set(state => ({
-        notes: state.notes.filter(note => note.id !== id),
-        currentNote: state.currentNote?.id === id ? null : state.currentNote
+        notes: state.notes.filter(note => note.uuid !== uuid),
+        currentNote: state.currentNote?.uuid === uuid ? null : state.currentNote
       }));
       
       return true;

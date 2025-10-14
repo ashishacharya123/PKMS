@@ -187,23 +187,43 @@ CREATE TABLE diary_entries (
     id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     uuid VARCHAR(36) NOT NULL UNIQUE,
     title VARCHAR(255) NOT NULL,
-    day_of_week SMALLINT NOT NULL,        -- 0=Monday .. 6=Sunday
+    day_of_week SMALLINT NOT NULL,        -- 0=Sunday .. 6=Saturday
     media_count INTEGER DEFAULT 0 NOT NULL,
     content_file_path VARCHAR(500) NOT NULL,  -- Path to encrypted .dat file
-    file_hash VARCHAR(64) NOT NULL,       -- SHA-256 of encrypted file for integrity
-    mood INTEGER,                         -- 1=very bad, 2=bad, 3=neutral, 4=good, 5=very good
-    location VARCHAR(255),                -- Location for filtering
+    file_hash VARCHAR(128) NOT NULL,      -- SHA-256 of encrypted file for integrity
+    mood SMALLINT,                        -- 1=very bad .. 5=very good
+    weather_code SMALLINT,                -- 0 clear .. 6 scorching sun
+    location VARCHAR(100),                -- Location for filtering
+    content_length INTEGER DEFAULT 0 NOT NULL, -- Plaintext character count
     is_favorite BOOLEAN DEFAULT FALSE,
+    is_archived BOOLEAN DEFAULT FALSE,
+    is_template BOOLEAN DEFAULT FALSE,
+    from_template_id VARCHAR(36),         -- Template UUID reference
     user_id INTEGER NOT NULL,
     date DATETIME NOT NULL,
-    nepali_date VARCHAR(20),              -- Nepali date in BS format (YYYY/MM/DD)
-    encryption_iv VARCHAR(32),            -- AES-GCM IV
-    encryption_tag VARCHAR(32),           -- AES-GCM authentication tag
-    metadata_json TEXT DEFAULT '{}',      -- Flexible metadata storage
-    is_template BOOLEAN DEFAULT FALSE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
+    encryption_iv VARCHAR(255),           -- AES-GCM IV (base64)
+    encryption_tag VARCHAR(255),          -- AES-GCM auth tag (base64)
+    file_hash_algorithm VARCHAR(32) DEFAULT 'sha256',
+    content_file_version INTEGER DEFAULT 1,
+    daily_metadata_id INTEGER,            -- FK into diary_daily_metadata
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (daily_metadata_id) REFERENCES diary_daily_metadata(id) ON DELETE SET NULL
+);
+
+-- Per-day wellness snapshot captured via dashboard
+CREATE TABLE diary_daily_metadata (
+    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    date DATETIME NOT NULL,
+    nepali_date VARCHAR(20),              -- BS date (YYYY-MM-DD)
+    metrics_json TEXT NOT NULL DEFAULT '{}', -- Wellness metrics JSON
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (user_id, date),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 

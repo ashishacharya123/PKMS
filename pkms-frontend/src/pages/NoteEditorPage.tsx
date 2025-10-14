@@ -33,6 +33,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { notesService, Note, type NoteFile } from '../services/notesService';
 import { searchService } from '../services/searchService';
+import { MultiProjectSelector } from '../components/common/MultiProjectSelector';
 
 export function NoteEditorPage() {
   const navigate = useNavigate();
@@ -43,6 +44,8 @@ export function NoteEditorPage() {
   const [content, setContent] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [projectIds, setProjectIds] = useState<number[]>([]);
+  const [isExclusive, setIsExclusive] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
@@ -66,7 +69,7 @@ export function NoteEditorPage() {
       try {
         setIsLoading(true);
         setError(null);
-        const noteData = await notesService.getNote(parseInt(id));
+        const noteData = await notesService.getNote(id);
         setCurrentNote(noteData);
       } catch (err) {
         setError(err as Error);
@@ -101,7 +104,7 @@ export function NoteEditorPage() {
   });
 
   const updateNoteMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Parameters<typeof notesService.updateNote>[1] }) => notesService.updateNote(id, data),
+    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof notesService.updateNote>[1] }) => notesService.updateNote(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['note', id] });
       queryClient.invalidateQueries({ queryKey: ['notes'] });
@@ -126,9 +129,11 @@ export function NoteEditorPage() {
       setTitle(currentNote.title);
       setContent(currentNote.content);
       setTags(currentNote.tags);
+      setProjectIds(currentNote.projects?.filter(p => !p.isDeleted).map(p => p.id).filter((id): id is number => id !== null) || []);
+      setIsExclusive(currentNote.isExclusiveMode || false);
       setHasUnsavedChanges(false);
       // Load attachments for this note
-      notesService.getNoteFiles(currentNote.id).then(setNoteFiles).catch(() => setNoteFiles([]));
+      notesService.getNoteFiles(currentNote.uuid).then(setNoteFiles).catch(() => setNoteFiles([]));
     } else if (!isEditing) {
       setTitle('');
       setContent('');
@@ -183,12 +188,14 @@ export function NoteEditorPage() {
     const noteData = {
       title: title.trim(),
       content: content.trim(),
-      tags
+      tags,
+      projectIds: projectIds.length > 0 ? projectIds : undefined,
+      isExclusiveMode: projectIds.length > 0 ? isExclusive : undefined
     };
 
     try {
       if (isEditing) {
-        await updateNoteMutation.mutateAsync({ id: parseInt(id!), data: noteData });
+        await updateNoteMutation.mutateAsync({ id: id!, data: noteData });
       } else {
         await createNoteMutation.mutateAsync(noteData);
       }
@@ -212,7 +219,7 @@ export function NoteEditorPage() {
     try {
       setIsUploadingAttachment(true);
       await notesService.uploadFile(attachmentFile, currentNote.uuid);
-      const files = await notesService.getNoteFiles(currentNote.id);
+      const files = await notesService.getNoteFiles(currentNote.uuid);
       setNoteFiles(files);
       setAttachmentFile(null);
       notifications.show({ title: 'Uploaded', message: 'Image attached to note', color: 'green' });
@@ -268,7 +275,7 @@ export function NoteEditorPage() {
       if (!noteData.title) return;
       // Silent autosave without user-facing notification
       notesService
-        .updateNote(parseInt(id!), noteData)
+        .updateNote(id!, noteData)
         .then(() => {
           queryClient.invalidateQueries({ queryKey: ['note', id] });
           queryClient.invalidateQueries({ queryKey: ['notes'] });
@@ -403,7 +410,8 @@ export function NoteEditorPage() {
                     <IconFolder size={18} />
                     Metadata
                   </Group>
-                </Title>                  <Stack gap="sm">
+                </Title>
+                <Stack gap="sm">
                   <TagsInput
                     label="Tags"
                     placeholder="Type to search and add tags"
@@ -414,6 +422,14 @@ export function NoteEditorPage() {
                     onSearchChange={handleTagSearch}
                     splitChars={[',', ' ']}
                     description="Add multiple tags separated by comma or space. Start typing to see suggestions."
+                  />
+                  
+                  <MultiProjectSelector
+                    value={projectIds}
+                    onChange={setProjectIds}
+                    isExclusive={isExclusive}
+                    onExclusiveChange={setIsExclusive}
+                    description="Link this note to one or more projects"
                   />
                 </Stack>
               </Card>

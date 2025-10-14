@@ -1,0 +1,61 @@
+# PKMS Backend Dependencies - SLIM VERSION
+# Optimized for minimal Docker image size (~180MB total)
+# Compatible versions from original requirements.txt
+
+# FastAPI and ASGI Server
+fastapi==0.104.1           # Main web framework (async, OpenAPI, validation)
+uvicorn[standard]==0.24.0  # ASGI server for FastAPI (hot reload, websockets)
+gunicorn==21.2.0           # Production WSGI server
+
+# Database and ORM
+sqlalchemy[asyncio]==2.0.31 # ORM, async DB support, migrations (Python 3.11-3.12 compatible)
+alembic==1.13.1             # DB migrations for SQLAlchemy (compatible with 2.0.31)
+aiosqlite==0.19.0           # Async SQLite driver
+
+# Authentication and Security
+passlib==1.7.4              # Password hashing (bcrypt, argon2, etc.)
+bcrypt==3.2.0               # Compatible with passlib 1.7.4 (bcrypt 4.x removed __about__ module)
+python-jose[cryptography]==3.3.0 # JWT, JWE, JWS (token auth)
+python-multipart==0.0.6     # Multipart form parsing (file uploads)
+
+# Rate Limiting and Security
+slowapi==0.1.9              # Rate limiting for FastAPI
+
+# File Handling
+aiofiles==23.2.1            # Async file I/O
+python-magic==0.4.27        # File type detection (temporarily disabled due to Windows segfault)
+
+# Lightweight Document Processing (multi-step fallback system)
+imagesize>=1.4.1            # Image dimensions only (1MB vs 100MB Pillow)
+filetype>=1.2.0             # File type detection with dimensions (2MB)
+pypdf>=3.17.0               # PDF metadata extraction (5MB vs 50MB PyMuPDF)
+tinytag>=1.8.0              # Audio/document basic metadata (1MB vs 30MB docx)
+
+# Utilities
+python-dateutil>=2.8.2      # Date/time parsing
+pydantic[email]>=2.5.0      # Data validation
+pydantic-settings>=2.1.0    # Settings management
+
+# Environment variables
+python-dotenv>=1.0.1        # Load .env files
+
+# Input validation and sanitization
+bleach>=6.1.0               # HTML sanitization
+
+# System monitoring (kept as requested)
+psutil>=5.9.0               # System and process monitoring
+
+# Performance & Caching
+redis<5.0.0,>=4.2.0         # Redis client (optional - falls back to in-memory cache)
+
+# Performance fuzzy matching - REQUIRED for enhanced search
+rapidfuzz==3.6.1
+
+# REMOVED PACKAGES (not used in codebase):
+# - structlog==23.2.0           # Structured logging - NOT USED
+# - prometheus-client==0.19.0   # Prometheus metrics - NOT USED
+# - fastapi-limiter==0.1.5      # Enhanced rate limiting - NOT USED
+# - fastapi-cache2>=0.2.1       # FastAPI caching - NOT USED
+# - aiocache==0.12.2           # Async caching - NOT USED
+# - magika==0.6.2               # File detection - NOT USED
+# - pyfsig==1.1.1               # File detection - NOT USED

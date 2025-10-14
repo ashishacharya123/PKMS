@@ -1,5 +1,13 @@
 import { apiService } from './api';
-import { DiaryEntry, DiaryEntrySummary, DiaryEntryCreatePayload, DiaryCalendarData, MoodStats } from '../types/diary';
+import {
+  DiaryEntry,
+  DiaryEntrySummary,
+  DiaryEntryCreatePayload,
+  DiaryCalendarData,
+  MoodStats,
+  WellnessStats,
+  DiaryDailyMetadata,
+} from '../types/diary';
 import { coreUploadService } from './shared/coreUploadService';
 import { coreDownloadService } from './shared/coreDownloadService';
 
@@ -54,7 +62,7 @@ class DiaryService {
     return key;
   }
 
-  async encryptContent(content: string, key: CryptoKey): Promise<{ encrypted_blob: string; iv: string; tag: string }> {
+  async encryptContent(content: string, key: CryptoKey): Promise<{ encrypted_blob: string; iv: string; char_count: number }> {
     const encoder = new TextEncoder();
     const data = encoder.encode(content);
     const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -67,11 +75,11 @@ class DiaryService {
     return {
       encrypted_blob: btoa(String.fromCharCode(...new Uint8Array(encrypted))),
       iv: btoa(String.fromCharCode(...iv)),
-      tag: '', // GCM tag is included in the encrypted blob
+      char_count: content.length,
     };
   }
 
-  async decryptContent(encrypted_blob: string, iv: string, _tag: string, key: CryptoKey): Promise<string> {
+  async decryptContent(encrypted_blob: string, iv: string, key: CryptoKey): Promise<string> {
     const decoder = new TextDecoder();
     const encryptedData = Uint8Array.from(atob(encrypted_blob), c => c.charCodeAt(0));
     const ivData = Uint8Array.from(atob(iv), c => c.charCodeAt(0));
@@ -99,7 +107,6 @@ class DiaryService {
     templates?: boolean;
     search_title?: string;
     day_of_week?: number;
-    has_media?: boolean;
     limit?: number;
     offset?: number;
   }): Promise<DiaryEntrySummary[]> {
@@ -111,7 +118,6 @@ class DiaryService {
     if (typeof filters?.templates === 'boolean') params.append('templates', String(filters.templates));
     if (filters?.search_title) params.append('search_title', filters.search_title);
     if (filters?.day_of_week !== undefined) params.append('day_of_week', filters.day_of_week.toString());
-    if (filters?.has_media !== undefined) params.append('has_media', filters.has_media.toString());
     if (filters?.limit) params.append('limit', filters.limit.toString());
     if (filters?.offset) params.append('offset', filters.offset.toString());
     
@@ -145,6 +151,20 @@ class DiaryService {
     await apiService.delete(`${this.baseUrl}/entries/${uuid}`);
   }
 
+  // --- Daily Metadata Methods ---
+
+  async getDailyMetadata(date: string): Promise<DiaryDailyMetadata> {
+    const response = await apiService.get<DiaryDailyMetadata>(`${this.baseUrl}/daily-metadata/${date}`);
+    return response.data;
+  }
+
+  async updateDailyMetadata(date: string, payload: Partial<Omit<DiaryDailyMetadata, 'date' | 'created_at' | 'updated_at'>> & {
+    metrics?: Record<string, any>;
+  }): Promise<DiaryDailyMetadata> {
+    const response = await apiService.put<DiaryDailyMetadata>(`${this.baseUrl}/daily-metadata/${date}`, payload);
+    return response.data;
+  }
+
   // --- Calendar Methods ---
 
   async getCalendarData(year: number, month: number): Promise<DiaryCalendarData[]> {
@@ -169,18 +189,25 @@ class DiaryService {
     return response.data;
   }
 
+  async getWellnessStats(days: number = 30): Promise<WellnessStats> {
+    const response = await apiService.get<WellnessStats>(
+      `${this.baseUrl}/stats/wellness?days=${days}`
+    );
+    return response.data;
+  }
+
   // --- Media Methods ---
 
   async uploadMedia(
-    entryId: number, 
-    file: File, 
+    entryUuid: string,
+    file: File,
     mediaType: 'photo' | 'video' | 'voice',
     caption?: string,
     onProgress?: (progress: { progress: number; status: string }) => void
   ): Promise<any> {
     try {
       // Step 1: Upload file using core chunk upload service
-      const uploadResult = await coreUploadService.uploadFile(file, {
+      const uploadFileId = await coreUploadService.uploadFile(file, {
         module: 'diary',
         onProgress: onProgress ? (progress) => {
           onProgress({ 
@@ -196,8 +223,8 @@ class DiaryService {
 
       // Step 2: Commit the upload with diary-specific metadata
       const commitResponse = await apiService.post(`${this.baseUrl}/media/upload/commit`, {
-        file_id: uploadResult.fileId,
-        entry_id: entryId,
+        file_id: uploadFileId,
+        entry_id: entryUuid,
         media_type: mediaType,
         caption: caption || null
       });
@@ -214,14 +241,14 @@ class DiaryService {
   }
 
   async downloadMedia(
-    mediaId: number,
+    mediaUuid: string,
     onProgress?: (progress: { progress: number; status: string }) => void
   ): Promise<Blob> {
     try {
-      const downloadUrl = `${this.baseUrl}/media/${mediaId}/download`;
+      const downloadUrl = `${this.baseUrl}/media/${mediaUuid}/download`;
       
       return await coreDownloadService.downloadFile(downloadUrl, {
-        fileId: `diary-media-${mediaId}`,
+        fileId: `diary-media-${mediaUuid}`,
         onProgress: onProgress ? (progress) => {
           onProgress({
             progress: progress.progress,
@@ -236,14 +263,14 @@ class DiaryService {
   }
 
   async getMediaAsObjectURL(
-    mediaId: number,
+    mediaUuid: string,
     onProgress?: (progress: { progress: number; status: string }) => void
   ): Promise<string> {
     try {
-      const downloadUrl = `${this.baseUrl}/media/${mediaId}/download`;
-      
+      const downloadUrl = `${this.baseUrl}/media/${mediaUuid}/download`;
+
       return await coreDownloadService.downloadAsObjectURL(downloadUrl, {
-        fileId: `diary-media-${mediaId}`,
+        fileId: `diary-media-${mediaUuid}`,
         onProgress: onProgress ? (progress) => {
           onProgress({
             progress: progress.progress,
@@ -257,13 +284,13 @@ class DiaryService {
     }
   }
 
-  async getEntryMedia(entryId: number): Promise<any[]> {
-    const response = await apiService.get(`${this.baseUrl}/entries/${entryId}/media`);
-    return response.data;
+  async getEntryMedia(entryUuid: string): Promise<any[]> {
+    const response = await apiService.get<any[]>(`${this.baseUrl}/entries/${entryUuid}/media`);
+    return response.data as any[];
   }
 
-  async deleteMedia(mediaId: number): Promise<void> {
-    await apiService.delete(`${this.baseUrl}/media/${mediaId}`);
+  async deleteMedia(mediaUuid: string): Promise<void> {
+    await apiService.delete(`${this.baseUrl}/media/${mediaUuid}`);
   }
 }
 

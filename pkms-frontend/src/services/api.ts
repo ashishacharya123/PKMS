@@ -9,14 +9,10 @@ interface ApiResponse<T> {
   message?: string;
 }
 
-interface AuthResponse {
-  access_token: string;
-}
-
 class ApiService {
   private instance: AxiosInstance;
   private tokenExpiryWarningShown: boolean = false;
-  private tokenRefreshPromise: Promise<string | null> | null = null;
+  private tokenRefreshPromise: Promise<void> | null = null;
 
   constructor() {
     this.instance = axios.create({
@@ -39,12 +35,8 @@ class ApiService {
           const isLoginAttempt = error.config?.url?.includes('/auth/login') || 
                                 error.config?.url?.includes('/auth/setup');
           
-          console.error('Network Error:', {
-            url: error.config?.url,
-            method: error.config?.method,
-            message: error.message,
-            code: error.code
-          });
+          // SECURITY: Don't log sensitive information to console
+          console.error('Network Error:', error.message);
           
           // Create a comprehensive network error message
           const networkError = new Error(this.createNetworkErrorMessage(isLoginAttempt));
@@ -58,10 +50,10 @@ class ApiService {
           const url: string = error.config?.url || '';
           const isLoginAttempt = url.includes('/auth/login') || url.includes('/auth/setup');
           const isRefreshAttempt = url.includes('/auth/refresh');
-          const hasStoredToken = !!localStorage.getItem('pkms_token');
 
           // Attempt a one-time silent refresh and retry the original request
-          if (hasStoredToken && !isLoginAttempt && !isRefreshAttempt) {
+          // Cookies are sent automatically, no need to check localStorage
+          if (!isLoginAttempt && !isRefreshAttempt) {
             const originalRequest = error.config || {};
             if (!(originalRequest as any)._retry) {
               (originalRequest as any)._retry = true;
@@ -69,15 +61,11 @@ class ApiService {
                 if (!this.tokenRefreshPromise) {
                   this.tokenRefreshPromise = this.refreshToken();
                 }
-                const newToken = await this.tokenRefreshPromise;
+                await this.tokenRefreshPromise;
                 this.tokenRefreshPromise = null;
 
-                if (newToken) {
-                  localStorage.setItem('pkms_token', newToken);
-                  this.setAuthToken(newToken);
-                  // Retry the original request with new token
-                  return this.instance.request(originalRequest);
-                }
+                // Cookie is already refreshed by server, just retry the request
+                return this.instance.request(originalRequest);
               } catch (e) {
                 // fall through to expiry handling below
               } finally {
@@ -170,17 +158,19 @@ class ApiService {
   }
 
   /**
-   * Attach JWT access token to every request
+   * @deprecated No longer needed - tokens are in HttpOnly cookies
+   * Kept for backward compatibility only
    */
-  setAuthToken(token: string): void {
-    this.instance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  setAuthToken(_token: string): void {
+    // No-op: Tokens are now in HttpOnly cookies, sent automatically
   }
 
   /**
-   * Remove Authorization header (e.g., on logout)
+   * @deprecated No longer needed - tokens are in HttpOnly cookies
+   * Kept for backward compatibility only
    */
   clearAuthToken(): void {
-    delete this.instance.defaults.headers.common['Authorization'];
+    // No-op: Cookies are cleared by server on logout
     this.tokenExpiryWarningShown = false;
   }
 
@@ -192,47 +182,25 @@ class ApiService {
   }
 
   /**
+   * @deprecated Token expiry checking moved to backend
+   * HttpOnly cookies prevent client-side token access
    * Check if JWT token is expiring soon (within 5 minutes)
    */
   isTokenExpiringSoon(): boolean {
-    const token = localStorage.getItem('pkms_token');
-    if (!token) return false;
-
-    try {
-      // Decode JWT token (simple parsing - in production you'd use a proper JWT library)
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      const expiryTime = payload.exp * 1000; // Convert to milliseconds
-      const currentTime = Date.now();
-      const fiveMinutes = 5 * 60 * 1000; // 5 minutes in milliseconds
-      const oneMinute = 1 * 60 * 1000; // 1 minute in milliseconds
-
-      const timeRemaining = expiryTime - currentTime;
-
-      return timeRemaining <= fiveMinutes && timeRemaining > oneMinute;
-    } catch (error) {
-      console.error('Error parsing token:', error);
-      return false;
-    }
+    // Can't read HttpOnly cookies from JavaScript
+    // Token expiry is handled by backend and automatic refresh
+    return false;
   }
 
   /**
+   * @deprecated Token expiry checking moved to backend
+   * HttpOnly cookies prevent client-side token access
    * Check if JWT token is critically close to expiry (<= 1 minute)
    */
   isTokenCriticallyExpiring(): boolean {
-    const token = localStorage.getItem('pkms_token');
-    if (!token) return false;
-
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      const expiryTime = payload.exp * 1000;
-      const currentTime = Date.now();
-      const oneMinute = 1 * 60 * 1000;
-      const timeRemaining = expiryTime - currentTime;
-      return timeRemaining > 0 && timeRemaining <= oneMinute;
-    } catch (error) {
-      console.error('Error parsing token:', error);
-      return false;
-    }
+    // Can't read HttpOnly cookies from JavaScript
+    // Token expiry is handled by backend and automatic refresh
+    return false;
   }
 
   /**
@@ -252,7 +220,7 @@ class ApiService {
     notifications.show({
       id: 'token-expiry-warning',
       title: '⚠️ Session Expiring Soon',
-      message: 'Your session will expire in 5 minutes. Use the "Refresh Session" option in the user menu to extend.',
+      message: 'Your session will expire in 5 minutes. Please extend your session if needed.',
       color: 'orange',
       autoClose: 10000, // Auto-close after 10 seconds
       withCloseButton: true,
@@ -280,7 +248,7 @@ class ApiService {
     notifications.show({
       id: 'final-expiry-warning',
       title: '🚨 Session Expiring Very Soon!',
-      message: 'Your session will expire in 1 minute. Use the "Refresh Session" option in the user menu to extend.',
+      message: 'Your session will expire in 1 minute. Please extend your session if needed.',
       color: 'red',
       autoClose: 15000, // Auto-close after 15 seconds
       withCloseButton: true,
@@ -300,6 +268,11 @@ class ApiService {
    */
   private playSoundAlert(): void {
     try {
+      // SECURITY: Validate AudioContext availability before use
+      if (!window.AudioContext && !(window as any).webkitAudioContext) {
+        return; // Silently fail if AudioContext not available
+      }
+      
       // Create a simple beep sound using Web Audio API
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       const oscillator = audioContext.createOscillator();
@@ -342,6 +315,7 @@ class ApiService {
 
   /**
    * Extend the current session by making a request to refresh the token
+   * Note: Tokens are now in HttpOnly cookies, no localStorage manipulation needed
    */
   async extendSession(): Promise<void> {
     // If a token refresh is already in progress, wait for it
@@ -352,22 +326,18 @@ class ApiService {
 
     try {
       this.tokenRefreshPromise = this.refreshToken();
-      const newToken = await this.tokenRefreshPromise;
+      await this.tokenRefreshPromise;
       
-      if (newToken) {
-        localStorage.setItem('pkms_token', newToken);
-        this.setAuthToken(newToken);
-        
-        notifications.show({
-          title: '✅ Session Extended',
-          message: 'Your session has been extended successfully!',
-          color: 'green',
-          autoClose: 3000,
-        });
+      // Cookie is already refreshed by server automatically
+      notifications.show({
+        title: '✅ Session Extended',
+        message: 'Your session has been extended successfully!',
+        color: 'green',
+        autoClose: 3000,
+      });
 
-        this.tokenExpiryWarningShown = false;
-        (this as any).finalExpiryPromptShown = false;
-      }
+      this.tokenExpiryWarningShown = false;
+      (this as any).finalExpiryPromptShown = false;
     } catch (error: any) {
       console.error('Failed to extend session:', error);
       
@@ -386,17 +356,18 @@ class ApiService {
     }
   }
 
-  private async refreshToken(): Promise<string | null> {
-    const response = await this.post<AuthResponse>('/auth/refresh', {});
-    return response.data?.access_token || null;
+  private async refreshToken(): Promise<void> {
+    await this.post('/auth/refresh', {});
+    // Cookie is set automatically by server
   }
 
   /**
-   * Handle token expiry by clearing auth and redirecting to login
+   * Handle token expiry by redirecting to login
+   * Note: Cookies are cleared by server on logout
    */
   private handleTokenExpiry(): void {
-    localStorage.removeItem('pkms_token');
-    this.clearAuthToken();
+    // No need to remove localStorage - tokens are in HttpOnly cookies
+    // Server will clear cookies automatically
     
     notifications.show({
       title: 'Session Expired',

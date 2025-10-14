@@ -13,7 +13,6 @@ import {
   Progress,
   List,
   Group,
-  Divider,
   Select,
   Card,
   Badge,
@@ -23,6 +22,7 @@ import { useForm } from '@mantine/form';
 import { IconAlertCircle, IconUserPlus, IconCheck, IconShield, IconLock } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
 import { UserSetup } from '../../types/auth';
+import { notifications } from '@mantine/notifications';
 
 interface SetupFormProps {
   onSwitchToLogin: () => void;
@@ -235,8 +235,9 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
                 <PasswordInput
                   label="Login Password"
                   placeholder="Create a strong password"
-                  description="This will be your main login password for accessing PKMS"
+                  description="8-72 characters (bcrypt limit)"
                   required
+                  maxLength={72}
                   {...form.getInputProps('password')}
                 />
                 
@@ -395,8 +396,9 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
               <PasswordInput
                 label="Diary Password"
                 placeholder="Enter a password for diary encryption"
-                description="This will be separate from your login password"
+                description="8-72 characters (bcrypt limit)"
                 required
+                maxLength={72}
                 {...form.getInputProps('diary_password')}
               />
               

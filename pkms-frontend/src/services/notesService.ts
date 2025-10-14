@@ -5,9 +5,16 @@
 import { apiService } from './api';
 import { coreUploadService, UploadProgress } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
-import { searchService } from './searchService';
 
 // Removed SMALL_FILE_THRESHOLD since we're using chunked upload consistently
+
+export interface ProjectBadge {
+  id: number | null;  // null if project is deleted
+  name: string;
+  color: string;
+  isExclusive: boolean;
+  isDeleted: boolean;  // True if project was deleted (using snapshot name)
+}
 
 export interface Note {
   id: number;
@@ -17,9 +24,11 @@ export interface Note {
   file_count: number;
   is_favorite: boolean;
   is_archived: boolean;
+  isExclusiveMode: boolean;
   created_at: string;
   updated_at: string;
   tags: string[];
+  projects: ProjectBadge[];
 }
 
 export interface NoteSummary {
@@ -29,10 +38,12 @@ export interface NoteSummary {
   file_count: number;
   is_favorite: boolean;
   is_archived: boolean;
+  isExclusiveMode: boolean;
   created_at: string;
   updated_at: string;
   tags: string[];
   preview: string;
+  projects: ProjectBadge[];
 }
 
 export interface NoteFile {
@@ -50,6 +61,8 @@ export interface CreateNoteRequest {
   title: string;
   content: string;
   tags?: string[];
+  projectIds?: number[];
+  isExclusiveMode?: boolean;
 }
 
 export interface UpdateNoteRequest {
@@ -58,6 +71,8 @@ export interface UpdateNoteRequest {
   tags?: string[];
   is_archived?: boolean;
   is_favorite?: boolean;
+  projectIds?: number[];
+  isExclusiveMode?: boolean;
 }
 
 export interface UploadFileRequest {
@@ -73,35 +88,35 @@ class NotesService {
   async createNote(data: CreateNoteRequest): Promise<Note> {
     const response = await apiService.post<Note>('/notes/', data);
     // Invalidate search cache for notes
-    searchService.invalidateCacheForContentType('note');
+    // searchService.invalidateCacheForContentType('note'); // Method removed in search refactor
     return response.data;
   }
 
   /**
    * Get a specific note by ID
    */
-  async getNote(id: number): Promise<Note> {
-    const response = await apiService.get<Note>(`/notes/${id}`);
+  async getNote(uuid: string): Promise<Note> {
+    const response = await apiService.get<Note>(`/notes/${uuid}`);
     return response.data;
   }
 
   /**
    * Update a note
    */
-  async updateNote(id: number, data: UpdateNoteRequest): Promise<Note> {
-    const response = await apiService.put<Note>(`/notes/${id}`, data);
+  async updateNote(uuid: string, data: UpdateNoteRequest): Promise<Note> {
+    const response = await apiService.put<Note>(`/notes/${uuid}`, data);
     // Invalidate search cache for notes
-    searchService.invalidateCacheForContentType('note');
+    // searchService.invalidateCacheForContentType('note'); // Method removed in search refactor
     return response.data;
   }
 
   /**
    * Delete a note
    */
-  async deleteNote(id: number): Promise<void> {
-    await apiService.delete(`/notes/${id}`);
+  async deleteNote(uuid: string): Promise<void> {
+    await apiService.delete(`/notes/${uuid}`);
     // Invalidate search cache for notes
-    searchService.invalidateCacheForContentType('note');
+    // searchService.invalidateCacheForContentType('note'); // Method removed in search refactor
   }
 
   /**
@@ -137,8 +152,8 @@ class NotesService {
   /**
    * Archive/unarchive a note
    */
-  async toggleArchive(id: number, archived: boolean): Promise<Note> {
-    const response = await apiService.patch<Note>(`/notes/${id}/archive?archive=${archived}`);
+  async toggleArchive(uuid: string, archived: boolean): Promise<Note> {
+    const response = await apiService.patch<Note>(`/notes/${uuid}/archive?archive=${archived}`);
     return response.data;
   }
 
@@ -168,8 +183,8 @@ class NotesService {
   /**
    * Get all files attached to a note
    */
-  async getNoteFiles(noteId: number): Promise<NoteFile[]> {
-    const response = await apiService.get<NoteFile[]>(`/notes/${noteId}/files`);
+  async getNoteFiles(noteUuid: string): Promise<NoteFile[]> {
+    const response = await apiService.get<NoteFile[]>(`/notes/${noteUuid}/files`);
     return response.data;
   }
 
@@ -224,8 +239,8 @@ class NotesService {
   /**
    * Get links extracted from a note's content
    */
-  async getNoteLinks(id: number): Promise<any[]> {
-    const response = await apiService.get<any[]>(`/notes/${id}/links`);
+  async getNoteLinks(uuid: string): Promise<any[]> {
+    const response = await apiService.get<any[]>(`/notes/${uuid}/links`);
     return response.data;
   }
 

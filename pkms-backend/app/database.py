@@ -36,11 +36,17 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # Create async engine
+db_url = get_database_url()
+sqlite_aiosqlite = db_url.startswith("sqlite+aiosqlite")
 engine = create_async_engine(
-    get_database_url(),
+    db_url,
     echo=settings.debug,  # Log SQL queries in debug mode
-    poolclass=StaticPool,  # Better for SQLite
-    connect_args={"check_same_thread": False, "timeout": 20} if "sqlite" in get_database_url() else {}
+    # Note: StaticPool is best for in-memory DB/tests; for file-backed SQLite prefer default pool
+    poolclass=StaticPool if db_url.endswith(":memory:") else None,
+    connect_args=(
+        {"timeout": 20} if sqlite_aiosqlite
+        else {"check_same_thread": False, "timeout": 20} if db_url.startswith("sqlite") else {}
+    ),
 )
 
 # SQLite Foreign Key Event Listener
@@ -80,6 +86,20 @@ async def get_db() -> AsyncSession:
 
 
 @asynccontextmanager
+async def get_db_ensured():
+    """Database session with guaranteed cleanup"""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        except Exception as e:
+            await session.rollback()
+            logger.error(f"Database session error: {e}")
+            raise
+        finally:
+            await session.close()
+
+
+@asynccontextmanager
 async def get_db_session() -> AsyncSession:
     """Context manager for database sessions"""
     async with AsyncSessionLocal() as session:
@@ -99,14 +119,15 @@ async def verify_table_schema(table_name: str) -> None:
     try:
         async with get_db_session() as session:
             result = await session.execute(
-                text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name=:name"),
+                {"name": table_name},
             )
             if result.fetchone():
                 logger.info(f"✅ Table '{table_name}' exists")
             else:
                 logger.warning(f"⚠️ Table '{table_name}' not found")
     except Exception as e:
-        logger.error(f"❌ Error verifying table '{table_name}': {e}")
+        logger.exception(f"❌ Error verifying table '{table_name}'")
 
 
 async def init_db():
@@ -218,7 +239,8 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_date ON diary_entries(date);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_mood ON diary_entries(mood);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_location ON diary_entries(location);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_media_entry_id ON diary_media(diary_entry_id);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_is_template_date ON diary_entries(user_id, is_template, date DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_media_entry_uuid ON diary_media(diary_entry_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_media_user_id ON diary_media(user_id);",
                 
                 # Archive indexes

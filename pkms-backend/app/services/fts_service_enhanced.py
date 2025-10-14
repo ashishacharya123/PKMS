@@ -43,8 +43,8 @@ class EnhancedFTS5SearchService:
             'notes': {
                 'table_name': 'fts_notes_enhanced',
                 'model': Note,
-                'columns': ['id', 'title', 'content', 'tags_text', 'user_id', 'created_at', 'updated_at', 'is_favorite'],
-                'search_columns': ['id', 'title', 'content', 'tags_text', 'raw_score'],
+                'columns': ['id', 'title', 'tags_text', 'user_id', 'created_at', 'updated_at', 'is_favorite'],
+                'search_columns': ['id', 'title', 'tags_text', 'raw_score'],
                 'id_column': 'id'
             },
             'documents': {
@@ -64,9 +64,9 @@ class EnhancedFTS5SearchService:
             'diary': {
                 'table_name': 'fts_diary_entries_enhanced',
                 'model': DiaryEntry,
-                'columns': ['id', 'title', 'content', 'tags_text', 'mood', 'weather', 'location', 'user_id', 'created_at', 'updated_at', 'is_encrypted'],
-                'search_columns': ['id', 'title', 'content', 'tags_text', 'mood', 'weather', 'location', 'raw_score'],
-                'id_column': 'id'
+                'columns': ['id', 'uuid', 'title', 'tags_text', 'mood', 'weather_code', 'location', 'user_id', 'created_at', 'updated_at', 'is_template'],
+                'search_columns': ['uuid', 'title', 'tags_text', 'mood', 'weather_code', 'location', 'raw_score'],
+                'id_column': 'uuid'
             },
             'archive_items': {
                 'table_name': 'fts_archive_items_enhanced',
@@ -102,11 +102,11 @@ class EnhancedFTS5SearchService:
             await self._create_fts_triggers(db)
             
             self.tables_initialized = True
-            logger.info("✅ Enhanced FTS5 virtual tables initialized successfully")
+            logger.info("Enhanced FTS5 virtual tables initialized successfully")
             return True
             
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize enhanced FTS5 tables: {e}")
+        except Exception:
+            logger.exception("Failed to initialize enhanced FTS5 tables")
             return False
 
     async def _create_fts_table(self, db: AsyncSession, config: Dict[str, Any]) -> None:
@@ -119,7 +119,7 @@ class EnhancedFTS5SearchService:
         for col in columns:
             if col in ['user_id', 'created_at', 'updated_at', 'id', 'uuid', 'mime_type', 'file_size', 
                       'is_favorite', 'is_archived', 'status', 'priority', 'project_id', 'folder_uuid', 
-                      'parent_uuid', 'mood', 'weather', 'location', 'is_encrypted']:
+                      'parent_uuid', 'mood', 'weather_code', 'location', 'is_template']:
                 column_defs.append(f"{col} UNINDEXED")
             else:
                 column_defs.append(col)
@@ -177,10 +177,10 @@ class EnhancedFTS5SearchService:
                     END;
                 """))
             
-            logger.info("✅ FTS5 triggers created successfully")
+            logger.info("FTS5 triggers created successfully")
             
-        except Exception as e:
-            logger.error(f"❌ Failed to create FTS5 triggers: {e}")
+        except Exception:
+            logger.exception("Failed to create FTS5 triggers")
             raise
 
     async def populate_enhanced_fts_tables(self, db: AsyncSession) -> bool:
@@ -189,18 +189,18 @@ class EnhancedFTS5SearchService:
             if not self.tables_initialized:
                 await self.initialize_enhanced_fts_tables(db)
             
-            logger.info("🔄 Populating enhanced FTS5 tables with existing data...")
+            logger.info("Populating enhanced FTS5 tables with existing data...")
             
             # Populate all tables using configuration
             for table_key, config in self.fts_tables.items():
                 await self._populate_table(db, config)
             
             await db.commit()
-            logger.info("✅ Enhanced FTS5 tables populated with existing data")
+            logger.info("Enhanced FTS5 tables populated with existing data")
             return True
             
-        except Exception as e:
-            logger.error(f"❌ Failed to populate enhanced FTS5 tables: {e}")
+        except Exception:
+            logger.exception("Failed to populate enhanced FTS5 tables")
             await db.rollback()
             return False
 
@@ -216,27 +216,30 @@ class EnhancedFTS5SearchService:
         )
         
         for record in records.scalars():
-            # Extract tags
-            tag_names = [tag.name for tag in record.tag_objs]
+            # Extract tags - handle case where tag_objs might be None or empty
+            tag_names = []
+            if hasattr(record, 'tag_objs') and record.tag_objs:
+                tag_names = [tag.name for tag in record.tag_objs if hasattr(tag, 'name')]
             tags_text = " ".join(tag_names)
             
-            # Build values list
-            values = []
+            # Build named bindings for text()
+            values = {}
             placeholders = []
             for col in columns:
                 if col == 'tags_text':
-                    values.append(tags_text)
+                    values[col] = tags_text
                 else:
-                    values.append(getattr(record, col))
-                placeholders.append('?')
+                    values[col] = getattr(record, col)
+                placeholders.append(f":{col}")
             
             # Insert into FTS5 table
             columns_list = ", ".join(columns)
             placeholders_list = ", ".join(placeholders)
             
-            await db.execute(text(f"""
-                INSERT OR REPLACE INTO {table_name} ({columns_list}) VALUES ({placeholders_list})
-            """), values)
+            await db.execute(
+                text(f"INSERT OR REPLACE INTO {table_name} ({columns_list}) VALUES ({placeholders_list})"),
+                values
+            )
 
     async def search_enhanced(self, db: AsyncSession, query: str, user_id: int, 
                              module_filter: Optional[str] = None, 
@@ -258,9 +261,9 @@ class EnhancedFTS5SearchService:
                 'documents': ('documents', 'document'),
                 'todos': ('todos', 'todo'),
                 'diary': ('diary', 'diary_entry'),
-                'archive': ('archive_items', 'archive_item'),
-                'archive_folders': ('archive', 'archive_folder'),
-                'projects': ('todos', 'project')
+                'archive_items': ('archive_items', 'archive_item'),
+                'archive_folders': ('folders', 'archive_folder'),
+                'projects': ('projects', 'project')
             }
             
             for table_key, config in self.fts_tables.items():
@@ -269,17 +272,27 @@ class EnhancedFTS5SearchService:
                 # Check if this module should be searched
                 if not module_filter or module_filter == module_name:
                     results = await self._search_table(db, config, prepared_query, user_id, limit)
-                    all_results.extend([{**r, 'module': module_name, 'type': type_name} for r in results])
+                    for row in results:
+                        identifier = row.get(config['id_column'])
+                        if identifier is None:
+                            logger.warning("Skipping %s result without %s", table_key, config['id_column'])
+                            continue
+                        all_results.append({
+                            **row,
+                            'module': module_name,
+                            'type': type_name,
+                            'id': identifier,  # Restore 'id' for backward compatibility
+                        })
             
             # Normalize scores across modules and sort by relevance
             normalized_results = self._normalize_scores(all_results)
             sorted_results = sorted(normalized_results, key=lambda x: x['normalized_score'], reverse=True)
             
-            logger.info(f"🔍 Enhanced FTS5 search completed: '{query}' - {len(sorted_results)} results for user {user_id}")
+            logger.info(f"Enhanced FTS5 search completed: '{query}' - {len(sorted_results)} results for user {user_id}")
             return sorted_results[:limit]
             
-        except Exception as e:
-            logger.error(f"❌ Enhanced FTS5 search failed: {e}")
+        except Exception:
+            logger.exception("Enhanced FTS5 search failed")
             return []
 
     async def _search_table(self, db: AsyncSession, config: Dict[str, Any], query: str, user_id: int, limit: int) -> List[Dict[str, Any]]:
@@ -296,20 +309,26 @@ class EnhancedFTS5SearchService:
                 SELECT {select_columns}
                 FROM {table_name}
                 WHERE {table_name} MATCH :query AND user_id = :user_id
-                ORDER BY raw_score DESC
+                ORDER BY raw_score ASC
                 LIMIT :limit
             """), {"query": query, "user_id": user_id, "limit": limit})
             
             return [dict(row._mapping) for row in result]
             
-        except Exception as e:
-            logger.error(f"Failed to search {config['table_name']}: {e}")
+        except Exception:
+            logger.exception(f"Failed to search {config['table_name']}")
             return []
 
     def _prepare_fts_query(self, query: str) -> str:
         """Prepare query string for FTS5 with proper escaping and hashtag support"""
-        # Remove special characters that could break FTS5
-        cleaned_query = re.sub(r'[^\w\s#]', ' ', query)
+        # SECURITY: Enhanced escaping to prevent FTS5 injection
+        # Remove or escape FTS5 special characters that could cause issues
+        cleaned_query = re.sub(r'[^\w\s#\-]', ' ', query)
+        
+        # SECURITY: Escape FTS5 operators that could be used for injection
+        fts_operators = ['AND', 'OR', 'NOT', 'NEAR', 'MATCH', 'LIKE', 'GLOB', 'REGEXP']
+        for operator in fts_operators:
+            cleaned_query = re.sub(rf'\b{operator}\b', f' {operator.lower()} ', cleaned_query, flags=re.IGNORECASE)
         
         # Handle hashtags (convert #tag to tag)
         cleaned_query = re.sub(r'#(\w+)', r'\1', cleaned_query)
@@ -327,14 +346,26 @@ class EnhancedFTS5SearchService:
         # Find min and max scores for normalization
         min_score = min(r.get('raw_score', 0) for r in results)
         max_score = max(r.get('raw_score', 0) for r in results)
-        score_range = max_score - min_score if max_score != min_score else 1
+        
+        # Handle division by zero when all scores are identical
+        if max_score == min_score:
+            # All scores are identical, assign equal normalized scores
+            normalized_score = 0.5  # Middle of range
+        else:
+            score_range = max_score - min_score
         
         normalized_results = []
         for result in results:
             raw_score = result.get('raw_score', 0)
             
-            # Normalize score to 0-1 range
-            normalized_score = (raw_score - min_score) / score_range if score_range > 0 else 0
+            if max_score == min_score:
+                # All scores identical - use equal normalized score
+                normalized_score = 0.5
+            else:
+                # CORRECTED: BM25 scores work like golf - lower scores are better
+                # Invert the normalization so lower raw_score = higher normalized_score
+                # Normalize to 0..1 range where 1 is best (lower raw_score = better)
+                normalized_score = 1.0 - ((raw_score - min_score) / score_range)
             
             # Apply module weight
             module = result.get('module', 'general')
@@ -358,11 +389,11 @@ class EnhancedFTS5SearchService:
                 await db.execute(text(f"INSERT INTO {table_name}({table_name}) VALUES('optimize')"))
             
             await db.commit()
-            logger.info("✅ Enhanced FTS5 tables optimized")
+            logger.info("Enhanced FTS5 tables optimized")
             return True
             
-        except Exception as e:
-            logger.error(f"❌ Failed to optimize enhanced FTS5 tables: {e}")
+        except Exception:
+            logger.exception("Failed to optimize enhanced FTS5 tables")
             return False
 
     async def get_enhanced_fts_stats(self, db: AsyncSession) -> Dict[str, Any]:
@@ -399,8 +430,8 @@ class EnhancedFTS5SearchService:
             
             return stats
             
-        except Exception as e:
-            logger.error(f"❌ Failed to get enhanced FTS5 stats: {e}")
+        except Exception:
+            logger.exception("Failed to get enhanced FTS5 stats")
             return {}
 
 
@@ -436,8 +467,8 @@ class EnhancedFTS5SearchService:
             
             return [row[0] for row in result.fetchall()]
             
-        except Exception as e:
-            logger.error(f"Error searching archive items: {e}")
+        except Exception:
+            logger.exception("Error searching archive items")
             return []
 
     async def search_archive_folders(self, db: AsyncSession, query: str, user_id: int, 
@@ -467,13 +498,13 @@ class EnhancedFTS5SearchService:
             
             return [row[0] for row in result.fetchall()]
             
-        except Exception as e:
-            logger.error(f"Error searching archive folders: {e}")
+        except Exception:
+            logger.exception("Error searching archive folders")
             return []
 
     async def search_diary_entries(self, db: AsyncSession, query: str, user_id: int, 
-                                 limit: int = 50, offset: int = 0) -> List[int]:
-        """Search diary entries and return IDs in relevance order"""
+                                 limit: int = 50, offset: int = 0) -> List[str]:
+        """Search diary entries and return UUIDs in relevance order"""
         if not self.tables_initialized:
             logger.warning("FTS5 tables not initialized")
             return []
@@ -482,7 +513,7 @@ class EnhancedFTS5SearchService:
             search_query = self._prepare_fts_query(query)
             
             fts_sql = text("""
-                SELECT id, bm25(fts_diary_entries_enhanced) as rank
+                SELECT uuid, bm25(fts_diary_entries_enhanced) as rank
                 FROM fts_diary_entries_enhanced
                 WHERE fts_diary_entries_enhanced MATCH :query AND user_id = :user_id
                 ORDER BY rank
@@ -498,8 +529,8 @@ class EnhancedFTS5SearchService:
             
             return [row[0] for row in result.fetchall()]
             
-        except Exception as e:
-            logger.error(f"Error searching diary entries: {e}")
+        except Exception:
+            logger.exception("Error searching diary entries")
             return []
 
     async def search_all(self, db: AsyncSession, query: str, user_id: int,
@@ -546,10 +577,13 @@ class EnhancedFTS5SearchService:
                     LIMIT :module_limit
                 """)
 
+                # Calculate module limit ensuring at least 1 suggestion per module
+                module_limit = max(1, limit // len(active_modules)) if active_modules else limit
+                
                 result = await db.execute(suggestion_sql, {
                     'prefix_query': prefix_query,
                     'user_id': user_id,
-                    'module_limit': max(2, limit // len(active_modules))
+                    'module_limit': module_limit
                 })
 
                 module_suggestions = [
@@ -569,8 +603,8 @@ class EnhancedFTS5SearchService:
             suggestions.sort(key=lambda x: (x['score'], x['text']), reverse=True)
             return suggestions[:limit]
 
-        except Exception as e:
-            logger.error(f"❌ Search suggestions error: {str(e)}")
+        except Exception:
+            logger.exception("Search suggestions error")
             return []
 
     def _get_suggestion_type(self, module: str) -> str:

@@ -14,14 +14,15 @@ import { NoteEditorPage } from './pages/NoteEditorPage';
 import NoteViewPage from './pages/NoteViewPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { TodosPage } from './pages/TodosPage';
+import { ProjectsPage } from './pages/ProjectsPage';
+import { ProjectDashboardPage } from './pages/ProjectDashboardPage';
 import { DiaryPage } from './pages/DiaryPage';
 import DiaryViewPage from './pages/DiaryViewPage';
 import ArchivePage from './pages/ArchivePage';
-import { SearchResultsPage } from './pages/SearchResultsPage';
-import AdvancedFuzzySearchPage from './pages/AdvancedFuzzySearchPage';
-import FTS5SearchPage from './pages/FTS5SearchPage';
-import FuzzySearchPage from './pages/FuzzySearchPage';
+// Search pages
+// Legacy pages removed: SearchResultsPage, AdvancedFuzzySearchPage, FTS5SearchPage
 import UnifiedSearchPage from './pages/UnifiedSearchPage';
+import FuzzySearchPage from './pages/FuzzySearchPage';
 
 // Auth Guard Component
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -192,6 +193,24 @@ function App() {
           />
           
           <Route 
+            path="/projects" 
+            element={
+              <AuthGuard>
+                <ProjectsPage />
+              </AuthGuard>
+            } 
+          />
+          
+          <Route 
+            path="/projects/:projectId" 
+            element={
+              <AuthGuard>
+                <ProjectDashboardPage />
+              </AuthGuard>
+            } 
+          />
+          
+          <Route 
             path="/diary" 
             element={
               <AuthGuard>
@@ -217,47 +236,28 @@ function App() {
             } 
           />
           
-          <Route 
-            path="/search" 
-            element={
-              <AuthGuard>
-                <SearchResultsPage />
-              </AuthGuard>
-            } 
-          />
+          {/* Search routes */}
+          {/* Default /search redirects to FTS5 unified search */}
+          <Route path="/search" element={<Navigate to="/search/unified" replace />} />
+          <Route path="/search/fts5" element={<Navigate to="/search/unified" replace />} />
+          <Route path="/advanced-fuzzy-search" element={<Navigate to="/search/fuzzy" replace />} />
 
-          <Route 
-            path="/advanced-fuzzy-search" 
-            element={
-              <AuthGuard>
-                <AdvancedFuzzySearchPage />
-              </AuthGuard>
-            } 
-          />
-
-          <Route 
-            path="/search/fts5" 
-            element={
-              <AuthGuard>
-                <FTS5SearchPage />
-              </AuthGuard>
-            } 
-          />
-
-          <Route
-            path="/search/fuzzy"
-            element={
-              <AuthGuard>
-                <FuzzySearchPage />
-              </AuthGuard>
-            }
-          />
-
+          {/* FTS5 Search - cross-module metadata search */}
           <Route
             path="/search/unified"
             element={
               <AuthGuard>
                 <UnifiedSearchPage />
+              </AuthGuard>
+            }
+          />
+
+          {/* Fuzzy Search - typo-tolerant content search */}
+          <Route
+            path="/search/fuzzy"
+            element={
+              <AuthGuard>
+                <FuzzySearchPage />
               </AuthGuard>
             }
           />

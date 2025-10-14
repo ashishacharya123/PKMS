@@ -1,4 +1,4 @@
-import { User } from './auth';
+// import { User } from './auth'; // Unused
 
 export interface ApiResponse<T = any> {
   data?: T;

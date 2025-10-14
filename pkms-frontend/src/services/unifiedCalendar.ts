@@ -44,6 +44,11 @@ export interface CalendarStats {
 
 class UnifiedCalendarService {
   private events: CalendarEvent[] = [];
+
+  // Public getter for all events
+  public getAllEvents(): CalendarEvent[] {
+    return this.events;
+  }
   private cacheKey = 'pkms_calendar_events';
 
   constructor() {
@@ -315,7 +320,11 @@ class UnifiedCalendarService {
       event.metadata?.dueDate &&
       new Date(event.metadata.dueDate) < now &&
       event.status !== 'completed'
-    ).sort((a, b) => new Date(a.metadata.dueDate).getTime() - new Date(b.metadata.dueDate).getTime());
+    ).sort((a, b) => {
+      const aDate = a.metadata?.dueDate ? new Date(a.metadata.dueDate).getTime() : 0;
+      const bDate = b.metadata?.dueDate ? new Date(b.metadata.dueDate).getTime() : 0;
+      return aDate - bDate;
+    });
   }
 
   // Search events
@@ -434,12 +443,13 @@ export const unifiedCalendar = new UnifiedCalendarService();
 // React hook for using the unified calendar
 export const useUnifiedCalendar = () => {
   return {
-    events: unifiedCalendar.events,
+    events: unifiedCalendar.getAllEvents(),
     addNoteEvent: unifiedCalendar.addNoteEvent.bind(unifiedCalendar),
     addTodoEvent: unifiedCalendar.addTodoEvent.bind(unifiedCalendar),
     addDiaryEvent: unifiedCalendar.addDiaryEvent.bind(unifiedCalendar),
     addProjectEvent: unifiedCalendar.addProjectEvent.bind(unifiedCalendar),
     addDocumentEvent: unifiedCalendar.addDocumentEvent.bind(unifiedCalendar),
+    getAllEvents: unifiedCalendar.getAllEvents.bind(unifiedCalendar),
     getEvents: unifiedCalendar.getEvents.bind(unifiedCalendar),
     getMonthEvents: unifiedCalendar.getMonthEvents.bind(unifiedCalendar),
     getWeekEvents: unifiedCalendar.getWeekEvents.bind(unifiedCalendar),

@@ -1,17 +1,6 @@
-import React from 'react';
-import { 
-  SimpleGrid, 
-  Stack, 
-  Paper, 
-  Group, 
-  Text, 
-  Badge, 
-  ActionIcon,
-  Tooltip,
-  Table,
-  Card
-} from '@mantine/core';
+import { SimpleGrid, Card, Stack, Title, Text, Badge, Group } from '@mantine/core';
 import { ViewMode } from './ViewMenu';
+import classes from './ViewModeLayouts.module.css';
 
 interface BaseItem {
   id: string | number;
@@ -31,7 +20,6 @@ interface ViewModeLayoutsProps<T extends BaseItem> {
   renderDetailColumns: (item: T) => React.ReactNode[];
   detailHeaders: string[];
   onItemClick?: (item: T) => void;
-  onItemAction?: (item: T, action: string) => void;
   isLoading?: boolean;
   emptyMessage?: string;
 }
@@ -45,7 +33,6 @@ export function ViewModeLayouts<T extends BaseItem>({
   renderDetailColumns,
   detailHeaders,
   onItemClick,
-  onItemAction,
   isLoading = false,
   emptyMessage = 'No items found'
 }: ViewModeLayoutsProps<T>) {
@@ -54,15 +41,12 @@ export function ViewModeLayouts<T extends BaseItem>({
     return (
       <Stack gap="md">
         {Array.from({ length: 6 }).map((_, i) => (
-          <Paper key={i} withBorder p="md" style={{ opacity: 0.6 }}>
-            <Group>
-              <div style={{ width: 40, height: 40, backgroundColor: '#f0f0f0', borderRadius: 4 }} />
-              <Stack gap={4}>
-                <div style={{ width: 120, height: 12, backgroundColor: '#f0f0f0', borderRadius: 2 }} />
-                <div style={{ width: 80, height: 8, backgroundColor: '#f0f0f0', borderRadius: 2 }} />
-              </Stack>
-            </Group>
-          </Paper>
+          <Card key={i} withBorder p="md" style={{ opacity: 0.6 }}>
+            <Stack gap={4}>
+              <div style={{ width: 120, height: 12, backgroundColor: '#f0f0f0', borderRadius: 2 }} />
+              <div style={{ width: 80, height: 8, backgroundColor: '#f0f0f0', borderRadius: 2 }} />
+            </Stack>
+          </Card>
         ))}
       </Stack>
     );
@@ -70,9 +54,9 @@ export function ViewModeLayouts<T extends BaseItem>({
 
   if (items.length === 0) {
     return (
-      <Paper withBorder p="xl" style={{ textAlign: 'center' }}>
+      <Card withBorder p="xl" style={{ textAlign: 'center' }}>
         <Text c="dimmed" size="lg">{emptyMessage}</Text>
-      </Paper>
+      </Card>
     );
   }
 
@@ -81,17 +65,13 @@ export function ViewModeLayouts<T extends BaseItem>({
     return (
       <SimpleGrid cols={{ base: 2, sm: 3, md: 4, lg: 6 }} spacing="xs">
         {items.map((item) => (
-          <Paper
+          <Card
             key={item.id}
             withBorder
             p="xs"
+            className={onItemClick ? classes.hoverCard : undefined}
             style={{ 
-              cursor: onItemClick ? 'pointer' : 'default',
-              transition: 'all 0.2s ease',
-              ':hover': {
-                transform: onItemClick ? 'translateY(-2px)' : 'none',
-                boxShadow: onItemClick ? '0 4px 12px rgba(0,0,0,0.1)' : 'none'
-              }
+              cursor: onItemClick ? 'pointer' : 'default'
             }}
             onClick={() => onItemClick?.(item)}
           >
@@ -105,7 +85,7 @@ export function ViewModeLayouts<T extends BaseItem>({
                 {item.title || item.name || `Item ${item.id}`}
               </Text>
             </Stack>
-          </Paper>
+          </Card>
         ))}
       </SimpleGrid>
     );
@@ -120,13 +100,9 @@ export function ViewModeLayouts<T extends BaseItem>({
             key={item.id}
             withBorder
             padding="md"
+            className={onItemClick ? classes.hoverCard : undefined}
             style={{ 
-              cursor: onItemClick ? 'pointer' : 'default',
-              transition: 'all 0.2s ease',
-              ':hover': {
-                transform: onItemClick ? 'translateY(-2px)' : 'none',
-                boxShadow: onItemClick ? '0 4px 12px rgba(0,0,0,0.1)' : 'none'
-              }
+              cursor: onItemClick ? 'pointer' : 'default'
             }}
             onClick={() => onItemClick?.(item)}
           >
@@ -142,7 +118,7 @@ export function ViewModeLayouts<T extends BaseItem>({
                   {item.title || item.name || `Item ${item.id}`}
                 </Text>
                 {item.tags && item.tags.length > 0 && (
-                  <Group gap={4} justify="center">
+                  <Stack gap={4} justify="center">
                     {item.tags.slice(0, 2).map((tag, idx) => (
                       <Badge key={idx} size="xs" variant="light">
                         {tag}
@@ -153,7 +129,7 @@ export function ViewModeLayouts<T extends BaseItem>({
                         +{item.tags.length - 2}
                       </Badge>
                     )}
-                  </Group>
+                  </Stack>
                 )}
               </Stack>
             </Stack>
@@ -168,55 +144,50 @@ export function ViewModeLayouts<T extends BaseItem>({
     return (
       <Stack gap="xs">
         {items.map((item) => (
-          <Paper
+          <Card
             key={item.id}
             withBorder
             p="md"
+            className={onItemClick ? classes.hoverCardDetails : undefined}
             style={{ 
-              cursor: onItemClick ? 'pointer' : 'default',
-              transition: 'all 0.2s ease',
-              ':hover': {
-                backgroundColor: onItemClick ? 'var(--mantine-color-gray-0)' : 'transparent'
-              }
+              cursor: onItemClick ? 'pointer' : 'default'
             }}
             onClick={() => onItemClick?.(item)}
           >
             {renderListItem(item)}
-          </Paper>
+          </Card>
         ))}
       </Stack>
     );
   }
 
-  // Details View (Table)
+  // Details View (Table) - Show all items
   if (viewMode === 'details') {
     return (
-      <Paper withBorder>
-        <Table striped highlightOnHover>
-          <Table.Thead>
-            <Table.Tr>
-              {detailHeaders.map((header) => (
-                <Table.Th key={header}>{header}</Table.Th>
+      <Card withBorder>
+        <Stack gap="md">
+          <Title order={5}>Details</Title>
+          {items.map((item) => (
+            <Stack 
+              key={item.id} 
+              gap="xs" 
+              p="sm" 
+              className={onItemClick ? classes.hoverCardDetails : undefined}
+              style={{ 
+                borderBottom: '1px solid var(--mantine-color-gray-3)'
+              }}
+              onClick={() => onItemClick?.(item)}
+            >
+              {detailHeaders.map((header, idx) => (
+                <Group key={`${item.id}-${header}`} justify="space-between" align="center">
+                  <Text fw={500}>{header}</Text>
+                  <Text>{renderDetailColumns(item)[idx]}</Text>
+                </Group>
               ))}
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {items.map((item) => (
-              <Table.Tr
-                key={item.id}
-                style={{ 
-                  cursor: onItemClick ? 'pointer' : 'default'
-                }}
-                onClick={() => onItemClick?.(item)}
-              >
-                {renderDetailColumns(item).map((cell, idx) => (
-                  <Table.Td key={idx}>{cell}</Table.Td>
-                ))}
-              </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
-      </Paper>
+            </Stack>
+          ))}
+        </Stack>
+      </Card>
     );
   }
 
@@ -229,6 +200,7 @@ export function formatDate(dateString: string | undefined): string {
   
   try {
     const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid Date';
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -243,11 +215,12 @@ export function formatDate(dateString: string | undefined): string {
 
 // Utility function for formatting file sizes
 export function formatFileSize(bytes: number | undefined): string {
-  if (!bytes || bytes === 0) return 'N/A';
+  if (!bytes || bytes === 0 || !Number.isFinite(bytes) || bytes < 0) return 'N/A';
   
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${sizes[i]}`;
+  const clampedIndex = Math.min(i, sizes.length - 1);
+  return `${(bytes / Math.pow(1024, clampedIndex)).toFixed(1)} ${sizes[clampedIndex]}`;
 }
 
 export default ViewModeLayouts;

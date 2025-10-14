@@ -38,7 +38,7 @@ class ArchiveFolder(Base):
     tag_objs = relationship("Tag", secondary=archive_folder_tags, back_populates="archive_folders")
     
     def __repr__(self):
-        return f"<ArchiveFolder(id={self.id}, name='{self.name}', parent_uuid='{self.parent_uuid}')>"
+        return f"<ArchiveFolder(uuid={self.uuid}, id={self.id}, name='{self.name}', parent_uuid='{self.parent_uuid}')>"
 
 
 class ArchiveItem(Base):
@@ -74,4 +74,4 @@ class ArchiveItem(Base):
     tag_objs = relationship("Tag", secondary=archive_item_tags, back_populates="archive_items")
     
     def __repr__(self):
-        return f"<ArchiveItem(id={self.id}, name='{self.name}', folder_uuid='{self.folder_uuid}')>" 
+        return f"<ArchiveItem(uuid={self.uuid}, id={self.id}, name='{self.name}', folder_uuid='{self.folder_uuid}')>" 

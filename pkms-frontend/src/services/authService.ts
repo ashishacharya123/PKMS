@@ -12,6 +12,8 @@ import {
 } from '../types/auth';
 
 class AuthService {
+  private _deprecationWarned: boolean = false;
+  
   // User setup (first-time password creation)
   async setupUser(userData: UserSetup): Promise<AuthResponse> {
     const response = await apiService.post<AuthResponse>('/auth/setup', userData);
@@ -39,10 +41,11 @@ class AuthService {
     return response.data;
   }
 
-  // Setup recovery questions
-  async setupRecovery(recoveryData: RecoverySetup): Promise<RecoveryKeyResponse> {
-    const response = await apiService.post<RecoveryKeyResponse>('/auth/recovery/setup', recoveryData);
-    return response.data;
+  // Setup recovery questions (deprecated - use setupUser instead)
+  async setupRecovery(_recoveryData: RecoverySetup): Promise<RecoveryKeyResponse> {
+    // DEPRECATED: Recovery setup is now part of user setup
+    // This method is kept for backward compatibility but should not be used
+    throw new Error('setupRecovery is deprecated. Use setupUser instead, which includes recovery setup.');
   }
 
   // Reset password using recovery
@@ -65,10 +68,10 @@ class AuthService {
     return response.data;
   }
 
-  // Complete setup
+  // Complete setup - DEPRECATED: No longer needed as /setup endpoint handles everything
   async completeSetup(): Promise<{ message: string }> {
-    const response = await apiService.post<{ message: string }>('/auth/complete-setup');
-    return response.data;
+    // This endpoint no longer exists - setup is completed in one step
+    return { message: "Setup already completed" };
   }
 
   // Refresh token
@@ -77,39 +80,45 @@ class AuthService {
     return response.data;
   }
 
-  // Local storage management
-  saveAuthData(authResponse: AuthResponse): void {
-    localStorage.setItem('pkms_token', authResponse.access_token);
-    localStorage.setItem('pkms_user', JSON.stringify({
-      id: authResponse.user_id,
-      username: authResponse.username,
-      is_first_login: authResponse.is_first_login
-    }));
+  // SECURITY: Removed localStorage usage - using httpOnly cookies instead
+  saveAuthData(_authResponse: AuthResponse): void {
+    // No longer storing sensitive data in localStorage
+    // Tokens are now handled via httpOnly cookies from backend
   }
 
   clearAuthData(): void {
-    localStorage.removeItem('pkms_token');
-    localStorage.removeItem('pkms_user');
+    // No localStorage cleanup needed - using httpOnly cookies
   }
 
   getStoredToken(): string | null {
-    return localStorage.getItem('pkms_token');
+    // SECURITY: httpOnly cookies can't be read by JavaScript
+    // Return null to indicate we rely on httpOnly cookies for authentication
+    return null;
   }
 
   getStoredUser(): User | null {
-    const userStr = localStorage.getItem('pkms_user');
-    if (userStr) {
-      try {
-        return JSON.parse(userStr);
-      } catch {
-        return null;
-      }
-    }
+    // SECURITY: User data should come from auth store state, not localStorage
+    // This method is deprecated - use auth store instead
     return null;
   }
 
   isAuthenticated(): boolean {
-    return !!this.getStoredToken();
+    // SECURITY: Since we're using httpOnly cookies, we can't check authentication state directly
+    // This method should not be used - rely on auth store state instead
+    // The auth store will handle authentication state via API calls
+    // 
+    // DEPRECATED: This method is kept for backward compatibility but should not be used
+    // Use the auth store's isAuthenticated state instead: useAuthStore.getState().isAuthenticated
+    
+    // Only warn once to avoid console spam
+    if (!this._deprecationWarned) {
+      console.warn('authService.isAuthenticated() is deprecated. Use useAuthStore.getState().isAuthenticated instead.');
+      this._deprecationWarned = true;
+    }
+    
+    // Return false for now - this method should not be used
+    // Frontend code should use the auth store directly for authentication state
+    return false;
   }
 
   // Login Password Hint Methods (separate from diary encryption hints)

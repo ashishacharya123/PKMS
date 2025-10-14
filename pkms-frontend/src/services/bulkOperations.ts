@@ -37,7 +37,7 @@ export interface BulkSelectionState {
 }
 
 class BulkOperationsService {
-  private notificationId: string | null = null;
+  // private notificationId: string | null = null; // Reserved for future use
 
   constructor() {
     this.setupKeyboardShortcuts();
@@ -562,8 +562,8 @@ class BulkOperationsService {
   // Get operation description
   getOperationDescription(operation: string, itemCount: number, target?: any): string {
     const descriptions: Record<string, (count: number, target?: any) => string> = {
-      tag: (count, target) => `Add tags to ${count} items`,
-      untag: (count, target) => `Remove tags from ${count} items`,
+      tag: (count, _target) => `Add tags to ${count} items`,
+      untag: (count, _target) => `Remove tags from ${count} items`,
       delete: (count) => `Delete ${count} items`,
       move: (count, target) => `Move ${count} items to ${target?.folder || target?.module}`,
       archive: (count) => `Archive ${count} items`,

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import {
   AppShell,
   ScrollArea,
@@ -20,7 +20,7 @@ import {
   IconNotes,
   IconFile,
   IconCheckbox,
-  
+  IconFolders,
   IconSearch,
   IconArchive,
   IconChevronDown,
@@ -73,7 +73,14 @@ const navigationItems: NavigationItem[] = [
     icon: IconCheckbox,
     path: '/todos',
     color: 'red',
-    description: 'Task and project management'
+    description: 'Task management and kanban boards'
+  },
+  {
+    label: 'Projects',
+    icon: IconFolders,
+    path: '/projects',
+    color: 'orange',
+    description: 'Project portfolios and progress tracking'
   },
   {
     label: 'Diary',
@@ -88,13 +95,6 @@ const navigationItems: NavigationItem[] = [
     path: '/archive',
     color: 'teal',
     description: 'Hierarchical file organization'
-  },
-  {
-    label: 'Unified Search',
-    icon: IconSearch, // Reuse search icon for clarity
-    path: '/search/unified',
-    color: 'violet',
-    description: 'FTS5, Fuzzy, and Hybrid search in one interface'
   }
 ];
 
@@ -104,6 +104,7 @@ interface NavigationProps {
 }
 
 export function Navigation({ collapsed = false }: NavigationProps) {
+  const navigate = useNavigate();
   const [userMenuOpened, setUserMenuOpened] = useState(false);
   const [testingModalOpened, setTestingModalOpened] = useState(false);
   const [backupModalOpened, setBackupModalOpened] = useState(false);
@@ -305,6 +306,20 @@ export function Navigation({ collapsed = false }: NavigationProps) {
             </Menu.Item>
             
             <Menu.Divider />
+            <Menu.Label>Search Tools</Menu.Label>
+            <Menu.Item 
+              leftSection={<IconSearch size={14} />}
+              onClick={() => navigate('/search/unified')}
+            >
+              Unified Search
+            </Menu.Item>
+            <Menu.Item 
+              leftSection={<IconSearch size={14} />}
+              onClick={() => navigate('/search/fuzzy')}
+            >
+              Fuzzy Search
+            </Menu.Item>
+            
             <Menu.Item 
               leftSection={<IconBug size={14} />}
               onClick={() => setTestingModalOpened(true)}

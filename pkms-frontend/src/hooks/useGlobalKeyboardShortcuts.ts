@@ -42,11 +42,11 @@ export function useGlobalKeyboardShortcuts() {
                 autoClose: 1500,
               });
             } else {
-              // No search box on current page, go to dedicated FTS5 search
-              navigate('/search/fts5');
+              // No search box on current page, go to unified search
+              navigate('/search/unified');
               notifications.show({
-                title: 'FTS5 Search',
-                message: 'Opening fast full-text search page',
+                title: 'Search',
+                message: 'Opening unified search page',
                 color: 'green',
                 autoClose: 2000,
               });
@@ -94,7 +94,7 @@ export function useGlobalKeyboardShortcuts() {
       // Fuzzy search with Ctrl+Shift+F
       if (isCtrl && isShift && key === 'f') {
         event.preventDefault();
-        // Go to dedicated fuzzy search page
+        // Go to fuzzy search page
         navigate('/search/fuzzy');
         notifications.show({
           title: 'Fuzzy Search',

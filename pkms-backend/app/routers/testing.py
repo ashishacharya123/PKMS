@@ -25,7 +25,7 @@ from ..models.user import User, Session, RecoveryKey
 from ..models.note import Note
 from ..models.document import Document
 from ..models.todo import Todo, Project
-from ..models.diary import DiaryEntry, DiaryMedia
+from ..models.diary import DiaryEntry, DiaryMedia, DiaryDailyMetadata
 from ..models.archive import ArchiveFolder, ArchiveItem
 from ..models.tag import Tag
 from ..models.link import Link
@@ -47,12 +47,15 @@ async def get_database_stats(
         # Count records in each table and get detailed size information
         tables_to_check = [
             ("users", User),
+            ("sessions", Session),
+            ("recovery_keys", RecoveryKey),
             ("notes", Note),
             ("documents", Document),
             ("todos", Todo),
             ("projects", Project),
             ("diary_entries", DiaryEntry),
             ("diary_media", DiaryMedia),
+            ("diary_daily_metadata", DiaryDailyMetadata),
             ("archive_folders", ArchiveFolder),
             ("archive_items", ArchiveItem),
             ("tags", Tag),
@@ -157,12 +160,15 @@ async def get_database_stats(
                         # Method 3: Intelligent estimation based on table structure
                         base_row_sizes = {
                             "users": 256,          # password hashes, settings
+                            "sessions": 128,       # session tokens
+                            "recovery_keys": 256,  # recovery key hashes
                             "notes": 1024,         # variable content size
                             "documents": 512,      # metadata only, files stored separately
                             "todos": 256,          # simple task data
                             "projects": 128,       # minimal project info
                             "diary_entries": 2048, # encrypted content
                             "diary_media": 256,    # encrypted filenames/paths
+                            "diary_daily_metadata": 512, # wellness metrics JSON
                             "archive_folders": 128, # folder metadata
                             "archive_items": 512,  # file metadata
                             "tags": 64,            # simple tag data
@@ -369,9 +375,9 @@ async def get_all_database_tables(
         # Application tables (main user data)
         application_tables = [
             "users", "sessions", "recovery_keys", "notes", "documents", "todos", 
-            "projects", "diary_entries", "diary_media", "archive_folders", 
-            "archive_items", "tags", "links", "note_tags", "document_tags", 
-            "todo_tags", "archive_tags"
+            "projects", "diary_entries", "diary_media", "diary_daily_metadata",
+            "archive_folders", "archive_items", "tags", "links", 
+            "note_tags", "document_tags", "todo_tags", "diary_tags", "archive_tags"
         ]
         
         for row in result:
@@ -2771,19 +2777,25 @@ async def get_diary_table_details(
 ):
     """Get detailed information about diary tables, showing structure while respecting encryption."""
     try:
-        from ..models.diary import DiaryEntry, DiaryMedia
+        from ..models.diary import DiaryEntry, DiaryMedia, DiaryDailyMetadata
         
-        # Get diary entries table info
+        # Get diary entries table info with new fields
         entries_query = text("""
             SELECT COUNT(*) as total_entries,
                    COUNT(CASE WHEN title IS NOT NULL AND title != '' THEN 1 END) as entries_with_titles,
                    COUNT(CASE WHEN mood IS NOT NULL THEN 1 END) as entries_with_mood,
+                   COUNT(CASE WHEN weather_code IS NOT NULL THEN 1 END) as entries_with_weather,
+                   COUNT(CASE WHEN location IS NOT NULL AND location != '' THEN 1 END) as entries_with_location,
                    COUNT(CASE WHEN is_template = 1 THEN 1 END) as template_entries,
+                   COUNT(CASE WHEN from_template_id IS NOT NULL THEN 1 END) as entries_from_templates,
+                   COUNT(CASE WHEN daily_metadata_id IS NOT NULL THEN 1 END) as entries_with_daily_metadata,
                    MIN(date) as earliest_entry,
                    MAX(date) as latest_entry,
                    COUNT(DISTINCT strftime('%Y-%m', date)) as months_with_entries,
                    COUNT(DISTINCT date) as unique_dates,
-                   AVG(CASE WHEN mood IS NOT NULL THEN mood END) as avg_mood
+                   AVG(CASE WHEN mood IS NOT NULL THEN mood END) as avg_mood,
+                   AVG(CASE WHEN content_length IS NOT NULL THEN content_length END) as avg_content_length,
+                   SUM(content_length) as total_content_length
             FROM diary_entries 
             WHERE user_id = :user_id
         """)
@@ -2806,13 +2818,26 @@ async def get_diary_table_details(
         media_result = await db.execute(media_query, {"user_id": current_user.id})
         media_stats = media_result.fetchone()
         
+        # Get daily metadata table info
+        daily_metadata_query = text("""
+            SELECT COUNT(*) as total_snapshots,
+                   COUNT(DISTINCT date) as unique_dates,
+                   COUNT(CASE WHEN nepali_date IS NOT NULL THEN 1 END) as snapshots_with_nepali_date,
+                   MIN(date) as earliest_snapshot,
+                   MAX(date) as latest_snapshot,
+                   COUNT(DISTINCT strftime('%Y-%m', date)) as months_with_snapshots
+            FROM diary_daily_metadata
+            WHERE user_id = :user_id
+        """)
+        daily_metadata_result = await db.execute(daily_metadata_query, {"user_id": current_user.id})
+        daily_metadata_stats = daily_metadata_result.fetchone()
+        
         # Get sample entries (structure only, no decryption)
         sample_query = text("""
-            SELECT id, date, title, mood, is_template, created_at,
-                   LENGTH(encrypted_blob) as encrypted_content_length,
-                   LENGTH(encryption_iv) as iv_length,
-                   LENGTH(encryption_tag) as tag_length,
-                   metadata_json
+            SELECT id, uuid, date, title, mood, weather_code, location, is_template, 
+                   from_template_id, daily_metadata_id, content_length, created_at,
+                   LENGTH(content_file_path) as content_file_path_length,
+                   encryption_iv, file_hash
             FROM diary_entries 
             WHERE user_id = :user_id
             ORDER BY created_at DESC
@@ -2821,21 +2846,31 @@ async def get_diary_table_details(
         sample_result = await db.execute(sample_query, {"user_id": current_user.id})
         sample_entries = []
         
+        weather_labels = {0: "Clear", 1: "Partly Cloudy", 2: "Cloudy", 3: "Rain", 4: "Storm", 5: "Snow", 6: "Scorching Sun"}
+        
         for row in sample_result:
             sample_entries.append({
                 "id": row[0],
-                "date": str(row[1]),
-                "title": row[2] or "[No Title]",
-                "mood": row[3],
-                "is_template": bool(row[4]),
-                "created_at": str(row[5]),
-                "encrypted_content_size": f"{row[6]} characters" if row[6] else "No content",
-                "encryption_metadata": {
-                    "iv_length": row[7],
-                    "tag_length": row[8],
-                    "has_encryption_data": row[7] is not None and row[8] is not None
+                "uuid": row[1],
+                "date": str(row[2]),
+                "title": row[3] or "[No Title]",
+                "mood": row[4],
+                "weather_code": row[5],
+                "weather_label": weather_labels.get(row[5], "Unknown") if row[5] is not None else None,
+                "location": row[6],
+                "is_template": bool(row[7]),
+                "from_template_id": row[8],
+                "daily_metadata_id": row[9],
+                "content_length": row[10],
+                "created_at": str(row[11]),
+                "content_file_info": {
+                    "has_file_path": row[12] is not None and row[12] > 0,
+                    "path_length": row[12]
                 },
-                "metadata": row[9] or "{}"
+                "encryption_metadata": {
+                    "has_iv": row[13] is not None,
+                    "has_file_hash": row[14] is not None
+                }
             })
         
         # Get sample media entries
@@ -2882,14 +2917,30 @@ async def get_diary_table_details(
                 "total_entries": entries_stats[0] if entries_stats else 0,
                 "entries_with_titles": entries_stats[1] if entries_stats else 0,
                 "entries_with_mood": entries_stats[2] if entries_stats else 0,
-                "template_entries": entries_stats[3] if entries_stats else 0,
+                "entries_with_weather": entries_stats[3] if entries_stats else 0,
+                "entries_with_location": entries_stats[4] if entries_stats else 0,
+                "template_entries": entries_stats[5] if entries_stats else 0,
+                "entries_from_templates": entries_stats[6] if entries_stats else 0,
+                "entries_with_daily_metadata": entries_stats[7] if entries_stats else 0,
                 "date_range": {
-                    "earliest": str(entries_stats[4]) if entries_stats and entries_stats[4] else None,
-                    "latest": str(entries_stats[5]) if entries_stats and entries_stats[5] else None
+                    "earliest": str(entries_stats[8]) if entries_stats and entries_stats[8] else None,
+                    "latest": str(entries_stats[9]) if entries_stats and entries_stats[9] else None
                 },
-                "months_with_entries": entries_stats[6] if entries_stats else 0,
-                "unique_dates": entries_stats[7] if entries_stats else 0,
-                "average_mood": round(entries_stats[8], 2) if entries_stats and entries_stats[8] else None
+                "months_with_entries": entries_stats[10] if entries_stats else 0,
+                "unique_dates": entries_stats[11] if entries_stats else 0,
+                "average_mood": round(entries_stats[12], 2) if entries_stats and entries_stats[12] else None,
+                "average_content_length": round(entries_stats[13], 2) if entries_stats and entries_stats[13] else None,
+                "total_content_length": entries_stats[14] if entries_stats else 0
+            },
+            "diary_daily_metadata": {
+                "total_snapshots": daily_metadata_stats[0] if daily_metadata_stats else 0,
+                "unique_dates": daily_metadata_stats[1] if daily_metadata_stats else 0,
+                "snapshots_with_nepali_date": daily_metadata_stats[2] if daily_metadata_stats else 0,
+                "date_range": {
+                    "earliest": str(daily_metadata_stats[3]) if daily_metadata_stats and daily_metadata_stats[3] else None,
+                    "latest": str(daily_metadata_stats[4]) if daily_metadata_stats and daily_metadata_stats[4] else None
+                },
+                "months_with_snapshots": daily_metadata_stats[5] if daily_metadata_stats else 0
             },
             "diary_media": {
                 "total_media": media_stats[0] if media_stats else 0,
@@ -2914,8 +2965,18 @@ async def get_diary_table_details(
                 "privacy_preserved": "This ensures your diary remains private even during system testing"
             },
             "table_structure": {
-                "diary_entries_columns": ["id", "title", "date", "encrypted_blob", "encryption_iv", "encryption_tag", "mood", "metadata_json", "is_template", "user_id", "created_at", "updated_at"],
-                "diary_media_columns": ["uuid", "entry_id", "filename_encrypted", "filepath_encrypted", "encryption_iv", "encryption_tag", "mime_type", "size_bytes", "media_type", "duration_seconds", "user_id", "created_at"]
+                "diary_entries_columns": ["id", "uuid", "title", "date", "mood", "weather_code", "location", "day_of_week", "media_count", "content_length", "content_file_path", "file_hash", "encryption_iv", "is_favorite", "is_archived", "is_template", "from_template_id", "user_id", "created_at", "updated_at", "daily_metadata_id", "tags_text"],
+                "diary_media_columns": ["uuid", "diary_entry_uuid", "filename_encrypted", "filepath_encrypted", "encryption_iv", "mime_type", "size_bytes", "media_type", "duration_seconds", "user_id", "created_at"],
+                "diary_daily_metadata_columns": ["id", "user_id", "date", "nepali_date", "metrics_json", "created_at", "updated_at"]
+            },
+            "weather_code_mapping": {
+                "0": "Clear",
+                "1": "Partly Cloudy",
+                "2": "Cloudy",
+                "3": "Rain",
+                "4": "Storm",
+                "5": "Snow",
+                "6": "Scorching Sun"
             },
             "timestamp": datetime.now(NEPAL_TZ).isoformat()
         }

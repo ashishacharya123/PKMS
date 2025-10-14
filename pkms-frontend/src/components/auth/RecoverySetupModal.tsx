@@ -1,32 +1,26 @@
 import React, { useState } from 'react';
 import {
   Modal,
-  Paper,
-  TextInput,
-  Button,
-  Title,
-  Text,
-  Stack,
-  Group,
   Alert,
-  Select,
+  Text,
+  Button,
+  Stack,
+  Card,
+  Group,
+  LoadingOverlay,
   Textarea,
   Badge,
-  Card,
-  List,
-  ThemeIcon,
-  Progress,
   Divider,
+  Select,
+  List
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import {
   IconShield,
   IconCheck,
-  IconQuestionMark,
   IconAlertTriangle,
   IconKey,
-  IconLock,
 } from '@tabler/icons-react';
 import authService from '../../services/authService';
 
@@ -67,7 +61,6 @@ const RecoverySetupModal: React.FC<RecoverySetupModalProps> = ({
   username
 }) => {
   const [loading, setLoading] = useState(false);
-  const [currentStep, setCurrentStep] = useState(1);
 
   const form = useForm({
     initialValues: {
@@ -188,18 +181,11 @@ const RecoverySetupModal: React.FC<RecoverySetupModalProps> = ({
 
         <Card withBorder p="md">
           <Group gap="xs" mb="sm">
-            <ThemeIcon color="blue" variant="light" size="sm">
-              <IconKey size={14} />
-            </ThemeIcon>
+            <IconKey size={14} />
             <Text fw={500} size="sm">Account: {username}</Text>
           </Group>
           
-          <Progress 
-            value={getProgress()} 
-            color="blue" 
-            size="sm" 
-            mb="xs"
-          />
+          <LoadingOverlay visible={loading} />
           <Text size="xs" color="dimmed">
             {getProgress() >= 100 ? 'Setup complete!' : 'Minimum 2 questions required'}
           </Text>

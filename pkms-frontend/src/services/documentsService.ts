@@ -5,12 +5,19 @@
 import { apiService } from './api';
 import { coreUploadService } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
-import { searchService } from './searchService';
 
 // Using chunked upload for all documents; no small-file direct path
 // (kept here previously; now removed to avoid dead code)
 
 // Removed legacy direct-upload progress mapper
+
+export interface ProjectBadge {
+  id: number | null;  // null if project is deleted
+  name: string;
+  color: string;
+  isExclusive: boolean;
+  isDeleted: boolean;  // True if project was deleted (using snapshot name)
+}
 
 export interface Document {
   id: number;
@@ -24,11 +31,13 @@ export interface Document {
   description?: string;
   is_favorite: boolean;
   is_archived: boolean;
+  isExclusiveMode: boolean;
   archive_item_uuid?: string;
   upload_status: string;
   created_at: string;
   updated_at: string;
   tags: string[];
+  projects: ProjectBadge[];
 }
 
 export interface DocumentSummary {
@@ -43,11 +52,13 @@ export interface DocumentSummary {
   description?: string;
   is_favorite: boolean;
   is_archived: boolean;
+  isExclusiveMode: boolean;
   archive_item_uuid?: string;
   upload_status: string;
   created_at: string;
   updated_at: string;
   tags: string[];
+  projects: ProjectBadge[];
 }
 
 export interface UploadDocumentRequest {
@@ -59,6 +70,8 @@ export interface UpdateDocumentRequest {
   tags?: string[];
   is_archived?: boolean;
   metadata?: Record<string, any>;
+  projectIds?: number[];
+  isExclusiveMode?: boolean;
 }
 
 export interface SearchResult {
@@ -91,7 +104,9 @@ class DocumentsService {
     file: File, 
     tags: string[] = [],
     onProgress?: (progress: number) => void,
-    projectId?: number
+    projectIds?: number[],
+    isExclusive?: boolean,
+    projectId?: number // Legacy support
   ): Promise<Document> {
     // Use chunked upload uniformly to match backend capabilities
     const fileId = await coreUploadService.uploadFile(file, {
@@ -106,39 +121,41 @@ class DocumentsService {
       title: file.name,
       description: undefined as string | undefined,
       tags,
-      project_id: projectId,
+      project_id: projectId, // Legacy
+      projectIds: projectIds && projectIds.length > 0 ? projectIds : undefined,
+      isExclusiveMode: projectIds && projectIds.length > 0 ? isExclusive : undefined,
     };
     const commitResp = await apiService.post<Document>('/documents/upload/commit', commitPayload);
     const created = commitResp.data;
-    searchService.invalidateCacheForContentType('document');
+    // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return created;
   }
 
   /**
    * Get a specific document by ID
    */
-  async getDocument(id: number): Promise<Document> {
-    const response = await apiService.get<Document>(`/documents/${id}`);
+  async getDocument(uuid: string): Promise<Document> {
+    const response = await apiService.get<Document>(`/documents/${uuid}`);
     return response.data;
   }
 
   /**
    * Update document metadata and tags
    */
-  async updateDocument(id: number, data: UpdateDocumentRequest): Promise<Document> {
-    const response = await apiService.put<Document>(`/documents/${id}`, data);
+  async updateDocument(uuid: string, data: UpdateDocumentRequest): Promise<Document> {
+    const response = await apiService.put<Document>(`/documents/${uuid}`, data);
     // Invalidate search cache for documents
-    searchService.invalidateCacheForContentType('document');
+    // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return response.data;
   }
 
   /**
    * Delete a document
    */
-  async deleteDocument(id: number): Promise<{ message: string }> {
-    const response = await apiService.delete<{ message: string }>(`/documents/${id}`);
+  async deleteDocument(uuid: string): Promise<{ message: string }> {
+    const response = await apiService.delete<{ message: string }>(`/documents/${uuid}`);
     // Invalidate search cache for documents
-    searchService.invalidateCacheForContentType('document');
+    // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return response.data;
   }
 
@@ -164,24 +181,24 @@ class DocumentsService {
   /**
    * Download a document file
    */
-  getDownloadUrl(id: number): string {
-    return `${apiService.getAxiosInstance().defaults.baseURL}/documents/${id}/download`;
+  getDownloadUrl(uuid: string): string {
+    return `${apiService.getAxiosInstance().defaults.baseURL}/documents/${uuid}/download`;
   }
 
   /**
    * Download document with authentication
    */
-  async downloadDocument(id: number, onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
-    const url = `/documents/${id}/download`;
-    return coreDownloadService.downloadFile(url, { fileId: id.toString(), onProgress });
+  async downloadDocument(uuid: string, onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
+    const url = `/documents/${uuid}/download`;
+    return coreDownloadService.downloadFile(url, { fileId: uuid, onProgress });
   }
 
   /**
    * Get document preview (thumbnail or text preview)
    */
-  async getDocumentPreview(id: number): Promise<any> {
+  async getDocumentPreview(uuid: string): Promise<any> {
     try {
-      return await apiService.get(`/documents/${id}/preview`);
+      return await apiService.get(`/documents/${uuid}/preview`);
     } catch (error) {
       return null;
     }
@@ -190,8 +207,8 @@ class DocumentsService {
   /**
    * Get preview URL for images
    */
-  getPreviewUrl(id: number): string {
-    return `${apiService.getAxiosInstance().defaults.baseURL}/documents/${id}/preview`;
+  getPreviewUrl(uuid: string): string {
+    return `${apiService.getAxiosInstance().defaults.baseURL}/documents/${uuid}/preview`;
   }
 
   /**
@@ -230,8 +247,8 @@ class DocumentsService {
   /**
    * Archive/unarchive a document
    */
-  async toggleArchive(id: number, archived: boolean): Promise<Document> {
-    return await this.updateDocument(id, { is_archived: archived });
+  async toggleArchive(uuid: string, archived: boolean): Promise<Document> {
+    return await this.updateDocument(uuid, { is_archived: archived });
   }
 
   /**

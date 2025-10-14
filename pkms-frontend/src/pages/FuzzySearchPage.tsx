@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -14,30 +14,24 @@ import {
   Card,
   Checkbox,
   Select,
-  NumberInput,
   Switch,
   Alert,
   LoadingOverlay,
   ThemeIcon,
-  Divider,
   ActionIcon,
-  Tooltip,
-  Slider,
-  Progress
+  Tooltip
 } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import {
   IconBrain,
   IconSearch,
   IconFilter,
-  IconAdjustments,
   IconInfoCircle,
   IconArrowLeft,
   IconRefresh
 } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { apiService } from '../services/api';
 
 // Types
 interface SearchResult {
@@ -96,7 +90,7 @@ export default function FuzzySearchPage() {
   const [searchMethod, setSearchMethod] = useState('');
   
   // Fuzzy-specific settings
-  const [fuzzyThreshold, setFuzzyThreshold] = useState(60);
+  const [fuzzyThreshold, setFuzzyThreshold] = useState(70);
   const [advancedMode, setAdvancedMode] = useState(false);
   
   // Filters
@@ -153,7 +147,7 @@ export default function FuzzySearchPage() {
           notes: 'note',
           documents: 'document',
           todos: 'todo',
-          diary: 'diary',
+          // diary: 'diary', // ❌ SECURITY: Diary search removed from global search
           archive: 'archive'
         };
         const mappedModules = selectedModules
@@ -209,7 +203,7 @@ export default function FuzzySearchPage() {
         }
 
         const response = await api.get(`/search/fuzzy?${params}`);
-        const searchResponse: SearchResponse = response.data;
+        const searchResponse: SearchResponse = response.data as SearchResponse;
 
         setResults(searchResponse.results);
         setTotal(searchResponse.total);
@@ -253,12 +247,12 @@ export default function FuzzySearchPage() {
     return 'orange';
   };
 
-  const getThresholdColor = (threshold: number) => {
-    if (threshold >= 80) return 'red';
-    if (threshold >= 65) return 'orange';
-    if (threshold >= 50) return 'blue';
-    return 'green';
-  };
+  // const getThresholdColor = (threshold: number) => {
+  //   if (threshold >= 80) return 'red';
+  //   if (threshold >= 65) return 'orange';
+  //   if (threshold >= 50) return 'blue';
+  //   return 'green';
+  // };
 
   return (
     <Container size="lg" py="md">
@@ -335,44 +329,44 @@ export default function FuzzySearchPage() {
             </Group>
 
             {/* Fuzzy Settings */}
-            <Group>
-              <Switch
-                label="Advanced fuzzy"
-                checked={advancedMode}
-                onChange={(e) => setAdvancedMode(e.currentTarget.checked)}
+            <Group grow>
+              <Select
+                label="Fuzzy Matching Flexibility"
+                description="How tolerant the search should be to typos and variations"
+                placeholder="Select flexibility level"
+                value={fuzzyThreshold.toString()}
+                onChange={(value) => setFuzzyThreshold(parseInt(value || '70'))}
+                data={[
+                  { value: '90', label: '🎯 Strict - Minimal typos (90%)' },
+                  { value: '70', label: '⚖️ Balanced - Moderate typos (70%)' },
+                  { value: '50', label: '🔍 Flexible - More typos (50%)' },
+                  { value: '30', label: '🌐 Very Flexible - Maximum typos (30%)' }
+                ]}
+                disabled={advancedMode}
               />
-              <div style={{ flex: 1 }}>
-                <Text size="sm" mb={5}>
-                  Fuzzy Threshold: {fuzzyThreshold}% 
-                  <Badge 
-                    size="xs" 
-                    color={getThresholdColor(fuzzyThreshold)} 
-                    variant="light" 
-                    ml="xs"
-                  >
-                    {fuzzyThreshold >= 80 ? 'Strict' : 
-                     fuzzyThreshold >= 65 ? 'Balanced' : 
-                     fuzzyThreshold >= 50 ? 'Flexible' : 'Very Flexible'}
-                  </Badge>
-                </Text>
-                {!advancedMode && (
-                  <Slider
-                    value={fuzzyThreshold}
-                    onChange={setFuzzyThreshold}
-                    min={30}
-                    max={95}
-                    step={5}
-                    marks={[
-                      { value: 30, label: '30%' },
-                      { value: 50, label: '50%' },
-                      { value: 70, label: '70%' },
-                      { value: 90, label: '90%' }
-                    ]}
-                    color="purple"
+              <div>
+                <Text size="sm" mb={8} fw={500}>Search Mode</Text>
+                <Tooltip 
+                  label="Advanced mode uses RapidFuzz library for deeper content matching with more sophisticated algorithms. Standard mode uses SQLite FTS5 with fuzzy matching." 
+                  multiline 
+                  w={300}
+                  withArrow
+                >
+                  <Switch
+                    label="Advanced Fuzzy Search"
+                    description="Python RapidFuzz (slower, more accurate)"
+                    checked={advancedMode}
+                    onChange={(e) => setAdvancedMode(e.currentTarget.checked)}
                   />
-                )}
+                </Tooltip>
               </div>
             </Group>
+            
+            {advancedMode && (
+              <Alert color="purple" variant="light" title="Advanced Fuzzy Mode">
+                Using RapidFuzz algorithm for deep content analysis. This searches actual file content with sophisticated typo-tolerance but may be slower.
+              </Alert>
+            )}
 
             {/* Quick Filters */}
             <Group>

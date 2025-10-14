@@ -1,0 +1,17 @@
+ auth.py:36 - Rate limiting key uses hash modulo 10000 causing collisions - two different users could share same rate limit bucket
+
+  auth.py:214-216 - Session cleanup deletes ALL user sessions on login, not just expired ones. User logs in on device A, then logs in on device B -
+  device A session gets fucked
+
+auth.py:598-601 - get_any_login_password_hint returns empty username but reviewer found it can leak user enumeration through response timing
+
+
+documents.py:286-293 - Cross-device file move failure - EXDEV handling wraps shutil.move but doesn't preserve file permissions on Windows
+
+documents.py:672-674 - Archive copy doesn't verify source file integrity - copies corrupted files without validation
+
+ auth.py:36 - Rate limiting hash(user_agent) % 10000 - Even for single user, this is still broken! Same browser restart = hash collision = rate limit
+  reset
+
+  auth.py:213-216 - Session cleanup - Still deletes ALL sessions on new login instead of just expired ones. User logs in on phone -> phone session
+  killed. Fucking annoying!

@@ -416,7 +416,7 @@ export function DashboardPage() {
                   const query = e.currentTarget.value.trim();
                   if (query) {
                     // Route to simple FTS5 search by default
-                    navigate(`/search/fts5?q=${encodeURIComponent(query)}`);
+                    navigate(`/search/unified?q=${encodeURIComponent(query)}`);
                   }
                 }
               }}

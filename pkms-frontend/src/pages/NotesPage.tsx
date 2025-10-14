@@ -23,6 +23,7 @@ import {
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import ViewModeLayouts, { formatDate } from '../components/common/ViewModeLayouts';
 import { useViewPreferences } from '../hooks/useViewPreferences';
+import { ProjectBadges } from '../components/common/ProjectBadges';
 import {
   IconPlus,
   IconSearch,
@@ -342,7 +343,7 @@ export function NotesPage() {
                           onClick={async (e) => {
                             e.stopPropagation();
                             try {
-                              await useNotesStore.getState().updateNote(note.id, { is_favorite: !note.is_favorite });
+                              await useNotesStore.getState().updateNote(note.uuid, { is_favorite: !note.is_favorite });
                               notifications.show({ title: note.is_favorite ? 'Removed from Favorites' : 'Added to Favorites', message: '', color: 'pink' });
                             } catch {
                               notifications.show({ title: 'Action Failed', message: 'Could not update favorite', color: 'red' });
@@ -356,7 +357,7 @@ export function NotesPage() {
                           onClick={async (e) => {
                             e.stopPropagation();
                             try {
-                              await notesService.updateNote(note.id, { is_archived: !note.is_archived });
+                              await notesService.updateNote(note.uuid, { is_archived: !note.is_archived });
                               loadNotes(); // Reload notes after archive/unarchive
                               notifications.show({ title: note.is_archived ? 'Note Unarchived' : 'Note Archived', message: '', color: 'green' });
                             } catch {
@@ -443,6 +444,7 @@ export function NotesPage() {
                         <Text size="xs" c="dimmed">
                           {formatDate(note.updated_at)}
                         </Text>
+                        <ProjectBadges projects={note.projects || []} size="xs" maxVisible={2} />
                         {(note.tags || []).slice(0, 2).map((tag: string) => (
                           <Badge 
                             key={tag} 
@@ -478,7 +480,7 @@ export function NotesPage() {
                         onClick={async (e) => {
                           e.stopPropagation();
                           try {
-                            await useNotesStore.getState().updateNote(note.id, { is_favorite: !note.is_favorite });
+                            await useNotesStore.getState().updateNote(note.uuid, { is_favorite: !note.is_favorite });
                             notifications.show({ 
                               title: note.is_favorite ? 'Removed from Favorites' : 'Added to Favorites', 
                               message: '', 
@@ -505,7 +507,7 @@ export function NotesPage() {
                         onClick={async (e) => {
                           e.stopPropagation();
                           try {
-                            await notesService.updateNote(note.id, { is_archived: !note.is_archived });
+                            await notesService.updateNote(note.uuid, { is_archived: !note.is_archived });
                             loadNotes(); // Reload notes after archive/unarchive
                             notifications.show({
                               title: note.is_archived ? 'Note Unarchived' : 'Note Archived',
@@ -568,12 +570,13 @@ export function NotesPage() {
                   </Badge>
                 </Group>,
                 <Group key="tags" gap={4}>
+                  <ProjectBadges projects={note.projects || []} size="xs" maxVisible={3} />
                   {(note.tags || []).slice(0, 3).map((tag: string) => (
                     <Badge 
                       key={tag} 
                       size="xs" 
                       variant="dot" 
-                      style={{ cursor: 'pointer' }} 
+                      style={{ cursor: 'pointer' }}
                       onClick={(e) => {
                         e.stopPropagation();
                         setTag(tag);
@@ -613,7 +616,7 @@ export function NotesPage() {
                       onClick={async (e) => {
                         e.stopPropagation();
                         try {
-                          await useNotesStore.getState().updateNote(note.id, { is_favorite: !note.is_favorite });
+                          await useNotesStore.getState().updateNote(note.uuid, { is_favorite: !note.is_favorite });
                           loadNotes(); // Reload notes after favorite toggle
                           notifications.show({ title: note.is_favorite ? 'Removed from Favorites' : 'Added to Favorites', message: '', color: 'pink' });
                         } catch {}
@@ -626,7 +629,7 @@ export function NotesPage() {
                       onClick={async (e) => {
                         e.stopPropagation();
                         try {
-                          await notesService.updateNote(note.id, { is_archived: !note.is_archived });
+                          await notesService.updateNote(note.uuid, { is_archived: !note.is_archived });
                           loadNotes(); // Reload notes after archive/unarchive
                         } catch {}
                       }}

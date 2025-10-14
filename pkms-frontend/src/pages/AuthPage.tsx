@@ -12,6 +12,7 @@ type AuthMode = 'login' | 'setup';
 export function AuthPage() {
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [recoveryModalOpened, setRecoveryModalOpened] = useState(false);
+  const [recoveryUsername, setRecoveryUsername] = useState<string>('');
   const theme = useMantineTheme();
   const { colorScheme } = useMantineColorScheme();
   const { clearError, isAuthenticated } = useAuthStore();
@@ -29,26 +30,24 @@ export function AuthPage() {
     setAuthMode(mode);
   };
 
+  const handleShowRecovery = (username: string) => {
+    setRecoveryUsername(username);
+    setRecoveryModalOpened(true);
+  };
+
   const renderAuthForm = () => {
     switch (authMode) {
       case 'login':
         return (
           <LoginForm 
             onSwitchToSetup={() => handleSwitchMode('setup')} 
-            onShowRecovery={() => setRecoveryModalOpened(true)}
+            onShowRecovery={handleShowRecovery}
           />
         );
       case 'setup':
         return (
           <SetupForm 
             onSwitchToLogin={() => handleSwitchMode('login')}
-          />
-        );
-      default:
-        return (
-          <LoginForm 
-            onSwitchToSetup={() => handleSwitchMode('setup')} 
-            onShowRecovery={() => setRecoveryModalOpened(true)}
           />
         );
     }
@@ -93,9 +92,9 @@ export function AuthPage() {
         opened={recoveryModalOpened}
         onClose={() => setRecoveryModalOpened(false)}
         onSuccess={() => {
-          // Refresh the page or redirect to login after successful recovery
           window.location.reload();
         }}
+        username={recoveryUsername}
       />
 
       <Box ta="center" mt="xl">

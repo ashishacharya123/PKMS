@@ -40,10 +40,10 @@ interface DocumentsState {
   loadDocuments: () => Promise<void>;
   loadMore: () => Promise<void>;
   loadDocument: (uuid: string) => Promise<void>;
-  uploadDocument: (file: File, tags?: string[]) => Promise<Document | null>;
+  uploadDocument: (file: File, tags?: string[], projectIds?: number[], isExclusive?: boolean) => Promise<Document | null>;
   updateDocument: (uuid: string, data: UpdateDocumentRequest) => Promise<Document | null>;
   deleteDocument: (uuid: string) => Promise<boolean>;
-  toggleArchive: (id: number, archived: boolean) => Promise<Document | null>;
+  toggleArchive: (uuid: string, archived: boolean) => Promise<Document | null>;
   
   // Actions - Search
   searchDocuments: (query: string) => Promise<void>;
@@ -71,7 +71,7 @@ interface DocumentsState {
   reset: () => void;
 }
 
-const initialState: Omit<DocumentsState, 'reset' | 'setUploadProgress' | 'clearCurrentDocument' | 'clearError' | 'setShowArchived' | 'setShowFavoritesOnly' | 'setSearch' | 'setTag' | 'setMimeType' | 'getPreviewUrl' | 'getDownloadUrl' | 'downloadDocument' | 'previewDocument' | 'clearSearch' | 'searchDocuments' | 'toggleArchive' | 'deleteDocument' | 'updateDocument' | 'uploadDocument' | 'loadDocument' | 'loadMore' | 'loadDocuments'> = {
+const initialState: Omit<DocumentsState, 'reset' | 'setUploadProgress' | 'clearCurrentDocument' | 'clearError' | 'setShowArchived' | 'setShowFavoritesOnly' | 'setShowProjectOnly' | 'setCurrentProjectId' | 'setSearch' | 'setTag' | 'setMimeType' | 'getPreviewUrl' | 'getDownloadUrl' | 'downloadDocument' | 'previewDocument' | 'clearSearch' | 'searchDocuments' | 'toggleArchive' | 'deleteDocument' | 'updateDocument' | 'uploadDocument' | 'loadDocument' | 'loadMore' | 'loadDocuments'> = {
   documents: [],
   currentDocument: null,
   searchResults: [],
@@ -110,8 +110,11 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         archived: state.showArchived,
         is_favorite: state.showFavoritesOnly || undefined,
         project_id: state.currentProjectId || undefined,
+        // Fixed: Don't send conflicting filters
+        // - If showProjectOnly is true: send project_only=true (show only docs WITH projects)
+        // - If showProjectOnly is false: send nothing (show ALL docs, both with and without projects)
         project_only: state.showProjectOnly || undefined,
-        unassigned_only: (!state.showProjectOnly) || undefined,
+        // REMOVED: unassigned_only - was backwards logic causing uploaded docs to be hidden
         limit: state.limit,
         offset: 0
       };
@@ -147,7 +150,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         is_favorite: state.showFavoritesOnly || undefined,
         project_id: state.currentProjectId || undefined,
         project_only: state.showProjectOnly || undefined,
-        unassigned_only: (!state.showProjectOnly) || undefined,
+        // REMOVED: unassigned_only - was backwards logic causing uploaded docs to be hidden
         limit: state.limit,
         offset: state.offset
       };
@@ -182,45 +185,74 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     }
   },
   
-  uploadDocument: async (file: File, tags: string[] = []) => {
+  uploadDocument: async (file: File, tags: string[] = [], projectIds: number[] = [], isExclusive: boolean = false) => {
     set({ isUploading: true, error: null, uploadProgress: 0 });
     
     try {
       const document = await documentsService.uploadDocument(
         file, 
         tags, 
-        (progress) => set({ uploadProgress: progress })
+        (progress) => set({ uploadProgress: progress }),
+        projectIds,
+        isExclusive
       );
       
       // Convert Document to DocumentSummary for the list
       const documentSummary: DocumentSummary = {
+        id: document.id,
         uuid: document.uuid,
+        title: document.original_name, // Use original_name as title
         filename: document.filename,
         original_name: document.original_name,
-        mime_type: document.mime_type,
+        file_path: document.file_path,
         file_size: document.file_size,
+        mime_type: document.mime_type,
+        isExclusiveMode: (document as any).isExclusiveMode ?? false,
+        is_favorite: document.is_favorite ?? false,
         is_archived: document.is_archived,
+        upload_status: document.upload_status || 'completed',
         created_at: document.created_at,
         updated_at: document.updated_at,
         tags: document.tags,
-        preview: document.extracted_text?.substring(0, 200) || ''
+        projects: (document as any).projects ?? []
       };
       
       // Add to documents list if it matches current filters
       const state = get();
-      const shouldAdd = (!state.currentMimeType || document.mime_type === state.currentMimeType) &&
-                       (!state.currentTag || document.tags.includes(state.currentTag)) &&
-                       (!state.searchQuery || document.original_name.toLowerCase().includes(state.searchQuery.toLowerCase())) &&
-                       (state.showArchived || !document.is_archived);
       
-      if (shouldAdd) {
-        set({ 
-          documents: [documentSummary, ...state.documents],
-          isUploading: false,
-          uploadProgress: 0
+      // Check if document matches current filters
+      const matchesMimeType = !state.currentMimeType || document.mime_type === state.currentMimeType;
+      const matchesTag = !state.currentTag || document.tags.includes(state.currentTag);
+      const matchesSearch = !state.searchQuery || document.original_name.toLowerCase().includes(state.searchQuery.toLowerCase());
+      const matchesArchived = state.showArchived || !document.is_archived;
+      const matchesFavorite = !state.showFavoritesOnly || document.is_favorite;
+      
+      // Check project filter: if showProjectOnly is true, only show documents with project_id
+      // For now, assume uploaded documents are unassigned (no project), so they should show when !showProjectOnly
+      const matchesProjectFilter = !state.showProjectOnly;
+      
+      const shouldAdd = matchesMimeType && matchesTag && matchesSearch && matchesArchived && matchesFavorite && matchesProjectFilter;
+      
+      set({ 
+        documents: shouldAdd ? [documentSummary, ...state.documents] : state.documents,
+        isUploading: false,
+        uploadProgress: 0
+      });
+      
+      // If document was uploaded but doesn't match filters, user might be confused
+      // Log for debugging
+      if (!shouldAdd) {
+        console.log('[Documents Store] Uploaded document does not match current filters:', {
+          document: document.original_name,
+          filters: {
+            mimeType: state.currentMimeType,
+            tag: state.currentTag,
+            search: state.searchQuery,
+            showArchived: state.showArchived,
+            showFavoritesOnly: state.showFavoritesOnly,
+            showProjectOnly: state.showProjectOnly
+          }
         });
-      } else {
-        set({ isUploading: false, uploadProgress: 0 });
       }
       
       return document;
@@ -243,9 +275,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       if (!existing) {
         throw new Error('Document not found');
       }
-      const updatedDocument = await documentsService.updateDocument(existing.id as unknown as number, data);
+      const updatedDocument = await documentsService.updateDocument(existing.uuid, data);
 
-      // Build full summary
+      // Build full summary with proper type safety
       const documentSummary: DocumentSummary = {
         id: updatedDocument.id,
         uuid: updatedDocument.uuid,
@@ -263,7 +295,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
         tags: updatedDocument.tags,
-      } as unknown as DocumentSummary;
+        isExclusiveMode: updatedDocument.isExclusiveMode ?? false,
+        projects: updatedDocument.projects ?? [],
+      };
 
       set(state => ({
         documents: state.documents.map(doc => doc.uuid === updatedDocument.uuid ? documentSummary : doc),
@@ -292,7 +326,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         throw new Error('Document not found');
       }
       
-      await documentsService.deleteDocument(document.id);
+      await documentsService.deleteDocument(document.uuid);
       
       // Remove from documents list
       set(state => ({
@@ -309,10 +343,10 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     }
   },
   
-  toggleArchive: async (id: number, archived: boolean) => {
+  toggleArchive: async (uuid: string, archived: boolean) => {
     set({ isUpdating: true, error: null });
     try {
-      const updatedDocument = await documentsService.toggleArchive(id, archived);
+      const updatedDocument = await documentsService.toggleArchive(uuid, archived);
       // Build full summary
       const documentSummary: DocumentSummary = {
         id: updatedDocument.id,
@@ -331,7 +365,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
         tags: updatedDocument.tags,
-      } as unknown as DocumentSummary;
+        isExclusiveMode: updatedDocument.isExclusiveMode ?? false,
+        projects: updatedDocument.projects ?? [],
+      };
 
       set(state => {
         const exists = state.documents.some(d => d.uuid === updatedDocument.uuid);
@@ -395,7 +431,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         throw new Error('Document not found');
       }
       
-      const blob = await documentsService.downloadDocument(document.id);
+      const blob = await documentsService.downloadDocument(document.uuid);
       return blob;
     } catch (error) {
       set({ 
@@ -413,7 +449,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       throw new Error('Document not found');
     }
     
-    return documentsService.getDownloadUrl(document.id);
+    return documentsService.getDownloadUrl(document.uuid);
   },
   
   getPreviewUrl: (uuid: string) => {
@@ -424,7 +460,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       throw new Error('Document not found');
     }
     
-    return documentsService.getPreviewUrl(document.id);
+    return documentsService.getPreviewUrl(document.uuid);
   },
   
   previewDocument: (uuid: string) => {
@@ -435,7 +471,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     // Use authenticated download to get a Blob, then open as object URL for preview
     (async () => {
       try {
-        const blob = await documentsService.downloadDocument((document as any).id);
+        const blob = await documentsService.downloadDocument((document as any).uuid);
         if (!blob) return;
         const objectUrl = URL.createObjectURL(blob);
         
@@ -449,15 +485,21 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         if (previewableTypes.includes((document as any).mime_type)) {
           window.open(objectUrl, '_blank');
         } else {
-          const a = document.createElement('a');
+          const a = window.document.createElement('a');
           a.href = objectUrl;
           a.download = (document as any).original_name || 'download';
-          document.body.appendChild(a);
+          window.document.body.appendChild(a);
           a.click();
-          document.body.removeChild(a);
+          window.document.body.removeChild(a);
         }
-        // Revoke later to allow the new tab to read it first
-        setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+        // SECURITY: Revoke immediately for downloads, delay only for previews
+        if (previewableTypes.includes((document as any).mime_type)) {
+          // For previews, revoke after a short delay to allow tab to load
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+        } else {
+          // For downloads, revoke immediately after download starts
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 100);
+        }
       } catch (err) {
         // Swallow; error handling is done in downloadDocument
       }

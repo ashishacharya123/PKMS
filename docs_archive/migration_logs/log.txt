@@ -1,0 +1,74 @@
+## Log Entry #105 - 2025-10-09 00:55:00 +05:45
+
+Summary
+- Unified search cleanup: removed legacy hybrid mode, renamed advanced filter drawer to `UnifiedSearchFilters`, and adjusted Ctrl+F shortcut redirect to `/search/unified`.
+- Search service refactor: consolidated fuzzy search implementation, ensured global search uses `/search/fts5`, and replaced NodeJS timer types in diary session warning.
+
+Files Affected
+- pkms-frontend/src/components/search/UnifiedSearch.tsx
+- pkms-frontend/src/components/search/UnifiedSearchFilters.tsx
+- pkms-frontend/src/services/searchService.ts
+- pkms-frontend/src/services/keyboardShortcuts.ts
+- pkms-frontend/src/components/diary/SessionTimeoutWarning.tsx
+
+Details
+- Removed hybrid search toggle and duplicate helper, leaving only FTS5 and fuzzy options in the UI.
+- Renamed `EnhancedSearchFilters` component/file to align with unified search naming.
+- Ctrl+F now focuses the unified search interface when no search input is present.
+- Fuzzy search accepts both `query` and `q` keys, consolidating previous implementations while keeping caching.
+- Swapped `NodeJS.Timeout` for `ReturnType<typeof setInterval>` in session timeout component for browser compatibility.
+
+## Log Entry #106 - 2025-10-10 16:14:41 +05:45
+
+Summary
+- Implemented multi-project integration (Phase 1-3 of 6): Database schema, backend deletion logic, list filtering, and schema updates for many-to-many project relationships
+- Added support for exclusive and linked project modes
+- Created junction tables for Note-Project, Document-Project, and Todo-Project relationships
+
+Files Affected
+- pkms-backend/app/models/associations.py (NEW)
+- pkms-backend/app/models/note.py
+- pkms-backend/app/models/document.py
+- pkms-backend/app/models/todo.py
+- pkms-backend/app/routers/todos.py (project deletion endpoint)
+- pkms-backend/app/routers/notes.py (list filtering)
+- pkms-backend/app/routers/documents.py (list filtering)
+- pkms-backend/app/schemas/note.py
+- pkms-backend/app/schemas/document.py
+- pkms-backend/app/schemas/todo.py
+- pkms-frontend/src/services/notesService.ts
+- pkms-frontend/src/services/documentsService.ts
+- pkms-frontend/src/services/todosService.ts
+
+Details
+**Phase 1 - Database Schema:**
+- Created junction tables (note_projects, document_projects, todo_projects) with:
+  - SET NULL on project deletion (preserves deleted project names)
+  - project_name_snapshot column to store deleted project names
+- Added is_exclusive_mode boolean flag to Note, Document, Todo models
+- Added many-to-many relationships via projects attribute
+
+**Phase 2 - Project Deletion Logic:**
+- Updated DELETE /projects/{id} endpoint to:
+  1. Snapshot project name in all junction records before deletion
+  2. Hard delete exclusive items (is_exclusive_mode=True)
+  3. Delete project (SET NULL preserves linked items with snapshot)
+
+**Phase 3 - List Endpoint Filtering:**
+- Updated GET /notes, /documents, /todos endpoints to:
+  - Hide exclusive items (is_exclusive_mode=True) from main lists
+  - Show linked items (is_exclusive_mode=False) everywhere
+  - Corrected logic: exclusive items without projects should NOT exist (deleted with project)
+
+**Phase 4 - Schema Updates:**
+- Added ProjectBadge schema (id, name, color, isExclusive, isDeleted) to all modules
+- Updated Create/Update schemas with projectIds[] and isExclusiveMode fields
+- Updated Response schemas with projects: List[ProjectBadge] field
+- Frontend TypeScript interfaces updated to match backend schemas
+
+**Status:** Phases 1-4 complete. Remaining phases:
+- Phase 5: Update backend routers to handle project_ids and populate projects array in responses
+- Phase 6: Create MultiProjectSelector and ProjectBadges UI components
+- Phase 7: Integrate into Note/Document/Todo forms
+- Phase 8: Update ProjectDashboardPage
+- Phase 9: Testing and documentation

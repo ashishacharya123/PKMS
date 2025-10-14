@@ -190,8 +190,21 @@ def get_auth_db_path() -> Path:
 
 
 def get_redis_url() -> str:
-    """Get the Redis URL with proper error handling"""
+    """Get the Redis URL with proper error handling and fallback support"""
     redis_url = os.getenv("REDIS_URL", settings.redis_url)
+    
+    # Allow empty or None Redis URL for fallback to in-memory cache
+    if not redis_url or redis_url.strip() == "":
+        return ""  # Empty string indicates no Redis - will use in-memory cache
+    
+    # Validate Redis URL format if provided
     if not redis_url.startswith("redis://"):
-        raise ValueError("Invalid Redis URL format. Must start with 'redis://'")
+        # Log warning but don't crash - allow fallback to in-memory cache
+        warnings.warn(
+            f"Invalid Redis URL format: '{redis_url}'. "
+            "Must start with 'redis://'. Falling back to in-memory cache.",
+            stacklevel=2
+        )
+        return ""  # Return empty string to trigger in-memory cache fallback
+    
     return redis_url 

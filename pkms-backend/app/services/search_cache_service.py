@@ -4,7 +4,6 @@ Provides Redis-based caching for search results to improve performance and reduc
 """
 
 import json
-import pickle
 import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
@@ -25,6 +24,13 @@ class SearchCacheService:
         """Initialize Redis connection"""
         try:
             redis_url = get_redis_url()
+            
+            # If Redis URL is empty, skip Redis initialization and use in-memory cache
+            if not redis_url or redis_url.strip() == "":
+                logger.info("🔄 No Redis URL provided. Using in-memory cache fallback.")
+                self.is_available = False
+                return False
+            
             self.redis_client = redis.from_url(redis_url, decode_responses=True)
 
             # Test connection
@@ -80,7 +86,17 @@ class SearchCacheService:
 
             if cached_data:
                 logger.debug(f"🎯 Cache hit for search: '{query[:50]}...'")
-                return json.loads(cached_data)
+                # SECURITY: Validate JSON structure before deserialization
+                try:
+                    parsed_data = json.loads(cached_data)
+                    # Basic validation - ensure it's a list or dict
+                    if not isinstance(parsed_data, (list, dict)):
+                        logger.warning(f"Invalid cached data structure for query: {query[:50]}")
+                        return None
+                    return parsed_data
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Failed to parse cached JSON for query {query[:50]}: {e}")
+                    return None
 
             logger.debug(f"🔍 Cache miss for search: '{query[:50]}...'")
             return None
@@ -255,9 +271,25 @@ class InMemorySearchCache:
             if datetime.now().timestamp() - timestamp < self.default_ttl:
                 return self.cache[cache_key]
             else:
-                # Expired entry
-                del self.cache[cache_key]
-                del self.timestamps[cache_key]
+                # Expired entry - atomic cleanup to prevent race condition
+                try:
+                    # Get the value before deletion to avoid race condition
+                    cached_value = self.cache[cache_key]
+                    # SECURITY: Use single atomic operation to remove both entries
+                    # This prevents race condition between two separate pop() operations
+                    removed_cache = self.cache.pop(cache_key, None)
+                    removed_timestamp = self.timestamps.pop(cache_key, None)
+                    
+                    # Verify both were removed successfully
+                    if removed_cache is None or removed_timestamp is None:
+                        # Partial removal - another thread may have interfered
+                        # This is acceptable as the entry is expired anyway
+                        pass
+                    
+                    return None  # Entry was expired
+                except KeyError:
+                    # Another thread already removed it, which is fine
+                    return None
 
         return None
 

@@ -15,7 +15,7 @@ import {
 } from '@mantine/core';
 import { IconTrendingUp, IconTrendingDown, IconMinus, IconRefresh } from '@tabler/icons-react';
 import { useDiaryStore } from '../../stores/diaryStore';
-import { format, parseISO, subDays, isAfter, isBefore } from 'date-fns';
+import { format, parseISO, subDays, isAfter } from 'date-fns';
 
 interface MoodDataPoint {
   date: string;
@@ -52,7 +52,7 @@ const moodEmojis = {
   5: '😄'
 };
 
-export function MoodTrendChart({ compact = false }: { compact?: boolean }) {
+export function MoodTrendChart({ compact = false, h }: { compact?: boolean; h?: number | string }) {
   const { entries, isUnlocked, loadEntries } = useDiaryStore();
   const [selectedPeriod, setSelectedPeriod] = useState('30');
 
@@ -119,7 +119,7 @@ export function MoodTrendChart({ compact = false }: { compact?: boolean }) {
   }, [trendData]);
 
   const weeklyPattern = useMemo(() => {
-    if (!trendData.length) return {};
+    if (!trendData.length) return [];
 
     const dayGroups = trendData.reduce((acc, point) => {
       if (!acc[point.dayOfWeek]) {
@@ -181,7 +181,7 @@ export function MoodTrendChart({ compact = false }: { compact?: boolean }) {
   };
 
   return (
-    <Paper p={compact ? 'md' : 'lg'} withBorder>
+    <Paper p={compact ? 'md' : 'lg'} withBorder h={h}>
       <Stack gap={compact ? 'md' : 'lg'}>
         <Group justify="space-between" align="center">
           <Title order={compact ? 4 : 3} size={compact ? 'h5' : 'h4'}>

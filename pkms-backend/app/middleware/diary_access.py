@@ -30,10 +30,10 @@ class DiaryAccessMiddleware:
         if self.is_search_request(request):
             try:
                 await self.validate_diary_access(request)
-            except HTTPException:
+            except HTTPException as exc:
                 response = JSONResponse(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    content={"detail": "Diary search is only available within the diary module"}
+                    status_code=exc.status_code,
+                    content={"detail": exc.detail}
                 )
                 await response(scope, receive, send)
                 return
@@ -73,82 +73,42 @@ class DiaryAccessMiddleware:
         )
 
         if include_diary:
-            # Check referer header to see if request comes from diary module
-            referer = request.headers.get('referer', '')
-
-            # Check if the request originates from diary module
-            is_from_diary = (
-                '/diary' in referer or
-                '/search/diary' in referer or
-                request.headers.get('X-Diary-Context', '').lower() == 'true'
-            )
-
-            if not is_from_diary:
-                logger.warning(f"🚫 Unauthorized diary search attempt from: {referer}")
+            # SECURITY: Check session token/cookie instead of fakeable headers
+            session_token = request.cookies.get('pkms_refresh')
+            if not session_token:
+                logger.warning("🚫 Diary search attempt without valid session")
                 raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Diary search is only available within the diary module"
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Authentication required for diary search"
                 )
 
-        # Always exclude diary unless explicitly requested and authorized
-        if not include_diary:
-            # Force exclude diary for non-diary contexts
-            if 'diary' in modules:
-                modules.remove('diary')
-            if 'diary' in content_types:
-                content_types.remove('diary')
-
-
-def diary_access_middleware(request: Request, call_next: Callable) -> Awaitable:
-    """
-    FastAPI middleware function for diary access control
-    """
-
-    # Skip for non-search requests
-    if not request.url.path.startswith("/api/v1/search/"):
-        return await call_next(request)
-
-    # Parse query parameters to check for diary access
-    try:
-        query_string = request.url.query
-        if query_string:
-            from urllib.parse import parse_qs
-            query_params = parse_qs(query_string)
-
-            # Check diary-related parameters
-            modules = query_params.get('modules', [])
-            if isinstance(modules, list) and len(modules) > 0:
-                modules = modules[0].split(',')
-
-            content_types = query_params.get('content_types', [])
-            if isinstance(content_types, list) and len(content_types) > 0:
-                content_types = content_types[0].split(',')
-
-            # Check if diary is being accessed
-            include_diary = (
-                'diary' in modules or
-                'diary' in content_types or
-                query_params.get('exclude_diary', ['true'])[0].lower() == 'false'
-            )
-
-            if include_diary:
-                # Validate referer
-                referer = request.headers.get('referer', '')
-                is_from_diary = (
-                    '/diary' in referer or
-                    '/search/diary' in referer or
-                    request.headers.get('X-Diary-Context', '').lower() == 'true'
-                )
-
-                if not is_from_diary:
-                    logger.warning(f"🚫 Unauthorized diary search attempt from: {referer}")
-                    return JSONResponse(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        content={"detail": "Diary search is only available within the diary module"}
+            # Verify session exists and is valid
+            from app.database import get_db
+            from app.models.user import Session
+            from sqlalchemy import select
+            from datetime import datetime
+            
+            async with get_db() as db:
+                result = await db.execute(select(Session).where(Session.session_token == session_token))
+                session = result.scalar_one_or_none()
+                if not session or session.expires_at < datetime.now():
+                    logger.warning("🚫 Diary search attempt with expired session")
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Session expired"
                     )
 
-    except Exception as e:
-        logger.error(f"Diary access middleware error: {e}")
-        # Don't block requests on middleware errors, just log and continue
+                # Check if user has unlocked diary
+                from app.routers.diary import _get_diary_password_from_session
+                if not await _get_diary_password_from_session(session.user_id):
+                    logger.warning(f"🚫 Diary search attempt without unlocked diary for user {session.user_id}")
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Diary must be unlocked to search"
+                    )
 
-    return await call_next(request)
+        # Note: Removing 'diary' from local lists doesn't affect the original request
+        # This filtering should be handled at the service layer, not in middleware
+
+
+# Legacy middleware function removed - functionality consolidated into DiaryAccessMiddleware class

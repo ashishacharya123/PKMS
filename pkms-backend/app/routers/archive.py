@@ -6,7 +6,7 @@ Handles hierarchical file and folder organization with enhanced security
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_, desc, delete, text
+from sqlalchemy import select, func, and_, or_, desc, delete, text, update
 from sqlalchemy.orm import selectinload
 from app.schemas.archive import (
     FolderCreate,
@@ -36,7 +36,134 @@ import time
 
 from app.services.chunk_service import chunk_manager
 
-# Optional imports for file processing
+# Path generation utilities for hybrid UUID/name-based system
+async def get_filesystem_path(folder_uuid: str, db: AsyncSession) -> str:
+    """Build UUID-based path for actual file storage"""
+    if not folder_uuid:
+        return "/"
+    
+    # Get the folder
+    result = await db.execute(
+        select(ArchiveFolder).where(ArchiveFolder.uuid == folder_uuid)
+    )
+    folder = result.scalar_one_or_none()
+    
+    if not folder:
+        return "/"
+    
+    # Build path by traversing up the hierarchy using UUIDs
+    path_parts = [folder.uuid]
+    current_parent = folder.parent_uuid
+    visited = {folder.uuid}  # Track visited folders to detect cycles
+    
+    while current_parent:
+        if current_parent in visited:
+            logger.error(f"Cycle detected in folder hierarchy: {current_parent}")
+            break
+        visited.add(current_parent)
+        
+        parent_result = await db.execute(
+            select(ArchiveFolder).where(ArchiveFolder.uuid == current_parent)
+        )
+        parent_folder = parent_result.scalar_one_or_none()
+        
+        if not parent_folder:
+            break
+            
+        path_parts.insert(0, parent_folder.uuid)
+        current_parent = parent_folder.parent_uuid
+    
+    return "/" + "/".join(path_parts) + "/"
+
+async def get_display_path(folder_uuid: str, db: AsyncSession) -> str:
+    """Build name-based path for user display"""
+    if not folder_uuid:
+        return "/"
+    
+    # Get the folder
+    result = await db.execute(
+        select(ArchiveFolder).where(ArchiveFolder.uuid == folder_uuid)
+    )
+    folder = result.scalar_one_or_none()
+    
+    if not folder:
+        return "/"
+    
+    # Build path by traversing up the hierarchy using names
+    path_parts = [folder.name]
+    current_parent = folder.parent_uuid
+    visited = {folder.uuid}  # Track visited folders to detect cycles
+    
+    while current_parent:
+        if current_parent in visited:
+            logger.error(f"Cycle detected in folder hierarchy: {current_parent}")
+            break
+        visited.add(current_parent)
+        
+        parent_result = await db.execute(
+            select(ArchiveFolder).where(ArchiveFolder.uuid == current_parent)
+        )
+        parent_folder = parent_result.scalar_one_or_none()
+        
+        if not parent_folder:
+            break
+            
+        path_parts.insert(0, parent_folder.name)
+        current_parent = parent_folder.parent_uuid
+    
+    return "/" + "/".join(path_parts) + "/"
+
+async def validate_folder_name(name: str, parent_uuid: Optional[str], user_id: int, db: AsyncSession, exclude_uuid: Optional[str] = None) -> None:
+    """Validate folder name is unique at the same level"""
+    # Sanitize folder name
+    sanitized_name = name.strip()
+    if not sanitized_name:
+        raise HTTPException(status_code=400, detail="Folder name cannot be empty")
+    
+    # Check for invalid characters
+    invalid_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
+    if any(char in sanitized_name for char in invalid_chars):
+        raise HTTPException(status_code=400, detail=f"Folder name contains invalid characters: {invalid_chars}")
+    
+    # Check for duplicate names at same level
+    query = select(ArchiveFolder).where(
+        and_(
+            ArchiveFolder.name == sanitized_name,
+            ArchiveFolder.parent_uuid == parent_uuid,
+            ArchiveFolder.user_id == user_id
+        )
+    )
+    
+    # Exclude current folder when updating
+    if exclude_uuid:
+        query = query.where(ArchiveFolder.uuid != exclude_uuid)
+    
+    existing = await db.execute(query)
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Folder name already exists at this level")
+
+# Lightweight imports for file processing with multi-step fallback
+try:
+    import imagesize  # Lightweight image dimensions (1MB vs 100MB Pillow)
+except ImportError:
+    imagesize = None
+
+try:
+    import filetype  # File type detection with dimensions (2MB)
+except ImportError:
+    filetype = None
+
+try:
+    import pypdf  # Lightweight PDF metadata (5MB vs 50MB PyMuPDF)
+except ImportError:
+    pypdf = None
+
+try:
+    from tinytag import TinyTag  # Lightweight metadata extraction (1MB vs 30MB docx)
+except ImportError:
+    TinyTag = None
+
+# Legacy heavy packages (fallback if lightweight unavailable)
 try:
     import fitz  # PyMuPDF for PDF processing
 except ImportError:
@@ -46,6 +173,11 @@ try:
     from docx import Document as DocxDocument  # python-docx for DOCX processing
 except ImportError:
     DocxDocument = None
+
+try:
+    from PIL import Image  # Pillow (heavy fallback)
+except ImportError:
+    Image = None
 
 from app.database import get_db
 from app.config import settings, get_data_dir, get_file_storage_dir, NEPAL_TZ
@@ -209,9 +341,8 @@ async def create_folder(
                 detail=f"Folder '{folder_data.name}' already exists in {location}. Please choose a different name."
             )
         
-        # Generate the path for the folder and validate parent if specified
+        # Validate parent folder exists and belongs to user
         if folder_data.parent_uuid:
-            # Get parent folder to build the path
             parent_result = await db.execute(
                 select(ArchiveFolder).where(
                     and_(
@@ -226,18 +357,15 @@ async def create_folder(
                     status_code=404,
                     detail="Parent folder not found"
                 )
-            # Build path based on parent path
-            folder_path = f"{parent.path}/{folder_data.name}"
-        else:
-            # Root folder
-            folder_path = f"/{folder_data.name}"
         
-        # Create new folder
+        # Validate folder name is unique at this level
+        await validate_folder_name(folder_data.name, folder_data.parent_uuid, current_user.id, db)
+        
+        # Create new folder (no path column needed - we generate paths dynamically)
         folder = ArchiveFolder(
-            name=folder_data.name,
+            name=folder_data.name.strip(),
             description=folder_data.description,
             parent_uuid=folder_data.parent_uuid,
-            path=folder_path,
             user_id=current_user.id
         )
         
@@ -246,6 +374,10 @@ async def create_folder(
         await db.refresh(folder)
         
         logger.info(f"✅ Created folder '{folder.name}' for user {current_user.username}")
+        
+        # Clear cache after folder creation
+        list_folders.cache_clear()
+        get_folder_tree.cache_clear()
         
         return await _get_folder_with_stats(db, folder.uuid)
         
@@ -469,6 +601,10 @@ async def update_folder(
         await db.commit()
         await db.refresh(folder)
         
+        # Clear cache after folder update
+        list_folders.cache_clear()
+        get_folder_tree.cache_clear()
+        
         return await _get_folder_with_stats(db, folder.uuid)
         
     except HTTPException:
@@ -526,11 +662,15 @@ async def delete_folder(
                     detail="Folder is not empty. Use force=true to delete non-empty folder."
                 )
         
-        # Delete folder and all contents (CASCADE handles this)
+        # Delete folder and all contents (CASCADE handles this atomically)
         await db.delete(folder)
         await db.commit()
         
         logger.info(f"✅ Deleted folder '{folder.name}' for user {current_user.username}")
+        
+        # Clear cache after folder deletion
+        list_folders.cache_clear()
+        get_folder_tree.cache_clear()
         
         return {"message": "Folder deleted successfully"}
         
@@ -690,14 +830,16 @@ async def upload_item(
         file_extension = VALID_MIME_TYPES[mime_type]
         stored_filename = f"{uuid_lib.uuid4()}{file_extension}"
         
-        # Create storage directory
-        storage_dir = get_file_storage_dir() / "archive" / folder_uuid
+        # Create storage directory using UUID-based path hierarchy
+        filesystem_path = await get_filesystem_path(folder_uuid, db)
+        storage_dir = Path(get_file_storage_dir()) / "archive" / filesystem_path.strip("/")
         storage_dir.mkdir(parents=True, exist_ok=True)
         
-        # Save file with atomic operation
-        file_path = storage_dir / stored_filename
+        # Save file to TEMPORARY location first
+        temp_file_path = storage_dir / f"temp_{stored_filename}"
+        final_file_path = storage_dir / stored_filename
         try:
-            async with aiofiles.open(file_path, 'wb') as f:
+            async with aiofiles.open(temp_file_path, 'wb') as f:
                 await f.write(file_content)
         except Exception as e:
             logger.error(f"❌ Failed to save file: {str(e)}")
@@ -725,7 +867,7 @@ async def upload_item(
         # Create item using shared helper
         item = await _create_archive_item(
             db=db,
-            file_path=file_path,
+            file_path=final_file_path,  # Use final path for DB record
             folder_uuid=folder_uuid,
             original_filename=original_filename,
             stored_filename=stored_filename,
@@ -737,6 +879,33 @@ async def upload_item(
             tags=all_tags
         )
         
+        # CRITICAL FIX: Move file to final location BEFORE DB commit
+        try:
+            # Ensure destination directory exists
+            final_file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Perform atomic move operation
+            temp_file_path.rename(final_file_path)
+            
+            # Verify file exists and is writable
+            if not final_file_path.exists():
+                raise Exception("File move completed but destination file does not exist")
+            
+            logger.info(f"✅ File moved to final location: {final_file_path}")
+            
+        except Exception as move_error:
+            logger.error(f"❌ Failed to move file to final location: {move_error}")
+            # Clean up temp file
+            try:
+                if temp_file_path.exists():
+                    temp_file_path.unlink()
+            except Exception:
+                pass
+            # Rollback database transaction
+            await db.rollback()
+            raise HTTPException(status_code=500, detail="Failed to finalize file storage")
+        
+        # Only commit DB after successful file move
         await db.commit()
         await db.refresh(item)
         
@@ -746,17 +915,23 @@ async def upload_item(
         
     except HTTPException:
         # Re-raise HTTP exceptions as-is
+        # Clean up temp file on HTTP exception
+        try:
+            if 'temp_file_path' in locals() and temp_file_path.exists():
+                temp_file_path.unlink()
+        except Exception:
+            pass
         raise
     except Exception as e:
         logger.error(f"❌ Error uploading file: {str(e)}")
         await db.rollback()
-        
-        # Clean up partially uploaded file if it exists
+        # Clean up temp file on DB rollback
         try:
-            if 'file_path' in locals() and Path(file_path).exists():
-                Path(file_path).unlink()
-        except Exception as cleanup_error:
-            logger.error(f"❌ Failed to cleanup file: {str(cleanup_error)}")
+            if 'temp_file_path' in locals() and temp_file_path.exists():
+                temp_file_path.unlink()
+        except Exception:
+            pass
+        
         
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -975,11 +1150,43 @@ async def download_item(
         raise HTTPException(status_code=404, detail="Item not found")
     
     file_path = Path(item.file_path)
-    if not file_path.exists():
+    
+    # SECURITY: Resolve symlinks and validate path is within allowed directory
+    try:
+        resolved_path = file_path.resolve()
+        # Ensure the resolved path is within the archive directory
+        archive_base = Path(get_file_storage_dir()) / "archive"
+        archive_base = archive_base.resolve()
+        
+        # Windows-safe path validation - avoid relative_to() which fails on different drives
+        try:
+            # Try relative_to first (works on same drive)
+            relative_path = resolved_path.relative_to(archive_base)
+            # SECURITY: Comprehensive path traversal check
+            relative_str = str(relative_path)
+            # Check for various path traversal patterns
+            if (".." in relative_str or 
+                "../" in relative_str or 
+                "..\\" in relative_str or
+                relative_str.startswith("..") or
+                "\\.." in relative_str or
+                "/.." in relative_str):
+                raise HTTPException(status_code=403, detail="Access denied: Path traversal detected")
+        except ValueError:
+            # relative_to failed - likely different drives on Windows
+            # Use string comparison as fallback
+            resolved_str = str(resolved_path)
+            archive_str = str(archive_base)
+            if not resolved_str.startswith(archive_str):
+                raise HTTPException(status_code=403, detail="Access denied: Invalid file path")
+    except (OSError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid file path: {str(e)}")
+    
+    if not resolved_path.exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
     
     return FileResponse(
-        path=str(file_path),
+        path=str(resolved_path),
         filename=item.original_filename,
         media_type=item.mime_type
     )
@@ -1085,12 +1292,18 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str) -> FolderRe
     )
     total_size = size_result.scalar() or 0
     
+    # Generate both path types dynamically
+    display_path = await get_display_path(folder.uuid, db)
+    filesystem_path = await get_filesystem_path(folder.uuid, db)
+    
     return FolderResponse(
         uuid=folder.uuid,
         name=folder.name,
         description=folder.description,
         parent_uuid=folder.parent_uuid,
-        path=folder.path,
+        path=display_path,  # Use display path for backward compatibility
+        display_path=display_path,  # Human-readable path
+        filesystem_path=filesystem_path,  # UUID-based path for debugging
         created_at=folder.created_at,
         updated_at=folder.updated_at,
         item_count=item_count,
@@ -1180,12 +1393,28 @@ async def _get_item_summary(db: AsyncSession, item_uuid: str) -> ItemSummary:
 async def _handle_item_tags(db: AsyncSession, item: ArchiveItem, tag_names: List[str]):
     """Handle item tag associations with proper module_type"""
     
-    # Clear existing tags
-    await db.execute(
-        delete(archive_tags).where(archive_tags.c.item_uuid == item.uuid)
+    # Fetch existing associations
+    existing_rows = await db.execute(
+        select(archive_tags.c.tag_uuid).where(archive_tags.c.item_uuid == item.uuid)
     )
-    
-    for tag_name in tag_names:
+    rows = existing_rows.scalars().all()
+    existing_tag_uuids = set(rows)
+
+    # Clear existing tags
+    await db.execute(delete(archive_tags).where(archive_tags.c.item_uuid == item.uuid))
+
+    removed_tag_uuids = existing_tag_uuids.copy()
+    normalized_names = [t.strip() for t in (tag_names or []) if t and t.strip()]
+    if not normalized_names:
+        # Decrement counts for all removed tags
+        if removed_tag_uuids:
+            tag_rows = await db.execute(select(Tag).where(Tag.uuid.in_(removed_tag_uuids)))
+            for tag in tag_rows.scalars():
+                if tag.usage_count > 0:
+                    tag.usage_count -= 1
+        return
+
+    for tag_name in normalized_names:
         # Get or create tag with proper module_type
         result = await db.execute(
             select(Tag).where(and_(
@@ -1208,8 +1437,16 @@ async def _handle_item_tags(db: AsyncSession, item: ArchiveItem, tag_names: List
             db.add(tag)
             await db.flush()
         else:
-            # Increment usage count for existing tag
-            tag.usage_count += 1
+            # Check if this is a new association
+            is_new_association = tag.uuid not in existing_tag_uuids
+            
+            # Adjust removed set
+            if tag.uuid in removed_tag_uuids:
+                removed_tag_uuids.remove(tag.uuid)
+            
+            # Only increment count if this is a new association
+            if is_new_association:
+                tag.usage_count += 1
         
         # Create association
         await db.execute(
@@ -1219,46 +1456,144 @@ async def _handle_item_tags(db: AsyncSession, item: ArchiveItem, tag_names: List
             )
         )
 
+    # Decrement counts for tags that were removed
+    if removed_tag_uuids:
+        tag_rows = await db.execute(select(Tag).where(Tag.uuid.in_(removed_tag_uuids)))
+        for tag in tag_rows.scalars():
+            if tag.usage_count > 0:
+                tag.usage_count -= 1
+
 # --- START: COPIED FROM documents.py router ---
 
 # Text extraction functionality removed as requested
 
 async def _extract_metadata(file_path: Path, mime_type: str, original_name: str) -> Dict[str, Any]:
-    """Extract metadata from file"""
+    """Extract metadata from file with multi-step lightweight fallback"""
     # Basic metadata
     metadata = {
         "original_name": original_name,
         "mime_type": mime_type,
         "size": file_path.stat().st_size
     }
-    
-    # Add more metadata based on file type (can be extended)
-    if mime_type.startswith('image/'):
-        try:
-            from PIL import Image
-            with Image.open(file_path) as img:
-                metadata.update({
-                    "width": img.width,
-                    "height": img.height,
-                    "format": img.format,
-                    "mode": img.mode
-                })
-        except ImportError:
-            pass # PIL not installed
-        except Exception as e:
-            print(f"Image metadata extraction failed for {file_path}: {e}")
 
+    # IMAGE METADATA - Multi-step fallback
+    if mime_type.startswith('image/'):
+        # Step 1: Try imagesize (1MB - ultra lightweight)
+        if imagesize:
+            try:
+                width, height = imagesize.get(file_path)
+                if width and height:
+                    metadata.update({
+                        "width": width,
+                        "height": height,
+                        "extraction_method": "imagesize (lightweight)"
+                    })
+            except Exception as e:
+                logger.debug(f"imagesize extraction failed: {e}")
+
+        # Step 2: Try filetype (2MB - format detection only)
+        if filetype and "format" not in metadata:
+            try:
+                kind = filetype.guess(file_path)
+                if kind and kind.extension:
+                    metadata.update({
+                        "format": kind.extension.replace('.', '').upper(),
+                        "extraction_method": "filetype (format detection)"
+                    })
+            except Exception as e:
+                logger.debug(f"filetype extraction failed: {e}")
+
+        # Step 3: Try Pillow (100MB - heavy fallback)
+        if Image and ("width" not in metadata or "height" not in metadata):
+            try:
+                with Image.open(file_path) as img:
+                    metadata.update({
+                        "width": img.width,
+                        "height": img.height,
+                        "format": img.format,
+                        "mode": img.mode,
+                        "extraction_method": "PIL (heavy fallback)"
+                    })
+            except ImportError:
+                pass  # PIL not installed
+            except Exception as e:
+                logger.debug(f"PIL extraction failed: {e}")
+
+    # PDF METADATA - Multi-step fallback
     elif mime_type == 'application/pdf':
-        if fitz:
+        # Step 1: Try pypdf (5MB - lightweight)
+        if pypdf:
+            try:
+                with open(file_path, 'rb') as f:
+                    reader = pypdf.PdfReader(f)
+                    metadata.update({
+                        "page_count": len(reader.pages),
+                        "pdf_metadata": dict(reader.metadata or {}),
+                        "extraction_method": "pypdf (lightweight)"
+                    })
+            except Exception as e:
+                logger.debug(f"pypdf extraction failed: {e}")
+
+        # Step 2: Try PyMuPDF (50MB - heavy fallback)
+        if fitz and "page_count" not in metadata:
             try:
                 with fitz.open(file_path) as doc:
                     metadata.update({
                         "page_count": doc.page_count,
-                        "pdf_metadata": doc.metadata
+                        "pdf_metadata": doc.metadata,
+                        "extraction_method": "PyMuPDF (heavy fallback)"
                     })
             except Exception as e:
-                print(f"PDF metadata extraction failed for {file_path}: {e}")
-    
+                logger.debug(f"PyMuPDF extraction failed: {e}")
+
+    # DOCUMENT METADATA - Multi-step fallback
+    elif mime_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
+        # Step 1: Try TinyTag (1MB - ultra lightweight)
+        if TinyTag:
+            try:
+                tag = TinyTag.get(file_path)
+                if tag:
+                    metadata.update({
+                        "title": tag.title,
+                        "author": tag.artist,  # TinyTag uses artist for author
+                        "duration": tag.duration,
+                        "extraction_method": "TinyTag (lightweight)"
+                    })
+            except Exception as e:
+                logger.debug(f"TinyTag extraction failed: {e}")
+
+        # Step 2: Try python-docx (30MB - heavy fallback)
+        if DocxDocument and "title" not in metadata:
+            try:
+                doc = DocxDocument(file_path)
+                core_props = doc.core_properties
+                metadata.update({
+                    "title": core_props.title or "",
+                    "author": core_props.author or "",
+                    "created": str(core_props.created) if core_props.created else "",
+                    "modified": str(core_props.modified) if core_props.modified else "",
+                    "extraction_method": "python-docx (heavy fallback)"
+                })
+            except Exception as e:
+                logger.debug(f"python-docx extraction failed: {e}")
+
+    # AUDIO METADATA - Use TinyTag if available
+    elif mime_type.startswith('audio/'):
+        if TinyTag:
+            try:
+                tag = TinyTag.get(file_path)
+                if tag:
+                    metadata.update({
+                        "title": tag.title,
+                        "artist": tag.artist,
+                        "album": tag.album,
+                        "duration": tag.duration,
+                        "year": tag.year,
+                        "extraction_method": "TinyTag (lightweight)"
+                    })
+            except Exception as e:
+                logger.debug(f"TinyTag audio extraction failed: {e}")
+
     return metadata
 
 # --- END: COPIED FROM documents.py router ---
@@ -1385,6 +1720,7 @@ async def upload_files(
                 tag_list.append(tag)
         
         uploaded_files = []
+        temp_file_paths = []  # Track temp paths for cleanup
         
         for file in files:
             try:
@@ -1408,20 +1744,22 @@ async def upload_files(
                 file_extension = Path(file.filename).suffix
                 safe_filename = f"{file_uuid}{file_extension}"
                 
-                # Create storage directory specific to the folder
+                # Create storage directory using UUID-based path hierarchy
                 if folder_uuid:
-                    storage_dir = get_file_storage_dir() / "archive" / folder_uuid
+                    filesystem_path = await get_filesystem_path(folder_uuid, db)
+                    storage_dir = Path(get_file_storage_dir()) / "archive" / filesystem_path.strip("/")
                 else:
                     # If no folder specified, use a default "unorganized" folder
-                    storage_dir = get_file_storage_dir() / "archive" / "unorganized"
+                    storage_dir = Path(get_file_storage_dir()) / "archive" / "unorganized"
                 storage_dir.mkdir(parents=True, exist_ok=True)
                 
-                file_path = storage_dir / safe_filename
+                temp_file_path = storage_dir / f"temp_{safe_filename}"
+                final_file_path = storage_dir / safe_filename
                 
                 # Detect file type using our enhanced service
                 try:
                     detection_result = await file_detector.detect_file_type(
-                        file_path=Path(file.filename),
+                        file_path=None,  # Use file_content instead of client path
                         file_content=file_content
                     )
                 except Exception as e:
@@ -1440,10 +1778,12 @@ async def upload_files(
                     logger.warning(f"⚠️ Skipping file '{file.filename}' due to unsupported MIME type: {detection_result['mime_type']}")
                     continue
                 
-                # Save file with error handling
+                # Save file to TEMPORARY location with error handling
                 try:
-                    async with aiofiles.open(file_path, 'wb') as f:
+                    async with aiofiles.open(temp_file_path, 'wb') as f:
                         await f.write(file_content)
+                    # Track temp path for later cleanup
+                    temp_file_paths.append((temp_file_path, final_file_path))
                 except Exception as e:
                     logger.error(f"❌ Failed to save file '{file.filename}': {str(e)}")
                     continue
@@ -1462,7 +1802,7 @@ async def upload_files(
                 
                 archive_item = await _create_archive_item(
                     db=db,
-                    file_path=file_path,
+                    file_path=temp_file_path,  # Use temp path initially
                     folder_uuid=folder_uuid,
                     original_filename=file.filename,
                     stored_filename=safe_filename,
@@ -1495,6 +1835,38 @@ async def upload_files(
                     detail=f"Failed to upload file {file.filename}"
                 )
         
+        # Move all temp files to final locations BEFORE DB commit
+        for temp_path, final_path in temp_file_paths:
+            try:
+                if temp_path.exists():
+                    temp_path.rename(final_path)
+                    logger.info(f"✅ File moved to final location: {final_path}")
+                    # Update DB record to point to final path
+                    try:
+                        await db.execute(
+                            update(ArchiveItem)
+                            .where(ArchiveItem.file_path == str(temp_path))
+                            .values(file_path=str(final_path))
+                        )
+                    except Exception as db_error:
+                        logger.error(f"❌ Failed to update database record for file path: {db_error}")
+                        raise Exception(f"Database update failed: {str(db_error)}")
+                else:
+                    logger.warning(f"⚠️ Temp file not found: {temp_path}")
+                    raise Exception(f"Temp file missing: {temp_path}")
+            except Exception as move_error:
+                logger.error(f"❌ Failed to move file to final location: {move_error}")
+                # Rollback and cleanup on any file move failure
+                await db.rollback()
+                for tp, fp in temp_file_paths:
+                    try:
+                        if tp.exists():
+                            tp.unlink()
+                    except Exception:
+                        pass
+                raise HTTPException(status_code=500, detail="Failed to finalize file storage")
+        
+        # Only commit after all files are moved successfully
         await db.commit()
         
         logger.info(f"🎉 Successfully uploaded {len(uploaded_files)} files")
@@ -1507,9 +1879,23 @@ async def upload_files(
         
     except HTTPException:
         await db.rollback()
+        # Clean up all temp files on HTTP exception
+        for temp_path, final_path in temp_file_paths:
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except Exception:
+                pass
         raise
     except Exception as e:
         await db.rollback()
+        # Clean up all temp files on DB rollback
+        for temp_path, final_path in temp_file_paths:
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except Exception:
+                pass
         logger.error(f"❌ Archive upload failed: {e}")
         raise HTTPException(status_code=500, detail="Upload failed") 
 
@@ -1529,9 +1915,26 @@ async def commit_uploaded_file(
         if not payload.folder_uuid:
             raise HTTPException(status_code=400, detail="folder_uuid is required")
         
-        # Check assembled file status
+        # Check assembled file status and wait for completion if needed
         status = await chunk_manager.get_upload_status(payload.file_id)
-        if not status or status.get("status") != "completed":
+        if not status:
+            raise HTTPException(status_code=404, detail="Upload not found")
+        
+        # If still assembling, wait for completion with timeout
+        if status.get("status") == "assembling":
+            logger.info(f"File {payload.file_id} still assembling, waiting for completion...")
+            max_wait = 30  # seconds
+            for i in range(max_wait):
+                await asyncio.sleep(1)
+                status = await chunk_manager.get_upload_status(payload.file_id)
+                if status.get("status") == "completed":
+                    break
+                elif status.get("status") == "failed":
+                    raise HTTPException(status_code=400, detail="File assembly failed")
+            else:
+                raise HTTPException(status_code=408, detail="Assembly timeout - file took too long to assemble")
+        
+        if status.get("status") != "completed":
             raise HTTPException(status_code=400, detail="File not yet assembled or assembly failed")
 
         # Locate assembled file path
@@ -1565,18 +1968,58 @@ async def commit_uploaded_file(
                 pass
             raise HTTPException(status_code=413, detail=str(e))
 
-        # Prepare destination directory on disk
-        dest_dir = Path(get_file_storage_dir()) / "archive" / folder.uuid
+        # Prepare destination directory using UUID-based path hierarchy
+        filesystem_path = await get_filesystem_path(folder.uuid, db)
+        dest_dir = Path(get_file_storage_dir()) / "archive" / filesystem_path.strip("/")
         dest_dir.mkdir(parents=True, exist_ok=True)
 
         stored_filename = f"{uuid_lib.uuid4()}{assembled.suffix}"
         dest_path = dest_dir / stored_filename
         
-        # Move file with error handling
+        # Move file with robust error handling for Windows file locking
+        original_size = assembled.stat().st_size
         try:
-            assembled.rename(dest_path)
+            # On Windows, rename can fail if destination exists and is locked
+            if dest_path.exists():
+                # Try to remove existing file first (Windows-specific issue)
+                try:
+                    dest_path.unlink()
+                except PermissionError:
+                    # File is locked, try alternative approach
+                    import shutil
+                    shutil.move(str(assembled), str(dest_path))
+                else:
+                    # File removed successfully, now rename
+                    assembled.rename(dest_path)
+            else:
+                # Destination doesn't exist, safe to rename
+                assembled.rename(dest_path)
+            
+            # SECURITY: Verify file integrity after move
+            if not dest_path.exists():
+                raise Exception("Destination file does not exist after move")
+            
+            moved_size = dest_path.stat().st_size
+            if moved_size != original_size:
+                # File size mismatch - move may have corrupted the file
+                logger.error(f"❌ File size mismatch after move: original={original_size}, moved={moved_size}")
+                # Clean up corrupted file
+                try:
+                    dest_path.unlink()
+                except Exception:
+                    pass
+                raise Exception(f"File integrity check failed: size mismatch ({original_size} vs {moved_size})")
+            
+            logger.info(f"✅ File moved successfully with integrity verified: {original_size} bytes")
+            
         except Exception as e:
             logger.error(f"❌ Failed to move assembled file: {str(e)}")
+            # Clean up assembled file on failure
+            try:
+                if assembled.exists():
+                    assembled.unlink()
+            except Exception:
+                pass
             raise HTTPException(status_code=500, detail="Failed to move file to archive location")
 
         # Get final file size for database operations  
@@ -1713,6 +2156,9 @@ async def rename_folder(
                 detail="Folder not found"
             )
         
+        # Validate new folder name is unique at this level
+        await validate_folder_name(new_name, folder.parent_uuid, current_user.id, db, exclude_uuid=folder.uuid)
+        
         # Update the folder name
         folder.name = new_name.strip()
         folder.updated_at = datetime.utcnow()
@@ -1775,113 +2221,6 @@ async def rename_item(
             detail="Failed to rename item"
         )
 
-
-@router.delete("/folders/{folder_uuid}")
-async def delete_folder(
-    folder_uuid: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Delete a folder and all its contents"""
-    try:
-        # Get the folder
-        result = await db.execute(
-            select(ArchiveFolder).where(
-                and_(
-                    ArchiveFolder.uuid == folder_uuid,
-                    ArchiveFolder.user_id == current_user.id
-                )
-            )
-        )
-        folder = result.scalar_one_or_none()
-        
-        if not folder:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Folder not found"
-            )
-        
-        # Delete all items in the folder
-        await db.execute(
-            delete(ArchiveItem).where(
-                and_(
-                    ArchiveItem.folder_id == folder.id,
-                    ArchiveItem.user_id == current_user.id
-                )
-            )
-        )
-        
-        # Delete all subfolders recursively (note: this could be improved for deeper nesting)
-        await db.execute(
-            delete(ArchiveFolder).where(
-                and_(
-                    ArchiveFolder.parent_id == folder.id,
-                    ArchiveFolder.user_id == current_user.id
-                )
-            )
-        )
-        
-        # Delete the folder itself
-        await db.delete(folder)
-        await db.commit()
-        
-        return {"success": True, "message": "Folder deleted successfully"}
-        
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Error deleting folder {folder_uuid}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete folder"
-        )
-
-
-@router.delete("/items/{item_uuid}")
-async def delete_item(
-    item_uuid: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Delete a file/item"""
-    try:
-        # Get the item
-        result = await db.execute(
-            select(ArchiveItem).where(
-                and_(
-                    ArchiveItem.uuid == item_uuid,
-                    ArchiveItem.user_id == current_user.id
-                )
-            )
-        )
-        item = result.scalar_one_or_none()
-        
-        if not item:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Item not found"
-            )
-        
-        # Delete the physical file
-        try:
-            file_path = Path(item.file_path)
-            if file_path.exists():
-                file_path.unlink()
-        except Exception as e:
-            logger.warning(f"Could not delete physical file {item.file_path}: {str(e)}")
-        
-        # Delete the database record
-        await db.delete(item)
-        await db.commit()
-        
-        return {"success": True, "message": "Item deleted successfully"}
-        
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Error deleting item {item_uuid}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete item"
-        )
 
 
 @router.get("/folders/{folder_uuid}/download")

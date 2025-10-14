@@ -7,7 +7,7 @@ will be passed through unchanged – the respective module can query the final
 assembled file later.
 """
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any
@@ -30,6 +30,7 @@ MAX_CHUNK_SIZE = 5 * 1024 * 1024  # 5MB per chunk
 @router.post("/upload/chunk")
 @limiter.limit("60/minute")
 async def upload_chunk(
+    request: Request,  # Required for rate limiting - moved before optional params
     file: UploadFile = File(...),
     chunk_data: str = Form(...),
     current_user: User = Depends(get_current_user),
@@ -75,6 +76,14 @@ async def upload_chunk(
                 logger.info(f"Assembly completed for file_id: {meta['file_id']}")
             except Exception as e:
                 logger.error(f"Assembly failed for file_id: {meta['file_id']}: {str(e)}")
+                # Set failure status so commit endpoint knows assembly failed
+                try:
+                    status = await chunk_manager.get_upload_status(meta["file_id"])
+                    if status:
+                        status["status"] = "failed"
+                        status["error"] = str(e)
+                except Exception as status_error:
+                    logger.error(f"Failed to update status for failed assembly: {status_error}")
         
         asyncio.create_task(assembly_task())
 

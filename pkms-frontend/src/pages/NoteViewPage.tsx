@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Container, Stack, Group, Button, Title, Text, Badge, Card, Skeleton, Alert, Paper } from '@mantine/core';
 import { IconEdit, IconArrowLeft, IconArchive, IconArchiveOff, IconTrash, IconAlertTriangle } from '@tabler/icons-react';
@@ -23,7 +24,7 @@ export default function NoteViewPage() {
       try {
         setIsLoading(true);
         setError(null);
-        const noteData = await notesService.getNote(parseInt(id));
+        const noteData = await notesService.getNote(id);
         setNote(noteData);
       } catch (err) {
         setError(err as Error);
@@ -39,12 +40,12 @@ export default function NoteViewPage() {
   const handleToggleArchive = async () => {
     if (!note) return;
     try {
-      await notesService.toggleArchive(note.id, !note.is_archived);
-      queryClient.invalidateQueries({ queryKey: ['note', id] });
-      queryClient.invalidateQueries({ queryKey: ['notes'] });
+      await notesService.toggleArchive(note.uuid, !note.is_archived);
+      // Update local state after successful toggle
+      setNote({ ...note, is_archived: !note.is_archived });
       notifications.show({
-        title: note.is_archived ? 'Unarchived' : 'Archived',
-        message: note.is_archived ? 'Note moved back to active' : 'Note moved to archive',
+        title: !note.is_archived ? 'Unarchived' : 'Archived',
+        message: !note.is_archived ? 'Note moved back to active' : 'Note moved to archive',
         color: 'green'
       });
     } catch (err) {
@@ -61,8 +62,8 @@ export default function NoteViewPage() {
       confirmProps: { color: 'red' },
       onConfirm: async () => {
         try {
-          await notesService.deleteNote(note.id);
-          queryClient.invalidateQueries({ queryKey: ['notes'] });
+          await notesService.deleteNote(note.uuid);
+          // queryClient.invalidateQueries({ queryKey: ['notes'] });
           notifications.show({ title: 'Note Deleted', message: 'The note was deleted successfully', color: 'green' });
           navigate('/notes');
         } catch (err) {
@@ -109,7 +110,7 @@ export default function NoteViewPage() {
             )}
           </Group>
           <Group>
-            <Button variant="subtle" leftSection={<IconEdit size={16} />} onClick={() => navigate(`/notes/${note.id}/edit`)}>
+            <Button variant="subtle" leftSection={<IconEdit size={16} />} onClick={() => navigate(`/notes/${note.uuid}/edit`)}>
               Edit
             </Button>
             <Button
@@ -128,7 +129,7 @@ export default function NoteViewPage() {
         <Card withBorder>
           <Title order={1} mb="sm">{note.title}</Title>
           <Group gap="xs" mb="md">
-            {(note.tags || []).map((tag) => (
+            {(note.tags || []).map((tag: string) => (
               <Badge key={tag} variant="dot" size="sm">{tag}</Badge>
             ))}
           </Group>

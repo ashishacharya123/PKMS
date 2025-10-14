@@ -16,7 +16,7 @@ export function SessionTimeoutWarning({
   const [timeLeft, setTimeLeft] = useState(sessionTimeoutSeconds);
   const [showWarning, setShowWarning] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const intervalRef = useRef<NodeJS.Timeout>();
+  const intervalRef = useRef<ReturnType<typeof setInterval>>();
   const { isUnlocked, lockSession } = useDiaryStore();
 
   useEffect(() => {

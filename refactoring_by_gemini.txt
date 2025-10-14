@@ -1,0 +1,115 @@
+
+# Refactoring Plan for PKMS - by Gemini
+# Last Updated: 2025-10-11
+
+## INTRODUCTION
+
+This document outlines a strategic plan to refactor the PKMS application. The current codebase suffers from systemic architectural flaws, data integrity issues, performance bottlenecks, and inconsistent design patterns. A simple bug-fix approach will not be sufficient. A phased refactoring is required to build a stable and maintainable system.
+
+This is your roadmap. Follow it.
+
+---
+
+## PHASE 1: STOP THE BLEEDING (CRITICAL BUGS & DATA INTEGRITY)
+
+**Priority: URGENT.** These issues are actively causing data loss, corruption, or will lead to catastrophic failure. Fix these before writing any new features.
+
+**1. Fix All In-Memory, Process-Specific State:**
+   - **Problem:** `ChunkUploadManager` (Bug #16), the in-memory cache fallback (Bug #14), and the `folder_cache` decorator (Bug #23) will not work in a multi-worker production environment. They will cause data loss and inconsistent state.
+   - **Solution:**
+     - All state related to chunked uploads **must** be moved to a shared store like Redis or the database.
+     - Remove the broken in-memory cache fallbacks. If Redis isn't available, the cache is simply off. Do not build a broken alternative.
+
+**2. Fix All Data/Resource Leaks on Deletion:**
+   - **Problem:** Deleting folders (Bug #21), projects (Bug #29), and other items with associated files does not reliably delete the files from disk. Deleting items also fails to decrement tag usage counts (Bug #26, #75).
+   - **Solution:**
+     - The `delete_...` functions for every object that can own a file on disk **must** be responsible for deleting that file.
+     - Do not rely on database cascades alone. The cascade will delete the record, but the file will be orphaned.
+     - The logic for decrementing tag usage counts must be called by *every* function that can cause a tag association to be removed, including item deletion.
+
+**3. Fix Broken Concurrency & Race Conditions:**
+   - **Problem:** Using `threading.RLock` in an `asyncio` application (Bug #6). Firing off file assembly as a background task without awaiting it (Bug #17).
+   - **Solution:**
+     - Replace all `threading` locks with `asyncio.Lock`.
+     - The file commit process must `await` the completion of the file assembly task. The client should get a response only after the file is fully assembled and ready.
+
+**4. Fix Incorrect Order of Operations:**
+   - **Problem:** Deleting files from disk *before* deleting the database record (Bug #24).
+   - **Solution:** The pattern must be: 1. Begin database transaction. 2. Delete the database record. 3. Commit transaction. 4. If commit is successful, delete the file from disk. This prevents having a database record that points to a non-existent file.
+
+**5. Fix Insecure & Unreliable Backend Operations:**
+   - **Problem:** Using the `Referer` header for security (Bug #8). Using `subprocess.run('cp', ...)` for backups, which is platform-dependent and blocking (Bug #27, #28).
+   - **Solution:**
+     - Remove all reliance on the `Referer` header. Use proper session-based authentication for all access control.
+     - Replace all `subprocess` calls with Python's built-in, cross-platform libraries like `shutil` and `pathlib`, and run them in a thread pool (`asyncio.to_thread`) to avoid blocking the server.
+
+---
+
+## PHASE 2: ARCHITECTURAL REFACTORING (THE REAL WORK)
+
+**Priority: HIGH.** These changes will fix the root cause of dozens of the bugs identified. This is the most important phase.
+
+**1. Introduce a Service Layer:**
+   - **Problem:** Business logic is scattered across all your FastAPI routers. This leads to massive code duplication (e.g., tag handling logic is in 4+ files - Bug #39).
+   - **Solution:**
+     - Create a new `app/services` directory.
+     - Create your first service: `tag_service.py`. Move all tag increment/decrement/association logic into this service. Your router endpoints should call the service.
+     - Systematically create other services (`ProjectService`, `NoteService`, `FileManagementService`) and move the business logic out of the routers. The router's only job is to handle HTTP requests/responses and call the service.
+
+**2. Unify Frontend State Management:**
+   - **Problem:** You are using both Zustand and React Query to manage the same server state, leading to two competing caches and manual synchronization (Bug #69). Your components are also cluttered with local state that should be global or in the URL (Bug #72).
+   - **Solution:**
+     - **Rule 1: React Query is for Server State.** Use it to fetch, cache, and update all data that comes from your API. Remove the manual `todos`, `projects`, etc., arrays from your Zustand stores.
+     - **Rule 2: Zustand is for Global UI State.** Use it *only* for things that are not on the server, like "is the sidebar open?", "current theme", etc.
+     - **Rule 3: URL is for Location State.** Filter and sort parameters should live in the URL query string. This makes the state shareable and bookmarkable.
+     - **Action:** Refactor `todosStore.ts`. Remove the `todos` and `projects` arrays. The `TodosPage` component should get its data directly from a `useQuery` hook from React Query. When a todo is created, the mutation should *invalidate* the query cache (e.g., `queryClient.invalidateQueries(['todos'])`) instead of manually adding the new item to a Zustand store.
+
+**3. Refactor the Database Schema:**
+   - **Problem:** Your schema is inconsistent and uses anti-patterns.
+   - **Solution:**
+     - **Remove Redundancy:** In the `Todo` model, remove the `is_completed` boolean. The `status` enum is the single source of truth (Bug #36).
+     - **Use Proper Relations:** Replace the `blocked_by` text field with a proper many-to-many junction table (`todo_blockers`) (Bug #37).
+     - **Fix Inconsistencies:** Decide on a single primary key strategy. Either use UUIDs for everything or integers for everything. The current hybrid approach is a mess (Bug #49). Phase out the legacy `project_id` column on `Todo` in favor of the many-to-many relationship (Bug #42).
+
+**4. Consolidate Redundant Code:**
+   - **Problem:** You have three search routers and two chunking services.
+   - **Solution:**
+     - Merge all search-related endpoints into a single `search.py` router.
+     - Delete `chunk_assembly.py` and consolidate all chunking logic into `chunk_service.py` (Bug #18).
+
+---
+
+## PHASE 3: PERFORMANCE & BEST PRACTICES
+
+**Priority: MEDIUM.** Once the architecture is stable, fix these performance issues.
+
+**1. Eliminate All N+1 Queries:**
+   - **Problem:** You have multiple places where you call the database inside a loop (Bug #22, #30).
+   - **Solution:** Rewrite these using a single, more efficient query. For hierarchical data, learn how to use recursive Common Table Expressions (CTEs).
+
+**2. Move All Filtering/Sorting to the Database:**
+   - **Problem:** Your search endpoints fetch a huge list of results and then filter and sort them in Python (Bug #15, #76).
+   - **Solution:** This is what databases are for. Add `WHERE` and `ORDER BY` clauses to your SQLAlchemy queries to have the database do the heavy lifting. The API should only receive the data it actually needs to send to the client.
+
+**3. Eliminate All Blocking I/O Calls:**
+   - **Problem:** You are using blocking file I/O all over your async code (Bug #46).
+   - **Solution:** Every call to `os.path.exists`, `Path.stat`, `shutil.move`, etc., must be wrapped in `await asyncio.to_thread(...)` to avoid freezing the server.
+
+---
+
+## PHASE 4: UI/UX POLISH
+
+**Priority: LOW.** Fix these once the application is stable and performant.
+
+- **Improve Loading & Error States:** Replace all generic "Loading..." text with proper `Skeleton` components. Display errors in-context (e.g., in the modal where the error occurred), not just in a single alert at the top of the page (Bug #92, #95).
+- **Fix Theming & Colors:** Remove all hardcoded colors and use your Mantine theme object everywhere so that dark mode and theme changes work correctly (Bug #96).
+- **Address Accessibility (A11y):** Add keyboard support for your drag-and-drop Kanban board (Bug #70). Add `aria-label` attributes to all icon-only buttons (Bug #102).
+- **Break Down God Components:** Break up the `TodosPage.tsx` component into smaller, more manageable child components with clearly defined responsibilities (Bug #87).
+
+---
+
+## CONCLUSION
+
+Your project is salvageable, but only if you are disciplined. Stop making excuses about it being a "personal project." Use it as an opportunity to practice building software correctly.
+
+This plan is your path forward. Follow it, and you might actually build something you can be proud of.

@@ -1,0 +1,157 @@
+# Progress Log - PKMS Development
+
+## Latest Updates (2025-10-10)
+
+### Multi-Project Integration (Phase 1-4 Complete, 5 Remaining Phases)
+
+**Completed:**
+
+1. **Database Schema (Phase 1)**:
+   - Created `pkms-backend/app/models/associations.py` with junction tables:
+     * `note_projects`, `document_projects`, `todo_projects`
+     * Each has: `note/document/todo_id`, `project_id` (SET NULL on delete), `project_name_snapshot`
+   - Added `is_exclusive_mode` boolean to Note, Document, Todo models
+   - Added many-to-many `projects` relationship to all item models
+   - Updated Project model with reverse relationships (`notes`, `documents_multi`, `todos_multi`)
+
+2. **Project Deletion Logic (Phase 2)**:
+   - Updated `DELETE /api/v1/projects/{id}` endpoint in `todos.py`:
+     * Step 1: Snapshot project name in all junction records
+     * Step 2: Hard delete exclusive items (is_exclusive_mode=True)
+     * Step 3: Delete project (SET NULL in junction tables preserves linked items)
+   - Exclusive items are deleted when ANY of their projects are deleted
+   - Linked items survive and show "deleted_ProjectName" badge
+
+3. **List Filtering (Phase 3)**:
+   - Updated `GET /api/v1/notes`, `/documents`, `/todos` endpoints:
+     * Filter: `is_exclusive_mode == False` (only show linked items in main lists)
+     * Exclusive items ONLY appear in project dashboards
+     * Simplified logic: orphaned exclusive items should NOT exist (deleted with project)
+
+4. **Schema Updates (Phase 4)**:
+   - Backend Pydantic schemas updated with:
+     * `ProjectBadge` class (id, name, color, isExclusive, isDeleted)
+     * `project_ids: List[int]` and `is_exclusive_mode: bool` in Create/Update schemas
+     * `projects: List[ProjectBadge]` in Response schemas
+   - Frontend TypeScript interfaces updated:
+     * Added `ProjectBadge` interface to all service files
+     * Updated Note, Document, Todo, NoteSummary, TodoSummary interfaces
+     * Added `projectIds` and `isExclusiveMode` to Create/Update request types
+
+**In Progress (Phase 5)**:
+- Update backend routers to:
+  * Handle `project_ids` and `is_exclusive_mode` in create/update endpoints
+  * Populate `projects` array in responses by querying junction tables
+  * Build `ProjectBadge` objects from live projects and deleted snapshots
+
+**Remaining Phases:**
+- Phase 6: Create `MultiProjectSelector` component (Mantine MultiSelect + exclusive checkbox)
+- Phase 7: Create `ProjectBadges` component for displaying project chips
+- Phase 8: Integrate selectors into Note/Document/Todo create/edit forms
+- Phase 9: Update ProjectDashboardPage to show exclusive vs linked items
+- Phase 10: Testing and documentation
+
+---
+
+## Previous Updates
+
+### Wellness Analytics Dashboard (2025-10-09)
+
+**1. Backend API**: New `/api/v1/diary/stats/wellness` endpoint
+  - Accepts `days` parameter (7, 30, 90, 180, 365)
+  - Returns comprehensive `WellnessStats` with:
+    * Summary metrics (wellness score, avg mood, avg sleep)
+    * Trends for mood, sleep, exercise, screen time, energy, stress, hydration
+    * Mental wellness habits (meditation, gratitude, social interaction)
+    * Correlations (mood vs sleep with Pearson coefficient)
+    * Wellness score breakdown (radar chart data)
+    * AI-generated insights
+
+**2. Frontend Component**: `WellnessAnalytics.tsx`
+  - Chart type selector dropdown (8 chart types):
+    * Mood Trend (line chart)
+    * Sleep Analysis (bar chart)
+    * Exercise Frequency (bar chart)
+    * Screen Time Trend (area chart)
+    * Energy & Stress Levels (dual line chart)
+    * Hydration Tracking (bar chart)
+    * Mood vs Sleep Correlation (scatter plot)
+    * Wellness Score Breakdown (radar chart)
+  - Period selector (7, 30, 90, 180, 365 days)
+  - Dynamic insights based on selected chart
+  - Empty state handling
+
+**3. UI Improvements**:
+  - Removed standalone "Mood Trends" tab (redundant)
+  - Wellness Analytics, Daily Wellness Tracker, and Detailed Mood Analysis are mutually exclusive accordions
+  - All collapsed by default for cleaner UI
+  - Status badges in Daily Wellness Tracker ("No Metadata for Today", "✓ Tracked")
+
+**4. Metrics Cleanup**:
+  - Removed legacy fields: `sleep_hours`, `phone_hours`, `activity_level`
+  - Conditional `exercise_minutes` input (only if `did_exercise` is true)
+  - Auto-reset exercise minutes to 0 when unchecking `did_exercise`
+  - Compact 3-column layout using SimpleGrid
+
+### Diary Dashboard Refactoring (2025-10-08)
+
+**1. Daily Metadata Form Moved**:
+  - Moved from diary entry modal to diary dashboard as `DailyMetricsPanel`
+  - Only tracks metrics for TODAY
+  - Removed weather/location (now only in entry form)
+  - Expandable accordion with status indicator
+
+**2. Weather Options Reduced**:
+  - Reduced from many options to 7 simple codes (0-6)
+  - Weather/location only in diary entry modal, not in dashboard panel
+
+**3. UI Layout Reorganization**:
+  - **Mood Trends**: Always visible at top, reduced height to 200px (compact)
+  - **Mood Stats Widget**: Moved to expandable "Detailed Mood Analysis" accordion
+  - Users see trends at a glance, expand for detailed analysis
+
+**4. Historical Entries Feature (NEW)** (`HistoricalEntries.tsx`):
+  - Brand new component showing entries from specific past dates:
+    * Yesterday
+    * Last Week (same day of week)
+    * Last Month (same date)
+    * Last Year (same date)
+  - Expandable accordion: "Historical Entries"
+  - 4-column responsive grid (1 col on mobile, 2 on tablet, 4 on desktop)
+  - Each card shows:
+    * Date and mood badge with emoji
+    * Entry title (if available)
+    * Weather, location, tags (first 2 + count)
+    * Content length
+    * "No Entry" state for missing dates
+  - Click card to view full entry (uses existing `handleViewEntry`)
+  - Automatically finds matching entries by date
+
+**5. Diary Page Layout Order** (top to bottom):
+  1. Session timeout warning
+  2. Header with "Diary" title + encryption status + new entry button
+  3. **Mood Trend Chart** (compact, always visible, 200px height)
+  4. **Detailed Mood Analysis** (expandable accordion, collapsed)
+  5. **Daily Wellness Tracker** (expandable accordion, collapsed, TODAY only)
+  6. **Historical Entries** (expandable accordion, collapsed, 4 time periods)
+  7. **Calendar + Diary Entries Grid** (main content area)
+
+- **Technical Details**:
+  - Used `date-fns` functions: `subDays`, `subWeeks`, `subMonths`, `subYears` for date calculations
+  - Entry matching by formatted date string comparison (`yyyy-MM-dd`)
+  - Proper TypeScript interfaces for historical periods
+  - Responsive grid using Mantine's `SimpleGrid` with breakpoints
+  - Mood emoji/color/label mapping consistent with existing components
+
+- **User Experience**:
+  - **Much cleaner dashboard**: Only mood trend visible by default
+  - **Focused tracking**: Daily wellness for today only
+  - **Easy comparison**: Historical entries show patterns over time
+  - **No duplication**: Single calendar, weather/location only in entries
+  - **Progressive disclosure**: Expand sections only when needed
+
+- **Files**:
+  - NEW: `pkms-frontend/src/components/diary/HistoricalEntries.tsx` (259 lines)
+  - MODIFIED: `pkms-frontend/src/components/diary/DailyMetricsPanel.tsx` (refactored to accordion, today-only)
+  - MODIFIED: `pkms-frontend/src/components/diary/MoodTrendChart.tsx` (added height prop)
+  - MODIFIED: `pkms-frontend/src/pages/DiaryPage.tsx` (reorganized layout, added imports)

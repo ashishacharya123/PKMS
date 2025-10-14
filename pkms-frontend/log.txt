@@ -1,0 +1,20 @@
+## Log Entry #105 - 2025-10-09 00:55:00 +05:45
+
+Summary
+- Unified search cleanup: removed legacy hybrid mode, renamed advanced filter drawer to `UnifiedSearchFilters`, and adjusted Ctrl+F shortcut redirect to `/search/unified`.
+- Search service refactor: consolidated fuzzy search implementation, ensured global search uses `/search/fts5`, and replaced NodeJS timer types in diary session warning.
+
+Files Affected
+- pkms-frontend/src/components/search/UnifiedSearch.tsx
+- pkms-frontend/src/components/search/UnifiedSearchFilters.tsx
+- pkms-frontend/src/services/searchService.ts
+- pkms-frontend/src/services/keyboardShortcuts.ts
+- pkms-frontend/src/components/diary/SessionTimeoutWarning.tsx
+
+Details
+- Removed hybrid search toggle and duplicate helper, leaving only FTS5 and fuzzy options in the UI.
+- Renamed `EnhancedSearchFilters` component/file to align with unified search naming.
+- Ctrl+F now focuses the unified search interface when no search input is present.
+- Fuzzy search accepts both `query` and `q` keys, consolidating previous implementations while keeping caching.
+- Swapped `NodeJS.Timeout` for `ReturnType<typeof setInterval>` in session timeout component for browser compatibility.
+

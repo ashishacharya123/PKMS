@@ -29,6 +29,7 @@ interface RecoveryModalProps {
   opened: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  username?: string;
 }
 
 interface UserQuestion {
@@ -39,14 +40,17 @@ interface UserQuestion {
 const RecoveryModal: React.FC<RecoveryModalProps> = ({
   opened,
   onClose,
-  onSuccess
+  onSuccess,
+  username
 }) => {
   const [loading, setLoading] = useState(false);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [userQuestions, setUserQuestions] = useState<UserQuestion[]>([]);
   const [questionsError, setQuestionsError] = useState<string | null>(null);
   
-  const { resetPasswordWithRecovery } = useAuthStore();
+  const { resetPasswordWithRecovery, user } = useAuthStore();
+
+  const effectiveUsername = username ?? user?.username;
 
   // Security Questions Form
   const questionsForm = useForm({
@@ -60,15 +64,51 @@ const RecoveryModal: React.FC<RecoveryModalProps> = ({
       confirmPassword: '',
     },
     validate: {
-      newPassword: (value) => 
-        value.length < 8 ? 'Password must be at least 8 characters' : null,
+      newPassword: (value) => {
+        if (!value || value.length < 8) return 'Password must be at least 8 characters';
+        // SECURITY: Basic validation to prevent script injection
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in password';
+        return null;
+      },
       confirmPassword: (value, values) =>
         value !== values.newPassword ? 'Passwords must match' : null,
+      answer1: (value) => {
+        if (!value || value.trim().length === 0) return 'Answer is required';
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in answer';
+        return null;
+      },
+      answer2: (value) => {
+        if (!value || value.trim().length === 0) return 'Answer is required';
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in answer';
+        return null;
+      },
+      answer3: (value) => {
+        if (!value || value.trim().length === 0) return 'Answer is required';
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in answer';
+        return null;
+      },
+      answer4: (value) => {
+        if (!value || value.trim().length === 0) return 'Answer is required';
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in answer';
+        return null;
+      },
+      answer5: (value) => {
+        if (!value || value.trim().length === 0) return 'Answer is required';
+        if (value.includes('<script') || value.includes('javascript:')) return 'Invalid characters in answer';
+        return null;
+      },
     },
   });
 
   // Load user's security questions
   const loadUserQuestions = async () => {
+    // Validate username before loading questions
+    if (!effectiveUsername || effectiveUsername.length < 3) {
+      setQuestionsError('Please provide a valid username (at least 3 characters)');
+      setLoadingQuestions(false);
+      return;
+    }
+    
     setLoadingQuestions(true);
     setQuestionsError(null);
     
@@ -136,7 +176,19 @@ const RecoveryModal: React.FC<RecoveryModalProps> = ({
         return;
       }
 
+      // Validate username meets minimum length requirement
+      if (!effectiveUsername || effectiveUsername.length < 3) {
+        notifications.show({
+          title: 'Invalid Username',
+          message: 'Please provide a valid username (at least 3 characters)',
+          color: 'red',
+        });
+        setLoading(false);
+        return;
+      }
+
       const success = await resetPasswordWithRecovery({
+        username: effectiveUsername,
         answers: answers,
         new_password: values.newPassword,
       });

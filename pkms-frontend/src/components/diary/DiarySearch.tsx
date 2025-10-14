@@ -1,480 +1,300 @@
 import React, { useState } from 'react';
-import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import {
-  Container,
+  Paper,
   Stack,
   Title,
   Group,
   Text,
   TextInput,
-  Select,
   Button,
-  Card,
-  Badge,
-  ActionIcon,
-  Divider,
-  SimpleGrid,
   Alert,
-  Pagination,
-  ThemeIcon,
-  Tooltip,
+  Badge,
+  SimpleGrid,
+  ActionIcon,
   LoadingOverlay,
-  Center,
-  Switch,
-  Drawer,
-  Box,
-  Chip,
-  Paper
+  MultiSelect,
+  Select,
 } from '@mantine/core';
 import {
   IconSearch,
   IconFilter,
-  IconBook,
+  IconRefresh,
   IconCalendar,
   IconTag,
-  IconEye,
-  IconRefresh,
-  IconX,
-  IconMoodHappy,
-  IconMoodSad,
-  IconMoodNeutral
+  IconArchive,
+  IconInfoCircle,
 } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { searchService, SearchResult } from '../services/searchService';
-import searchStyles, { searchStyleClasses } from '../styles/searchStyles';
+import { searchService, SearchResult, SearchResponse, SearchFilters, TagInfo } from '../../services/searchService';
+import { useDiaryStore } from '../../stores/diaryStore';
+import UnifiedSearchFilters from '../search/UnifiedSearchFilters';
 
 interface DiarySearchProps {
-  onSearchSelect?: (result: SearchResult) => void;
-  initialQuery?: string;
+  onEntrySelect: (entryUuid: string) => void;
 }
 
-const DiarySearch: React.FC<DiarySearchProps> = ({
-  onSearchSelect,
-  initialQuery = ''
-}) => {
-  const [searchQuery, setSearchQuery] = useState(initialQuery);
+const DiarySearch: React.FC<DiarySearchProps> = ({ onEntrySelect }) => {
+  const { isUnlocked } = useDiaryStore();
+  const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [totalResults, setTotalResults] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [filtersOpened, { open: openFilters, close: closeFilters }] = useDisclosure(false);
-
-  // Diary-specific filters
-  const [filters, setFilters] = useState({
-    include_tags: [] as string[],
-    exclude_tags: [] as string[],
-    sort_by: 'date' as 'relevance' | 'date' | 'title',
-    sort_order: 'desc' as 'asc' | 'desc',
-    date_from: null as string | null,
-    date_to: null as string | null,
-    mood_filter: 'all' as 'all' | 'happy' | 'sad' | 'neutral',
-    favorites_only: false
+  const [selectedModules, setSelectedModules] = useState<string[]>(['diary']);
+  const [searchType, setSearchType] = useState<string>('fuzzy');
+  const [filters, setFilters] = useState<SearchFilters>({
+    modules: ['diary'],
+    exclude_diary: false,
   });
+  const [availableTags, setAvailableTags] = useState<TagInfo[]>([]);
+  const [filtersOpen, { open: openFilters, close: closeFilters }] = useDisclosure(false);
+  const [loading, setLoading] = useState(false);
 
-  const [availableTags, setAvailableTags] = useState<{ name: string; count: number }[]>([]);
-  const resultsPerPage = 20;
+  const moduleOptions = [
+    { value: 'diary', label: 'Diary (metadata only)' },
+    { value: 'notes', label: 'Notes' },
+    { value: 'documents', label: 'Documents' },
+    { value: 'todos', label: 'Todos' },
+    { value: 'archive', label: 'Archive' },
+    { value: 'folders', label: 'Folders' },
+    { value: 'projects', label: 'Projects' },
+  ];
 
-  useAuthenticatedEffect(() => {
-    if (initialQuery) {
-      performSearch();
-    }
-    loadAvailableTags();
+  const searchTypeOptions = [
+    { value: 'fts5', label: 'FTS5 (Fast, Recommended)' },
+    { value: 'fuzzy', label: 'Fuzzy (Title, Description, Tags)' },
+    { value: 'advanced_fuzzy', label: 'Advanced Fuzzy (Full Content - Very Slow)' },
+  ];
+
+  React.useEffect(() => {
+    searchService
+      .getPopularTags('diary')
+      .then(setAvailableTags)
+      .catch((error) => {
+        console.error('Failed to load diary tags:', error);
+      });
   }, []);
 
-  const loadAvailableTags = async () => {
-    try {
-      const tags = await searchService.getAvailableTags('diary');
-      setAvailableTags(tags.map(tag => ({ name: tag.name, count: tag.count || 0 })));
-    } catch (error) {
-      console.error('Failed to load diary tags:', error);
+  const performSearch = async (event?: React.FormEvent) => {
+    if (event) event.preventDefault();
+    if (!query.trim()) return;
+    
+    if (query.trim().length < 3) {
+      notifications.show({
+        title: 'Query too short',
+        message: 'Please enter at least 3 characters to search',
+        color: 'orange'
+      });
+      return;
     }
-  };
-
-  const performSearch = async (page = 1) => {
-    if (!searchQuery.trim()) return;
+    
+    if (selectedModules.length === 0) {
+      notifications.show({
+        title: 'No modules selected',
+        message: 'Please select at least one module to search in',
+        color: 'orange'
+      });
+      return;
+    }
 
     setLoading(true);
-    setCurrentPage(page);
-
     try {
-      // Add diary context header for security
-      const searchParams = {
-        query: searchQuery,
-        modules: ['diary'],
-        page,
-        limit: resultsPerPage,
-        include_tags: filters.include_tags,
-        exclude_tags: filters.exclude_tags,
-        favorites_only: filters.favorites_only,
-        sort_by: filters.sort_by,
-        sort_order: filters.sort_order,
-        date_from: filters.date_from,
-        date_to: filters.date_to
+      const effectiveFilters: SearchFilters = {
+        ...filters,
+        modules: selectedModules,
       };
-
-      // Add custom header for diary access
-      const response = await fetch('/api/v1/search/fts5', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Diary-Context': 'true',
-          'Authorization': `Bearer ${localStorage.getItem('pkms_token') || ''}`
-        }
-      });
-
-      const params = new URLSearchParams();
-      Object.entries(searchParams).forEach(([key, value]) => {
-        if (Array.isArray(value)) {
-          value.forEach(v => params.append(key, v));
-        } else if (value !== null && value !== undefined) {
-          params.append(key, value.toString());
-        }
-      });
-
-      const fullResponse = await fetch(`/api/v1/search/fts5?${params.toString()}`, {
-        headers: {
-          'X-Diary-Context': 'true',
-          'Authorization': `Bearer ${localStorage.getItem('pkms_token') || ''}`
-        }
-      });
-
-      if (!fullResponse.ok) {
-        throw new Error(`HTTP error! status: ${fullResponse.status}`);
+      
+      let response: SearchResponse;
+      switch (searchType) {
+        case 'fts5':
+          response = await searchService.searchFTS(query, effectiveFilters);
+          break;
+        case 'advanced_fuzzy':
+          // Advanced fuzzy loads ALL content into memory - SLOW but comprehensive
+          response = await searchService.searchAdvancedFuzzy(query, effectiveFilters);
+          break;
+        case 'fuzzy':
+        default:
+          // Regular fuzzy - metadata only (title, description, tags)
+          response = await searchService.searchFuzzy(query, effectiveFilters);
+          break;
       }
-
-      const data = await fullResponse.json();
-      setResults(data.results || []);
-      setTotalResults(data.total || 0);
-
+      setResults(response.results);
       notifications.show({
-        title: 'Diary Search Complete',
-        message: `${data.results?.length || 0} diary entries found`,
-        color: 'pink',
-        icon: <IconBook size={16} />
+        title: 'Search Complete',
+        message: `${response.stats.totalResults} results found` + (response.stats.searchTime ? ` in ${response.stats.searchTime}ms` : ''),
+        color: 'blue',
+        icon: <IconSearch size={16} />,
       });
-
     } catch (error) {
       console.error('Diary search error:', error);
       notifications.show({
         title: 'Search Error',
-        message: 'Failed to search diary entries. Please try again.',
-        color: 'red'
+        message: 'Failed to search diary entries. Try again.',
+        color: 'red',
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    performSearch(1);
-  };
-
-  const getMoodIcon = (mood?: string) => {
-    switch (mood) {
-      case 'happy': return <IconMoodHappy size={16} />;
-      case 'sad': return <IconMoodSad size={16} />;
-      case 'neutral': return <IconMoodNeutral size={16} />;
-      default: return <IconBook size={16} />;
-    }
-  };
-
-  const getMoodColor = (mood?: string) => {
-    switch (mood) {
-      case 'happy': return 'yellow';
-      case 'sad': return 'blue';
-      case 'neutral': return 'gray';
-      default: return 'pink';
-    }
-  };
-
-  const renderSearchResult = (result: SearchResult) => {
-    const formatDate = (dateString: string) => {
-      try {
-        return new Date(dateString).toLocaleDateString('en-US', {
-          weekday: 'long',
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        });
-      } catch {
-        return dateString;
-      }
-    };
-
-    return (
-      <Card
-        key={result.id}
-        shadow="sm"
-        p="md"
-        withBorder
-        style={{
-          cursor: onSearchSelect ? 'pointer' : 'default',
-          borderLeft: '4px solid var(--mantine-color-pink-filled)'
-        }}
-        onClick={() => onSearchSelect && onSearchSelect(result)}
-      >
-        <Group justify="space-between" mb="xs">
-          <Group>
-            <ThemeIcon color="pink" size="sm">
-              <IconBook size={16} />
-            </ThemeIcon>
-            <div>
-              <Text fw={600} size="sm">
-                {result.title || formatDate(result.createdAt)}
-              </Text>
-              <Group gap={4}>
-                <Text size="xs" c="dimmed">
-                  {formatDate(result.createdAt)}
-                </Text>
-                {result.metadata?.mood && (
-                  <ThemeIcon color={getMoodColor(result.metadata.mood)} size="xs">
-                    {getMoodIcon(result.metadata.mood)}
-                  </ThemeIcon>
-                )}
-              </Group>
-            </div>
+  const renderResult = (result: SearchResult) => (
+    <Paper
+      key={result.id}
+      withBorder
+      p="md"
+      radius="md"
+      style={{ cursor: 'pointer' }}
+      onClick={() => onEntrySelect(result.id)}
+    >
+      <Stack gap="xs">
+        <Group justify="space-between" align="flex-start">
+          <Group gap="xs">
+            <Title order={5}>{result.title}</Title>
+            <Badge color="pink" variant="light">
+              Diary
+            </Badge>
           </Group>
-          {result.is_favorite && (
-            <ThemeIcon color="yellow" size="sm">
-              <IconEye size={12} />
-            </ThemeIcon>
+          {result.createdAt && (
+            <Group gap="xs" c="dimmed">
+              <IconCalendar size={14} />
+              <Text size="xs">{new Date(result.createdAt).toLocaleDateString()}</Text>
+            </Group>
           )}
         </Group>
 
-        {(result.content || result.description) && (
-          <Text size="xs" c="dimmed" mb="xs" lineClamp={3}>
-            {result.content || result.description}
+        {result.preview && (
+          <Text size="sm" c="dimmed" lineClamp={3}>
+            {result.preview}
           </Text>
         )}
 
-        {result.tags && result.tags.length > 0 && (
-          <Group gap={4}>
-            {result.tags.slice(0, 5).map(tag => (
-              <Badge key={tag} size="xs" variant="outline" color="pink">
+        {result.tags?.length ? (
+          <Group gap="xs">
+            <IconTag size={14} />
+            {result.tags.map((tag) => (
+              <Badge key={tag} size="sm" variant="outline">
                 {tag}
               </Badge>
             ))}
-            {result.tags.length > 5 && (
-              <Badge size="xs" variant="outline" color="pink">
-                +{result.tags.length - 5}
-              </Badge>
-            )}
           </Group>
-        )}
-      </Card>
-    );
-  };
-
-  const totalPages = Math.ceil(totalResults / resultsPerPage);
-
-  const renderDiaryFilters = () => (
-    <Stack p="md">
-      <Title order={4}>Diary Search Filters</Title>
-
-      <Divider />
-
-      <Title order={6}>Sorting</Title>
-      <Group>
-        <Select
-          data={[
-            { value: 'relevance', label: 'Relevance' },
-            { value: 'date', label: 'Date' },
-            { value: 'title', label: 'Title' }
-          ]}
-          value={filters.sort_by}
-          onChange={(value) => setFilters(prev => ({ ...prev, sort_by: value as any }))}
-          style={{ flex: 1 }}
-        />
-        <Select
-          data={[
-            { value: 'asc', label: 'Ascending' },
-            { value: 'desc', label: 'Descending' }
-          ]}
-          value={filters.sort_order}
-          onChange={(value) => setFilters(prev => ({ ...prev, sort_order: value as any }))}
-          style={{ flex: 1 }}
-        />
-      </Group>
-
-      <Divider />
-
-      <Title order={6}>Tags</Title>
-      <Text size="xs" c="dimmed">Filter by diary entry tags</Text>
-      {availableTags.length > 0 && (
-        <Text size="xs" c="dimmed">
-          Available tags: {availableTags.map(tag => tag.name).join(', ')}
-        </Text>
-      )}
-
-      <Divider />
-
-      <Title order={6}>Options</Title>
-      <Switch
-        label="Favorites only"
-        checked={filters.favorites_only}
-        onChange={(e) => setFilters(prev => ({ ...prev, favorites_only: e.target.checked }))}
-      />
-
-      <Divider />
-
-      <Group>
-        <Button onClick={closeFilters} fullWidth>
-          Apply Filters
-        </Button>
-        <Button
-          variant="outline"
-          onClick={() => {
-            setFilters({
-              include_tags: [],
-              exclude_tags: [],
-              sort_by: 'date',
-              sort_order: 'desc',
-              date_from: null,
-              date_to: null,
-              mood_filter: 'all',
-              favorites_only: false
-            });
-            closeFilters();
-          }}
-          fullWidth
-        >
-          Clear All
-        </Button>
-      </Group>
-    </Stack>
+        ) : null}
+      </Stack>
+    </Paper>
   );
 
   return (
-    <Container size="md" py="xl">
+    <Paper p="lg" withBorder radius="md">
       <Stack gap="lg">
-        {/* Header */}
-        <div>
-          <Title order={2}>Diary Search</Title>
-          <Text c="dimmed">Search your personal diary entries with privacy protection</Text>
-        </div>
-
-        {/* Security Notice */}
-        <Alert icon={<IconBook size={16} />} color="pink">
-          <Title order={4}>🔒 Private Diary Search</Title>
-          <Text size="sm">
-            Diary searches are only accessible from within the diary module to ensure your privacy.
-            Your diary entries remain completely private and secure.
-          </Text>
-        </Alert>
-
-        {/* Search Form */}
-        <Paper p="md" withBorder>
-          <form onSubmit={handleSearch}>
-            <Group>
-              <TextInput
-                placeholder="Search your diary entries..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ flex: 1 }}
-                size="lg"
-                rightSection={
-                  <ActionIcon
-                    type="submit"
-                    loading={loading}
-                    size="lg"
-                  >
-                    <IconSearch size={16} />
-                  </ActionIcon>
-                }
-              />
-              <ActionIcon
-                variant="outline"
-                onClick={openFilters}
-                size="lg"
-              >
-                <IconFilter size={16} />
-              </ActionIcon>
-              <ActionIcon
-                variant="outline"
-                onClick={() => performSearch(1)}
-                loading={loading}
-                size="lg"
-              >
-                <IconRefresh size={16} />
-              </ActionIcon>
-            </Group>
-          </form>
-        </Paper>
-
-        {/* Active Filters */}
-        <Group>
-          {filters.sort_by !== 'date' && (
-            <Chip checked onClose={() => setFilters(prev => ({ ...prev, sort_by: 'date' }))}>
-              Sort: {filters.sort_by}
-            </Chip>
-          )}
-          {filters.favorites_only && (
-            <Chip checked onClose={() => setFilters(prev => ({ ...prev, favorites_only: false }))}>
-              Favorites only
-            </Chip>
-          )}
+        <Group justify="space-between" align="center">
+          <div>
+            <Title order={3}>Cross-Module Search</Title>
+            <Text c="dimmed">Search across modules. Note: Diary content is encrypted - only metadata (title, tags, date) is searchable.</Text>
+          </div>
+          <ActionIcon disabled={!isUnlocked} variant="outline" onClick={performSearch}>
+            <IconRefresh size={16} />
+          </ActionIcon>
         </Group>
 
-        {/* Results */}
+        {!isUnlocked && (
+          <Alert icon={<IconArchive size={16} />} color="orange">
+            Unlock your diary to search encrypted entries.
+          </Alert>
+        )}
+
+        <form onSubmit={performSearch}>
+          <Stack gap="sm">
+            <TextInput
+              value={query}
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              placeholder="Search across your knowledge base..."
+              leftSection={<IconSearch size={16} />}
+              disabled={!isUnlocked}
+            />
+            
+            <Group>
+              <Text size="sm" fw={500}>Search in:</Text>
+              <MultiSelect
+                placeholder="Select modules"
+                data={moduleOptions}
+                value={selectedModules}
+                onChange={setSelectedModules}
+                size="sm"
+                style={{ minWidth: 250 }}
+                disabled={!isUnlocked}
+              />
+            </Group>
+            
+            <Group>
+              <Text size="sm" fw={500}>Search type:</Text>
+              <Select
+                placeholder="Select search type"
+                data={searchTypeOptions}
+                value={searchType}
+                onChange={(value) => setSearchType(value || 'fuzzy')}
+                size="sm"
+                style={{ minWidth: 200 }}
+                disabled={!isUnlocked}
+              />
+              <Text size="xs" c="dimmed">
+                {searchType === 'fts5' && 'Fast indexed search (metadata only)'}
+                {searchType === 'fuzzy' && 'Typo-tolerant (no note content)'}
+                {searchType === 'advanced_fuzzy' && 'Searches everything including note content'}
+              </Text>
+            </Group>
+            
+            <Group justify="space-between">
+              <Button
+                leftSection={<IconFilter size={16} />}
+                onClick={() => (filtersOpen ? closeFilters() : openFilters())}
+                variant="outline"
+              >
+                Filters
+              </Button>
+              <Button 
+                type="submit" 
+                leftSection={<IconSearch size={16} />} 
+                disabled={!isUnlocked || selectedModules.length === 0}
+              >
+                Search
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+
+        <UnifiedSearchFilters
+          filters={filters}
+          onFiltersChange={setFilters}
+          availableTags={availableTags}
+          availableModules={[{ value: 'diary', label: 'Diary' }]}
+          onApply={() => {
+            closeFilters();
+            performSearch();
+          }}
+          onClear={() => setFilters({ modules: ['diary'], exclude_diary: false })}
+          isOpen={filtersOpen}
+          onClose={closeFilters}
+        />
+
         <div style={{ position: 'relative' }}>
           <LoadingOverlay visible={loading} />
-
           {results.length > 0 ? (
-            <Stack gap="md">
-              <Group justify="space-between">
-                <Text>
-                  Found {totalResults} diary entries for "{searchQuery}"
-                </Text>
-                {totalPages > 1 && (
-                  <Pagination
-                    total={totalPages}
-                    value={currentPage}
-                    onChange={setCurrentPage}
-                    size="sm"
-                  />
-                )}
-              </Group>
-
-              <SimpleGrid cols={1} spacing="md">
-                {results.map(renderSearchResult)}
+            <Stack gap="sm">
+              <Text size="sm" c="dimmed">
+                {results.length} entries found
+              </Text>
+              <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                {results.map(renderResult)}
               </SimpleGrid>
-
-              {totalPages > 1 && (
-                <Group justify="center">
-                  <Pagination
-                    total={totalPages}
-                    value={currentPage}
-                    onChange={(page) => {
-                      setCurrentPage(page);
-                      performSearch(page);
-                    }}
-                  />
-                </Group>
-              )}
             </Stack>
           ) : (
-            !loading && searchQuery && (
-              <Alert icon={<IconBook size={16} />} color="pink">
-                No diary entries found for "{searchQuery}". Try different search terms or check your spelling.
+            !loading && query && (
+              <Alert icon={<IconInfoCircle size={16} />} color="blue">
+                No diary entries matched your search.
               </Alert>
             )
           )}
         </div>
-
-        {/* Filters Drawer */}
-        <Drawer
-          opened={filtersOpened}
-          onClose={closeFilters}
-          title="Diary Search Filters"
-          size="sm"
-          position="right"
-        >
-          {renderDiaryFilters()}
-        </Drawer>
       </Stack>
-    </Container>
+    </Paper>
   );
 };
 

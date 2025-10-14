@@ -49,11 +49,10 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         set({ isLoading: true, error: null });
         
         try {
-          const response = await authService.login(credentials);
+          await authService.login(credentials);
           
-          // Store token FIRST, then make authenticated requests
-          localStorage.setItem('pkms_token', response.access_token);
-          apiService.setAuthToken(response.access_token);
+          // SECURITY: Don't store token in localStorage - using httpOnly cookies
+          // Don't set token in API service - httpOnly cookies are handled automatically
           
           const currentUser = await authService.getCurrentUser(); // Get full user details
           
@@ -65,7 +64,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
               ...currentUser,
               settings // Add parsed settings
             },
-            token: response.access_token,
+            token: null, // No token stored in memory - using httpOnly cookies
             isAuthenticated: true,
             isLoading: false,
             error: null
@@ -94,12 +93,11 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         set({ isLoading: true, error: null });
         
         try {
-          const response = await authService.setupUser(userData);
+          await authService.setupUser(userData);
           const currentUser = await authService.getCurrentUser(); // Get full user details
           
-          // Store token and user data
-          localStorage.setItem('pkms_token', response.access_token);
-          apiService.setAuthToken(response.access_token);
+          // SECURITY: Don't store token in localStorage - using httpOnly cookies
+          // Don't set token in API service - httpOnly cookies are handled automatically
           
           // Parse settings from JSON
           const settings = currentUser.settings_json ? JSON.parse(currentUser.settings_json) : {};
@@ -109,7 +107,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
               ...currentUser,
               settings // Add parsed settings
             },
-            token: response.access_token,
+            token: null, // No token stored in memory - using httpOnly cookies
             isAuthenticated: true,
             isLoading: false,
             error: null
@@ -140,8 +138,8 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         } catch (error) {
           console.error('Logout error:', error);
         } finally {
+          // SECURITY: Don't remove localStorage token - using httpOnly cookies
           // Clear auth data
-          localStorage.removeItem('pkms_token');
           apiService.clearAuthToken();
           apiService.resetTokenExpiryWarning(); // Reset the warning flag
           
@@ -282,25 +280,11 @@ export const useAuthStore = create<AuthState & AuthActions>()(
         // Set loading state immediately to prevent race conditions
         set({ isLoading: true, error: null });
         
-        const token = localStorage.getItem('pkms_token');
+        logger.auth('checkAuth called - using httpOnly cookies');
         
-        logger.auth('checkAuth called, token exists:', !!token);
-        
-        if (!token) {
-          logger.auth('No token found, clearing auth state');
-          set({ 
-            isAuthenticated: false, 
-            user: null, 
-            token: null, 
-            isLoading: false 
-          });
-          return;
-        }
-
         try {
-          logger.auth('Setting token in API service');
-          apiService.setAuthToken(token);
-          
+          // SECURITY: Don't set token in API service - httpOnly cookies are handled automatically
+          // Validate authentication by fetching user info (this will use httpOnly cookies)
           logger.auth('Fetching current user');
           const currentUser = await authService.getCurrentUser();
           
@@ -313,7 +297,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
               ...currentUser,
               settings // Add parsed settings
             },
-            token,
+            token: null, // No token stored in memory - using httpOnly cookies
             isAuthenticated: true,
             isLoading: false,
             error: null
@@ -322,9 +306,8 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           // Start session monitoring
           get().startSessionMonitoring();
         } catch (error) {
-          logger.error('Token validation failed:', error);
-          // Token is invalid
-          localStorage.removeItem('pkms_token');
+          logger.error('Authentication validation failed:', error);
+          // Authentication failed - clear state
           apiService.clearAuthToken();
           set({
             user: null,

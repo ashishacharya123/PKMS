@@ -123,6 +123,22 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 ```
 
 ### **Docker Compose (Current Working Configuration)**
+
+**🚨 IMPORTANT: SQLite Database Storage Architecture**
+
+The database is stored in a **Docker volume** (`pkms_db_data`), NOT a Windows bind mount. This is a deliberate architectural decision to avoid well-known SQLite + Docker + Windows filesystem issues:
+
+**Problems with SQLite on Windows Bind Mounts:**
+- ❌ File locking conflicts (Windows NTFS vs Linux locks)
+- ❌ WAL mode failures (no proper `mmap()` support)
+- ❌ Severe performance degradation (10-100x slower)
+- ❌ Database corruption risk on power loss
+- ❌ `database is locked` errors under load
+
+**Our Solution (Best Practice):**
+- ✅ **Database**: Docker volume (`pkms_db_data`) → Fast, reliable, proper locking
+- ✅ **File storage**: Windows bind mount (`./PKMS_Data`) → Accessible for backups, media
+
 ```yaml
 version: '3.8'
 
@@ -132,10 +148,15 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./PKMS_Data:/app/data
+      # Database in Docker volume (fast, reliable)
+      - pkms_db_data:/app/data
+      # Source code for hot reload
       - ./pkms-backend:/app
+      # File storage accessible from Windows
+      - ./PKMS_Data:/app/PKMS_Data
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///app/data/pkm_metadata.db
+      - DATA_DIR=/app/data
     restart: unless-stopped
 
   redis:
@@ -148,6 +169,17 @@ services:
 
 volumes:
   redis_data:
+  pkms_db_data:  # SQLite database lives here
+```
+
+**Accessing the Database:**
+```bash
+# Copy from Docker volume to Windows for inspection
+docker compose cp pkms-backend:/app/data/pkm_metadata.db ./backup.db
+
+# View with any SQLite browser
+# Or use the helper script
+python scripts/list_users.py
 ```
 
 ## 🔄 **Migration Steps**

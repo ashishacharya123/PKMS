@@ -6,7 +6,7 @@ Handles user registration, login, logout, and password recovery
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie, Query
 from fastapi.security import HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete, func, and_
 from app.schemas.auth import UserSetup, UserLogin, PasswordChange, RecoveryReset, RecoveryKeyResponse, TokenResponse, UserResponse, RefreshTokenRequest, UsernameBody, LoginPasswordHintUpdate
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -28,7 +28,14 @@ from app.config import settings, NEPAL_TZ
 
 router = APIRouter()
 
-limiter = Limiter(key_func=get_remote_address)
+def get_rate_limit_key(request: Request) -> str:
+    """Enhanced rate limiting key that combines IP and user agent"""
+    client_ip = get_remote_address(request)
+    user_agent = request.headers.get("user-agent", "")
+    # Create a more robust key that's harder to bypass
+    return f"{client_ip}:{hash(user_agent) % 10000}"
+
+limiter = Limiter(key_func=get_rate_limit_key)
 logger = logging.getLogger(__name__)
 
 # Input validation patterns
@@ -49,11 +56,9 @@ async def setup_user(
     Comprehensive user setup (creates user + recovery questions + diary password)
     Everything is set up in one go - no more first_login complexity!
     """
-    # Check if any user already exists
-    result = await db.execute(select(User))
-    existing_user = result.scalar_one_or_none()
-    
-    if existing_user:
+    # Check if any user already exists (use COUNT to avoid MultipleResultsFound)
+    user_count = await db.scalar(select(func.count(User.id)))
+    if user_count and user_count > 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User already exists. Use login endpoint instead."
@@ -126,18 +131,28 @@ async def setup_user(
     # Create JWT access token
     access_token = create_access_token(data={"sub": str(user.id)})
 
-    # Set secure cookie
+    # Set access token in HttpOnly cookie (XSS protection)
+    response.set_cookie(
+        key="pkms_token",
+        value=access_token,
+        max_age=settings.access_token_expire_minutes * 60,  # 30 minutes
+        httponly=True,
+        secure=(settings.environment == "production"),
+        samesite="strict"  # SECURITY: Strict SameSite for CSRF protection
+    )
+
+    # Set refresh token cookie
     response.set_cookie(
         key="pkms_refresh",
         value=session_token,
         httponly=True,
-        samesite="lax",
+        samesite="strict",  # SECURITY: Strict SameSite for CSRF protection
         secure=settings.environment == "production",
         max_age=7*24*60*60
     )
     
     return TokenResponse(
-        access_token=access_token,
+        access_token=access_token,  # Still return in body for backward compatibility during transition
         expires_in=settings.access_token_expire_minutes * 60,
         user_id=user.id,
         username=user.username
@@ -154,15 +169,6 @@ async def login(
 ):
     """Authenticate user and return access token"""
     
-    # First check if any users exist in the system
-    user_count = await db.scalar(select(func.count(User.id)))
-    
-    if user_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No user account exists. Please create an account first by clicking 'Create account'."
-        )
-    
     # Check if user exists
     result = await db.execute(
         select(User).where(User.username == user_data.username)
@@ -170,10 +176,18 @@ async def login(
     user = result.scalar_one_or_none()
     
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password. Please check your credentials and try again."
-        )
+        # Check if system has ANY users for proper error message
+        user_count = await db.scalar(select(func.count(User.id)))
+        if user_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No user account exists. Please create an account first by clicking 'Create account'."
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password. Please check your credentials and try again."
+            )
     
     if not verify_password(user_data.password, user.password_hash):
         raise HTTPException(
@@ -215,6 +229,16 @@ async def login(
     
     await db.commit()
     
+    # Set access token in HttpOnly cookie (XSS protection)
+    response.set_cookie(
+        key="pkms_token",
+        value=access_token,
+        max_age=settings.access_token_expire_minutes * 60,  # 30 minutes
+        httponly=True,
+        secure=(settings.environment == "production"),
+        samesite="strict"  # SECURITY: Consistent strict SameSite for CSRF protection
+    )
+    
     # Set refresh token cookie
     response.set_cookie(
         key="pkms_refresh",
@@ -222,11 +246,11 @@ async def login(
         max_age=settings.refresh_token_lifetime_days * 24 * 60 * 60,
         httponly=True,
         secure=(settings.environment == "production"),
-        samesite="lax"
+        samesite="strict"  # SECURITY: Consistent strict SameSite for CSRF protection
     )
     
     return TokenResponse(
-        access_token=access_token,
+        access_token=access_token,  # Still return in body for backward compatibility during transition
         token_type="bearer",
         expires_in=settings.access_token_expire_minutes * 60,
         user_id=user.id,
@@ -236,20 +260,37 @@ async def login(
 
 @router.post("/logout")
 async def logout(
+    response: Response,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    session_token: str | None = Cookie(default=None, alias="pkms_refresh")
 ):
     """
-    User logout
-    Note: With JWT tokens, logout is handled client-side by removing the token.
-    This endpoint is provided for completeness and future session management.
+    User logout - Clear cookies and invalidate session
     """
     try:
         # Clear diary session (in-memory) on logout for safety
         from app.routers.diary import _clear_diary_session
         _clear_diary_session(current_user.id)
-    except Exception:
-        pass
+        
+        # Delete session from database (only current user's session)
+        if session_token:
+            await db.execute(
+                delete(Session).where(
+                    and_(
+                        Session.session_token == session_token,
+                        Session.user_id == current_user.id
+                    )
+                )
+            )
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"Logout cleanup failed for user {current_user.id}: {e}")
+    
+    # Clear cookies
+    response.delete_cookie(key="pkms_token", samesite="strict")
+    response.delete_cookie(key="pkms_refresh", samesite="strict")
+    
     return {"message": "Successfully logged out"}
 
 
@@ -325,10 +366,12 @@ async def reset_password(
         user_res = await db.execute(select(User).where(User.username == recovery_data.username))
         user = user_res.scalar_one_or_none()
     else:
-        users_res = await db.execute(select(User))
-        users = users_res.scalars().all()
-        if len(users) == 1:
-            user = users[0]
+        # Count users instead of loading all
+        user_count = await db.scalar(select(func.count(User.id)))
+        if user_count == 1:
+            # Get the single user
+            user_res = await db.execute(select(User).limit(1))
+            user = user_res.scalar_one_or_none()
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -453,18 +496,47 @@ async def refresh_access_token(
         # Issue new access token
         access_token = create_access_token(data={"sub": str(user.id)})
 
-        # Slide session expiry by another 7 days
-        session.expires_at = now + timedelta(days=7)
+        # SECURITY: Invalidate the used refresh token to prevent replay attacks
+        # Generate new session token to prevent session fixation
+        new_session_token = generate_session_token()
+        
+        # Update session with new token (this invalidates the old one)
+        session.session_token = new_session_token
+        session.last_activity = now
+        
+        # SIMPLE LOGIC: Extend by configured days from NOW
+        new_expiry = now + timedelta(days=settings.refresh_token_lifetime_days)
+
+        # But don't extend beyond 1 day total from session creation (security limit)
+        created_at = session.created_at.replace(tzinfo=NEPAL_TZ) if session.created_at.tzinfo is None else session.created_at
+        max_expiry = created_at + timedelta(days=1)
+
+        # Use the earlier of the two dates
+        session.expires_at = min(new_expiry, max_expiry)
+        
         await db.commit()
 
-        # refresh cookie max-age
+        # Set access token in HttpOnly cookie (XSS protection)
+        response.set_cookie(
+            key="pkms_token",
+            value=access_token,
+            max_age=settings.access_token_expire_minutes * 60,  # 30 minutes
+            httponly=True,
+            secure=(settings.environment == "production"),
+            samesite="strict"  # SECURITY: Strict SameSite for CSRF protection
+        )
+
+        # Set new refresh cookie with new token
+        from datetime import datetime, timezone
+        # Use the timezone-aware expires_at we already processed
+        remaining = int((expires_at - now).total_seconds()) if expires_at else settings.refresh_token_lifetime_days * 24 * 60 * 60
         response.set_cookie(
             key="pkms_refresh",
-            value=session_token,
+            value=new_session_token,
             httponly=True,
-            samesite="lax",
+            samesite="strict",  # SECURITY: Strict SameSite for CSRF protection
             secure=settings.environment == "production",
-            max_age=7*24*60*60
+            max_age=max(0, remaining)
         )
 
         return TokenResponse(
@@ -523,12 +595,14 @@ async def get_any_login_password_hint(db: AsyncSession = Depends(get_db)):
     """
     Get any login password hint from the system (for single user systems).
     This is intentionally not authenticated to be used on the login page.
+    SECURITY: Returns generic response to prevent user enumeration.
     """
     result = await db.execute(select(User).limit(1))
     user = result.scalar_one_or_none()
 
-    hint = ""
+    # SECURITY: Always return the same structure to prevent user enumeration
     if user and user.login_password_hint:
-        hint = user.login_password_hint
-    
-    return {"hint": hint, "username": user.username if user else ""} 
+        return {"hint": user.login_password_hint, "username": ""}  # Don't leak username
+    else:
+        # Return generic response even if no user exists
+        return {"hint": "", "username": ""} 
