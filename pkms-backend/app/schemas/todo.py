@@ -91,7 +91,7 @@ class ProjectCreate(CamelCaseModel):
     name: str
     description: Optional[str] = None
     color: Optional[str] = None
-    tags: Optional[List[str]] = Field(default=[], max_items=20)
+    tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
 
 class ProjectResponse(CamelCaseModel):
     id: int
@@ -102,4 +102,4 @@ class ProjectResponse(CamelCaseModel):
     is_archived: bool
     todo_count: int = 0
     completed_count: int = 0
-    tags: List[str] = []
+    tags: List[str] = Field(default_factory=list)

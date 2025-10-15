@@ -506,7 +506,7 @@ export default function FuzzySearchPage() {
 
             <Stack gap="sm">
               {results.map((result, index) => (
-                <Card key={`${result.module}-${result.id || result.uuid}-${index}`} withBorder padding="md">
+                <Card key={`${result.module}-${result.uuid}-${index}`} withBorder padding="md">
                   <Group justify="space-between" align="flex-start">
                     <div style={{ flex: 1 }}>
                       <Group gap="xs" mb="xs">

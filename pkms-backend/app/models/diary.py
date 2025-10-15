@@ -16,7 +16,6 @@ class DiaryEntry(Base):
     
     __tablename__ = "diary_entries"
     
-    id = Column(Integer, autoincrement=True, nullable=False, index=True)  # Legacy counter (keeps counting lifetime entries)
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
     title = Column(String(255), nullable=False, index=True)
     date = Column(DateTime(timezone=True), nullable=False, index=True)  # Date for the diary entry
@@ -39,7 +38,7 @@ class DiaryEntry(Base):
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
     
     # Additional metadata as JSON for flexibility
-    daily_metadata_id = Column(Integer, ForeignKey("diary_daily_metadata.id", ondelete="SET NULL"), nullable=True, index=True)
+    daily_metadata_id = Column(String(36), ForeignKey("diary_daily_metadata.uuid", ondelete="SET NULL"), nullable=True, index=True)
     
     # Soft Delete
     is_deleted = Column(Boolean, default=False, index=True)
@@ -52,7 +51,7 @@ class DiaryEntry(Base):
 
     def __repr__(self):
         return (
-            f"<DiaryEntry(id={self.id}, uuid={self.uuid}, title='{self.title}', date={self.date}, "
+            f"<DiaryEntry(uuid={self.uuid}, title='{self.title}', date={self.date}, "
             f"mood={self.mood}, weather_code={self.weather_code})>"
         )
 
@@ -65,7 +64,7 @@ class DiaryDailyMetadata(Base):
         UniqueConstraint('user_uuid', 'date', name='uq_diary_daily_metadata_user_date'),
     )
 
-    id = Column(Integer, primary_key=True, index=True)
+    uuid = Column(String(36), primary_key=True, default=lambda: str(uuid4()), index=True)
     user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     date = Column(DateTime(timezone=True), nullable=False, index=True)
     nepali_date = Column(String(20), nullable=True)
@@ -87,7 +86,7 @@ class DiaryDailyMetadata(Base):
     entries = relationship("DiaryEntry", back_populates="daily_metadata")
 
     def __repr__(self):
-        return f"<DiaryDailyMetadata(id={self.id}, user_uuid={self.user_uuid}, date={self.date})>"
+        return f"<DiaryDailyMetadata(uuid={self.uuid}, user_uuid={self.user_uuid}, date={self.date})>"
 
 
 class DiaryMedia(Base):
@@ -95,7 +94,6 @@ class DiaryMedia(Base):
     
     __tablename__ = "diary_media"
     
-    id = Column(Integer, autoincrement=True, nullable=False, index=True)  # Legacy counter (keeps counting lifetime entries)
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
     
     diary_entry_uuid = Column(String(36), ForeignKey("diary_entries.uuid", ondelete="CASCADE"), nullable=False, index=True)
@@ -120,5 +118,5 @@ class DiaryMedia(Base):
     user = relationship("User", back_populates="diary_media")
     
     def __repr__(self):
-        return f"<DiaryMedia(id={self.id}, uuid={self.uuid}, filename='{self.filename}', media_type='{self.media_type}')>"
+        return f"<DiaryMedia(uuid={self.uuid}, filename='{self.filename}', media_type='{self.media_type}')>"
 

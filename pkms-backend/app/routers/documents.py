@@ -58,7 +58,6 @@ file_detector = FileTypeDetectionService()
 def _convert_doc_to_response(doc: Document, project_badges: Optional[List[ProjectBadge]] = None) -> DocumentResponse:
     """Convert Document model to DocumentResponse with relational tags."""
     return DocumentResponse(
-        id=doc.id,
         uuid=doc.uuid,
         title=doc.title,
         original_name=doc.original_name,
@@ -230,8 +229,8 @@ async def list_documents(
                 # Filter documents that have NO project associations
                 query = query.outerjoin(document_projects, Document.uuid == document_projects.c.document_uuid)
                 query = query.where(document_projects.c.document_uuid.is_(None))
-            query = query.order_by(Document.created_at.desc()).offset(offset).limit(limit)
-            result = await db.execute(query.order_by(Document.is_favorite.desc(), Document.created_at.desc()))
+            query = query.order_by(Document.is_favorite.desc(), Document.created_at.desc()).offset(offset).limit(limit)
+            result = await db.execute(query)
             ordered_docs = result.scalars().unique().all()
             logger.info(f"Regular query returned {len(ordered_docs)} documents")
         
@@ -283,7 +282,7 @@ async def list_documents(
                         # Live project
                         project = project_map[junction.project_uuid]
                         project_badges.append(ProjectBadge(
-                            id=project.id,
+                            uuid=project.uuid,
                             name=project.name,
                             color=project.color,
                             is_exclusive=junction.is_exclusive,
@@ -388,7 +387,7 @@ async def update_document(
 
     # Handle projects if provided (with ownership verification)
     if "project_ids" in update_data:
-        await project_service.handle_associations(db, doc, update_data.pop("project_ids"), current_user.id, document_projects, "document_uuid")
+        await project_service.handle_associations(db, doc, update_data.pop("project_ids"), current_user.uuid, document_projects, "document_uuid")
 
     # SECURITY: Validate and sanitize update fields
     for key, value in update_data.items():
@@ -497,7 +496,7 @@ async def archive_document(
             is_favorite=document.is_favorite,
             metadata_json=json.dumps({
                 "source": "documents",
-                "original_document_id": document.id,
+                "original_document_uuid": document.uuid,
                 "archived_at": datetime.now(NEPAL_TZ).isoformat()
             })
         )

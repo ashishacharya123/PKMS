@@ -66,13 +66,6 @@ async def get_current_user(
         )
     
     user_uuid = payload.get("sub")
-    if user_id_str is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
     if not user_uuid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

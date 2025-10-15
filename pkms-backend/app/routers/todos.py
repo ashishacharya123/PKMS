@@ -40,12 +40,12 @@ async def todos_stats_overview(
     """Return high-level statistics for the current user's todos and projects."""
     # Total counts
     total_todos = (await db.execute(
-        select(func.count(Todo.id)).where(Todo.user_uuid == current_user.uuid)
+        select(func.count(Todo.uuid)).where(Todo.user_uuid == current_user.uuid)
     )).scalar() or 0
 
     # Counts by status
     status_counts = (await db.execute(
-        select(Todo.status, func.count(Todo.id))
+        select(Todo.status, func.count(Todo.uuid))
         .where(Todo.user_uuid == current_user.uuid)
         .group_by(Todo.status)
     )).all()
@@ -62,7 +62,7 @@ async def todos_stats_overview(
         status_stats[status] = count
 
     archived_count = (await db.execute(
-        select(func.count(Todo.id)).where(and_(
+        select(func.count(Todo.uuid)).where(and_(
             Todo.user_uuid == current_user.uuid,
             Todo.is_archived.is_(True)
         ))
@@ -72,7 +72,7 @@ async def todos_stats_overview(
     from datetime import date as _date_cls
     now_date = _date_cls.today()
     overdue_count = (await db.execute(
-        select(func.count(Todo.id)).where(and_(
+        select(func.count(Todo.uuid)).where(and_(
             Todo.user_uuid == current_user.uuid,
             Todo.status != 'done',
             Todo.is_archived.is_(False),
@@ -83,7 +83,7 @@ async def todos_stats_overview(
 
     # By priority
     by_priority_rows = (await db.execute(
-        select(Todo.priority, func.count(Todo.id))
+        select(Todo.priority, func.count(Todo.uuid))
         .where(Todo.user_uuid == current_user.uuid)
         .group_by(Todo.priority)
     )).all()
@@ -91,11 +91,11 @@ async def todos_stats_overview(
 
     # Projects summary
     total_projects = (await db.execute(
-        select(func.count(Project.id)).where(Project.user_uuid == current_user.uuid)
+        select(func.count(Project.uuid)).where(Project.user_uuid == current_user.uuid)
     )).scalar() or 0
 
     archived_projects = (await db.execute(
-        select(func.count(Project.id)).where(and_(
+        select(func.count(Project.uuid)).where(and_(
             Project.user_uuid == current_user.uuid,
             Project.is_archived.is_(True)
         ))
@@ -152,8 +152,7 @@ def _convert_todo_to_response(todo: Todo, project_badges: Optional[List[ProjectB
     """Convert Todo model to TodoResponse with relational tags."""
     badges = project_badges or []
     return TodoResponse(
-        id=todo.id,
-        uuid=getattr(todo, 'uuid', None),
+        uuid=todo.uuid,
         title=todo.title,
         description=todo.description,
         status=todo.status,
@@ -179,7 +178,7 @@ def _convert_todo_to_response(todo: Todo, project_badges: Optional[List[ProjectB
 def _convert_project_to_response(project: Project, todo_count: int = 0, completed_count: int = 0) -> ProjectResponse:
     """Convert Project model to ProjectResponse with todo counts."""
     return ProjectResponse(
-        id=project.id,
+        uuid=project.uuid,
         name=project.name,
         description=project.description,
         color=project.color,
@@ -242,7 +241,7 @@ async def create_todo(
 
         # Handle projects
         if todo_data.project_ids:
-            await project_service.handle_associations(db, todo, todo_data.project_ids, current_user.id, todo_projects, "todo_uuid")
+            await project_service.handle_associations(db, todo, todo_data.project_ids, current_user.uuid, todo_projects, "todo_uuid")
 
         await db.commit()
 
@@ -250,16 +249,17 @@ async def create_todo(
         result = await db.execute(
             select(Todo).options(
                 selectinload(Todo.tag_objs),
-                selectinload(Todo.project)
+                selectinload(Todo.projects)
             ).where(
-                Todo.id == todo.id
+                Todo.uuid == todo.uuid
             )
         )
         todo_with_tags = result.scalar_one()
         
         # Build project badges
-        # Index in search
+        # Index in search and persist
         await search_service.index_item(db, todo_with_tags, 'todo')
+        await db.commit()
         
         # Build project badges
         project_badges = await project_service.build_badges(db, todo_with_tags.uuid, todo_with_tags.is_exclusive_mode, todo_projects, "todo_uuid")
@@ -295,7 +295,7 @@ async def list_todos(
     """
     query = select(Todo).options(
         selectinload(Todo.tag_objs),
-        selectinload(Todo.project)
+        selectinload(Todo.projects)
     ).where(
         and_(
             Todo.user_uuid == current_user.uuid,
@@ -326,31 +326,31 @@ async def list_todos(
     
     if include_subtasks:
         # SECURITY: Fix N+1 query problem with batch loading
-        todo_ids = [todo.id for todo in todos]
+        todo_uuids = [todo.uuid for todo in todos]
         
         # Single query to load all subtasks for all todos
         subtasks_result = await db.execute(
             select(Todo).options(
                 selectinload(Todo.tag_objs),
-                selectinload(Todo.project)
+                selectinload(Todo.projects)
             ).where(and_(
-                Todo.parent_id.in_(todo_ids),
+                Todo.parent_uuid.in_(todo_uuids),
                 Todo.user_uuid == current_user.uuid
-            )).order_by(Todo.parent_id, Todo.order_index)
+            )).order_by(Todo.parent_uuid, Todo.order_index)
         )
         all_subtasks = subtasks_result.scalars().all()
         
-        # Group subtasks by parent_id
+        # Group subtasks by parent_uuid
         subtasks_by_parent = {}
         for subtask in all_subtasks:
-            if subtask.parent_id not in subtasks_by_parent:
-                subtasks_by_parent[subtask.parent_id] = []
-            subtasks_by_parent[subtask.parent_id].append(subtask)
+            if subtask.parent_uuid not in subtasks_by_parent:
+                subtasks_by_parent[subtask.parent_uuid] = []
+            subtasks_by_parent[subtask.parent_uuid].append(subtask)
         
         # Assign subtasks to their parents
         todos_with_subtasks = []
         for todo in todos:
-            todo.subtasks = subtasks_by_parent.get(todo.id, [])
+            todo.subtasks = subtasks_by_parent.get(todo.uuid, [])
             todos_with_subtasks.append(todo)
         
         # Build responses with project badges
@@ -393,8 +393,9 @@ async def create_project(
     if tags:
         await tag_service.handle_tags(db, project, tags, current_user.uuid, "projects", project_tags)
     
-    # Index in search
+    # Index in search and persist
     await search_service.index_item(db, project, 'project')
+    await db.commit()
     
     return _convert_project_to_response(project, 0, 0)  # New project has 0 todos
 
@@ -462,8 +463,9 @@ async def update_project(
     if tags is not None:
         await tag_service.handle_tags(db, project, tags, current_user.uuid, "projects", project_tags)
     
-    # Index in search
+    # Index in search and persist
     await search_service.index_item(db, project, 'project')
+    await db.commit()
     
     todo_count, completed_count = await _get_project_counts(db, project.uuid)
     return _convert_project_to_response(project, todo_count, completed_count)
@@ -499,13 +501,13 @@ async def delete_project(
         .where(note_projects.c.project_uuid == project.uuid)
         .values(project_name_snapshot=project.name)
     )
-    
+
     await db.execute(
         update(document_projects)
         .where(document_projects.c.project_uuid == project.uuid)
         .values(project_name_snapshot=project.name)
     )
-    
+
     await db.execute(
         update(todo_projects)
         .where(todo_projects.c.project_uuid == project.uuid)
@@ -514,40 +516,40 @@ async def delete_project(
     
     # Step 2: Hard delete exclusive items
     # Get exclusive notes linked to this project
-    exclusive_note_ids = await db.execute(
-        select(Note.id)
+    exclusive_note_uuids = await db.execute(
+        select(Note.uuid)
         .join(note_projects, Note.uuid == note_projects.c.note_uuid)
         .where(
             note_projects.c.project_uuid == project.uuid,
-            Note.is_exclusive_mode == True
+            Note.is_exclusive_mode.is_(True)
         )
     )
-    for note_id in exclusive_note_ids.scalars():
-        await db.execute(sql_delete(Note).where(Note.id == note_id))
+    for note_uuid in exclusive_note_uuids.scalars():
+        await db.execute(sql_delete(Note).where(Note.uuid == note_uuid))
     
     # Get exclusive documents linked to this project
-    exclusive_doc_ids = await db.execute(
-        select(Document.id)
+    exclusive_doc_uuids = await db.execute(
+        select(Document.uuid)
         .join(document_projects, Document.uuid == document_projects.c.document_uuid)
         .where(
             document_projects.c.project_uuid == project.uuid,
-            Document.is_exclusive_mode == True
+            Document.is_exclusive_mode.is_(True)
         )
     )
-    for doc_id in exclusive_doc_ids.scalars():
-        await db.execute(sql_delete(Document).where(Document.id == doc_id))
+    for doc_uuid in exclusive_doc_uuids.scalars():
+        await db.execute(sql_delete(Document).where(Document.uuid == doc_uuid))
     
     # Get exclusive todos linked to this project
-    exclusive_todo_ids = await db.execute(
-        select(Todo.id)
+    exclusive_todo_uuids = await db.execute(
+        select(Todo.uuid)
         .join(todo_projects, Todo.uuid == todo_projects.c.todo_uuid)
         .where(
             todo_projects.c.project_uuid == project.uuid,
-            Todo.is_exclusive_mode == True
+            Todo.is_exclusive_mode.is_(True)
         )
     )
-    for todo_id in exclusive_todo_ids.scalars():
-        await db.execute(sql_delete(Todo).where(Todo.id == todo_id))
+    for todo_uuid in exclusive_todo_uuids.scalars():
+        await db.execute(sql_delete(Todo).where(Todo.uuid == todo_uuid))
     
     # Remove from search index BEFORE deleting project
     await search_service.remove_item(db, project_uuid)
@@ -566,7 +568,7 @@ async def get_todo(
     result = await db.execute(
         select(Todo).options(
             selectinload(Todo.tag_objs),
-            selectinload(Todo.project)
+            selectinload(Todo.projects)
         ).where(and_(Todo.uuid == todo_uuid, Todo.user_uuid == current_user.uuid))
     )
     todo = result.scalar_one_or_none()
@@ -599,13 +601,7 @@ async def update_todo(
 
     # Handle projects if provided
     if "project_ids" in update_data:
-        await project_service.handle_associations(db, todo, update_data.pop("project_ids"), current_user.id, todo_projects, "todo_uuid")
-
-    # Handle projects if provided
-    if "project_ids" in update_data:
-        # This block was removed as per the new_code, as the project_service.handle_associations
-        # now directly uses project_uuid and handles the snapshotting.
-        pass
+        await project_service.handle_associations(db, todo, update_data.pop("project_ids"), current_user.uuid, todo_projects, "todo_uuid")
 
     for key, value in update_data.items():
         setattr(todo, key, value)
@@ -632,16 +628,17 @@ async def update_todo(
     result = await db.execute(
         select(Todo).options(
             selectinload(Todo.tag_objs),
-            selectinload(Todo.project)
+            selectinload(Todo.projects)
         ).where(
-            Todo.id == todo.id
+            Todo.uuid == todo.uuid
         )
     )
     todo_with_tags = result.scalar_one()
     
     # Build project badges
-    # Index in search
+    # Index in search and persist
     await search_service.index_item(db, todo_with_tags, 'todo')
+    await db.commit()
     
     # Build project badges
     project_badges = await project_service.build_badges(db, todo_with_tags.uuid, todo_with_tags.is_exclusive_mode, todo_projects, "todo_uuid")
@@ -658,7 +655,7 @@ async def archive_todo(
     result = await db.execute(
         select(Todo).options(
             selectinload(Todo.tag_objs),
-            selectinload(Todo.project)
+            selectinload(Todo.projects)
         ).where(and_(Todo.uuid == todo_uuid, Todo.user_uuid == current_user.uuid))
     )
     todo = result.scalar_one_or_none()
@@ -732,13 +729,13 @@ async def update_todo_status(
     result = await db.execute(
         select(Todo).options(
             selectinload(Todo.tag_objs),
-            selectinload(Todo.project)
-        ).where(Todo.id == todo.id)
+            selectinload(Todo.projects)
+        ).where(Todo.uuid == todo.uuid)
     )
     todo_with_tags = result.scalar_one()
     
     # Build project badges
-    project_badges = await project_service.build_badges(db, todo_with_tags.id, todo_with_tags.is_exclusive_mode, todo_projects, "todo_id")
+    project_badges = await project_service.build_badges(db, todo_with_tags.uuid, todo_with_tags.is_exclusive_mode, todo_projects, "todo_uuid")
     
     return _convert_todo_to_response(todo_with_tags, project_badges)
 
@@ -766,13 +763,13 @@ async def reorder_todo(
     result = await db.execute(
         select(Todo).options(
             selectinload(Todo.tag_objs),
-            selectinload(Todo.project)
-        ).where(Todo.id == todo.id)
+            selectinload(Todo.projects)
+        ).where(Todo.uuid == todo.uuid)
     )
     todo_with_tags = result.scalar_one()
     
     # Build project badges
-    project_badges = await project_service.build_badges(db, todo_with_tags.id, todo_with_tags.is_exclusive_mode, todo_projects, "todo_id")
+    project_badges = await project_service.build_badges(db, todo_with_tags.uuid, todo_with_tags.is_exclusive_mode, todo_projects, "todo_uuid")
     
     return _convert_todo_to_response(todo_with_tags, project_badges)
 
@@ -815,7 +812,7 @@ async def create_subtask(
         order_index=subtask_data.order_index or 0,
         start_date=subtask_data.start_date,
         due_date=subtask_data.due_date,
-        parent_id=parent_todo.id,
+        parent_uuid=parent_todo.uuid,
         # Projects will be inherited via project associations
         user_uuid=current_user.uuid,
         
@@ -831,13 +828,13 @@ async def create_subtask(
     result = await db.execute(
         select(Todo).options(
             selectinload(Todo.tag_objs),
-            selectinload(Todo.project)
-        ).where(Todo.id == subtask.id)
+            selectinload(Todo.projects)
+        ).where(Todo.uuid == subtask.uuid)
     )
     subtask_with_tags = result.scalar_one()
     
     # Build project badges
-    project_badges = await project_service.build_badges(db, subtask_with_tags.uuid, subtask_with_tags.is_exclusive_mode, todo_projects, "todo_uuid")
+        project_badges = await project_service.build_badges(db, subtask_with_tags.uuid, subtask_with_tags.is_exclusive_mode, todo_projects, "todo_uuid")
     
     return _convert_todo_to_response(subtask_with_tags, project_badges)
 
@@ -861,9 +858,9 @@ async def get_subtasks(
     result = await db.execute(
         select(Todo).options(
             selectinload(Todo.tag_objs),
-            selectinload(Todo.project)
+            selectinload(Todo.projects)
         ).where(and_(
-            Todo.parent_id == parent_todo.id,
+            Todo.parent_uuid == parent_todo.uuid,
             Todo.user_uuid == current_user.uuid
         )).order_by(Todo.order_index)
     )
@@ -904,19 +901,19 @@ async def move_subtask(
             raise HTTPException(status_code=404, detail="New parent todo not found")
         
         # Prevent circular references
-        if parent_todo.id == todo.id:
+        if parent_todo.uuid == todo.uuid:
             raise HTTPException(status_code=400, detail="Cannot make todo a subtask of itself")
         
         # SECURITY: Check for circular reference with depth limit to prevent DoS
-        current_parent = parent_todo.id
+        current_parent = parent_todo.uuid
         depth = 0
         max_depth = 50 # Prevent unbounded recursion
         
         while current_parent and depth < max_depth:
-            if current_parent == todo.id:
+            if current_parent == todo.uuid:
                 raise HTTPException(status_code=400, detail="Cannot create circular reference")
             parent_check = await db.execute(
-                select(Todo.parent_id).where(Todo.id == current_parent)
+                select(Todo.parent_uuid).where(Todo.uuid == current_parent)
             )
             current_parent = parent_check.scalar_one_or_none()
             depth += 1
@@ -925,7 +922,7 @@ async def move_subtask(
             raise HTTPException(status_code=400, detail="Todo hierarchy too deep")
     
     # Update parent_id
-    todo.parent_id = parent_todo.id if parent_uuid is not None else None
+    todo.parent_uuid = parent_todo.uuid if parent_uuid is not None else None
     
     # If moving to a new parent, inherit project associations
     if parent_uuid is not None:
@@ -936,7 +933,7 @@ async def move_subtask(
         parent_project_uuids = [row[0] for row in parent_projects_result.fetchall()]
         
         if parent_project_uuids:
-            await project_service.handle_associations(db, todo, parent_project_uuids, current_user.id, todo_projects, "todo_uuid")
+            await project_service.handle_associations(db, todo, parent_project_uuids, current_user.uuid, todo_projects, "todo_uuid")
     
     await db.commit()
     await db.refresh(todo)
@@ -945,13 +942,13 @@ async def move_subtask(
     result = await db.execute(
         select(Todo).options(
             selectinload(Todo.tag_objs),
-            selectinload(Todo.project)
-        ).where(Todo.id == todo.id)
+            selectinload(Todo.projects)
+        ).where(Todo.uuid == todo.uuid)
     )
     todo_with_tags = result.scalar_one()
     
     # Build project badges
-    project_badges = await project_service.build_badges(db, todo_with_tags.id, todo_with_tags.is_exclusive_mode, todo_projects, "todo_id")
+    project_badges = await project_service.build_badges(db, todo_with_tags.uuid, todo_with_tags.is_exclusive_mode, todo_projects, "todo_uuid")
     
     return _convert_todo_to_response(todo_with_tags, project_badges)
 
@@ -977,7 +974,7 @@ async def reorder_subtasks(
         subtask_result = await db.execute(
             select(Todo).where(and_(
                 Todo.uuid == subtask_uuid,
-                Todo.parent_id == parent_todo.id,
+                Todo.parent_uuid == parent_todo.uuid,
                 Todo.user_uuid == current_user.uuid
             ))
         )

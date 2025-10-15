@@ -17,7 +17,6 @@ class ArchiveFolder(Base):
     
     __tablename__ = "archive_folders"
     
-    id = Column(Integer, autoincrement=True, nullable=False, index=True)
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
@@ -36,7 +35,7 @@ class ArchiveFolder(Base):
     tag_objs = relationship("Tag", secondary=archive_folder_tags, back_populates="archive_folders")
     
     def __repr__(self):
-        return f"<ArchiveFolder(uuid={self.uuid}, id={self.id}, name='{self.name}', parent_uuid='{self.parent_uuid}')>"
+        return f"<ArchiveFolder(uuid={self.uuid}, name='{self.name}', parent_uuid='{self.parent_uuid}')>"
 
 
 class ArchiveItem(Base):
@@ -44,7 +43,6 @@ class ArchiveItem(Base):
     
     __tablename__ = "archive_items"
     
-    id = Column(Integer, autoincrement=True, nullable=False, index=True)
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
@@ -70,4 +68,4 @@ class ArchiveItem(Base):
     tag_objs = relationship("Tag", secondary=archive_item_tags, back_populates="archive_items")
     
     def __repr__(self):
-        return f"<ArchiveItem(uuid={self.uuid}, id={self.id}, name='{self.name}', folder_uuid='{self.folder_uuid}')>" 
+        return f"<ArchiveItem(uuid={self.uuid}, name='{self.name}', folder_uuid='{self.folder_uuid}')>" 

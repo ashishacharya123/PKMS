@@ -38,7 +38,7 @@ import {
 import { useAuthStore } from '../stores/authStore';
 import { dashboardService, type DashboardStats, type QuickStats } from '../services/dashboardService';
 import { todosService, type Project } from '../services/todosService';
-import StorageBreakdownCard from '../components/dashboard/StorageBreakdownCard';
+import { StorageBreakdownCard } from '../components/dashboard/StorageBreakdownCard';
 
 // Update interfaces to match backend response
 interface ModuleStats {
@@ -451,7 +451,7 @@ export function DashboardPage() {
           
           return (
             <Card
-              key={project.id}
+              key={project.uuid}
               padding="lg"
               radius="md"
               withBorder
@@ -673,10 +673,6 @@ export function DashboardPage() {
               </div>
             </SimpleGrid>
           </Card>
-        )}
-
-        {quick && quick.storage_by_module && (
-          <StorageBreakdownCard total={quick.storage_used_mb} byModule={quick.storage_by_module} />
         )}
 
         {/* Today Panel (conditional fields) */}

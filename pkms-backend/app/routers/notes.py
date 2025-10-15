@@ -89,7 +89,6 @@ def _convert_note_to_response(note: Note, project_badges: Optional[List[ProjectB
     """Convert Note model to NoteResponse."""
     badges = project_badges or []
     return NoteResponse(
-        id=note.id,
         uuid=note.uuid,
         title=note.title,
         content=note.content,
@@ -177,7 +176,6 @@ async def list_notes(
             preview = note.content[:200] + "..." if len(note.content) > 200 else note.content
         project_badges = await project_service.build_badges(db, note.uuid, note.is_exclusive_mode, note_projects, "note_uuid")
         summary = NoteSummary(
-            id=note.id,
             uuid=note.uuid,
             title=note.title,
             file_count=note.file_count,
@@ -223,11 +221,11 @@ async def create_note(
         if note_data.tags:
             # SECURITY: Sanitize tags to prevent XSS injection
             sanitized_tags = sanitize_tags(note_data.tags)
-            await tag_service.handle_tags(db, note, sanitized_tags, current_user.id, "notes", note_tags)
+            await tag_service.handle_tags(db, note, sanitized_tags, current_user.uuid, "notes", note_tags)
         
         # Handle projects
         if note_data.project_ids:
-            await project_service.handle_associations(db, note, note_data.project_ids, current_user.id, note_projects, "note_uuid")
+            await project_service.handle_associations(db, note, note_data.project_ids, current_user.uuid, note_projects, "note_uuid")
         
         # Process links in content
         await _process_note_links(db, note, note_data.content, current_user.uuid)
@@ -237,7 +235,7 @@ async def create_note(
         # Reload note with tags to avoid lazy loading issues in response conversion
         result = await db.execute(
             select(Note).options(selectinload(Note.tag_objs)).where(
-                Note.id == note.id
+                Note.uuid == note.uuid
             )
         )
         note_with_tags = result.scalar_one()
@@ -294,7 +292,7 @@ async def update_note(
 
     # Handle projects if provided
     if "project_ids" in update_data:
-        await project_service.handle_associations(db, note, update_data.pop("project_ids"), current_user.id, note_projects, "note_uuid")
+        await project_service.handle_associations(db, note, update_data.pop("project_ids"), current_user.uuid, note_projects, "note_uuid")
 
     # SECURITY: Validate and sanitize update fields
     content_updated = False
@@ -322,7 +320,7 @@ async def update_note(
     # Reload note with tags to avoid lazy loading issues in response conversion
     result = await db.execute(
         select(Note).options(selectinload(Note.tag_objs)).where(
-            Note.id == note.id
+            Note.uuid == note.uuid
         )
     )
     note_with_tags = result.scalar_one()
@@ -349,7 +347,7 @@ async def delete_note(
     )
     note = result.scalar_one_or_none()
     if not note:
-        logger.warning(f"Attempted to delete non-existent note with UUID: {note_uuid} for user: {current_user.id}")
+        logger.warning(f"Attempted to delete non-existent note with UUID: {note_uuid} for user: {current_user.uuid}")
         raise HTTPException(status_code=404, detail="Note not found")
 
     logger.info(f"Attempting to delete note with UUID: {note_uuid} for user: {current_user.uuid}")
@@ -482,7 +480,7 @@ async def commit_note_file_upload(
             note_uuid=payload.note_uuid,
             original_name=payload.original_name,
             description=payload.description,
-            user_id=current_user.id
+            user_uuid=current_user.uuid
         )
 
         logger.info(f"Note file committed successfully: {note_file.filename}")
@@ -501,7 +499,7 @@ async def commit_note_file_upload(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error committing note file upload: {str(e)}")
+        logger.exception("❌ Error committing note file upload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to commit note file upload"

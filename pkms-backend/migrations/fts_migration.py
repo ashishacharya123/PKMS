@@ -108,18 +108,20 @@ async def bulk_index_existing_content():
             logger.info(f"Found {total_users} users to index")
             
             for i, user in enumerate(users, 1):
-                logger.info(f"📝 Indexing content for user {user.id} ({i}/{total_users})")
-                await search_service.bulk_index_user_content(db, user.id)
-                logger.info(f"✅ Completed indexing for user {user.id}")
+                logger.info(f"📝 Indexing content for user {user.uuid} ({i}/{total_users})")
+                await search_service.bulk_index_user_content(db, user.uuid)
+                await db.commit()
+                logger.info(f"✅ Completed indexing for user {user.uuid}")
             
             logger.info("🎉 Bulk indexing completed successfully!")
             break
             
         except Exception as e:
-            logger.error(f"❌ Error during bulk indexing: {e}")
+            logger.exception("❌ Error during bulk indexing")
             raise
         finally:
-            await db.close()
+            # Session lifecycle managed by get_db(); do not close explicitly here
+            pass
 
 
 async def verify_migration():
@@ -171,7 +173,7 @@ async def main():
         logger.info("🎉 FTS5 migration completed successfully!")
         
     except Exception as e:
-        logger.error(f"❌ Migration failed: {e}")
+        logger.exception("❌ Migration failed")
         raise
 
 

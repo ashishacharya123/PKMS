@@ -237,7 +237,13 @@ class TodosService {
   async deleteTodo(todoUuid: string): Promise<void> {
     await apiService.delete(`${this.baseUrl}/${todoUuid}`);
   }
-
+  async archiveTodo(todoUuid: string, archive: boolean): Promise<Todo> {
+    const response = await apiService.patch<Todo>(
+      `${this.baseUrl}/${todoUuid}/archive?archive=${archive}`
+    );
+    return response.data;
+  }
+  
   /* ---------------------------------------------------------------------- */
   /*                               DOWNLOADS                                */
   /* ---------------------------------------------------------------------- */

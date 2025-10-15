@@ -182,7 +182,7 @@ except ImportError:
 from app.database import get_db
 from app.config import settings, get_data_dir, get_file_storage_dir, NEPAL_TZ
 from app.models.archive import ArchiveFolder, ArchiveItem
-from app.models.tag_associations import archive_tags
+from app.models.tag_associations import archive_tags, archive_item_tags
 from app.models.tag import Tag
 from app.models.user import User
 from app.auth.dependencies import get_current_user
@@ -921,8 +921,8 @@ async def upload_item(
         await db.commit()
         await db.refresh(item)
         
-        # Index in search
-        await search_service.index_item(db, item, 'archive')
+        # Index in search with correct type
+        await search_service.index_item(db, item, 'archive_item')
         
         logger.info(f"✅ Uploaded file '{original_filename}' to folder '{folder.name}' for user {current_user.username}")
         
@@ -983,7 +983,7 @@ async def list_folder_items(
     query = select(ArchiveItem).where(
         and_(
             ArchiveItem.folder_uuid == folder_uuid,
-            ArchiveItem.user_id == current_user.id
+            ArchiveItem.user_uuid == current_user.uuid
         )
     )
     
@@ -1074,13 +1074,13 @@ async def update_item(
         
         # Handle tags
         if item_data.tags is not None:
-            await tag_service.handle_tags(db, item, item_data.tags, current_user.id, "archive", archive_tags)
+            await tag_service.handle_tags(db, item, item_data.tags, current_user.uuid, "archive_items", archive_item_tags)
         
         await db.commit()
         await db.refresh(item)
         
-        # Index in search
-        await search_service.index_item(db, item, 'archive')
+        # Index in search with correct type
+        await search_service.index_item(db, item, 'archive_item')
         
         return await _get_item_with_relations(db, item.uuid)
         
@@ -1165,7 +1165,7 @@ async def download_item(
         select(ArchiveItem).where(
             and_(
                 ArchiveItem.uuid == item_uuid,
-                ArchiveItem.user_id == current_user.id
+                ArchiveItem.user_uuid == current_user.uuid
             )
         )
     )
@@ -1236,8 +1236,11 @@ async def search_items(
         search_query = sanitize_search_query(query)
         fts_results = await search_service.search(
             db, current_user.uuid, search_query,
-            item_types=["archive_item"], limit=page_size, offset=(page-1)*page_size
+            item_types=["archive_item"], limit=page*page_size
         )
+        # Paginate locally since search doesn't support offset
+        start = (page - 1) * page_size
+        fts_results = fts_results[start:start + page_size]
         if not fts_results:
             return []
         # Extract UUIDs from FTS results
@@ -1563,7 +1566,7 @@ async def _create_archive_item(
     stored_filename: str,
     mime_type: str,
     file_size: int,
-    user_id: int,
+    user_uuid: str,
     name: Optional[str] = None,
     description: Optional[str] = None,
     tags: Optional[List[str]] = None,
@@ -1604,7 +1607,7 @@ async def _create_archive_item(
             mime_type=mime_type,
             file_size=file_size,
             metadata_json=json.dumps(metadata),
-            user_id=user_id
+            user_uuid=user_uuid
         )
         
         db.add(item)
@@ -1613,7 +1616,8 @@ async def _create_archive_item(
         # Handle tags if provided
         if tags:
             try:
-                await tag_service.handle_tags(db, item, tags, current_user.id, "archive", archive_tags)
+                from app.models.tag_associations import archive_item_tags
+                await tag_service.handle_tags(db, item, tags, user_uuid, "archive_items", archive_item_tags)
             except Exception as e:
                 logger.warning(f"⚠️ Tag handling failed: {str(e)}")
         
@@ -1642,7 +1646,7 @@ async def upload_files(
             folder_query = select(ArchiveFolder).where(
                 and_(
                     ArchiveFolder.uuid == folder_uuid,
-                    ArchiveFolder.user_id == current_user.id
+                    ArchiveFolder.user_uuid == current_user.uuid
                 )
             )
             folder_result = await db.execute(folder_query)
@@ -2027,8 +2031,8 @@ async def debug_fts_status(
         try:
             fts_result = await db.execute(text("""
                 SELECT COUNT(*) as fts_count 
-                FROM fts_archive_items 
-                WHERE user_uuid = :user_uuid
+                FROM fts_content 
+                WHERE user_uuid = :user_uuid AND item_type = 'archive_item'
             """), {"user_uuid": current_user.uuid})
             fts_count = fts_result.scalar()
         except Exception as e:

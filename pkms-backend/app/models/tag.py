@@ -22,8 +22,7 @@ class Tag(Base):
     """Tag model for organizing content"""
     
     __tablename__ = "tags"
-    
-    id = Column(Integer, autoincrement=True, nullable=False, index=True)
+
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
     name = Column(String(100), nullable=False, index=True)
     
@@ -58,4 +57,4 @@ class Tag(Base):
     links = relationship("Link", secondary=link_tags, back_populates="tag_objs")
     
     def __repr__(self):
-        return f"<Tag(id={self.id}, name='{self.name}', module='{self.module_type}')>" 
+        return f"<Tag(uuid={self.uuid}, name='{self.name}', module='{self.module_type}')>" 

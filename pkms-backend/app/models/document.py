@@ -3,7 +3,6 @@ Document Model for File Management
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger
-from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 
@@ -18,7 +17,6 @@ class Document(Base):
     
     __tablename__ = "documents"
     
-    id = Column(Integer, autoincrement=True, nullable=False, index=True)  # Legacy counter (keeps counting lifetime entries)
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
     
     title = Column(String(255), nullable=False, index=True)
@@ -32,6 +30,10 @@ class Document(Base):
     is_archived = Column(Boolean, default=False, index=True)
     is_exclusive_mode = Column(Boolean, default=False, index=True)  # If True, document is deleted when any of its projects are deleted
     user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Archive linkage and upload status
+    archive_item_uuid = Column(String(36), nullable=True, index=True)
+    upload_status = Column(String(32), nullable=False, default="completed")
     
     # Audit trail
     created_by = Column(String(36), ForeignKey("users.uuid"), nullable=False)
@@ -53,5 +55,5 @@ class Document(Base):
     projects = relationship("Project", secondary=document_projects, back_populates="documents_multi")
     
     def __repr__(self):
-        return f"<Document(id={self.id}, uuid={self.uuid}, title='{self.title}')>" 
+        return f"<Document(uuid={self.uuid}, title='{self.title}')>" 
         

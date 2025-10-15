@@ -110,6 +110,7 @@ export function Navigation({ collapsed = false }: NavigationProps) {
   const [testingModalOpened, setTestingModalOpened] = useState(false);
   const [backupModalOpened, setBackupModalOpened] = useState(false);
   const [recoveryViewModalOpened, setRecoveryViewModalOpened] = useState(false);
+  const [reindexing, setReindexing] = useState(false);
   const { user, logout } = useAuthStore();
   // const navigate = useNavigate();
   const location = useLocation();
@@ -310,25 +311,28 @@ export function Navigation({ collapsed = false }: NavigationProps) {
             <Menu.Label>Search Tools</Menu.Label>
             <Menu.Item
               leftSection={<IconSearch size={14} />}
-              onClick={() => navigate('/search/unified')}
+              onClick={() => { navigate('/search/unified'); setUserMenuOpened(false); }}
             >
               Unified Search
             </Menu.Item>
             <Menu.Item
               leftSection={<IconSearch size={14} />}
-              onClick={() => navigate('/search/fuzzy')}
+              onClick={() => { navigate('/search/fuzzy'); setUserMenuOpened(false); }}
             >
               Fuzzy Search
             </Menu.Item>
             <Menu.Item
               leftSection={<IconRotateClockwise size={14} />}
+              disabled={reindexing}
               onClick={async () => {
                 try {
+                  if (reindexing) return;
+                  setReindexing(true);
                   await apiService.reindexSearchContent();
                   setUserMenuOpened(false);
                 } catch (e) {
                   // reindexSearchContent already handles notifications
-                }
+                } finally { setReindexing(false); }
               }}
             >
               Re-index Content

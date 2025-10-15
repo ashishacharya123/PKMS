@@ -7,7 +7,7 @@ ALTER TABLE notes ADD COLUMN size_bytes BIGINT DEFAULT 0 NOT NULL;
 
 -- Backfill existing notes with content size
 -- (SQLite uses LENGTH() for UTF-8 byte length)
-UPDATE notes SET size_bytes = LENGTH(content);
+UPDATE notes SET size_bytes = COALESCE(LENGTH(CAST(content AS BLOB)), 0);
 
 -- Create index for storage queries (optional, useful for aggregations)
 CREATE INDEX IF NOT EXISTS idx_notes_size_bytes ON notes(size_bytes);

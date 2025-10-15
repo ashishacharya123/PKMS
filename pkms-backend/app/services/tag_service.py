@@ -27,7 +27,12 @@ class TagService:
         # Normalize tag names to lowercase for case-insensitive handling
         normalized_new_tags = [tag.strip().lower() for tag in new_tag_names if tag and tag.strip()]
         
-        item_uuid_col = getattr(association_table.c, f"{module_type[:-1]}_uuid")
+        # Resolve the item UUID column dynamically from the association table
+        # Pick the first *_uuid column that is not 'tag_uuid'
+        uuid_cols = [col.name for col in association_table.c if col.name.endswith("_uuid") and col.name != "tag_uuid"]
+        if not uuid_cols:
+            raise ValueError("Association table does not contain an item *_uuid column")
+        item_uuid_col = getattr(association_table.c, uuid_cols[0])
 
         # 1. Get current tags for the item
         existing_tags_query = select(Tag).join(association_table).where(
@@ -81,7 +86,7 @@ class TagService:
             # Create new association
             await db.execute(
                 association_table.insert().values(
-                    **{f"{module_type[:-1]}_uuid": item.uuid, 'tag_uuid': tag.uuid}
+                    **{item_uuid_col.name: item.uuid, 'tag_uuid': tag.uuid}
                 )
             )
         await db.flush()

@@ -17,7 +17,7 @@ class DashboardStats(CamelCaseModel):
     todos: Dict[str, int]
     diary: Dict[str, int]
     archive: Dict[str, int]
-    projects: Dict[str, int]  # Added: active projects count
+    projects: Dict[str, int] = Field(default_factory=dict)  # Added: active projects count
     last_updated: datetime
 
 class ModuleActivity(CamelCaseModel):

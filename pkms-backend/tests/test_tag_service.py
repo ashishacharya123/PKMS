@@ -18,7 +18,10 @@ from typing import List
 
 from app.services.tag_service import tag_service
 from app.models.tag import Tag
-from app.models.tag_associations import note_tags, document_tags, todo_tags, archive_tags, diary_tags
+from app.models.tag_associations import (
+    note_tags, document_tags, todo_tags,
+    archive_item_tags, archive_folder_tags, diary_entry_tags
+)
 
 
 class TestTagService:
@@ -40,12 +43,12 @@ class TestTagService:
         return item
 
     @pytest.fixture
-    def mock_user_id(self):
-        """Mock user ID"""
-        return 1
+    def mock_user_uuid(self):
+        """Mock user UUID"""
+        return "00000000-0000-0000-0000-000000000001"
 
     @pytest.mark.asyncio
-    async def test_handle_tags_new_tags_creation(self, mock_db, mock_item, mock_user_id):
+    async def test_handle_tags_new_tags_creation(self, mock_db, mock_item, mock_user_uuid):
         """Test creating new tags with proper case-insensitive handling"""
         # Mock existing tags query (no existing tags)
         mock_result = AsyncMock()
@@ -64,7 +67,7 @@ class TestTagService:
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_user_id, module_type, association_table
+            mock_db, mock_item, tag_names, mock_user_uuid, module_type, association_table
         )
 
         # Verify tag creation calls
@@ -81,10 +84,10 @@ class TestTagService:
         for tag in added_tags:
             assert tag.usage_count == 1
             assert tag.module_type == module_type
-            assert tag.user_id == mock_user_id
+            assert tag.user_uuid == mock_user_uuid
 
     @pytest.mark.asyncio
-    async def test_handle_tags_existing_tags_increment(self, mock_db, mock_item, mock_user_id):
+    async def test_handle_tags_existing_tags_increment(self, mock_db, mock_item, mock_user_uuid):
         """Test incrementing usage count for existing tags"""
         # Mock existing tags query (no existing tags for this item)
         mock_existing_result = AsyncMock()
@@ -93,10 +96,9 @@ class TestTagService:
 
         # Mock tag lookup query (existing tag found)
         existing_tag = Tag(
-            id=1,
             uuid="existing-tag-uuid",
             name="important",
-            user_id=mock_user_id,
+            user_uuid=mock_user_uuid,
             module_type="notes",
             usage_count=5
         )
@@ -111,7 +113,7 @@ class TestTagService:
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_user_id, module_type, association_table
+            mock_db, mock_item, tag_names, mock_user_uuid, module_type, association_table
         )
 
         # Verify usage count was incremented
@@ -121,22 +123,20 @@ class TestTagService:
         mock_db.add.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_handle_tags_remove_existing_tags(self, mock_db, mock_item, mock_user_id):
+    async def test_handle_tags_remove_existing_tags(self, mock_db, mock_item, mock_user_uuid):
         """Test removing existing tags and decrementing usage count"""
         # Mock existing tags query (item has existing tags)
         existing_tag1 = Tag(
-            id=1,
             uuid="tag1-uuid",
             name="old_tag",
-            user_id=mock_user_id,
+            user_uuid=mock_user_uuid,
             module_type="notes",
             usage_count=3
         )
         existing_tag2 = Tag(
-            id=2,
             uuid="tag2-uuid", 
             name="another_tag",
-            user_id=mock_user_id,
+            user_uuid=mock_user_uuid,
             module_type="notes",
             usage_count=2
         )
@@ -156,7 +156,7 @@ class TestTagService:
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_user_id, module_type, association_table
+            mock_db, mock_item, tag_names, mock_user_uuid, module_type, association_table
         )
 
         # Verify usage counts were decremented for removed tags
@@ -167,14 +167,13 @@ class TestTagService:
         mock_db.add.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_handle_tags_case_insensitive_comparison(self, mock_db, mock_item, mock_user_id):
+    async def test_handle_tags_case_insensitive_comparison(self, mock_db, mock_item, mock_user_uuid):
         """Test that tag comparison is case-insensitive"""
         # Mock existing tags query (item has existing tags with different case)
         existing_tag = Tag(
-            id=1,
             uuid="tag1-uuid",
             name="IMPORTANT",  # Uppercase in DB
-            user_id=mock_user_id,
+            user_uuid=mock_user_uuid,
             module_type="notes",
             usage_count=2
         )
@@ -194,7 +193,7 @@ class TestTagService:
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_user_id, module_type, association_table
+            mock_db, mock_item, tag_names, mock_user_uuid, module_type, association_table
         )
 
         # Verify usage count was incremented (tag was recognized as existing)
@@ -204,7 +203,7 @@ class TestTagService:
         mock_db.add.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_handle_tags_empty_tag_list(self, mock_db, mock_item, mock_user_id):
+    async def test_handle_tags_empty_tag_list(self, mock_db, mock_item, mock_user_uuid):
         """Test handling empty tag list"""
         # Mock existing tags query (no existing tags)
         mock_result = AsyncMock()
@@ -218,17 +217,17 @@ class TestTagService:
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_user_id, module_type, association_table
+            mock_db, mock_item, tag_names, mock_user_uuid, module_type, association_table
         )
 
         # Verify no tags were created
         mock_db.add.assert_not_called()
 
-        # Verify only the existing tags query was executed
-        assert mock_db.execute.call_count == 1
+        # Verify at least the existing tags query was executed (service also clears associations)
+        assert mock_db.execute.call_count >= 1
 
     @pytest.mark.asyncio
-    async def test_handle_tags_whitespace_handling(self, mock_db, mock_item, mock_user_id):
+    async def test_handle_tags_whitespace_handling(self, mock_db, mock_item, mock_user_uuid):
         """Test that whitespace is properly handled in tag names"""
         # Mock existing tags query (no existing tags)
         mock_result = AsyncMock()
@@ -247,7 +246,7 @@ class TestTagService:
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_user_id, module_type, association_table
+            mock_db, mock_item, tag_names, mock_user_uuid, module_type, association_table
         )
 
         # Verify only 2 tags were created (empty string filtered out)
@@ -260,7 +259,7 @@ class TestTagService:
         assert "work" in tag_names_lower
 
     @pytest.mark.asyncio
-    async def test_handle_tags_module_isolation(self, mock_db, mock_item, mock_user_id):
+    async def test_handle_tags_module_isolation(self, mock_db, mock_item, mock_user_uuid):
         """Test that tags are isolated by module type"""
         # Mock existing tags query (no existing tags)
         mock_result = AsyncMock()
@@ -279,7 +278,7 @@ class TestTagService:
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_user_id, module_type, association_table
+            mock_db, mock_item, tag_names, mock_user_uuid, module_type, association_table
         )
 
         # Verify tag was created with correct module type
@@ -291,9 +290,9 @@ class TestTagService:
     async def test_decrement_tags_on_delete(self, mock_db, mock_item):
         """Test decrementing tag usage counts when deleting an item"""
         # Mock item with tags
-        tag1 = Tag(id=1, usage_count=5)
-        tag2 = Tag(id=2, usage_count=3)
-        tag3 = Tag(id=3, usage_count=1)
+        tag1 = Tag(usage_count=5)
+        tag2 = Tag(usage_count=3)
+        tag3 = Tag(usage_count=1)
         mock_item.tag_objs = [tag1, tag2, tag3]
 
         # Execute
@@ -332,14 +331,13 @@ class TestTagService:
         mock_db.flush.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_handle_tags_usage_count_never_negative(self, mock_db, mock_item, mock_user_id):
+    async def test_handle_tags_usage_count_never_negative(self, mock_db, mock_item, mock_user_uuid):
         """Test that usage count never goes negative"""
         # Mock existing tags query (item has existing tags)
         existing_tag = Tag(
-            id=1,
             uuid="tag1-uuid",
             name="test_tag",
-            user_id=mock_user_id,
+            user_uuid=mock_user_uuid,
             module_type="notes",
             usage_count=0  # Already at 0
         )
@@ -359,29 +357,27 @@ class TestTagService:
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_user_id, module_type, association_table
+            mock_db, mock_item, tag_names, mock_user_uuid, module_type, association_table
         )
 
         # Verify usage count didn't go negative
         assert existing_tag.usage_count == 0  # max(0, 0-1) = 0
 
     @pytest.mark.asyncio
-    async def test_handle_tags_complex_scenario(self, mock_db, mock_item, mock_user_id):
+    async def test_handle_tags_complex_scenario(self, mock_db, mock_item, mock_user_uuid):
         """Test complex scenario with mixed operations"""
         # Mock existing tags query (item has some existing tags)
         existing_tag1 = Tag(
-            id=1,
             uuid="tag1-uuid",
             name="keep_tag",
-            user_id=mock_user_id,
+            user_uuid=mock_user_uuid,
             module_type="notes",
             usage_count=2
         )
         existing_tag2 = Tag(
-            id=2,
             uuid="tag2-uuid",
             name="remove_tag",
-            user_id=mock_user_id,
+            user_uuid=mock_user_uuid,
             module_type="notes",
             usage_count=3
         )
@@ -407,7 +403,7 @@ class TestTagService:
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_user_id, module_type, association_table
+            mock_db, mock_item, tag_names, mock_user_uuid, module_type, association_table
         )
 
         # Verify usage counts

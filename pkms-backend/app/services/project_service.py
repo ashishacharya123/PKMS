@@ -139,7 +139,7 @@ class ProjectService:
                 # Live project
                 project = live_projects[project_uuid]
                 badge = ProjectBadge(
-                    id=project.id,
+                    uuid=project.uuid,
                     name=project.name,
                     color=project.color,
                     is_deleted=False,
@@ -258,7 +258,7 @@ class ProjectService:
 
         # Update all associated items to use snapshots
         # This preserves the project information even after deletion
-        for table, item_uuid_field in [
+        for table, _item_uuid_field in [
             (note_projects, "note_uuid"),
             (document_projects, "document_uuid"),
             (todo_projects, "todo_uuid")

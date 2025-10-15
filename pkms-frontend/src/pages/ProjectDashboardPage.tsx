@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -59,6 +59,19 @@ export function ProjectDashboardPage() {
   const exclusiveTodos = todos.filter(t => t.isExclusiveMode);
   const linkedTodos = todos.filter(t => !t.isExclusiveMode);
 
+  const todoCounts = useMemo(() => {
+    const byStatus: any = { done: 0, in_progress: 0, pending: 0, blocked: 0, cancelled: 0 };
+    for (const t of todos) {
+      const k = t.status as keyof typeof byStatus;
+      byStatus[k] = (byStatus[k] ?? 0) + 1;
+    }
+    return {
+      ...byStatus,
+      total: todos.length,
+      completedPct: project?.todo_count ? (project.completed_count / project.todo_count) * 100 : 0,
+    };
+  }, [todos, project?.todo_count, project?.completed_count]);
+
   useAuthenticatedEffect(() => {
     if (projectId) {
       loadProjectData();
@@ -82,13 +95,13 @@ export function ProjectDashboardPage() {
 
       // Filter items by project (temporary solution until services support UUID filtering)
       const filteredNotes = notesData.filter(note =>
-        note.projects?.some(p => p.id === projectData.id)
+        note.projects?.some(p => p.uuid === projectData.uuid)
       );
       const filteredDocs = docsData.filter(doc =>
-        doc.projects?.some(p => p.id === projectData.id)
+        doc.projects?.some(p => p.uuid === projectData.uuid)
       );
       const filteredTodos = todosData.filter(todo =>
-        todo.projects?.some(p => p.id === projectData.id)
+        todo.projects?.some(p => p.uuid === projectData.uuid)
       );
 
       setNotes(filteredNotes);
@@ -285,12 +298,10 @@ export function ProjectDashboardPage() {
           <Stack gap="md">
             <Group justify="space-between">
               <Text fw={600} size="lg">Overall Progress</Text>
-              <Text size="xl" fw={700} c="blue">
-                {project.todo_count > 0 ? Math.round((project.completed_count / project.todo_count) * 100) : 0}%
-              </Text>
+              <Text size="xl" fw={700} c="blue">{Math.round(todoCounts.completedPct)}%</Text>
             </Group>
             <Progress
-              value={project.todo_count > 0 ? (project.completed_count / project.todo_count) * 100 : 0}
+              value={todoCounts.completedPct}
               size="xl"
               radius="md"
               color="blue"
@@ -328,31 +339,11 @@ export function ProjectDashboardPage() {
                 size={200}
                 thickness={24}
                 sections={[
-                  { 
-                    value: project.todo_count > 0 ? (todos.filter(t => t.status === 'done').length / project.todo_count) * 100 : 0, 
-                    color: 'green',
-                    tooltip: `Done: ${todos.filter(t => t.status === 'done').length}`
-                  },
-                  { 
-                    value: project.todo_count > 0 ? (todos.filter(t => t.status === 'in_progress').length / project.todo_count) * 100 : 0, 
-                    color: 'blue',
-                    tooltip: `In Progress: ${todos.filter(t => t.status === 'in_progress').length}`
-                  },
-                  { 
-                    value: project.todo_count > 0 ? (todos.filter(t => t.status === 'pending').length / project.todo_count) * 100 : 0, 
-                    color: 'yellow',
-                    tooltip: `Pending: ${todos.filter(t => t.status === 'pending').length}`
-                  },
-                  { 
-                    value: project.todo_count > 0 ? (todos.filter(t => t.status === 'blocked').length / project.todo_count) * 100 : 0, 
-                    color: 'red',
-                    tooltip: `Blocked: ${todos.filter(t => t.status === 'blocked').length}`
-                  },
-                  { 
-                    value: project.todo_count > 0 ? (todos.filter(t => t.status === 'cancelled').length / project.todo_count) * 100 : 0, 
-                    color: 'gray',
-                    tooltip: `Cancelled: ${todos.filter(t => t.status === 'cancelled').length}`
-                  },
+                  { value: project.todo_count > 0 ? (todoCounts.done / project.todo_count) * 100 : 0, color: 'green', tooltip: `Done: ${todoCounts.done}` },
+                  { value: project.todo_count > 0 ? (todoCounts.in_progress / project.todo_count) * 100 : 0, color: 'blue', tooltip: `In Progress: ${todoCounts.in_progress}` },
+                  { value: project.todo_count > 0 ? (todoCounts.pending / project.todo_count) * 100 : 0, color: 'yellow', tooltip: `Pending: ${todoCounts.pending}` },
+                  { value: project.todo_count > 0 ? (todoCounts.blocked / project.todo_count) * 100 : 0, color: 'red', tooltip: `Blocked: ${todoCounts.blocked}` },
+                  { value: project.todo_count > 0 ? (todoCounts.cancelled / project.todo_count) * 100 : 0, color: 'gray', tooltip: `Cancelled: ${todoCounts.cancelled}` },
                 ]}
                 label={
                   <div style={{ textAlign: 'center' }}>
@@ -365,31 +356,31 @@ export function ProjectDashboardPage() {
             <SimpleGrid cols={{ base: 2, sm: 3, md: 5 }} spacing="xs">
               <Paper p="sm" withBorder style={{ backgroundColor: 'var(--mantine-color-green-0)' }}>
                 <Stack gap={2} align="center">
-                  <Badge color="green" size="lg">{todos.filter(t => t.status === 'done').length}</Badge>
+                  <Badge color="green" size="lg">{todoCounts.done}</Badge>
                   <Text size="xs" c="dimmed">Done</Text>
                 </Stack>
               </Paper>
               <Paper p="sm" withBorder style={{ backgroundColor: 'var(--mantine-color-blue-0)' }}>
                 <Stack gap={2} align="center">
-                  <Badge color="blue" size="lg">{todos.filter(t => t.status === 'in_progress').length}</Badge>
+                  <Badge color="blue" size="lg">{todoCounts.in_progress}</Badge>
                   <Text size="xs" c="dimmed">In Progress</Text>
                 </Stack>
               </Paper>
               <Paper p="sm" withBorder style={{ backgroundColor: 'var(--mantine-color-yellow-0)' }}>
                 <Stack gap={2} align="center">
-                  <Badge color="yellow" size="lg">{todos.filter(t => t.status === 'pending').length}</Badge>
+                  <Badge color="yellow" size="lg">{todoCounts.pending}</Badge>
                   <Text size="xs" c="dimmed">Pending</Text>
                 </Stack>
               </Paper>
               <Paper p="sm" withBorder style={{ backgroundColor: 'var(--mantine-color-red-0)' }}>
                 <Stack gap={2} align="center">
-                  <Badge color="red" size="lg">{todos.filter(t => t.status === 'blocked').length}</Badge>
+                  <Badge color="red" size="lg">{todoCounts.blocked}</Badge>
                   <Text size="xs" c="dimmed">Blocked</Text>
                 </Stack>
               </Paper>
               <Paper p="sm" withBorder style={{ backgroundColor: 'var(--mantine-color-gray-0)' }}>
                 <Stack gap={2} align="center">
-                  <Badge color="gray" size="lg">{todos.filter(t => t.status === 'cancelled').length}</Badge>
+                  <Badge color="gray" size="lg">{todoCounts.cancelled}</Badge>
                   <Text size="xs" c="dimmed">Cancelled</Text>
                 </Stack>
               </Paper>

@@ -18,7 +18,6 @@ class Note(Base):
     
     __tablename__ = "notes"
     
-    id = Column(Integer, autoincrement=True, nullable=False, index=True)  # Legacy counter (keeps counting lifetime entries)
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
     
     title = Column(String(255), nullable=False, index=True)
@@ -42,7 +41,7 @@ class Note(Base):
     # Lightweight Versioning (diff-based)
     version = Column(Integer, default=1)
     content_diff = Column(Text, nullable=True)  # Stores diff from previous version
-    last_version_uuid = Column(String(36), ForeignKey('notes.uuid'), nullable=True)  # Points to previous version
+    last_version_uuid = Column(String(36), ForeignKey('notes.uuid'), nullable=True, index=True)  # Points to previous version
     
     # Soft Delete
     is_deleted = Column(Boolean, default=False, index=True)
@@ -57,7 +56,7 @@ class Note(Base):
     projects = relationship("Project", secondary=note_projects, back_populates="notes")
     
     def __repr__(self):
-        return f"<Note(id={self.id}, uuid={self.uuid}, title='{self.title}')>"
+        return f"<Note(uuid={self.uuid}, title='{self.title}')>"
 
 
 class NoteFile(Base):
@@ -65,7 +64,6 @@ class NoteFile(Base):
     
     __tablename__ = "note_files"
     
-    id = Column(Integer, autoincrement=True, nullable=False, index=True)  # Legacy counter (keeps counting lifetime entries)
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
     
     note_uuid = Column(String(36), ForeignKey("notes.uuid", ondelete="CASCADE"), nullable=False, index=True)
@@ -85,4 +83,4 @@ class NoteFile(Base):
     user = relationship("User", back_populates="note_files")
     
     def __repr__(self):
-        return f"<NoteFile(id={self.id}, uuid={self.uuid}, filename='{self.filename}')>" 
+        return f"<NoteFile(uuid={self.uuid}, filename='{self.filename}')>" 

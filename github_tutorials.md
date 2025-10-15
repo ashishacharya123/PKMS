@@ -11,7 +11,15 @@ The most important concept is that your project exists in at least two places:
 - **The Remote Repository (`origin`):** The code on the GitHub server. This is the public, shared, central source of truth.
 
 The goal is to keep these two places in sync.
-- `git pull` or `git fetch`: Downloads changes from the Remote to your Local repo.
+- `git fetch`: Downloads commits and updates remote-tracking branches in your local repo **without** modifying your working tree or current branch. Use this to safely inspect remote changes before merging.
+- `git pull`: A convenience command that runs `git fetch` **plus** a merge (or rebase) into your current branch. Use this when you're ready to bring remote changes directly into your current branch.
+- **Example workflow:**
+  ```sh
+  git fetch origin main      # Safely get updates without changing your files
+  git log origin/main..main  # Compare your branch with remote changes
+  git pull origin main       # Actually merge remote changes into your branch
+  ```
+- **Alternative:** `git pull --rebase origin main` - Same as `git pull` but uses rebase instead of merge to create a linear history.
 - `git push`: Uploads changes from your Local repo to the Remote.
 
 ### Saving Your Work: Commits

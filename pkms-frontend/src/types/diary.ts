@@ -207,18 +207,18 @@ export interface WellnessStats {
 }
 
 export interface WeeklyHighlights {
-  period_start: string;
-  period_end: string;
-  notes_created: number;
-  documents_uploaded: number;
-  todos_completed: number;
-  diary_entries: number;
-  archive_items_added: number;
-  projects_created: number;
-  projects_completed: number;
-  total_income: number;
-  total_expense: number;
-  net_savings: number;
+  periodStart: string;
+  periodEnd: string;
+  notesCreated: number;
+  documentsUploaded: number;
+  todosCompleted: number;
+  diaryEntries: number;
+  archiveItemsAdded: number;
+  projectsCreated: number;
+  projectsCompleted: number;
+  totalIncome: number;
+  totalExpense: number;
+  netSavings: number;
 }
 
 export type SortField = 'date' | 'created_at' | 'mood';

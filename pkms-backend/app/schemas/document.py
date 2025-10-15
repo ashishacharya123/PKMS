@@ -63,7 +63,7 @@ class CommitDocumentUploadRequest(CamelCaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=1000)
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
-    project_ids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this document to")
+    project_ids: List[str] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this document to")
     is_exclusive_mode: Optional[bool] = Field(default=False, description="If True, document is exclusive to projects and deleted when any project is deleted")
 
     @validator('tags')

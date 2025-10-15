@@ -172,7 +172,7 @@ export function NotesPage() {
     highlightedIdRef.current = null;
   }, [paginatedNotes]);
 
-  const handleDeleteNote = (id: number, title: string) => {
+  const handleDeleteNote = (uuid: string, title: string) => {
     modals.openConfirmModal({
       title: 'Delete Note',
       children: (
@@ -181,7 +181,7 @@ export function NotesPage() {
       labels: { confirm: 'Delete', cancel: 'Cancel' },
       confirmProps: { color: 'red' },
       onConfirm: async () => {
-        const success = await deleteNote(id);
+        const success = await deleteNote(uuid);
         if (success) {
           loadNotes(); // Reload notes after deletion
           notifications.show({
@@ -322,7 +322,7 @@ export function NotesPage() {
               }
               onItemClick={(note) => {
                 sessionStorage.setItem('notesScrollY', String(window.scrollY));
-                navigate(`/notes/${note.id}`);
+                navigate(`/notes/${note.uuid}`);
               }}
               renderSmallIcon={(note) => (
                 <Stack gap={2} align="center">
@@ -387,7 +387,7 @@ export function NotesPage() {
                           color="red"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDeleteNote(note.id, note.title);
+                            handleDeleteNote(note.uuid, note.title);
                           }}
                         >
                           Delete
@@ -555,7 +555,7 @@ export function NotesPage() {
                         color="red"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteNote(note.id, note.title);
+                          handleDeleteNote(note.uuid, note.title);
                         }}
                       >
                         Delete
@@ -679,7 +679,7 @@ export function NotesPage() {
                       color="red"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDeleteNote(note.id, note.title);
+                        handleDeleteNote(note.uuid, note.title);
                       }}
                     >
                       Delete

@@ -42,11 +42,11 @@ export const ProjectBadges: React.FC<ProjectBadgesProps> = ({
   return (
     <Group gap="xs">
       {visibleProjects.map((project, index) => {
-        const isClickable = clickable && !project.isDeleted && project.id;
+        const isClickable = clickable && !project.isDeleted && project.uuid;
         
         return (
           <Tooltip
-            key={`${project.id || 'deleted'}-${index}`}
+            key={`${project.uuid || 'deleted'}-${index}`}
             label={
               <div>
                 <Text size="xs" fw={600}>{project.name}</Text>
@@ -71,7 +71,7 @@ export const ProjectBadges: React.FC<ProjectBadgesProps> = ({
                 cursor: isClickable ? 'pointer' : 'default',
                 opacity: project.isDeleted ? 0.6 : 1
               }}
-              onClick={() => handleBadgeClick(project.id)}
+              onClick={() => handleBadgeClick(project.uuid)}
               leftSection={
                 project.isDeleted ? (
                   <IconTrash size={12} />
@@ -94,7 +94,7 @@ export const ProjectBadges: React.FC<ProjectBadgesProps> = ({
             <div>
               <Text size="xs" fw={600}>Additional Projects</Text>
               {projects.slice(maxVisible).map((p, idx) => (
-                <Text key={`${p.id || 'deleted'}-${idx}`} size="xs">
+                <Text key={`${p.uuid || 'deleted'}-${idx}`} size="xs">
                   • {p.name}
                 </Text>
               ))}

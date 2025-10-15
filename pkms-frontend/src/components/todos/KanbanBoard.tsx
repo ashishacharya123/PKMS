@@ -167,7 +167,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             <Stack gap="sm">
               {lane.todos.map((todo, index) => (
                 <Paper
-                  key={todo.id}
+                  key={todo.uuid}
                   shadow="xs"
                   p="sm"
                   style={{ 
@@ -272,14 +272,14 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                           {todo.estimate_minutes && (
                             <Tooltip label="Estimated time">
                               <Text size="xs" c="dimmed">
-                                Est: {Math.round(todo.estimate_minutes / 60)}h {todo.estimate_minutes % 60}m
+                                Est: {Math.floor(todo.estimate_minutes / 60)}h {todo.estimate_minutes % 60}m
                               </Text>
                             </Tooltip>
                           )}
                           {todo.actual_minutes && (
                             <Tooltip label="Actual time spent">
                               <Text size="xs" c="dimmed">
-                                Actual: {Math.round(todo.actual_minutes / 60)}h {todo.actual_minutes % 60}m
+                                Actual: {Math.floor(todo.actual_minutes / 60)}h {todo.actual_minutes % 60}m
                               </Text>
                             </Tooltip>
                           )}

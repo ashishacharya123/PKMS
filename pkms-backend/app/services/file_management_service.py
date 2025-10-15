@@ -128,7 +128,7 @@ class FileManagementService:
                 logger.error(f"❌ Failed to cleanup assembled file: {cleanup_error}")
 
             await db.rollback()
-            logger.error(f"❌ Upload commit failed: {str(e)}")
+            logger.exception("❌ Upload commit failed")
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to commit upload: {str(e)}"
@@ -275,7 +275,7 @@ class FileManagementService:
                 temp_dest_path.rename(final_dest_path)
                 logger.info(f"✅ File moved to final location: {final_dest_path}")
             except Exception as move_error:
-                logger.error(f"❌ Failed to move file to final location: {move_error}")
+                logger.exception("❌ Failed to move file to final location")
                 # Clean up temp file
                 try:
                     if temp_dest_path.exists():
@@ -289,7 +289,7 @@ class FileManagementService:
             from sqlalchemy.orm import selectinload
             result = await db.execute(
                 select(document_model).options(selectinload(document_model.tag_objs)).where(
-                    document_model.id == document.id
+                    document_model.uuid == document.uuid
                 )
             )
             document_with_tags = result.scalar_one()
@@ -421,7 +421,7 @@ class FileManagementService:
                 temp_dest_path.rename(final_dest_path)
                 logger.info(f"✅ File moved to final location: {final_dest_path}")
             except Exception as move_error:
-                logger.error(f"❌ Failed to move file to final location: {move_error}")
+                logger.exception("❌ Failed to move file to final location")
                 # Clean up temp file
                 try:
                     if temp_dest_path.exists():
@@ -455,7 +455,7 @@ class FileManagementService:
                     temp_dest_path.unlink()
             except Exception:
                 pass
-            logger.error(f"❌ Error committing note file upload: {str(e)}")
+            logger.exception("❌ Error committing note file upload")
             raise HTTPException(
                 status_code=500,
                 detail="Failed to commit note file upload"

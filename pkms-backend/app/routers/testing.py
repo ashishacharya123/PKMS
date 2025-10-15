@@ -77,7 +77,7 @@ async def get_database_stats(
                 else:
                     # For other tables, filter by current user
                     result = await db.execute(
-                        select(func.count()).select_from(model).where(model.user_id == current_user.id)
+                        select(func.count()).select_from(model).where(model.user_uuid == current_user.uuid)
                     )
                 count = result.scalar()
                 stats[table_name] = count
@@ -341,7 +341,7 @@ async def get_database_stats(
                 "fts_overhead": "FTS5 tables provide full-text search but require additional storage (typically 30-50% of original data)."
             },
             "timestamp": datetime.now(NEPAL_TZ).isoformat(),
-            "user_id": current_user.id,
+            "user_uuid": current_user.uuid,
             "username": current_user.username
         }
         
@@ -449,8 +449,8 @@ async def get_performance_metrics(
         complex_start = time.time()
         await db.execute(
             select(func.count()).select_from(Note)
-            .join(User, Note.user_id == User.id)
-            .where(User.id == current_user.id)
+            .join(User, Note.user_uuid == User.uuid)
+            .where(User.uuid == current_user.uuid)
         )
         query_timings["complex_join"] = round((time.time() - complex_start) * 1000, 2)
         
@@ -508,8 +508,8 @@ async def validate_data_integrity(
             # Check for orphaned notes
             orphaned_notes = await db.execute(
                 select(func.count()).select_from(Note)
-                .outerjoin(User, Note.user_id == User.id)
-                .where(User.id.is_(None))
+                .outerjoin(User, Note.user_uuid == User.uuid)
+                .where(User.uuid.is_(None))
             )
             orphaned_count = orphaned_notes.scalar()
             
@@ -686,14 +686,14 @@ async def get_sample_rows(
         # Handle different table types
         if table == "users":
             # Special case: users table (no user_id filtering, show current user only)
-            query = select(User).where(User.id == current_user.id).limit(1)
+            query = select(User).where(User.uuid == current_user.uuid).limit(1)
             result = await db.execute(query)
             rows = result.scalars().all()
             
         elif table in ["sessions", "recovery_keys"]:
             # System tables - use raw SQL for flexibility
-            table_query = text(f"SELECT * FROM {table} WHERE user_id = :user_id LIMIT :limit")
-            result = await db.execute(table_query, {"user_id": current_user.id, "limit": limit})
+            table_query = text(f"SELECT * FROM {table} WHERE user_uuid = :user_uuid LIMIT :limit")
+            result = await db.execute(table_query, {"user_uuid": current_user.uuid, "limit": limit})
             rows = result.fetchall()
             
             # Convert to dict format
@@ -733,31 +733,31 @@ async def get_sample_rows(
                 junction_query = text("""
                     SELECT dt.*, d.title as document_title, t.name as tag_name 
                     FROM document_tags dt 
-                    JOIN documents d ON dt.document_id = d.id 
+                    JOIN documents d ON dt.document_uuid = d.uuid 
                     JOIN tags t ON dt.tag_uuid = t.uuid 
-                    WHERE d.user_id = :user_id 
+                    WHERE d.user_uuid = :user_uuid 
                     LIMIT :limit
                 """)
             elif table == "todo_tags":
                 junction_query = text("""
                     SELECT tt.*, td.title as todo_title, t.name as tag_name 
                     FROM todo_tags tt 
-                    JOIN todos td ON tt.todo_id = td.id 
+                    JOIN todos td ON tt.todo_uuid = td.uuid 
                     JOIN tags t ON tt.tag_uuid = t.uuid 
-                    WHERE td.user_id = :user_id 
+                    WHERE td.user_uuid = :user_uuid 
                     LIMIT :limit
                 """)
             elif table == "archive_tags":
                 junction_query = text("""
                     SELECT at.*, ai.name as archive_name, t.name as tag_name 
                     FROM archive_tags at 
-                    JOIN archive_items ai ON at.archive_item_id = ai.id 
+                    JOIN archive_items ai ON at.archive_item_uuid = ai.uuid 
                     JOIN tags t ON at.tag_uuid = t.uuid 
-                    WHERE ai.user_id = :user_id 
+                    WHERE ai.user_uuid = :user_uuid 
                     LIMIT :limit
                 """)
             
-            result = await db.execute(junction_query, {"user_id": current_user.id, "limit": limit})
+            result = await db.execute(junction_query, {"user_uuid": current_user.uuid, "limit": limit})
             rows = result.fetchall()
             
             columns = result.keys()
@@ -794,7 +794,7 @@ async def get_sample_rows(
             model = table_models[table]
             
             # Build query with user filtering
-            query = select(model).where(model.user_id == current_user.id).limit(limit)
+            query = select(model).where(model.user_uuid == current_user.uuid).limit(limit)
             
             result = await db.execute(query)
             rows = result.scalars().all()
@@ -922,7 +922,7 @@ async def test_diary_encryption(
     """Test diary encryption by verifying password and showing decryption capabilities."""
     try:
         # Get a sample diary entry
-        query = select(DiaryEntry).where(DiaryEntry.user_id == current_user.id).limit(1)
+        query = select(DiaryEntry).where(DiaryEntry.user_uuid == current_user.uuid).limit(1)
         result = await db.execute(query)
         sample_entry = result.scalar_one_or_none()
         
@@ -961,7 +961,7 @@ async def test_diary_encryption(
             
             # Return entry metadata and encryption details
             entry_data = {
-                "id": sample_entry.id,
+                "uuid": sample_entry.uuid,
                 "date": sample_entry.date.isoformat(),
                 "title": sample_entry.title,
                 "mood": sample_entry.mood,
@@ -981,7 +981,7 @@ async def test_diary_encryption(
             
             # Get media count for this entry
             media_query = select(func.count()).select_from(DiaryMedia).where(
-                DiaryMedia.entry_id == sample_entry.id
+                DiaryMedia.entry_uuid == sample_entry.uuid
             )
             media_result = await db.execute(media_query)
             media_count = media_result.scalar()
@@ -1207,9 +1207,9 @@ async def _test_notes_crud(db: AsyncSession, user: User, cleanup_list: list, ver
         await db.flush()
         await db.refresh(note)
         
-        cleanup_list.append(("note", note.id))
+        cleanup_list.append(("note", note.uuid))
         add_operation("create", True, {
-            "note_id": note.id, 
+            "note_uuid": note.uuid, 
             "title": note.title, 
             "year": note.year,
             "test_id": test_id
@@ -1220,11 +1220,11 @@ async def _test_notes_crud(db: AsyncSession, user: User, cleanup_list: list, ver
     # Test Read
     if note:
         try:
-            fetched_note = await db.get(Note, note.id)
+            fetched_note = await db.get(Note, note.uuid)
             if fetched_note and fetched_note.title == note.title and test_id in fetched_note.content:
                 add_operation("read", True, {
                     "verified_title": fetched_note.title, 
-                    "verified_id": fetched_note.id,
+                    "verified_uuid": fetched_note.uuid,
                     "contains_test_id": test_id in fetched_note.content
                 })
             else:
@@ -1264,7 +1264,7 @@ async def _test_notes_crud(db: AsyncSession, user: User, cleanup_list: list, ver
     # Test Delete
     if note:
         try:
-            note_id = note.id
+            note_uuid = note.uuid
             note_title = note.title
             await db.delete(note)
             await db.flush()
@@ -1294,7 +1294,7 @@ async def _test_notes_crud(db: AsyncSession, user: User, cleanup_list: list, ver
         "module": "notes",
         "status": "success" if len(successful_operations) == total_operations else "partial" if successful_operations else "failed",
         "operations": operations,
-        "test_note_id": note.id if note else None,
+        "test_note_uuid": note.uuid if note else None,
         "test_identifier": test_id,
         "operations_summary": {
             "total": total_operations,
@@ -1474,9 +1474,9 @@ async def _test_todos_crud(db: AsyncSession, user: User, cleanup_list: list, ver
         await db.flush()
         await db.refresh(todo)
         
-        cleanup_list.append(("todo", todo.id))
+        cleanup_list.append(("todo", todo.uuid))
         add_operation("create", True, {
-            "todo_id": todo.id,
+            "todo_uuid": todo.uuid,
             "title": todo.title,
             "priority": todo.priority,
             "test_id": test_id
@@ -1487,11 +1487,11 @@ async def _test_todos_crud(db: AsyncSession, user: User, cleanup_list: list, ver
     # Test Read
     if todo:
         try:
-            fetched_todo = await db.get(Todo, todo.id)
+            fetched_todo = await db.get(Todo, todo.uuid)
             if fetched_todo and test_id in fetched_todo.title and test_id in fetched_todo.description:
                 add_operation("read", True, {
                     "verified_title": fetched_todo.title,
-                    "verified_id": fetched_todo.id,
+                    "verified_uuid": fetched_todo.uuid,
                     "verified_status": fetched_todo.status,
                     "contains_test_id": test_id in fetched_todo.description
                 })
@@ -1537,7 +1537,7 @@ async def _test_todos_crud(db: AsyncSession, user: User, cleanup_list: list, ver
     # Test Delete
     if todo:
         try:
-            todo_id = todo.id
+            todo_uuid = todo.uuid
             todo_title = todo.title
             await db.delete(todo)
             await db.flush()
@@ -1567,7 +1567,7 @@ async def _test_todos_crud(db: AsyncSession, user: User, cleanup_list: list, ver
         "module": "todos",
         "status": "success" if len(successful_operations) == total_operations else "partial" if successful_operations else "failed",
         "operations": operations,
-        "test_todo_id": todo.id if todo else None,
+        "test_todo_uuid": todo.uuid if todo else None,
         "test_identifier": test_id,
         "operations_summary": {
             "total": total_operations,
@@ -1857,7 +1857,7 @@ async def get_detailed_health(
         
         # Check user session info
         health_info["user_session"] = {
-            "user_id": current_user.id,
+            "user_uuid": current_user.uuid,
             "username": current_user.username,
             "is_first_login": current_user.is_first_login,
             "last_login": current_user.last_login.isoformat() if current_user.last_login else None,
@@ -2474,7 +2474,7 @@ async def test_notes_create(
         
         return {
             "status": "success",
-            "note_id": note.id,
+            "note_uuid": note.uuid,
             "title": note.title,
             "message": "Note created successfully"
         }
@@ -2511,7 +2511,7 @@ async def test_documents_create(
         
         return {
             "status": "success",
-            "document_id": document.id,
+            "document_uuid": document.uuid,
             "filename": document.filename,
             "message": "Document created successfully"
         }
@@ -2547,7 +2547,7 @@ async def test_todos_create(
         
         return {
             "status": "success",
-            "todo_id": todo.id,
+            "todo_uuid": todo.uuid,
             "title": todo.title,
             "message": "Todo created successfully"
         }
@@ -2572,19 +2572,19 @@ async def cleanup_test_item(
         if item_type == "note":
             from ..models.note import Note
             item = await db.get(Note, item_id)
-            if item and item.user_id == current_user.id:
+            if item and item.user_uuid == current_user.uuid:
                 await db.delete(item)
                 deleted = True
         elif item_type == "document":
             from ..models.document import Document
             item = await db.get(Document, item_id)
-            if item and item.user_id == current_user.id:
+            if item and item.user_uuid == current_user.uuid:
                 await db.delete(item)
                 deleted = True
         elif item_type == "todo":
             from ..models.todo import Todo
             item = await db.get(Todo, item_id)
-            if item and item.user_id == current_user.id:
+            if item and item.user_uuid == current_user.uuid:
                 await db.delete(item)
                 deleted = True
         
@@ -2797,9 +2797,9 @@ async def get_diary_table_details(
                    AVG(CASE WHEN content_length IS NOT NULL THEN content_length END) as avg_content_length,
                    SUM(content_length) as total_content_length
             FROM diary_entries 
-            WHERE user_id = :user_id
+            WHERE user_uuid = :user_uuid
         """)
-        entries_result = await db.execute(entries_query, {"user_id": current_user.id})
+        entries_result = await db.execute(entries_query, {"user_uuid": current_user.uuid})
         entries_stats = entries_result.fetchone()
         
         # Get media table info
@@ -2813,9 +2813,9 @@ async def get_diary_table_details(
                    AVG(size_bytes) as avg_media_size,
                    COUNT(CASE WHEN duration_seconds IS NOT NULL THEN 1 END) as media_with_duration
             FROM diary_media 
-            WHERE user_id = :user_id
+            WHERE user_uuid = :user_uuid
         """)
-        media_result = await db.execute(media_query, {"user_id": current_user.id})
+        media_result = await db.execute(media_query, {"user_uuid": current_user.uuid})
         media_stats = media_result.fetchone()
         
         # Get daily metadata table info
@@ -2827,9 +2827,9 @@ async def get_diary_table_details(
                    MAX(date) as latest_snapshot,
                    COUNT(DISTINCT strftime('%Y-%m', date)) as months_with_snapshots
             FROM diary_daily_metadata
-            WHERE user_id = :user_id
+            WHERE user_uuid = :user_uuid
         """)
-        daily_metadata_result = await db.execute(daily_metadata_query, {"user_id": current_user.id})
+        daily_metadata_result = await db.execute(daily_metadata_query, {"user_uuid": current_user.uuid})
         daily_metadata_stats = daily_metadata_result.fetchone()
         
         # Get sample entries (structure only, no decryption)
@@ -2839,11 +2839,11 @@ async def get_diary_table_details(
                    LENGTH(content_file_path) as content_file_path_length,
                    encryption_iv, file_hash
             FROM diary_entries 
-            WHERE user_id = :user_id
+            WHERE user_uuid = :user_uuid
             ORDER BY created_at DESC
             LIMIT 5
         """)
-        sample_result = await db.execute(sample_query, {"user_id": current_user.id})
+        sample_result = await db.execute(sample_query, {"user_uuid": current_user.uuid})
         sample_entries = []
         
         weather_labels = {0: "Clear", 1: "Partly Cloudy", 2: "Cloudy", 3: "Rain", 4: "Storm", 5: "Snow", 6: "Scorching Sun"}
@@ -2880,11 +2880,11 @@ async def get_diary_table_details(
                    LENGTH(filename_encrypted) as encrypted_filename_length,
                    LENGTH(filepath_encrypted) as encrypted_filepath_length
             FROM diary_media 
-            WHERE user_id = :user_id
+            WHERE user_uuid = :user_uuid
             ORDER BY created_at DESC
             LIMIT 3
         """)
-        sample_media_result = await db.execute(sample_media_query, {"user_id": current_user.id})
+        sample_media_result = await db.execute(sample_media_query, {"user_uuid": current_user.uuid})
         sample_media = []
         
         for row in sample_media_result:
@@ -2997,7 +2997,7 @@ async def get_session_status(
         # Get current user's active session
         session_result = await db.execute(
             select(Session)
-            .where(Session.user_id == current_user.id)
+            .where(Session.user_uuid == current_user.uuid)
             .where(Session.expires_at > datetime.utcnow())
             .order_by(Session.expires_at.desc())
             .limit(1)
@@ -3008,7 +3008,7 @@ async def get_session_status(
             return {
                 "status": "no_active_session",
                 "message": "No active session found",
-                "user_id": current_user.id,
+                "user_uuid": current_user.uuid,
                 "timestamp": datetime.utcnow().isoformat()
             }
         
@@ -3046,7 +3046,7 @@ async def get_session_status(
                 "test_result": "PASS" if recently_extended else "MIGHT_NEED_INVESTIGATION"
             },
             "user_info": {
-                "user_id": current_user.id,
+                "user_uuid": current_user.uuid,
                 "username": current_user.username,
                 "is_active": current_user.is_active
             },
@@ -3097,7 +3097,7 @@ async def check_users_debug(db: AsyncSession = Depends(get_db)):
                 "status": "users_found",
                 "user_count": user_count,
                 "first_user": {
-                    "id": first_user.id,
+                    "uuid": first_user.uuid,
                     "username": first_user.username,
                     "created_at": first_user.created_at.isoformat() if first_user.created_at else None
                 } if first_user else None,
@@ -3378,7 +3378,7 @@ async def run_diary_migration(
             SET media_count = (
                 SELECT COUNT(*) 
                 FROM diary_media 
-                WHERE diary_media.diary_entry_id = diary_entries.id
+                WHERE diary_media.entry_uuid = diary_entries.uuid
             )
             WHERE media_count IS NULL OR media_count = 0
         """))

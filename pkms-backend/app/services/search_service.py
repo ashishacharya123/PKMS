@@ -11,6 +11,8 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select
 from sqlalchemy.orm import selectinload
+import logging
+logger = logging.getLogger(__name__)
 
 from ..models.note import Note
 from ..models.document import Document
@@ -77,9 +79,9 @@ class SearchService:
                 "date_text": date_text
             })
             
-        except Exception as e:
+        except Exception:
             # Log error but don't fail the main operation
-            print(f"Error indexing {item_type} {item_uuid}: {e}")
+            logger.exception("Error indexing %s %s", item_type, getattr(item, "uuid", "<unknown>"))
     
     async def remove_item(self, db: AsyncSession, item_uuid: str) -> None:
         """
@@ -94,8 +96,8 @@ class SearchService:
                 text("DELETE FROM fts_content WHERE item_uuid = :uuid"), 
                 {"uuid": item_uuid}
             )
-        except Exception as e:
-            print(f"Error removing {item_uuid} from search index: {e}")
+        except Exception:
+            logger.exception("Error removing %s from search index", item_uuid)
     
     async def search(self, db: AsyncSession, user_uuid: str, query: str, 
                     item_types: Optional[List[str]] = None, 
@@ -108,7 +110,7 @@ class SearchService:
         
         Args:
             db: Database session
-            user_id: User ID to scope search
+            user_uuid: User UUID to scope search
             query: Search query string
             item_types: Optional list of item types to search
             has_attachments: Optional filter for items with attachments
@@ -122,17 +124,20 @@ class SearchService:
             fts_query = self._build_fts_query(query)
             
             sql = """
-                SELECT item_uuid, item_type, rank
+                SELECT item_uuid, item_type, bm25(fts_content) AS score
                 FROM fts_content
                 WHERE fts_content MATCH :query AND user_uuid = :user_uuid
             """
             params = {"query": fts_query, "user_uuid": user_uuid}
             
             if item_types:
-                sql += " AND item_type IN :types"
-                params["types"] = item_types
+                # Build expanding IN clause safely
+                placeholders = ",".join([f":type_{i}" for i in range(len(item_types))])
+                sql += f" AND item_type IN ({placeholders})"
+                for i, t in enumerate(item_types):
+                    params[f"type_{i}"] = t
             
-            sql += " ORDER BY rank LIMIT :limit"
+            sql += " ORDER BY score LIMIT :limit"
             params["limit"] = limit
             
             result = await db.execute(text(sql), params)
@@ -144,7 +149,7 @@ class SearchService:
             # Step 2: Structured SQL filtering for additional criteria
             results = []
             for row in fts_results:
-                item_uuid, item_type, rank = row
+                item_uuid, item_type, score = row
                 
                 # Get the actual item with relationships
                 item = await self._get_item_with_relationships(db, item_uuid, item_type)
@@ -153,7 +158,7 @@ class SearchService:
                 
                 # Apply additional filters
                 if has_attachments is not None:
-                    has_files = await self._item_has_attachments(db, item, item_type)
+                    has_files = await self._item_has_attachments(item, item_type)
                     if has_attachments != has_files:
                         continue
                 
@@ -164,7 +169,7 @@ class SearchService:
                     "title": getattr(item, 'title', None) or getattr(item, 'name', None),
                     "description": getattr(item, 'description', None),
                     "created_at": item.created_at.isoformat() if item.created_at else None,
-                    "score": rank
+                    "score": score
                 }
                 
                 # Add type-specific fields
@@ -186,8 +191,8 @@ class SearchService:
             
             return results
             
-        except Exception as e:
-            print(f"Error during search: {e}")
+        except Exception:
+            logger.exception("Error during search")
             return []
     
     async def _extract_attachments(self, db: AsyncSession, item: Any, item_type: str) -> str:
@@ -228,8 +233,8 @@ class SearchService:
                 else:
                     attachments.extend([m.filename for m in item.media if m.filename])
         
-        except Exception as e:
-            print(f"Error extracting attachments for {item_type} {item.uuid}: {e}")
+        except Exception:
+            logger.exception("Error extracting attachments for %s %s", item_type, getattr(item, "uuid", "<unknown>"))
         
         return ' '.join(attachments)
     
@@ -241,7 +246,7 @@ class SearchService:
         try:
             # Format as "2025 January Friday" for natural language search
             return created_at.strftime("%Y %B %A")
-        except:
+        except Exception:
             return ''
     
     def _build_fts_query(self, query: str) -> str:
@@ -263,11 +268,11 @@ class SearchService:
             )
             return result.scalar_one_or_none()
         
-        except Exception as e:
-            print(f"Error loading {item_type} {item_uuid}: {e}")
+        except Exception:
+            logger.exception("Error loading %s %s", item_type, item_uuid)
             return None
     
-    async def _item_has_attachments(self, db: AsyncSession, item: Any, item_type: str) -> bool:
+    async def _item_has_attachments(self, item: Any, item_type: str) -> bool:
         """Check if item has attachments."""
         try:
             if item_type == 'note':
@@ -280,7 +285,7 @@ class SearchService:
                 return getattr(item, 'media_count', 0) > 0
             else:
                 return False
-        except:
+        except Exception:
             return False
     
     async def bulk_index_user_content(self, db: AsyncSession, user_uuid: str) -> None:
@@ -291,7 +296,7 @@ class SearchService:
             db: Database session
             user_uuid: User UUID to index content for
         """
-        print(f"Starting bulk index for user {user_uuid}")
+        logger.info("Starting bulk index for user %s", user_uuid)
 
         # Index notes
         notes_result = await db.execute(
@@ -349,7 +354,7 @@ class SearchService:
         for item in items_result.scalars():
             await self.index_item(db, item, 'archive_item')
 
-        print(f"Completed bulk index for user {user_uuid}")
+        logger.info("Completed bulk index for user %s", user_uuid)
 
 
 # Global instance

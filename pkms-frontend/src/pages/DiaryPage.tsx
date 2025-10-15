@@ -60,7 +60,7 @@ import { searchService } from '../services/searchService';
 import { format, parseISO } from 'date-fns';
 import { notifications } from '@mantine/notifications';
 import { WellnessAnalytics } from '../components/diary/WellnessAnalytics';
-import WeeklyHighlightsPanel from '../components/diary/WeeklyHighlightsPanel';
+import { WeeklyHighlightsPanel } from '../components/diary/WeeklyHighlightsPanel';
 import EncryptionStatus from '../components/diary/EncryptionStatus';
 import { AdvancedDiarySearch } from '../components/diary/AdvancedDiarySearch';
 import DiarySearch from '../components/diary/DiarySearch';

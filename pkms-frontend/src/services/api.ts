@@ -13,6 +13,7 @@ class ApiService {
   private instance: AxiosInstance;
   private tokenExpiryWarningShown: boolean = false;
   private tokenRefreshPromise: Promise<void> | null = null;
+  private reindexInFlight = false;
 
   constructor() {
     this.instance = axios.create({
@@ -360,6 +361,8 @@ class ApiService {
    * Reindex all user content for search functionality
    */
   async reindexSearchContent(): Promise<void> {
+    if (this.reindexInFlight) return;
+    this.reindexInFlight = true;
     try {
       notifications.show({
         id: 'search-reindex-loading',
@@ -370,12 +373,9 @@ class ApiService {
         autoClose: false,
       });
 
-      const response = await this.post('/search/reindex', {});
+      const response = await this.post('/search/reindex', {}, { timeout: 60000 });
 
-      // Close the loading notification
-      notifications.hide('search-reindex-loading');
-
-      if (response.status === 200) {
+      if (response.status >= 200 && response.status < 300) {
         notifications.show({
           title: '✅ Re-index Complete',
           message: 'All your content has been successfully re-indexed!',
@@ -384,9 +384,6 @@ class ApiService {
         });
       }
     } catch (error: any) {
-      // Close the loading notification
-      notifications.hide('search-reindex-loading');
-
       console.error('Failed to reindex search content:', error);
       const detail = error?.response?.data?.detail || error?.message || 'Re-indexing failed';
 
@@ -396,6 +393,9 @@ class ApiService {
         color: 'red',
         autoClose: 5000,
       });
+    } finally {
+      notifications.hide('search-reindex-loading');
+      this.reindexInFlight = false;
     }
   }
 

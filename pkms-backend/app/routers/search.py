@@ -2,9 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 
-from ..dependencies import get_db_session, get_current_user
-from ..models.user import User
-from ..services.search_service import search_service
+from app.database import get_db as get_db_session
+from app.auth.dependencies import get_current_user
+from app.models.user import User
+from app.services.search_service import search_service
 
 router = APIRouter()
 logger = logging.getLogger("uvicorn")
@@ -24,5 +25,5 @@ async def reindex_user_content(
         logger.info(f"Successfully completed manual re-index for user: {current_user.uuid}")
         return {"status": "success", "message": "All your content has been successfully re-indexed."}
     except Exception as e:
-        logger.error(f"Error during manual re-index for user {current_user.uuid}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An unexpected error occurred during re-indexing.")
+        logger.exception(f"Error during manual re-index for user {current_user.uuid}: {e}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred during re-indexing.") from e

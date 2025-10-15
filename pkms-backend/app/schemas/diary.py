@@ -310,6 +310,9 @@ class DiaryDailyMetadataResponse(CamelCaseModel):
 class DiaryDailyMetadataUpdate(CamelCaseModel):
     nepali_date: Optional[str] = None
     metrics: Dict[str, Any] = {}
+    daily_income: Optional[int] = Field(None, ge=0)
+    daily_expense: Optional[int] = Field(None, ge=0)
+    is_office_day: Optional[bool] = None
 
     @validator("metrics", pre=True, always=True)
     def validate_metrics(cls, v):

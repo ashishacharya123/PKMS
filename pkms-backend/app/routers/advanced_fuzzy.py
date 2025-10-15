@@ -42,7 +42,7 @@ async def advanced_fuzzy_search(
         selected_modules = allowed_modules
     # --- TODOS & PROJECTS ---
     if "todo" in selected_modules:
-        todo_rows = (await db.execute(select(Todo).options(selectinload(Todo.tag_objs), selectinload(Todo.projects)).where(Todo.user_uuid == user_uuid))).scalars().all()
+        todo_rows = (await db.execute(select(Todo).options(selectinload(Todo.tag_objs), selectinload(Todo.projects)).where(Todo.user_uuid == user_uuid, Todo.is_deleted == False))).scalars().all()
         for todo in todo_rows:
             # Get first project from M2M relationship
             project = todo.projects[0] if todo.projects else None
@@ -61,7 +61,7 @@ async def advanced_fuzzy_search(
                 "score": score
             })
     if "project" in selected_modules:
-        project_map = {p.uuid: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.user_uuid == user_uuid))).scalars().all()}
+        project_map = {p.uuid: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.user_uuid == user_uuid, Project.is_deleted == False))).scalars().all()}
         for project in project_map.values():
             project_tags = [t.name for t in getattr(project, 'tag_objs', [])] if hasattr(project, 'tag_objs') else []
             search_blob = f"{project.name or ''} {project.description or ''} {' '.join(project_tags)}"
@@ -79,7 +79,7 @@ async def advanced_fuzzy_search(
             })
     # --- NOTES ---
     if "note" in selected_modules:
-        note_rows = (await db.execute(select(Note).options(selectinload(Note.tag_objs)).where(Note.user_uuid == user_uuid))).scalars().all()
+        note_rows = (await db.execute(select(Note).options(selectinload(Note.tag_objs)).where(Note.user_uuid == user_uuid, Note.is_deleted == False))).scalars().all()
         for note in note_rows:
             note_tags = [t.name for t in getattr(note, 'tag_objs', [])] if hasattr(note, 'tag_objs') else []
             search_blob = f"{note.title or ''} {note.content or ''} {' '.join(note_tags)}"
@@ -97,7 +97,7 @@ async def advanced_fuzzy_search(
             })
     # --- DOCUMENTS ---
     if "document" in selected_modules:
-        doc_rows = (await db.execute(select(Document).options(selectinload(Document.tag_objs)).where(Document.user_uuid == user_uuid))).scalars().all()
+        doc_rows = (await db.execute(select(Document).options(selectinload(Document.tag_objs)).where(Document.user_uuid == user_uuid, Document.is_deleted == False))).scalars().all()
         for doc in doc_rows:
             doc_tags = [t.name for t in getattr(doc, 'tag_objs', [])] if hasattr(doc, 'tag_objs') else []
             search_blob = f"{doc.title or ''} {doc.original_name or ''} {doc.description or ''} {' '.join(doc_tags)}"
@@ -115,7 +115,7 @@ async def advanced_fuzzy_search(
             })
     # --- DIARY ---
     if "diary" in selected_modules:
-        diary_rows = (await db.execute(select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.user_uuid == user_uuid))).scalars().all()
+        diary_rows = (await db.execute(select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.user_uuid == user_uuid, DiaryEntry.is_deleted == False))).scalars().all()
         for entry in diary_rows:
             diary_tags = [t.name for t in getattr(entry, 'tag_objs', [])] if hasattr(entry, 'tag_objs') else []
             # Include structured fields like weather_code and location
@@ -136,10 +136,15 @@ async def advanced_fuzzy_search(
             })
     # --- ARCHIVE ---
     if "archive" in selected_modules:
-        archive_rows = (await db.execute(select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.user_uuid == user_uuid))).scalars().all()
+        archive_rows = (await db.execute(select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.user_uuid == user_uuid, ArchiveItem.is_deleted == False))).scalars().all()
         for item in archive_rows:
             archive_tags = [t.name for t in getattr(item, 'tag_objs', [])] if hasattr(item, 'tag_objs') else []
-            meta = json.loads(item.metadata_json) if item.metadata_json else {}
+            meta = {}
+            if item.metadata_json:
+                try:
+                    meta = json.loads(item.metadata_json)
+                except json.JSONDecodeError:
+                    meta = {}
             meta_flat = ' '.join([str(v) for v in meta.values()])
             search_blob = f"{item.name or ''} {item.original_filename or ''} {item.description or ''} {' '.join(archive_tags)} {meta_flat}"
             score = fuzz.token_set_ratio(query, search_blob)
@@ -184,7 +189,7 @@ async def fuzzy_search_light(
     
     # --- TODOS & PROJECTS ---
     if "todo" in selected_modules:
-        todo_rows = (await db.execute(select(Todo).options(selectinload(Todo.tag_objs), selectinload(Todo.projects)).where(Todo.user_uuid == user_uuid))).scalars().all()
+        todo_rows = (await db.execute(select(Todo).options(selectinload(Todo.tag_objs), selectinload(Todo.projects)).where(Todo.user_uuid == user_uuid, Todo.is_deleted == False))).scalars().all()
         for todo in todo_rows:
             # Get first project from M2M relationship
             project = todo.projects[0] if todo.projects else None
@@ -205,7 +210,7 @@ async def fuzzy_search_light(
             })
     
     if "project" in selected_modules:
-        project_map = {p.uuid: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.user_uuid == user_uuid))).scalars().all()}
+        project_map = {p.uuid: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.user_uuid == user_uuid, Project.is_deleted == False))).scalars().all()}
         for project in project_map.values():
             project_tags = [t.name for t in getattr(project, 'tag_objs', [])] if hasattr(project, 'tag_objs') else []
             # LIGHT: name + description + tags (same as advanced)
@@ -225,7 +230,7 @@ async def fuzzy_search_light(
     
     # --- NOTES ---
     if "note" in selected_modules:
-        note_rows = (await db.execute(select(Note).options(selectinload(Note.tag_objs)).where(Note.user_uuid == user_uuid))).scalars().all()
+        note_rows = (await db.execute(select(Note).options(selectinload(Note.tag_objs)).where(Note.user_uuid == user_uuid, Note.is_deleted == False))).scalars().all()
         for note in note_rows:
             note_tags = [t.name for t in getattr(note, 'tag_objs', [])] if hasattr(note, 'tag_objs') else []
             # LIGHT: title + tags ONLY (NO content!)
@@ -245,7 +250,7 @@ async def fuzzy_search_light(
     
     # --- DOCUMENTS ---
     if "document" in selected_modules:
-        doc_rows = (await db.execute(select(Document).options(selectinload(Document.tag_objs)).where(Document.user_uuid == user_uuid))).scalars().all()
+        doc_rows = (await db.execute(select(Document).options(selectinload(Document.tag_objs)).where(Document.user_uuid == user_uuid, Document.is_deleted == False))).scalars().all()
         for doc in doc_rows:
             doc_tags = [t.name for t in getattr(doc, 'tag_objs', [])] if hasattr(doc, 'tag_objs') else []
             # LIGHT: title + filename + description + tags (same as advanced)
@@ -265,7 +270,7 @@ async def fuzzy_search_light(
     
     # --- DIARY ---
     if "diary" in selected_modules:
-        diary_rows = (await db.execute(select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.user_uuid == user_uuid))).scalars().all()
+        diary_rows = (await db.execute(select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.user_uuid == user_uuid, DiaryEntry.is_deleted == False))).scalars().all()
         for entry in diary_rows:
             diary_tags = [t.name for t in getattr(entry, 'tag_objs', [])] if hasattr(entry, 'tag_objs') else []
             # Include structured fields like weather_code and location
@@ -288,10 +293,15 @@ async def fuzzy_search_light(
     
     # --- ARCHIVE ---
     if "archive" in selected_modules:
-        archive_rows = (await db.execute(select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.user_uuid == user_uuid))).scalars().all()
+        archive_rows = (await db.execute(select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.user_uuid == user_uuid, ArchiveItem.is_deleted == False))).scalars().all()
         for item in archive_rows:
             archive_tags = [t.name for t in getattr(item, 'tag_objs', [])] if hasattr(item, 'tag_objs') else []
-            meta = json.loads(item.metadata_json) if item.metadata_json else {}
+            meta = {}
+            if item.metadata_json:
+                try:
+                    meta = json.loads(item.metadata_json)
+                except json.JSONDecodeError:
+                    meta = {}
             meta_flat = ' '.join([str(v) for v in meta.values()])
             # LIGHT: name + filename + description + tags + metadata (same as advanced)
             search_blob = f"{item.name or ''} {item.original_filename or ''} {item.description or ''} {' '.join(archive_tags)} {meta_flat}"

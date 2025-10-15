@@ -35,7 +35,6 @@ class Todo(Base):
     
     __tablename__ = "todos"
     
-    id = Column(Integer, autoincrement=True, nullable=False, index=True)  # Legacy counter (keeps counting lifetime entries)
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
     
     title = Column(String(255), nullable=False)
@@ -48,7 +47,7 @@ class Todo(Base):
     checklist_items = Column(Text, nullable=True)  # JSON array of {text, completed, order}
     
     # Phase 2: Subtasks and Dependencies
-    parent_id = Column(Integer, ForeignKey("todos.id", ondelete="CASCADE"), nullable=True)  # For subtasks
+    parent_uuid = Column(String(36), ForeignKey("todos.uuid", ondelete="CASCADE"), nullable=True)  # For subtasks
     # blocked_by removed - replaced with todo_dependencies junction table
     
     # Phase 2: Time Tracking
@@ -103,10 +102,10 @@ class Todo(Base):
     
     
     # Phase 2: Subtask relationships
-    subtasks = relationship("Todo", backref="parent", remote_side=[id], cascade="all, delete-orphan")
+    subtasks = relationship("Todo", backref="parent", remote_side=[uuid], cascade="all, delete-orphan")
     
     def __repr__(self):
-        return f"<Todo(id={self.id}, uuid={self.uuid}, title='{self.title}', status='{self.status}')>"
+        return f"<Todo(uuid={self.uuid}, title='{self.title}', status='{self.status}')>"
 
 
 class Project(Base):
@@ -114,7 +113,6 @@ class Project(Base):
     
     __tablename__ = "projects"
     
-    id = Column(Integer, autoincrement=True, nullable=False, index=True)  # Legacy counter (keeps counting lifetime entries)
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
     
     name = Column(String(255), nullable=False, index=True)
@@ -151,4 +149,4 @@ class Project(Base):
     todos_multi = relationship("Todo", secondary=todo_projects, back_populates="projects")
     
     def __repr__(self):
-        return f"<Project(id={self.id}, uuid={self.uuid}, name='{self.name}')>" 
+        return f"<Project(uuid={self.uuid}, name='{self.name}')>" 

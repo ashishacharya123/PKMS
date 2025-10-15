@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Group, Stack, Text, Badge, Loader, ScrollArea, ActionIcon, Button } from '@mantine/core';
+import { Card, Group, Stack, Text, Badge, Loader, ScrollArea, ActionIcon, Button, Collapse } from '@mantine/core';
 import { IconStar, IconFileText, IconFiles, IconChecklist, IconBook, IconArchive, IconChevronDown, IconChevronUp } from '@tabler/icons-react';
 import { dashboardService, FavoritesData } from '../../services/dashboardService';
 import { useNavigate } from 'react-router-dom';
@@ -50,7 +50,7 @@ export function FavoritesCard() {
 
   const totalFavorites = Object.values(data || {}).reduce((sum, items) => sum + items.length, 0);
 
-  if (totalFavorites === 0 && !loading) {
+  if (totalFavorites === 0 && !loading && !error) {
     return null; // Don't show if no favorites
   }
 

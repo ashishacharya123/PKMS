@@ -3,7 +3,7 @@ Link Model for URL Bookmarks and Web Resources
 """
 
 from uuid import uuid4
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey
+from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
@@ -16,7 +16,6 @@ class Link(Base):
     
     __tablename__ = "links"
     
-    id = Column(Integer, autoincrement=True, nullable=False, index=True)
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
     title = Column(String(255), nullable=False, index=True)
     url = Column(String(2000), nullable=False)
@@ -34,4 +33,4 @@ class Link(Base):
     tag_objs = relationship("Tag", secondary="link_tags", back_populates="links")
     
     def __repr__(self):
-        return f"<Link(id={self.id}, uuid={self.uuid}, title='{self.title}', url='{self.url[:50]}')>"
+        return f"<Link(uuid={self.uuid}, title='{self.title}', url='{self.url[:50]}')>"

@@ -2,7 +2,7 @@
 User Model for Authentication and User Management
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -22,8 +22,6 @@ class User(Base):
     
     __tablename__ = "users"
     
-    # Legacy counter (kept for analytics/indexing); UUID is the true primary key
-    id = Column(Integer, autoincrement=True, nullable=False, index=True)
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=True)
@@ -56,7 +54,7 @@ class User(Base):
     archive_items = relationship("ArchiveItem", back_populates="user", cascade="all, delete-orphan")
     
     def __repr__(self):
-        return f"<User(id={self.id}, username='{self.username}')>"
+        return f"<User(uuid={self.uuid}, username='{self.username}')>"
 
 
 class Session(Base):
@@ -84,7 +82,7 @@ class RecoveryKey(Base):
     
     __tablename__ = "recovery_keys"
     
-    id = Column(Integer, primary_key=True, index=True)
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
     user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     key_hash = Column(String(255), nullable=False)
     questions_json = Column(Text, nullable=False)  # Security questions as JSON
@@ -97,4 +95,4 @@ class RecoveryKey(Base):
     user = relationship("User", back_populates="recovery_keys")
     
     def __repr__(self):
-        return f"<RecoveryKey(id={self.id}, user_uuid={self.user_uuid})>" 
+        return f"<RecoveryKey(uuid={self.uuid}, user_uuid={self.user_uuid})>" 

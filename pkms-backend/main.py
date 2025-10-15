@@ -30,7 +30,6 @@ from app.routers import (
     diary,
     archive,
     dashboard,
-    search,
     backup,
     tags,
     uploads,
@@ -179,7 +178,6 @@ app.include_router(diary.router, prefix="/api/v1/diary")
 app.include_router(archive.router, prefix="/api/v1/archive")
 # app.include_router(archive_improvements.router, prefix="/api/v1")  # Temporarily disabled due to import issues
 app.include_router(dashboard.router, prefix="/api/v1/dashboard")
-# app.include_router(search.router, prefix="/api/v1/search")  # Disabled to avoid route collision
 app.include_router(search_endpoints_router, prefix="/api/v1")  # Unified search endpoints
 app.include_router(backup.router, prefix="/api/v1/backup")
 app.include_router(tags.router, prefix="/api/v1/tags")
