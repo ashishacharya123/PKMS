@@ -12,7 +12,7 @@ import { coreDownloadService, DownloadProgress } from './shared/coreDownloadServ
 // Removed legacy direct-upload progress mapper
 
 export interface ProjectBadge {
-  id: number | null;  // null if project is deleted
+  uuid: string | null;  // null if project is deleted (snapshot)
   name: string;
   color: string;
   isExclusive: boolean;
@@ -104,7 +104,7 @@ class DocumentsService {
     file: File, 
     tags: string[] = [],
     onProgress?: (progress: number) => void,
-    projectIds?: number[],
+    projectIds?: string[],
     isExclusive?: boolean,
     projectId?: number // Legacy support
   ): Promise<Document> {

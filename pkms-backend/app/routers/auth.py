@@ -271,7 +271,7 @@ async def logout(
     try:
         # Clear diary session (in-memory) on logout for safety
         from app.routers.diary import _clear_diary_session
-        _clear_diary_session(current_user.uuid)
+        await _clear_diary_session(current_user.uuid)
         
         # Delete session from database (only current user's session)
         if session_token:

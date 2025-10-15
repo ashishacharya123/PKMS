@@ -176,7 +176,7 @@ app.include_router(documents.router, prefix="/api/v1/documents")
 app.include_router(todos.router, prefix="/api/v1/todos")
 app.include_router(diary.router, prefix="/api/v1/diary")
 app.include_router(archive.router, prefix="/api/v1/archive")
-# app.include_router(archive_improvements.router, prefix="/api/v1")  # Temporarily disabled due to import issues
+# Removed archive_improvements disabled include (module deprecated)
 app.include_router(dashboard.router, prefix="/api/v1/dashboard")
 app.include_router(search_endpoints_router, prefix="/api/v1")  # Unified search endpoints
 app.include_router(backup.router, prefix="/api/v1/backup")

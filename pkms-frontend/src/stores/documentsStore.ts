@@ -40,7 +40,7 @@ interface DocumentsState {
   loadDocuments: () => Promise<void>;
   loadMore: () => Promise<void>;
   loadDocument: (uuid: string) => Promise<void>;
-  uploadDocument: (file: File, tags?: string[], projectIds?: number[], isExclusive?: boolean) => Promise<Document | null>;
+  uploadDocument: (file: File, tags?: string[], projectIds?: string[], isExclusive?: boolean) => Promise<Document | null>;
   updateDocument: (uuid: string, data: UpdateDocumentRequest) => Promise<Document | null>;
   deleteDocument: (uuid: string) => Promise<boolean>;
   toggleArchive: (uuid: string, archived: boolean) => Promise<Document | null>;
@@ -185,7 +185,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     }
   },
   
-  uploadDocument: async (file: File, tags: string[] = [], projectIds: number[] = [], isExclusive: boolean = false) => {
+  uploadDocument: async (file: File, tags: string[] = [], projectIds: string[] = [], isExclusive: boolean = false) => {
     set({ isUploading: true, error: null, uploadProgress: 0 });
     
     try {

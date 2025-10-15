@@ -12,7 +12,7 @@ class CamelCaseModel(BaseModel):
 
 class ProjectBadge(CamelCaseModel):
     """Project badge for displaying project associations on items"""
-    id: Optional[int]  # None if project is deleted
+    uuid: Optional[str] = None  # None if project is deleted (snapshot)
     name: str
     color: str
     is_exclusive: bool

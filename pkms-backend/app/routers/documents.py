@@ -108,8 +108,9 @@ async def commit_document_upload(
             document_projects=document_projects
         )
 
-        # Index in search
+        # Index in search and persist
         await search_service.index_item(db, document_with_tags, 'document')
+        await db.commit()
 
         # Build project badges
         project_badges = await project_service.build_badges(db, document_with_tags.uuid, document_with_tags.is_exclusive_mode, document_projects, "document_uuid")
@@ -403,8 +404,9 @@ async def update_document(
     await db.commit()
     await db.refresh(doc)
     
-    # Index in search
+    # Index in search and persist
     await search_service.index_item(db, doc, 'document')
+    await db.commit()
     
     # Build project badges
     project_badges = await project_service.build_badges(db, doc.uuid, doc.is_exclusive_mode, document_projects, "document_uuid")

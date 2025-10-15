@@ -1006,8 +1006,12 @@ async def list_folder_items(
             query = query.where(ArchiveItem.mime_type == mime_type)
     
     if tag:
-        # Join with tags to filter by tag
-        query = query.join(archive_tags).join(Tag).where(Tag.name == tag)
+        # Join with correct association table for archive items and enforce user scoping
+        query = (
+            query.join(archive_item_tags, archive_item_tags.c.archive_item_uuid == ArchiveItem.uuid)
+                 .join(Tag, and_(Tag.id == archive_item_tags.c.tag_id, Tag.user_uuid == current_user.uuid))
+                 .where(Tag.name == tag)
+        )
     
     # Pagination and ordering
     query = query.order_by(desc(ArchiveItem.updated_at)).offset(offset).limit(limit)

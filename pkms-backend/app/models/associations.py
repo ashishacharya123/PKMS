@@ -2,7 +2,7 @@
 Many-to-Many Association Tables for Multi-Project Integration
 """
 
-from sqlalchemy import Table, Column, Integer, String, ForeignKey, UniqueConstraint, DateTime, func
+from sqlalchemy import Table, Column, Integer, String, ForeignKey, UniqueConstraint, DateTime, Boolean, func
 from app.models.base import Base
 
 # Junction table for Note-Project many-to-many relationship

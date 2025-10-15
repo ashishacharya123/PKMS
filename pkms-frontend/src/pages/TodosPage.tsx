@@ -138,8 +138,8 @@ export function TodosPage() {
   const [todoForm, setTodoForm] = useState({
     title: '',
     description: '',
-    project_id: null as number | null,
-    projectIds: [] as number[],
+    project_id: null as string | null,
+    projectIds: [] as string[],
     isExclusive: false,
     start_date: '',
     due_date: '',
@@ -162,7 +162,7 @@ export function TodosPage() {
   const [projectUploadTagSuggestions, setProjectUploadTagSuggestions] = useState<string[]>([]);
   const [projectUploadProgress, setProjectUploadProgress] = useState<number>(0);
   const [isProjectUploading, setIsProjectUploading] = useState<boolean>(false);
-  const [selectedProjectIdForUpload, setSelectedProjectIdForUpload] = useState<number | null>(null);
+  const [selectedProjectIdForUpload, setSelectedProjectIdForUpload] = useState<string | null>(null);
 
   // Store state
   const {
@@ -316,7 +316,8 @@ export function TodosPage() {
       ...todoForm,
       due_date: todoForm.due_date || undefined,
       tags: todoForm.tags,
-      project_id: todoForm.project_id === null ? undefined : todoForm.project_id,
+      // Force legacy single project_id to be omitted; use projectIds (UUIDs) only
+      project_id: undefined,
       projectIds: todoForm.projectIds.length > 0 ? todoForm.projectIds : undefined,
       isExclusiveMode: todoForm.projectIds.length > 0 ? todoForm.isExclusive : undefined
     });
@@ -878,7 +879,7 @@ export function TodosPage() {
                 <Menu.Dropdown>
                   <Menu.Item 
                     leftSection={<IconEdit size={14} />}
-                    onClick={(e) => {
+                      onClick={(e) => {
                       e.stopPropagation();
                       setEditingTodo(todo);
                       setTodoForm({
@@ -1032,7 +1033,7 @@ export function TodosPage() {
     setTodoModalOpen(true);
   };
 
-  const handleAddSubtask = (parentId: number) => {
+  const handleAddSubtask = (parentId: string) => {
     setEditingTodo({
       id: 0,
       title: '',
@@ -1141,11 +1142,11 @@ export function TodosPage() {
                 {(projects || []).map((project) => (
                   <Button
                     key={project.uuid}
-                    variant={currentProjectId === project.uuid ? 'filled' : 'subtle'}
+                    variant={String(currentProjectId) === project.uuid ? 'filled' : 'subtle'}
                     size="xs"
                     justify="space-between"
                     fullWidth
-                    onClick={() => setProjectFilter(project.uuid)}
+                    onClick={() => setProjectFilter(project.uuid as any)}
                   >
                     <Group gap="xs">
                       <div
@@ -1168,7 +1169,7 @@ export function TodosPage() {
                   leftSection={<IconUpload size={14} />}
                   size="xs"
                   variant="light"
-                  onClick={() => { setSelectedProjectIdForUpload(currentProjectId || null); setProjectUploadModalOpen(true); }}
+              onClick={() => { setSelectedProjectIdForUpload(currentProjectId ? String(currentProjectId) : null); setProjectUploadModalOpen(true); }}
                   disabled={!currentProjectId}
                   fullWidth
                 >
@@ -1386,12 +1387,12 @@ export function TodosPage() {
               placeholder="Select project"
               data={[
                 { value: '', label: 'No Project' },
-                                            ...(projects || []).map(p => ({ value: p.uuid, label: p.name }))
+                ...(projects || []).map(p => ({ value: p.uuid, label: p.name }))
               ]}
-              value={todoForm.project_id?.toString() || ''}
+              value={todoForm.project_id || ''}
               onChange={(value) => setTodoForm({ 
                 ...todoForm, 
-                project_id: value ? parseInt(value) : null 
+                project_id: value ? value : null 
               })}
             />
             
@@ -1535,12 +1536,12 @@ export function TodosPage() {
         size="md"
       >
         <Stack gap="md">
-          <Select
+            <Select
             label="Project"
             placeholder="Select project"
-            data={[...(projects || []).map(p => ({ value: p.uuid, label: p.name }))]}
-            value={selectedProjectIdForUpload ? String(selectedProjectIdForUpload) : ''}
-            onChange={(value) => setSelectedProjectIdForUpload(value ? parseInt(value) : null)}
+              data={[...(projects || []).map(p => ({ value: p.uuid, label: p.name }))]}
+              value={selectedProjectIdForUpload ? selectedProjectIdForUpload : ''}
+              onChange={(value) => setSelectedProjectIdForUpload(value ? value : null)}
             required
           />
           <FileInput

@@ -162,7 +162,7 @@ def _convert_todo_to_response(todo: Todo, project_badges: Optional[List[ProjectB
         priority=todo.priority,
         # Project info now comes from junction table via project_service.build_badges
         order_index=todo.order_index,
-        parent_id=todo.parent_id,
+        parent_id=todo.parent_uuid,
         subtasks=[_convert_todo_to_response(subtask, []) for subtask in (todo.subtasks or [])] if hasattr(todo, 'subtasks') and todo.subtasks else [],
         start_date=todo.start_date,
         due_date=todo.due_date,
@@ -300,7 +300,7 @@ async def list_todos(
         and_(
             Todo.user_uuid == current_user.uuid,
             Todo.is_exclusive_mode == False,  # Only show linked (non-exclusive) items
-            Todo.parent_id.is_(None)  # Never list subtasks standalone
+            Todo.parent_uuid.is_(None)  # Never list subtasks standalone
         )
     )
 
@@ -834,7 +834,7 @@ async def create_subtask(
     subtask_with_tags = result.scalar_one()
     
     # Build project badges
-        project_badges = await project_service.build_badges(db, subtask_with_tags.uuid, subtask_with_tags.is_exclusive_mode, todo_projects, "todo_uuid")
+    project_badges = await project_service.build_badges(db, subtask_with_tags.uuid, subtask_with_tags.is_exclusive_mode, todo_projects, "todo_uuid")
     
     return _convert_todo_to_response(subtask_with_tags, project_badges)
 

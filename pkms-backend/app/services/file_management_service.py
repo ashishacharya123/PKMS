@@ -23,6 +23,7 @@ from app.services.file_detection import FileTypeDetectionService
 from app.config import get_data_dir, get_file_storage_dir
 from app.utils.security import sanitize_filename, validate_file_size
 from app.config import settings
+from sqlalchemy import select, and_
 
 logger = logging.getLogger(__name__)
 file_detector = FileTypeDetectionService()
@@ -143,7 +144,7 @@ class FileManagementService:
         tags: Optional[list],
         project_ids: Optional[list],
         is_exclusive_mode: bool,
-        user_id: int,
+        user_uuid: str,
         document_model: Type,
         tag_service: any,
         project_service: any,
@@ -250,7 +251,7 @@ class FileManagementService:
                 description=sanitized_description,
                 upload_status="completed",
                 is_exclusive_mode=is_exclusive_mode or False,
-                user_uuid=user_id,
+                user_uuid=user_uuid,
                 # Projects will be handled by project associations
             )
             
@@ -262,11 +263,11 @@ class FileManagementService:
                 # SECURITY: Sanitize tags to prevent XSS injection
                 from app.utils.security import sanitize_tags
                 sanitized_tags = sanitize_tags(tags)
-                await tag_service.handle_tags(db, document, sanitized_tags, user_id, "documents", document_tags)
+                await tag_service.handle_tags(db, document, sanitized_tags, user_uuid, "documents", document_tags)
 
             # Handle projects (with ownership verification)
             if project_ids:
-                await project_service.handle_associations(db, document, project_ids, user_id, document_projects, "document_uuid")
+                await project_service.handle_associations(db, document, project_ids, user_uuid, document_projects, "document_uuid")
 
             await db.commit()
             
@@ -332,7 +333,7 @@ class FileManagementService:
         note_uuid: str,
         original_name: Optional[str],
         description: Optional[str],
-        user_id: int
+        user_uuid: str
     ) -> any:
         """
         Commit a note file upload with full metadata handling.
@@ -354,7 +355,7 @@ class FileManagementService:
             from app.models.note import Note
             note_result = await db.execute(
                 select(Note).where(
-                    and_(Note.uuid == note_uuid, Note.user_uuid == user_id)
+                    and_(Note.uuid == note_uuid, Note.user_uuid == user_uuid)
                 )
             )
             note = note_result.scalar_one_or_none()
@@ -393,7 +394,7 @@ class FileManagementService:
             # Create NoteFile record
             note_file = NoteFile(
                 note_uuid=note_uuid,
-                user_uuid=user_id,
+                user_uuid=user_uuid,
                 filename=stored_filename,
                 original_name=original_name or "uploaded_file",
                 file_path=file_path_relative,

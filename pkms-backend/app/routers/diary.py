@@ -76,19 +76,19 @@ async def _get_session_lock():
 async def _get_diary_password_from_session(user_uuid: str) -> Optional[bytes]:
     """Get diary derived key from session if valid and not expired."""
     async with _get_session_lock():
-    if user_uuid not in _diary_sessions:
-        return None
-    
-    session = _diary_sessions[user_uuid]
-    current_time = time.time()
-    
+        if user_uuid not in _diary_sessions:
+            return None
+        
+        session = _diary_sessions[user_uuid]
+        current_time = time.time()
+        
         # Check if session has expired (atomic check and clear)
-    if current_time > session["expires_at"]:
-        logger.info(f"Diary session expired for user {user_uuid}")
+        if current_time > session["expires_at"]:
+            logger.info(f"Diary session expired for user {user_uuid}")
             await _clear_diary_session(user_uuid)
-        return None
-    
-    return session["key"]
+            return None
+        
+        return session["key"]
 
 async def _store_diary_password_in_session(user_uuid: str, password: str):
     """Store derived diary key in secure session with expiry.
@@ -96,16 +96,16 @@ async def _store_diary_password_in_session(user_uuid: str, password: str):
     Also derives a salt for better security and rotates after timeout.
     """
     async with _get_session_lock():
-    current_time = time.time()
-    key, salt = _derive_diary_encryption_key(password)
-    
-    _diary_sessions[user_uuid] = {
-        "key": key,
-        "salt": salt,
-        "timestamp": current_time,
-        "expires_at": current_time + DIARY_SESSION_TIMEOUT
-    }
-    logger.info(f"Diary session created for user {user_uuid}, expires in {DIARY_SESSION_TIMEOUT}s")
+        current_time = time.time()
+        key, salt = _derive_diary_encryption_key(password)
+        
+        _diary_sessions[user_uuid] = {
+            "key": key,
+            "salt": salt,
+            "timestamp": current_time,
+            "expires_at": current_time + DIARY_SESSION_TIMEOUT
+        }
+        logger.info(f"Diary session created for user {user_uuid}, expires in {DIARY_SESSION_TIMEOUT}s")
 
 async def _clear_diary_session(user_uuid: str):
     """Clear diary session and password from memory.
@@ -113,32 +113,32 @@ async def _clear_diary_session(user_uuid: str):
     Overwrite memory buffers where possible before deletion for added security.
     """
     async with _get_session_lock():
-    if user_uuid in _diary_sessions:
-        session = _diary_sessions[user_uuid]
-        
-        # Securely overwrite all sensitive data
-        try:
-            # Overwrite key
-            if "key" in session and session["key"]:
-                key_len = len(session["key"])
-                session["key"] = b"\x00" * key_len
+        if user_uuid in _diary_sessions:
+            session = _diary_sessions[user_uuid]
             
-            # Overwrite salt
-            if "salt" in session and session["salt"]:
-                salt_len = len(session["salt"])
-                session["salt"] = b"\x00" * salt_len
+            # Securely overwrite all sensitive data
+            try:
+                # Overwrite key
+                if "key" in session and session["key"]:
+                    key_len = len(session["key"])
+                    session["key"] = b"\x00" * key_len
+                
+                # Overwrite salt
+                if "salt" in session and session["salt"]:
+                    salt_len = len(session["salt"])
+                    session["salt"] = b"\x00" * salt_len
+                
+                # Overwrite timestamp data
+                session["timestamp"] = 0.0
+                session["expires_at"] = 0.0
+                
+            except Exception as e:
+                logger.warning(f"Error securely clearing session data for user {user_uuid}: {e}")
             
-            # Overwrite timestamp data
-            session["timestamp"] = 0.0
-            session["expires_at"] = 0.0
-            
-        except Exception as e:
-            logger.warning(f"Error securely clearing session data for user {user_uuid}: {e}")
-        
             # Remove from dictionary and force garbage collection
-        del _diary_sessions[user_uuid]
-        logger.info(f"Diary session cleared for user {user_uuid}")
-
+            del _diary_sessions[user_uuid]
+            logger.info(f"Diary session cleared for user {user_uuid}")
+            
             # Force cleanup
             gc.collect()
 

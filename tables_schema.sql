@@ -187,46 +187,46 @@ CREATE TABLE todos (
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     todo_type VARCHAR(20) NOT NULL DEFAULT 'task',  -- task, checklist, subtask
     order_index INTEGER DEFAULT 0 NOT NULL,
-    
+
     -- Checklist functionality (for todo_type = 'checklist')
     checklist_items TEXT,  -- JSON array of {text, completed, order}
-    
+
     -- Subtasks and Dependencies
-    parent_id INTEGER,
-    
+    parent_uuid VARCHAR(36),
+
     -- Time Tracking
     estimate_minutes INTEGER,
     actual_minutes INTEGER,
-    
+
     -- Status flags
     is_archived BOOLEAN DEFAULT FALSE,
     is_favorite BOOLEAN DEFAULT FALSE,
     is_exclusive_mode BOOLEAN DEFAULT FALSE,
-    
+
     -- Priority and dates
     priority INTEGER DEFAULT 2,
     start_date DATE,
     due_date DATE,
     completed_at DATETIME,
-    
+
     -- Timestamps
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
+
     -- Foreign keys
     user_uuid VARCHAR(36) NOT NULL,
-    
+
     -- Audit trail
     created_by VARCHAR(36) NOT NULL,
-    
+
     -- Soft Delete
     is_deleted BOOLEAN DEFAULT FALSE,
-    
+
     -- Progress Tracking
     completion_percentage INTEGER DEFAULT 0,
-    
+
     FOREIGN KEY (user_uuid) REFERENCES users(uuid) ON DELETE CASCADE,
-    FOREIGN KEY (parent_id) REFERENCES todos(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_uuid) REFERENCES todos(uuid) ON DELETE CASCADE,
     FOREIGN KEY (created_by) REFERENCES users(uuid)
 );
 
@@ -257,35 +257,37 @@ CREATE TABLE diary_entries (
     user_uuid VARCHAR(36) NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
+
     -- Additional metadata
-    daily_metadata_id INTEGER,
-    
+    daily_metadata_uuid VARCHAR(36),
+
     -- Soft Delete
     is_deleted BOOLEAN DEFAULT FALSE,
-    
-    FOREIGN KEY (user_uuid) REFERENCES users(uuid) ON DELETE CASCADE
+
+    FOREIGN KEY (user_uuid) REFERENCES users(uuid) ON DELETE CASCADE,
+    FOREIGN KEY (daily_metadata_uuid) REFERENCES diary_daily_metadata(uuid) ON DELETE SET NULL
 );
 
 -- Per-day wellness snapshot captured via dashboard
 CREATE TABLE diary_daily_metadata (
     id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    uuid VARCHAR(36) NOT NULL UNIQUE,
     user_uuid VARCHAR(36) NOT NULL,
     date DATETIME NOT NULL,
     nepali_date VARCHAR(20),
-    
+
     -- Financial
     daily_income INTEGER DEFAULT 0,
     daily_expense INTEGER DEFAULT 0,
-    
+
     -- Context
     is_office_day BOOLEAN DEFAULT FALSE,
-    
+
     -- Generic metrics JSON
     metrics_json TEXT NOT NULL DEFAULT '{}',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
+
     UNIQUE (user_uuid, date),
     FOREIGN KEY (user_uuid) REFERENCES users(uuid) ON DELETE CASCADE
 );
@@ -582,7 +584,7 @@ CREATE INDEX idx_projects_is_favorite ON projects(is_favorite);
 CREATE INDEX idx_todos_user_uuid ON todos(user_uuid);
 CREATE INDEX idx_todos_title ON todos(title);
 CREATE INDEX idx_todos_status ON todos(status);
-CREATE INDEX idx_todos_parent_id ON todos(parent_id);
+CREATE INDEX idx_todos_parent_uuid ON todos(parent_uuid);
 CREATE INDEX idx_todos_is_archived ON todos(is_archived);
 CREATE INDEX idx_todos_is_favorite ON todos(is_favorite);
 CREATE INDEX idx_todos_priority ON todos(priority);
@@ -595,8 +597,10 @@ CREATE INDEX idx_diary_entries_mood ON diary_entries(mood);
 CREATE INDEX idx_diary_entries_weather_code ON diary_entries(weather_code);
 CREATE INDEX idx_diary_entries_is_favorite ON diary_entries(is_favorite);
 CREATE INDEX idx_diary_entries_is_archived ON diary_entries(is_archived);
+CREATE INDEX idx_diary_entries_daily_metadata_uuid ON diary_entries(daily_metadata_uuid);
 CREATE INDEX idx_diary_daily_metadata_user_uuid ON diary_daily_metadata(user_uuid);
 CREATE INDEX idx_diary_daily_metadata_date ON diary_daily_metadata(date);
+CREATE INDEX idx_diary_daily_metadata_uuid ON diary_daily_metadata(uuid);
 CREATE INDEX idx_diary_media_diary_entry_uuid ON diary_media(diary_entry_uuid);
 CREATE INDEX idx_diary_media_user_uuid ON diary_media(user_uuid);
 CREATE INDEX idx_diary_media_media_type ON diary_media(media_type);

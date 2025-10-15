@@ -158,7 +158,7 @@ class SearchService:
                 
                 # Apply additional filters
                 if has_attachments is not None:
-                    has_files = await self._item_has_attachments(item, item_type)
+                    has_files = await self._item_has_attachments(db, item, item_type)
                     if has_attachments != has_files:
                         continue
                 
@@ -263,20 +263,26 @@ class SearchService:
                 return None
             
             # Load with tag relationships for proper tag display
-            result = await db.execute(
-                select(model_class).options(selectinload(getattr(model_class, 'tag_objs', None))).where(model_class.uuid == item_uuid)
-            )
+            if hasattr(model_class, 'tag_objs'):
+                result = await db.execute(
+                    select(model_class).options(selectinload(getattr(model_class, 'tag_objs'))).where(model_class.uuid == item_uuid)
+                )
+            else:
+                result = await db.execute(
+                    select(model_class).where(model_class.uuid == item_uuid)
+                )
             return result.scalar_one_or_none()
         
         except Exception:
             logger.exception("Error loading %s %s", item_type, item_uuid)
             return None
     
-    async def _item_has_attachments(self, item: Any, item_type: str) -> bool:
+    async def _item_has_attachments(self, db: AsyncSession, item: Any, item_type: str) -> bool:
         """Check if item has attachments."""
         try:
             if item_type == 'note':
-                return getattr(item, 'file_count', 0) > 0
+                # Check actual attached files for notes to avoid stale/missing counts
+                return bool(await self._extract_attachments(db, item, item_type))
             elif item_type == 'document':
                 return bool(getattr(item, 'filename', None))
             elif item_type == 'archive_item':

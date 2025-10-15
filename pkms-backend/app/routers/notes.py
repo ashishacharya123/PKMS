@@ -240,8 +240,9 @@ async def create_note(
         )
         note_with_tags = result.scalar_one()
         
-        # Index in search
+        # Index in search and persist
         await search_service.index_item(db, note_with_tags, 'note')
+        await db.commit()
         
         # Build project badges
         project_badges = await project_service.build_badges(db, note_with_tags.uuid, note_with_tags.is_exclusive_mode, note_projects, "note_uuid")
@@ -325,8 +326,9 @@ async def update_note(
     )
     note_with_tags = result.scalar_one()
     
-    # Index in search
+    # Index in search and persist
     await search_service.index_item(db, note_with_tags, 'note')
+    await db.commit()
     
     # Build project badges
     project_badges = await project_service.build_badges(db, note_with_tags.uuid, note_with_tags.is_exclusive_mode, note_projects, "note_uuid")

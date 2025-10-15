@@ -10,8 +10,8 @@ from fastapi import Request, HTTPException, status
 from fastapi.responses import JSONResponse
 from typing import Optional, Callable, Awaitable
 from urllib.parse import parse_qs
-from datetime import datetime
-from sqlalchemy import select
+from datetime import datetime, timezone
+from sqlalchemy import select, func
 from app.database import get_db
 from app.models.user import Session
 from app.routers.diary import _get_diary_password_from_session
@@ -89,9 +89,14 @@ class DiaryAccessMiddleware:
 
             # Verify session exists and is valid
             async for db in get_db():
-                result = await db.execute(select(Session).where(Session.session_token == session_token))
+                result = await db.execute(
+                    select(Session).where(
+                        Session.session_token == session_token,
+                        Session.expires_at > func.now()
+                    )
+                )
                 session = result.scalar_one_or_none()
-                if not session or session.expires_at < datetime.now():
+                if not session:
                     logger.warning("🚫 Diary search attempt with expired session")
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,

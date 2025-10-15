@@ -12,7 +12,7 @@ class CamelCaseModel(BaseModel):
 
 class ProjectBadge(CamelCaseModel):
     """Project badge for displaying project associations on items"""
-    id: Optional[int]  # None if project is deleted
+    uuid: Optional[str] = None  # None if project is deleted (snapshot)
     name: str
     color: str
     is_exclusive: bool
@@ -30,6 +30,17 @@ class NoteCreate(CamelCaseModel):
         from app.utils.security import sanitize_text_input
         return sanitize_text_input(v, max_length=200)
 
+    @field_validator('project_ids')
+    def validate_project_ids_are_uuid4(cls, v: Optional[List[str]]):
+        if not v:
+            return v
+        import re
+        uuid4_regex = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+        for pid in v:
+            if not isinstance(pid, str) or not uuid4_regex.match(pid):
+                raise ValueError("project_ids must contain valid UUID4 strings")
+        return v
+
 class NoteUpdate(CamelCaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     content: Optional[str] = Field(None, min_length=0, max_length=50000)
@@ -43,6 +54,17 @@ class NoteUpdate(CamelCaseModel):
     def validate_safe_text(cls, v: Optional[str]):
         from app.utils.security import sanitize_text_input
         return sanitize_text_input(v, max_length=200) if v else v
+
+    @field_validator('project_ids')
+    def validate_project_ids_are_uuid4_update(cls, v: Optional[List[str]]):
+        if v is None:
+            return v
+        import re
+        uuid4_regex = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+        for pid in v:
+            if not isinstance(pid, str) or not uuid4_regex.match(pid):
+                raise ValueError("project_ids must contain valid UUID4 strings")
+        return v
 
 class NoteResponse(CamelCaseModel):
     id: int

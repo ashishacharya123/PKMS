@@ -55,7 +55,6 @@ class Settings(BaseSettings):
     
     # Database
     database_url: str = "sqlite+aiosqlite:///./data/pkm_metadata.db"
-    auth_db_path: str = "./data/auth.db"
     
     # Redis Configuration
     redis_url: str = "redis://localhost:6379/0"
@@ -158,7 +157,7 @@ def get_file_storage_dir() -> Path:
     This ensures files are accessible outside Docker and not stored in Docker volumes"""
     # For file storage, always use the Windows filesystem mount point
     # This ensures files are accessible outside Docker and not stored in Docker volumes
-    if Path("/app/PKMS_Data").exists():
+    if os.getenv("PKMS_IN_DOCKER", "").lower() in ("1", "true", "yes") or Path("/app/PKMS_Data").exists():
         # Docker environment - use mounted Windows filesystem
         file_storage_dir = Path("/app/PKMS_Data")
     else:
@@ -184,9 +183,7 @@ def get_database_url() -> str:
     return settings.database_url
 
 
-def get_auth_db_path() -> Path:
-    """Get the authentication database path"""
-    return get_data_dir() / "auth.db"
+// auth_db_path removed as unused
 
 
 def get_redis_url() -> str:

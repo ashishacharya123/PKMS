@@ -419,17 +419,18 @@ async def get_quick_stats(
             detail=f"Failed to load quick statistics: {str(e)}"
         )
 
-async def _calculate_diary_streak(db: AsyncSession, user_id: str) -> int:
+async def _calculate_diary_streak(db: AsyncSession, user_uuid: str) -> int:
     """Calculate the current consecutive diary writing streak"""
     try:
         # Get the most recent diary entries ordered by date descending
         result = await db.execute(
             select(DiaryEntry.date)
-            .where(DiaryEntry.user_uuid == user_id)
+            .where(DiaryEntry.user_uuid == user_uuid)
             .order_by(DiaryEntry.date.desc())
-            .limit(365)  # Look at most recent year
+            .limit(365)
         )
-        dates = [row[0] for row in result.fetchall()]
+        dates_dt = [row[0] for row in result.fetchall()]
+        dates = [d.date() for d in dates_dt]
         
         if not dates:
             return 0

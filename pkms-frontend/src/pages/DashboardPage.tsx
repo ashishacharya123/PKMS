@@ -44,17 +44,17 @@ import { StorageBreakdownCard } from '../components/dashboard/StorageBreakdownCa
 interface ModuleStats {
   notes: { total: number; recent: number };
   documents: { total: number; recent: number };
-  todos: { 
-    total: number; 
-    pending: number; 
-    inProgress?: number;
+  todos: {
+    total: number;
+    pending: number;
+    in_progress?: number;
     blocked?: number;
     done?: number;
     cancelled?: number;
-    completed: number; 
+    completed: number;
     overdue: number;
-    dueToday?: number;
-    completedToday?: number;
+    due_today?: number;
+    completed_today?: number;
   };
   diary: { entries: number; streak: number };
   archive: { folders: number; items: number };
@@ -289,7 +289,7 @@ export function DashboardPage() {
           </>
         )}
 
-        {quick && quick.storage_by_module && (
+        {title === 'Documents' && quick && quick.storage_by_module && (
           <StorageBreakdownCard total={quick.storage_used_mb} byModule={quick.storage_by_module} />
         )}
 
@@ -310,11 +310,11 @@ export function DashboardPage() {
 
         {title === 'Todos' && (
           <>
-            {(moduleStats?.inProgress || 0) > 0 && (
+            {(moduleStats?.in_progress || 0) > 0 && (
               <Group justify="space-between">
                 <Text size="sm">In Progress</Text>
                 <Badge size="sm" variant="light" color="cyan">
-                  {moduleStats?.inProgress}
+                  {moduleStats?.in_progress}
                 </Badge>
               </Group>
             )}
@@ -654,9 +654,9 @@ export function DashboardPage() {
               <div>
                 <Text size="sm" c="dimmed">Todo Status</Text>
                 <Group gap="xs" wrap="wrap" mt={4}>
-                  {(stats?.todos?.inProgress || 0) > 0 && (
+                  {(((stats as any)?.todos?.in_progress) || 0) > 0 && (
                     <Badge variant="light" color="cyan" size="sm">
-                      {stats?.todos?.inProgress} in progress
+                      {(stats as any)?.todos?.in_progress} in progress
                     </Badge>
                   )}
                   {(stats?.todos?.blocked || 0) > 0 && (

@@ -37,8 +37,7 @@ import { notifications } from '@mantine/notifications';
 interface SearchResult {
   type: string;
   module: string;
-  id?: number;
-  uuid?: string;
+  uuid: string;
   title?: string;
   name?: string;
   content?: string;
@@ -147,7 +146,7 @@ export default function FuzzySearchPage() {
           notes: 'note',
           documents: 'document',
           todos: 'todo',
-          // diary: 'diary', // ❌ SECURITY: Diary search removed from global search
+          folders: 'folder',
           archive: 'archive'
         };
         const mappedModules = selectedModules

@@ -222,12 +222,12 @@ async def init_db():
                 
                 # Todos indexes
                 "CREATE INDEX IF NOT EXISTS idx_todos_user_uuid ON todos(user_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_todos_user_status ON todos(user_uuid, is_completed);",
+                "CREATE INDEX IF NOT EXISTS idx_todos_user_status ON todos(user_uuid, status);",
                 "CREATE INDEX IF NOT EXISTS idx_todos_priority ON todos(priority);",
-                "CREATE INDEX IF NOT EXISTS idx_todos_user_status_priority ON todos(user_uuid, is_completed, priority);",
+                "CREATE INDEX IF NOT EXISTS idx_todos_user_status_priority ON todos(user_uuid, status, priority);",
                 "CREATE INDEX IF NOT EXISTS idx_todos_user_priority_date ON todos(user_uuid, priority DESC, created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date);",
-                "CREATE INDEX IF NOT EXISTS idx_todos_project_id ON todos(project_id);",
+                -- project_id removed; projects are via association now
                 "CREATE INDEX IF NOT EXISTS idx_projects_user_uuid ON projects(user_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(is_archived);",
                 

@@ -12,14 +12,14 @@ export interface DashboardStats {
   todos: {
     total: number;
     pending: number;
-    inProgress?: number;  // Status-based count
+    in_progress?: number;  // Status-based count
     blocked?: number;     // Status-based count
     done?: number;        // Status-based count
     cancelled?: number;   // Status-based count
     completed: number;    // Legacy field
     overdue: number;
-    dueToday?: number;
-    completedToday?: number;
+    due_today?: number;
+    completed_today?: number;
   };
   diary: {
     entries: number;

@@ -4,7 +4,7 @@ import { IconLock, IconLink, IconTrash } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 
 export interface ProjectBadge {
-  id: number | null;
+  uuid: string | null;
   name: string;
   color: string;
   isExclusive: boolean;
@@ -30,9 +30,9 @@ export const ProjectBadges: React.FC<ProjectBadgesProps> = ({
     return null;
   }
 
-  const handleBadgeClick = (projectId: number | null) => {
-    if (clickable && projectId != null) {  // Explicit null/undefined check (allows 0)
-      navigate(`/projects/${projectId}`);
+  const handleBadgeClick = (projectUuid: string | null) => {
+    if (clickable && projectUuid) {
+      navigate(`/projects/${projectUuid}`);
     }
   };
 

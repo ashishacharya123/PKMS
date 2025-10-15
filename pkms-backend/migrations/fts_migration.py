@@ -116,7 +116,7 @@ async def bulk_index_existing_content():
             logger.info("🎉 Bulk indexing completed successfully!")
             break
             
-        except Exception as e:
+        except Exception:
             logger.exception("❌ Error during bulk indexing")
             raise
         finally:
@@ -172,7 +172,7 @@ async def main():
         
         logger.info("🎉 FTS5 migration completed successfully!")
         
-    except Exception as e:
+    except Exception:
         logger.exception("❌ Migration failed")
         raise
 

@@ -62,7 +62,7 @@ export function WeeklyHighlightsPanel() {
           <Text fw={600}>Weekly Highlights</Text>
           {data && (
             <Badge variant="light" color="blue">
-              {data.period_start} – {data.period_end}
+              {data.periodStart} – {data.periodEnd}
             </Badge>
           )}
         </Group>
@@ -83,23 +83,23 @@ export function WeeklyHighlightsPanel() {
         <Collapse in={open}>
           <Stack gap="xs">
             <Group gap="xs" wrap="wrap">
-              <Badge color="blue" variant="light">Notes {data.notes_created}</Badge>
-              <Badge color="green" variant="light">Docs {data.documents_uploaded}</Badge>
-              <Badge color="orange" variant="light">Todos {data.todos_completed}</Badge>
-              <Badge color="purple" variant="light">Diary {data.diary_entries}</Badge>
-              <Badge color="grape" variant="light">Archive {data.archive_items_added}</Badge>
-              <Badge color="teal" variant="light">Projects +{data.projects_created}</Badge>
-              <Badge color="cyan" variant="light">Completed {data.projects_completed}</Badge>
+              <Badge color="blue" variant="light">Notes {data.notesCreated}</Badge>
+              <Badge color="green" variant="light">Docs {data.documentsUploaded}</Badge>
+              <Badge color="orange" variant="light">Todos {data.todosCompleted}</Badge>
+              <Badge color="purple" variant="light">Diary {data.diaryEntries}</Badge>
+              <Badge color="grape" variant="light">Archive {data.archiveItemsAdded}</Badge>
+              <Badge color="teal" variant="light">Projects +{data.projectsCreated}</Badge>
+              <Badge color="cyan" variant="light">Completed {data.projectsCompleted}</Badge>
             </Group>
             <Group gap="xs" wrap="wrap">
               <Badge color="indigo" variant="outline">
-                Income NPR {data.total_income.toFixed(2)}
+                Income NPR {data.totalIncome.toFixed(2)}
               </Badge>
               <Badge color="red" variant="outline">
-                Expense NPR {data.total_expense.toFixed(2)}
+                Expense NPR {data.totalExpense.toFixed(2)}
               </Badge>
-              <Badge color={data.net_savings >= 0 ? 'teal' : 'red'} variant="filled">
-                Net {data.net_savings.toFixed(2)}
+              <Badge color={data.netSavings >= 0 ? 'teal' : 'red'} variant="filled">
+                Net {data.netSavings.toFixed(2)}
               </Badge>
             </Group>
           </Stack>

@@ -9,14 +9,14 @@ Handles:
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, and_
+from sqlalchemy import select, delete, and_, func
 from sqlalchemy.orm import selectinload
 from typing import List, Optional, Type
 from fastapi import HTTPException
 
-from app.models.project import Project
+from app.models.todo import Project
 from app.models.associations import note_projects, document_projects, todo_projects
-from app.schemas.project import ProjectBadge
+from app.schemas.document import ProjectBadge
 
 
 class ProjectService:
@@ -177,7 +177,7 @@ class ProjectService:
         Returns:
             Tuple of (total_count, completed_count)
         """
-        from app.models.todo import Todo
+        from app.models.todo import Todo, TodoStatus
         
         # Get total count via junction table
         total_result = await db.execute(
@@ -191,7 +191,7 @@ class ProjectService:
             .join(Todo, Todo.uuid == todo_projects.c.todo_uuid)
             .where(and_(
                 todo_projects.c.project_uuid == project_uuid,
-                Todo.status == 'done'
+                Todo.status == TodoStatus.DONE
             ))
         )
         completed_count = completed_result.scalar() or 0

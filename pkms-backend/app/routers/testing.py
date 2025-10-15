@@ -726,7 +726,7 @@ async def get_sample_rows(
                     FROM note_tags nt 
                     JOIN notes n ON nt.note_uuid = n.uuid 
                     JOIN tags t ON nt.tag_uuid = t.uuid 
-                    WHERE n.user_id = :user_id 
+                    WHERE n.user_uuid = :user_uuid 
                     LIMIT :limit
                 """)
             elif table == "document_tags":
@@ -1199,7 +1199,7 @@ async def _test_notes_crud(db: AsyncSession, user: User, cleanup_list: list, ver
             "area": "TEST_AREA",  # Clear test identifier
             "year": current_year,
             "is_archived": False,
-            "user_id": user.id
+            "user_uuid": user.uuid
         }
         
         note = Note(**note_data)
@@ -1270,15 +1270,15 @@ async def _test_notes_crud(db: AsyncSession, user: User, cleanup_list: list, ver
             await db.flush()
             
             # Verify deletion
-            deleted_note = await db.get(Note, note_id)
+            deleted_note = await db.get(Note, note_uuid)
             if deleted_note is None:
                 add_operation("delete", True, {
-                    "deleted_note_id": note_id, 
+                    "deleted_note_uuid": note_uuid, 
                     "deleted_title": note_title,
                     "test_id": test_id
                 })
                 # Remove from cleanup list since we successfully deleted it
-                cleanup_list[:] = [item for item in cleanup_list if not (item[0] == "note" and item[1] == note_id)]
+                cleanup_list[:] = [item for item in cleanup_list if not (item[0] == "note" and item[1] == note_uuid)]
             else:
                 add_operation("delete", False, error="Note still exists after deletion attempt")
         except Exception as e:
@@ -1335,7 +1335,7 @@ async def _test_documents_crud(db: AsyncSession, user: User, cleanup_list: list,
             "extracted_text": f"Test document content for CRUD testing - ID: {test_id} - Password: {test_password}",
             "metadata_json": f'{{"test_id": "{test_id}", "test_password": "{test_password}", "test_type": "CRUD"}}',
             "is_archived": False,
-            "user_id": user.id
+            "user_uuid": user.uuid
         }
         
         document = Document(**doc_data)
@@ -1466,7 +1466,7 @@ async def _test_todos_crud(db: AsyncSession, user: User, cleanup_list: list, ver
             "priority": 2,  # Medium priority (1=Low, 2=Medium, 3=High)
             "status": "pending",
             "is_recurring": False,
-            "user_id": user.id
+            "user_uuid": user.uuid
         }
         
         todo = Todo(**todo_data)
@@ -1543,15 +1543,15 @@ async def _test_todos_crud(db: AsyncSession, user: User, cleanup_list: list, ver
             await db.flush()
             
             # Verify deletion
-            deleted_todo = await db.get(Todo, todo_id)
+            deleted_todo = await db.get(Todo, todo_uuid)
             if deleted_todo is None:
                 add_operation("delete", True, {
-                    "deleted_todo_id": todo_id,
+                    "deleted_todo_uuid": todo_uuid,
                     "deleted_title": todo_title,
                     "test_id": test_id
                 })
                 # Remove from cleanup list
-                cleanup_list[:] = [item for item in cleanup_list if not (item[0] == "todo" and item[1] == todo_id)]
+                cleanup_list[:] = [item for item in cleanup_list if not (item[0] == "todo" and item[1] == todo_uuid)]
             else:
                 add_operation("delete", False, error="Todo still exists after deletion attempt")
         except Exception as e:

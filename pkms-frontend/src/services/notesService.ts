@@ -9,7 +9,7 @@ import { coreDownloadService, DownloadProgress } from './shared/coreDownloadServ
 // Removed SMALL_FILE_THRESHOLD since we're using chunked upload consistently
 
 export interface ProjectBadge {
-  id: number | null;  // null if project is deleted
+  uuid: string | null;  // null if project is deleted (snapshot)
   name: string;
   color: string;
   isExclusive: boolean;

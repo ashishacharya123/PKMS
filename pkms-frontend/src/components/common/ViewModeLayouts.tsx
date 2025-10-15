@@ -3,7 +3,7 @@ import { ViewMode } from './ViewMenu';
 import classes from './ViewModeLayouts.module.css';
 
 interface BaseItem {
-  id: string | number;
+  uuid: string;
   title?: string;
   name?: string;
   created_at?: string;
