@@ -178,7 +178,7 @@ class SearchService:
                     "created_at": item.created_at.isoformat() if item.created_at else None,
                     "score": score,
                     "tags": [t.name for t in getattr(item, 'tag_objs', [])] if hasattr(item, 'tag_objs') else [],
-                    "attachments": (await self._extract_attachments(db, item, item_type)).split()
+                    "attachments": await self._extract_attachments(db, item, item_type)
                 }
                 
                 # Add type-specific fields

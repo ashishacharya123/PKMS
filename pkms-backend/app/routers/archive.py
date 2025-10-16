@@ -182,7 +182,7 @@ except ImportError:
 from app.database import get_db
 from app.config import settings, get_data_dir, get_file_storage_dir, NEPAL_TZ
 from app.models.archive import ArchiveFolder, ArchiveItem
-from app.models.tag_associations import archive_tags, archive_item_tags
+from app.models.tag_associations import archive_item_tags
 from app.models.tag import Tag
 from app.models.user import User
 from app.auth.dependencies import get_current_user
@@ -657,7 +657,9 @@ async def delete_folder(
         
         # Get folder (simplified for single user)
         result = await db.execute(
-            select(ArchiveFolder).options(selectinload(ArchiveFolder.tag_objs)).where(ArchiveFolder.uuid == folder_uuid)
+            select(ArchiveFolder)
+            .options(selectinload(ArchiveFolder.tag_objs))
+            .where(and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.user_uuid == current_user.uuid))
         )
         folder = result.scalar_one_or_none()
         
@@ -946,9 +948,16 @@ async def upload_item(
         # Only commit DB after successful file move
         await db.commit()
         await db.refresh(item)
+
+        # Index in search and persist
+        try:
+            await search_service.index_item(db, item, 'archive_item')
+            await db.commit()
+        except Exception:
+            # Best-effort: don’t fail the request if indexing fails
+            logger.exception("Indexing failed for archive_item %s", item.uuid)
         
-        # Index in search with correct type
-        await search_service.index_item(db, item, 'archive_item')
+        # (Already indexed above with commit)
         
         logger.info(f"✅ Uploaded file '{original_filename}' to folder '{folder.name}' for user {current_user.username}")
         
@@ -1126,8 +1135,12 @@ async def update_item(
         await db.commit()
         await db.refresh(item)
         
-        # Index in search with correct type
-        await search_service.index_item(db, item, 'archive_item')
+        # Index in search with correct type and persist
+        try:
+            await search_service.index_item(db, item, 'archive_item')
+            await db.commit()
+        except Exception:
+            logger.exception("Indexing failed for archive_item %s", item.uuid)
         
         return await _get_item_with_relations(db, item.uuid)
         

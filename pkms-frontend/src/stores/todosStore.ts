@@ -29,7 +29,7 @@ interface TodosState {
   // Filters
   currentStatus: string | null;
   currentPriority: number | null;
-  currentProjectId: number | null;
+  currentProjectId: string | null;
   currentTag: string | null;
   searchQuery: string;
   showOverdue: boolean;
@@ -65,7 +65,7 @@ interface TodosState {
   // Filters
   setStatus: (status: string | null) => void;
   setPriority: (priority: number | null) => void;
-  setProjectFilter: (projectId: number | null) => void;
+  setProjectFilter: (projectId: string | null) => void;
   setTag: (tag: string | null) => void;
   setSearch: (query: string) => void;
   setShowOverdue: (show: boolean) => void;
@@ -111,7 +111,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       const params: TodoListParams = {
         status: state.currentStatus || undefined,
         priority: state.currentPriority || undefined,
-        project_id: state.currentProjectId || undefined,
+        project_uuid: state.currentProjectId || undefined,
         tag: state.currentTag || undefined,
         search: state.searchQuery || undefined,
         overdue: state.showOverdue || undefined,
@@ -146,7 +146,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       const params: TodoListParams = {
         status: state.currentStatus || undefined,
         priority: state.currentPriority || undefined,
-        project_id: state.currentProjectId || undefined,
+        project_uuid: state.currentProjectId || undefined,
         tag: state.currentTag || undefined,
         search: state.searchQuery || undefined,
         overdue: state.showOverdue || undefined,
@@ -212,7 +212,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       const state = get();
       const shouldAdd = (!state.currentStatus || todo.status === state.currentStatus) &&
                        (!state.currentPriority || todo.priority === state.currentPriority) &&
-                       (!state.currentProjectId || todo.project_id === state.currentProjectId) &&
+                       (!state.currentProjectId || (todo.projects || []).some(pb => pb.uuid === state.currentProjectId)) &&
                        (!state.currentTag || todo.tags.includes(state.currentTag)) &&
                        (!state.searchQuery || todo.title.toLowerCase().includes(state.searchQuery.toLowerCase()));
       
@@ -466,7 +466,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       }));
       
       // If this was the current project filter, clear it
-      if (project && state.currentProjectId === project.id) {
+      if (project && state.currentProjectId === project.uuid) {
         set({ currentProjectId: null });
         get().loadTodos();
       }
@@ -503,7 +503,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     get().loadTodos();
   },
   
-  setProjectFilter: (projectId: number | null) => {
+  setProjectFilter: (projectId: string | null) => {
     set({ currentProjectId: projectId });
     get().loadTodos();
   },

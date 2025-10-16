@@ -35,6 +35,20 @@ class DocumentUpdate(CamelCaseModel):
     is_favorite: Optional[bool] = None
     is_archived: Optional[bool] = None
     project_ids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this document to")
+    @field_validator('project_ids')
+    @classmethod
+    def _validate_project_ids(cls, v):
+        if not v:
+            return v
+        import uuid as _uuid
+        out = []
+        for s in v:
+            try:
+                _uuid.UUID(str(s))
+                out.append(str(s))
+            except Exception:
+                raise ValueError(f"Invalid UUID: {s}")
+        return out
     is_exclusive_mode: Optional[bool] = Field(None, description="If True, document is exclusive to projects and deleted when any project is deleted")
 
 class DocumentResponse(CamelCaseModel):
@@ -68,6 +82,20 @@ class CommitDocumentUploadRequest(CamelCaseModel):
     def validate_tags(cls, v):
         from app.utils.security import sanitize_tags
         return sanitize_tags(v or [])
+    @field_validator('project_ids')
+    @classmethod
+    def _validate_project_ids(cls, v):
+        if not v:
+            return v
+        import uuid as _uuid
+        out = []
+        for s in v:
+            try:
+                _uuid.UUID(str(s))
+                out.append(str(s))
+            except Exception:
+                raise ValueError(f"Invalid UUID: {s}")
+        return out
 
 class ArchiveDocumentRequest(CamelCaseModel):
     """Deprecated: Cross-module archiving removed. Kept for backward compatibility of imports."""

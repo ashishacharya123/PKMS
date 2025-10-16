@@ -32,6 +32,20 @@ import {
 } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+// Lightweight sanitizer to preserve <mark> and strip other tags/attributes
+const sanitizeHighlight = (html: string): string => {
+  if (!html) return '';
+  // Remove script/style tags entirely
+  html = html.replace(/<\/(?:script|style)>/gi, '').replace(/<(?:script|style)[^>]*>[\s\S]*?<\/(?:script|style)>/gi, '');
+  // Remove event handlers and javascript: URLs
+  html = html.replace(/ on[a-z]+\s*=\s*"[^"]*"/gi, '')
+             .replace(/ on[a-z]+\s*=\s*'[^']*'/gi, '')
+             .replace(/ on[a-z]+\s*=\s*[^\s>]+/gi, '')
+             .replace(/javascript:\s*/gi, '');
+  // Strip all tags except <mark>
+  html = html.replace(/<(?!\/?mark(?=>|\s))[^>]+>/gi, '');
+  return html;
+};
 
 // Types
 interface SearchResult {
@@ -549,12 +563,12 @@ export default function FuzzySearchPage() {
                       </Group>
                       
                       <Text fw={500} size="sm" mb={4}>
-                        <span dangerouslySetInnerHTML={{ __html: (result.highlight_title || result.title || result.name || '') }} />
+                        <span dangerouslySetInnerHTML={{ __html: sanitizeHighlight(result.highlight_title || result.title || result.name || '') }} />
                       </Text>
                       
                       {(result.highlight || result.content || result.description) && (
                         <Text size="xs" c="dimmed" lineClamp={2}>
-                          <span dangerouslySetInnerHTML={{ __html: (result.highlight || result.content || result.description || '') }} />
+                          <span dangerouslySetInnerHTML={{ __html: sanitizeHighlight(result.highlight || result.content || result.description || '') }} />
                         </Text>
                       )}
 

@@ -227,8 +227,8 @@ async def create_note(
         if note_data.project_ids:
             await project_service.handle_associations(db, note, note_data.project_ids, current_user.uuid, note_projects, "note_uuid")
         
-        # Process links in content
-        await _process_note_links(db, note, note_data.content, current_user.uuid)
+        # Process links in sanitized content
+        await _process_note_links(db, note, sanitized_content, current_user.uuid)
         
         await db.commit()
         
@@ -567,7 +567,7 @@ async def delete_note_file(
     
     # Delete the physical file
     try:
-        file_path = get_data_dir() / note_file.file_path
+        file_path = get_file_storage_dir() / note_file.file_path
         if file_path.exists():
             file_path.unlink()
             logger.info(f"🗑️ Deleted note file: {file_path}")
@@ -611,7 +611,7 @@ async def get_note_links(
 
     # Extract URLs from content
     import re
-    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    url_pattern = r'https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?'
     urls = re.findall(url_pattern, note)
     
     # Get existing Link records for these URLs

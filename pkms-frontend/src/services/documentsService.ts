@@ -199,6 +199,7 @@ class DocumentsService {
       const resp = await apiService.get(`/documents/${uuid}/preview`);
       return resp.data;
     } catch {
+      console.debug('Failed to fetch document preview');
       return null;
     }
   }

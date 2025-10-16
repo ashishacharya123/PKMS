@@ -343,7 +343,7 @@ class TestTagService:
         assert tag3.usage_count == 0
 
         # Verify flush was called
-        mock_db.flush.assert_called_once()
+        mock_db.flush.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_decrement_tags_on_delete_no_tags(self, mock_db, mock_item):

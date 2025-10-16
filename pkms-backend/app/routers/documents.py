@@ -25,7 +25,6 @@ from app.models.tag import Tag
 from app.models.user import User
 from app.models.todo import Project
 from app.models.tag_associations import document_tags
-from app.models.archive import ArchiveFolder
 from app.models.tag_associations import archive_tags
 from app.models.associations import document_projects
 from app.services.tag_service import tag_service
@@ -201,8 +200,8 @@ async def list_documents(
                 score = fts_scores.get(doc.uuid, 0.1)
                 doc_score_pairs.append((doc, score))
             
-            # BM25: lower score is better; sort ascending or preserve backend order
-            doc_score_pairs.sort(key=lambda x: x[1])
+            # Sort by score descending so higher relevance appears first (normalized score)
+            doc_score_pairs.sort(key=lambda x: x[1], reverse=True)
             ordered_docs = [doc for doc, score in doc_score_pairs]
             
             logger.info(f"Final ordered result: {len(ordered_docs)} documents (ordered by FTS relevance)")

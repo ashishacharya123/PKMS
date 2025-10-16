@@ -3,7 +3,7 @@ import { coreDownloadService, DownloadProgress } from './shared/coreDownloadServ
 
 // Types for todos
 export interface ProjectBadge {
-  id: number | null;  // null if project is deleted
+  uuid: string | null;  // null if project is deleted
   name: string;
   color: string;
   isExclusive: boolean;
@@ -11,7 +11,6 @@ export interface ProjectBadge {
 }
 
 export interface Project {
-  id: number;
   uuid: string;
   name: string;
   description?: string;
@@ -151,7 +150,7 @@ export interface TodoStats {
 export interface TodoListParams {
   status?: string;
   priority?: number;
-  project_id?: number;
+  project_uuid?: string;
   due_date?: string;
   overdue?: boolean;
   tag?: string;

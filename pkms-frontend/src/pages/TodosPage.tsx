@@ -1157,11 +1157,11 @@ export function TodosPage() {
                 {(projects || []).map((project) => (
                   <Button
                     key={project.uuid}
-                    variant={currentProjectId === project.id ? 'filled' : 'subtle'}
+                    variant={currentProjectId === project.uuid ? 'filled' : 'subtle'}
                     size="xs"
                     justify="space-between"
                     fullWidth
-                    onClick={() => setProjectFilter(project.id)}
+                    onClick={() => setProjectFilter(project.uuid)}
                   >
                     <Group gap="xs">
                       <div
