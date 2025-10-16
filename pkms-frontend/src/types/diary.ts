@@ -146,6 +146,13 @@ export interface WellnessTrendPoint {
   label?: string;
 }
 
+export interface FinancialPoint {
+  date?: string;
+  income: number;
+  expense: number;
+  cumulativeSavings: number;
+}
+
 export interface WellnessStats {
   // Period info
   periodStart: string;
@@ -199,7 +206,7 @@ export interface WellnessStats {
   wellnessComponents: Record<string, number>;
   
   // Financial data
-  financialTrend: WellnessTrendPoint[];
+  financialTrend: FinancialPoint[];
   totalIncome: number;
   totalExpense: number;
   netSavings: number;

@@ -82,8 +82,7 @@ class TodoUpdate(CamelCaseModel):
         return v
 
 class TodoResponse(CamelCaseModel):
-    id: int
-    uuid: Optional[str] = None
+    uuid: str
     title: str
     description: Optional[str]
     status: str
@@ -94,7 +93,7 @@ class TodoResponse(CamelCaseModel):
     project_uuid: Optional[str]  # Legacy single project
     project_name: Optional[str]  # Legacy single project name
     order_index: int = 0
-    parent_id: Optional[int] = None
+    parent_uuid: Optional[str] = None
     subtasks: List['TodoResponse'] = Field(default_factory=list)
     start_date: Optional[date]
     due_date: Optional[date]
@@ -116,8 +115,7 @@ class ProjectCreate(CamelCaseModel):
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
 
 class ProjectResponse(CamelCaseModel):
-    id: int
-    uuid: Optional[str] = None
+    uuid: str
     name: str
     description: Optional[str]
     color: Optional[str]

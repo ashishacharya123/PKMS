@@ -137,15 +137,16 @@ class SearchService:
             
             if item_types:
                 sql += " AND item_type IN :types"
-                from sqlalchemy import bindparam
-                stmt = text(sql).bindparams(bindparam("types", expanding=True))
                 params["types"] = item_types
-            else:
-                stmt = text(sql)
-            
+            # Append ORDER BY/LIMIT after all mutations
             sql += " ORDER BY score LIMIT :limit"
             params["limit"] = limit
-            
+
+            from sqlalchemy import bindparam
+            stmt = text(sql)
+            if item_types:
+                stmt = stmt.bindparams(bindparam("types", expanding=True))
+
             result = await db.execute(stmt, params)
             fts_results = result.fetchall()
             
@@ -208,17 +209,14 @@ class SearchService:
         attachments = []
         
         try:
-            if item_type == 'note' and hasattr(item, 'files'):
-                # Load note files if not already loaded
-                if not hasattr(item, 'files') or item.files is None:
-                    note_with_files = await db.execute(
-                        select(Note).options(selectinload(Note.files)).where(Note.uuid == item.uuid)
-                    )
-                    note = note_with_files.scalar_one_or_none()
-                    if note and note.files:
-                        attachments.extend([f.filename for f in note.files if f.filename])
-                else:
-                    attachments.extend([f.filename for f in item.files if f.filename])
+            if item_type == 'note':
+                # Always explicitly load files to avoid lazy-load greenlet issues
+                note_with_files = await db.execute(
+                    select(Note).options(selectinload(Note.files)).where(Note.uuid == item.uuid)
+                )
+                note = note_with_files.scalar_one_or_none()
+                if note and note.files:
+                    attachments.extend([f.filename for f in note.files if f.filename])
             
             elif item_type == 'document':
                 filename = getattr(item, 'filename', None)

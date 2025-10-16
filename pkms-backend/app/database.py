@@ -316,7 +316,8 @@ async def init_db():
                 # Data will be indexed on-demand through the search_service
 
             except Exception as e:
-                logger.error(f"❌ FTS5 initialization error: {e}")
+                # TODO: Narrow exception type; broad catch is temporary during recovery
+                logger.exception(f"❌ FTS5 initialization error: {e}")
                 logger.warning("⚠️ Search functionality will be limited")
         
         # Phase 5: Create essential data directories

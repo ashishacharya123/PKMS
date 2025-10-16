@@ -17,7 +17,7 @@ import logging
 import uuid as uuid_lib
 
 from app.database import get_db
-from app.config import get_data_dir
+from app.config import get_data_dir, get_file_storage_dir
 from app.models.note import Note, NoteFile
 from app.models.user import User
 from app.models.tag import Tag
@@ -360,7 +360,7 @@ async def delete_note(
             logger.info(f"Deleting {len(note.files)} associated files for note UUID: {note_uuid}")
             for note_file in note.files:
                 try:
-                    file_path = get_data_dir() / note_file.file_path
+                    file_path = get_file_storage_dir() / note_file.file_path
                     if file_path.exists():
                         file_path.unlink()
                         logger.info(f"🗑️ Deleted note file: {file_path}")
@@ -528,7 +528,7 @@ async def download_note_file(
     if not note_file:
         raise HTTPException(status_code=404, detail="File not found")
     
-    file_path = get_data_dir() / note_file.file_path
+    file_path = get_file_storage_dir() / note_file.file_path
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
     

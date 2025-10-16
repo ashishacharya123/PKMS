@@ -34,6 +34,7 @@ import { MultiProjectSelector } from '../components/common/MultiProjectSelector'
 import { ProjectBadges } from '../components/common/ProjectBadges';
 import { SubtaskList } from '../components/todos/SubtaskList';
 import { useViewPreferences } from '../hooks/useViewPreferences';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import {
   IconPlus,
   IconSearch,
@@ -196,6 +197,20 @@ export function TodosPage() {
     updateTodoWithSubtasks,
     clearError
   } = useTodosStore();
+
+  // Keyboard shortcuts: favorites/archive toggles, focus search, refresh
+  useKeyboardShortcuts({
+    shortcuts: [
+      { key: '/', action: () => {
+          const input = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement | null;
+          input?.focus();
+        }, description: 'Focus search', category: 'Navigation' },
+      { key: 'r', action: () => { loadTodos(); loadProjects(); loadStats(); }, description: 'Refresh todos', category: 'General' },
+      { key: '?', ctrl: true, action: () => { /* help handled by hook notification if enabled elsewhere */ }, description: 'Show shortcuts', category: 'Help' },
+    ],
+    enabled: true,
+    showNotifications: false,
+  });
 
   // Load data on mount - wait for authentication
   useAuthenticatedEffect(() => {
@@ -742,7 +757,7 @@ export function TodosPage() {
                     >
                       Add Subtask
                     </Menu.Item>
-                    {todo.status !== 'completed' && (
+                    {todo.status !== 'done' && (
                       <Menu.Item 
                         leftSection={<IconCheck size={14} />}
                     onClick={(e) => {
@@ -898,7 +913,7 @@ export function TodosPage() {
                   >
                     Edit
                   </Menu.Item>
-                  {todo.status !== 'completed' && (
+                  {todo.status !== 'done' && (
                     <Menu.Item 
                       leftSection={<IconCheck size={14} />}
                       onClick={(e) => {

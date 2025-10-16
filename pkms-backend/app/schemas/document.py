@@ -70,5 +70,6 @@ class CommitDocumentUploadRequest(CamelCaseModel):
         return sanitize_tags(v or [])
 
 class ArchiveDocumentRequest(CamelCaseModel):
-    folder_uuid: str = Field(..., description="UUID of the archive folder to store the document")
-    copy_tags: bool = Field(True, description="Whether to copy document tags to the archive item")
+    """Deprecated: Cross-module archiving removed. Kept for backward compatibility of imports."""
+    folder_uuid: str = Field(default="", description="Deprecated")
+    copy_tags: bool = Field(default=False, description="Deprecated")

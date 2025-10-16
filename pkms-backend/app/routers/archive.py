@@ -604,9 +604,14 @@ async def update_folder(
     try:
         folder_uuid = validate_uuid_format(folder_uuid)
         
-        # Get folder (simplified for single user)
+        # Get folder with ownership check
         result = await db.execute(
-            select(ArchiveFolder).where(ArchiveFolder.uuid == folder_uuid)
+            select(ArchiveFolder).where(
+                and_(
+                    ArchiveFolder.uuid == folder_uuid,
+                    ArchiveFolder.user_uuid == current_user.uuid
+                )
+            )
         )
         folder = result.scalar_one_or_none()
         
@@ -731,7 +736,12 @@ async def bulk_move_items(
 
     # Validate destination folder exists
     tgt = await db.execute(
-        select(ArchiveFolder).where(and_(ArchiveFolder.uuid == payload.target_folder))
+        select(ArchiveFolder).where(
+            and_(
+                ArchiveFolder.uuid == payload.target_folder,
+                ArchiveFolder.user_uuid == current_user.uuid
+            )
+        )
     )
     target_folder_obj = tgt.scalar_one_or_none()
     if not target_folder_obj:
@@ -1072,9 +1082,14 @@ async def update_item(
     try:
         item_uuid = validate_uuid_format(item_uuid)
         
-        # Get item (simplified for single user)
+        # Get item with ownership check
         result = await db.execute(
-            select(ArchiveItem).where(ArchiveItem.uuid == item_uuid)
+            select(ArchiveItem).where(
+                and_(
+                    ArchiveItem.uuid == item_uuid,
+                    ArchiveItem.user_uuid == current_user.uuid
+                )
+            )
         )
         item = result.scalar_one_or_none()
         
@@ -1084,7 +1099,12 @@ async def update_item(
         # Validate folder if changing
         if item_data.folder_uuid and item_data.folder_uuid != item.folder_uuid:
             folder_result = await db.execute(
-                select(ArchiveFolder).where(ArchiveFolder.uuid == item_data.folder_uuid)
+                select(ArchiveFolder).where(
+                    and_(
+                        ArchiveFolder.uuid == item_data.folder_uuid,
+                        ArchiveFolder.user_uuid == current_user.uuid
+                    )
+                )
             )
             if not folder_result.scalar_one_or_none():
                 raise HTTPException(status_code=404, detail="Target folder not found")

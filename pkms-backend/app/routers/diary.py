@@ -41,7 +41,7 @@ from app.schemas.diary import (
     DiaryEntryUpdate,
     DiaryEntryResponse,
     DiaryEntrySummary,
-    DiaryDailyMetadata,
+    DiaryDailyMetadata as DiaryDailyMetadataSchema,
     DiaryDailyMetadataResponse,
     DiaryDailyMetadataUpdate,
     WeeklyHighlights,

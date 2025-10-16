@@ -20,7 +20,7 @@ export interface ProjectBadge {
 }
 
 export interface Document {
-  id?: number;
+  id?: string;
   uuid: string;
   title: string;
   original_name: string;
@@ -40,7 +40,7 @@ export interface Document {
 }
 
 export interface DocumentSummary {
-  id?: number;
+  id?: string;
   uuid: string;
   title: string;
   original_name: string;
@@ -73,7 +73,7 @@ export interface UpdateDocumentRequest {
 }
 
 export interface SearchResult {
-  id?: number;
+  id?: string;
   uuid: string;
   original_name: string;
   mime_type: string;

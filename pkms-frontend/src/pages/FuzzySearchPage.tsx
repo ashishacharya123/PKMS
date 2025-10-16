@@ -42,6 +42,8 @@ interface SearchResult {
   name?: string;
   content?: string;
   description?: string;
+  highlight?: string;
+  highlight_title?: string;
   tags: string[];
   created_at: string;
   updated_at: string;
@@ -547,12 +549,12 @@ export default function FuzzySearchPage() {
                       </Group>
                       
                       <Text fw={500} size="sm" mb={4}>
-                        {result.title || result.name}
+                        <span dangerouslySetInnerHTML={{ __html: (result.highlight_title || result.title || result.name || '') }} />
                       </Text>
                       
-                      {(result.content || result.description) && (
+                      {(result.highlight || result.content || result.description) && (
                         <Text size="xs" c="dimmed" lineClamp={2}>
-                          {result.content || result.description}
+                          <span dangerouslySetInnerHTML={{ __html: (result.highlight || result.content || result.description || '') }} />
                         </Text>
                       )}
 

@@ -23,6 +23,7 @@ import {
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import ViewModeLayouts, { formatDate } from '../components/common/ViewModeLayouts';
 import { useViewPreferences } from '../hooks/useViewPreferences';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { ProjectBadges } from '../components/common/ProjectBadges';
 import {
   IconPlus,
@@ -39,8 +40,6 @@ import {
   IconAlertTriangle,
   IconStar,
   IconStarFilled,
-  IconUsers,
-  IconWorld,
   IconFileText,
   IconHistory
 } from '@tabler/icons-react';
@@ -158,6 +157,19 @@ export function NotesPage() {
   }, [sortedNotes, itemsPerPage]);
 
   const totalPages = Math.ceil(sortedNotes.length / itemsPerPage);
+
+  // Keyboard shortcuts: search focus, toggle archived/favorites (sidebar controls), refresh
+  useKeyboardShortcuts({
+    shortcuts: [
+      { key: '/', action: () => {
+          const input = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement | null;
+          input?.focus();
+        }, description: 'Focus search', category: 'Navigation' },
+      { key: 'r', action: () => loadNotes(), description: 'Refresh notes', category: 'General' },
+    ],
+    enabled: true,
+    showNotifications: false,
+  });
 
   // Highlight newly created note when redirected from editor
   const highlightedIdRef = useRef<number | null>(location.state?.highlightNoteId ?? null);

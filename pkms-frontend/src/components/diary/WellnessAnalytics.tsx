@@ -464,7 +464,7 @@ export function WellnessAnalytics() {
                     dataKey="date" 
                     tickFormatter={(value) => new Date(value).toLocaleDateString('en-NP', { month: 'short', day: 'numeric' })}
                   />
-                  <YAxis tickFormatter={(value) => `₹${value.toLocaleString()}`} />
+                  <YAxis tickFormatter={(value) => currencyFormatter.format(value as number)} />
                   <Tooltip 
                     formatter={(value: number, name: string) => [currencyFormatter.format(value), name]}
                     labelFormatter={(value) => new Date(value).toLocaleDateString('en-NP')}
@@ -493,7 +493,7 @@ export function WellnessAnalytics() {
                   />
                   <Line 
                     type="monotone" 
-                    dataKey="cumulative_savings" 
+                    dataKey="cumulativeSavings" 
                     stroke="#339af0" 
                     strokeWidth={3}
                     dot={{ fill: '#339af0', strokeWidth: 2, r: 4 }}

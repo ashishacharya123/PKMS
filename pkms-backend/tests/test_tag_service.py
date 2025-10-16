@@ -58,7 +58,7 @@ class TestTagService:
         # Mock execute to return appropriate results regardless of number of calls
         async def execute_router(_stmt, *_args, **_kwargs):
             # First query: existing tags for item (returns empty list)
-            if str(stmt).lower().startswith("select"):
+            if str(_stmt).lower().startswith("select"):
                 result = AsyncMock()
                 result.scalars.return_value.all.return_value = []
                 result.scalar_one_or_none.return_value = None

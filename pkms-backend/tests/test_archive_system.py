@@ -37,7 +37,7 @@ class TestArchiveFolderOperations:
             name="Documents",
             description="Important documents storage",
             path="/archive/documents",
-            user_id=test_user.id,
+            user_uuid=test_user.uuid,
             parent_uuid=None  # Root folder
         )
         
@@ -61,7 +61,7 @@ class TestArchiveFolderOperations:
             name="Projects",
             description="Project files",
             path="/archive/projects",
-            user_id=test_user.id
+            user_uuid=test_user.uuid
         )
         
         db_session.add(parent)
@@ -74,7 +74,7 @@ class TestArchiveFolderOperations:
             description="Web development projects",
             path="/archive/projects/web-development",
             parent_uuid=parent.uuid,
-            user_id=test_user.id,
+            user_uuid=test_user.uuid,
             depth=1
         )
         
@@ -88,7 +88,7 @@ class TestArchiveFolderOperations:
             description="React applications",
             path="/archive/projects/web-development/react",
             parent_uuid=child.uuid,
-            user_id=test_user.id,
+            user_uuid=test_user.uuid,
             depth=2
         )
         
@@ -115,13 +115,13 @@ class TestArchiveFolderOperations:
         folder1 = ArchiveFolder(
             name="Documents",
             path="/archive/documents",
-            user_id=test_user.id
+            user_uuid=test_user.uuid
         )
         
         folder2 = ArchiveFolder(
             name="Documents Copy",
             path="/archive/documents",  # Same path
-            user_id=test_user.id
+            user_uuid=test_user.uuid
         )
         
         db_session.add(folder1)
@@ -147,7 +147,7 @@ class TestArchiveFolderOperations:
         folder = ArchiveFolder(
             name="Test Folder",
             path="/archive/test",
-            user_id=test_user.id
+            user_uuid=test_user.uuid
         )
         
         db_session.add(folder)
@@ -167,7 +167,7 @@ class TestArchiveFolderOperations:
             mime_type="text/plain",
             file_size=1024,
             folder_uuid=folder.uuid,
-            user_id=test_user.id
+            user_uuid=test_user.uuid
         )
         
         db_session.add(item)
@@ -229,7 +229,7 @@ class TestArchiveItemOperations:
     @pytest.mark.asyncio
     async def test_archive_item_tagging(self, db_session: AsyncSession, test_user: User):
         """Test tagging of archive items."""
-        folder = ArchiveFolder(name="Tagged", path="/archive/tagged", user_id=test_user.id)
+        folder = ArchiveFolder(name="Tagged", path="/archive/tagged", user_uuid=test_user.uuid)
         db_session.add(folder)
         await db_session.commit()
         await db_session.refresh(folder)
@@ -242,11 +242,11 @@ class TestArchiveItemOperations:
             mime_type="text/plain",
             file_size=512,
             folder_uuid=folder.uuid,
-            user_id=test_user.id
+            user_uuid=test_user.uuid
         )
         
-        tag1 = Tag(name="important", user_id=test_user.id)
-        tag2 = Tag(name="project-alpha", user_id=test_user.id)
+        tag1 = Tag(name="important", user_uuid=test_user.uuid)
+        tag2 = Tag(name="project-alpha", user_uuid=test_user.uuid)
         
         db_session.add_all([item, tag1, tag2])
         await db_session.commit()
@@ -265,7 +265,7 @@ class TestArchiveItemOperations:
     @pytest.mark.asyncio
     async def test_archive_item_metadata(self, db_session: AsyncSession, test_user: User):
         """Test archive item metadata handling."""
-        folder = ArchiveFolder(name="Metadata", path="/archive/metadata", user_id=test_user.id)
+        folder = ArchiveFolder(name="Metadata", path="/archive/metadata", user_uuid=test_user.uuid)
         db_session.add(folder)
         await db_session.commit()
         await db_session.refresh(folder)
@@ -287,7 +287,7 @@ class TestArchiveItemOperations:
             mime_type="application/pdf",
             file_size=512000,
             folder_uuid=folder.uuid,
-            user_id=test_user.id,
+            user_uuid=test_user.uuid,
             metadata_json=str(metadata)  # JSON string
         )
         
@@ -302,7 +302,7 @@ class TestArchiveItemOperations:
     @pytest.mark.asyncio
     async def test_archive_item_search(self, db_session: AsyncSession, test_user: User):
         """Test searching archive items."""
-        folder = ArchiveFolder(name="Search", path="/archive/search", user_id=test_user.id)
+        folder = ArchiveFolder(name="Search", path="/archive/search", user_uuid=test_user.uuid)
         db_session.add(folder)
         await db_session.commit()
         await db_session.refresh(folder)
@@ -317,7 +317,7 @@ class TestArchiveItemOperations:
                 mime_type="application/pdf",
                 file_size=1024000,
                 folder_uuid=folder.uuid,
-                user_id=test_user.id
+                user_uuid=test_user.uuid
             ),
             ArchiveItem(
                 name="JavaScript Guide",
@@ -328,7 +328,7 @@ class TestArchiveItemOperations:
                 mime_type="application/pdf",
                 file_size=2048000,
                 folder_uuid=folder.uuid,
-                user_id=test_user.id
+                user_uuid=test_user.uuid
             ),
             ArchiveItem(
                 name="Database Design",
@@ -339,7 +339,7 @@ class TestArchiveItemOperations:
                 mime_type="application/pdf",
                 file_size=1536000,
                 folder_uuid=folder.uuid,
-                user_id=test_user.id
+                user_uuid=test_user.uuid
             )
         ]
         
@@ -350,7 +350,7 @@ class TestArchiveItemOperations:
         result = await db_session.execute(
             select(ArchiveItem).where(
                 ArchiveItem.name.contains("Python"),
-                ArchiveItem.user_id == test_user.id
+                ArchiveItem.user_uuid == test_user.uuid
             )
         )
         python_items = result.scalars().all()
@@ -462,7 +462,7 @@ class TestArchiveIntegration:
     @pytest.mark.asyncio
     async def test_archive_full_text_search_integration(self, db_session: AsyncSession, test_user: User):
         """Test archive integration with FTS5 search system."""
-        folder = ArchiveFolder(name="Searchable", path="/archive/searchable", user_id=test_user.id)
+        folder = ArchiveFolder(name="Searchable", path="/archive/searchable", user_uuid=test_user.uuid)
         db_session.add(folder)
         await db_session.commit()
         await db_session.refresh(folder)
@@ -478,7 +478,7 @@ class TestArchiveIntegration:
                 mime_type="application/pdf",
                 file_size=2048000,
                 folder_uuid=folder.uuid,
-                user_id=test_user.id
+                user_uuid=test_user.uuid
             ),
             ArchiveItem(
                 name="Web Development Guide",
@@ -489,7 +489,7 @@ class TestArchiveIntegration:
                 mime_type="application/pdf",
                 file_size=1536000,
                 folder_uuid=folder.uuid,
-                user_id=test_user.id
+                user_uuid=test_user.uuid
             )
         ]
         
@@ -500,7 +500,7 @@ class TestArchiveIntegration:
         result = await db_session.execute(
             select(ArchiveItem).where(
                 ArchiveItem.name.contains("Machine Learning"),
-                ArchiveItem.user_id == test_user.id
+                ArchiveItem.user_uuid == test_user.uuid
             )
         )
         ml_items = result.scalars().all()
@@ -517,7 +517,7 @@ class TestArchiveFileOperations:
         folder = ArchiveFolder(
             name="Storage Test",
             path="/archive/storage_test",
-            user_id=test_user.id
+            user_uuid=test_user.uuid
         )
         
         db_session.add(folder)
@@ -547,7 +547,7 @@ class TestArchiveFileOperations:
                 mime_type=mime_type,
                 file_size=1024,
                 folder_uuid=folder.uuid,
-                user_id=test_user.id
+                user_uuid=test_user.uuid
             )
             
             db_session.add(item)
@@ -569,7 +569,7 @@ class TestArchiveFileOperations:
     @pytest.mark.asyncio
     async def test_archive_file_validation(self, db_session: AsyncSession, test_user: User):
         """Test file validation for archive uploads."""
-        folder = ArchiveFolder(name="Validation", path="/archive/validation", user_id=test_user.id)
+        folder = ArchiveFolder(name="Validation", path="/archive/validation", user_uuid=test_user.uuid)
         db_session.add(folder)
         await db_session.commit()
         await db_session.refresh(folder)
@@ -616,7 +616,7 @@ class TestArchiveFileOperations:
                     mime_type=test_case["mime_type"],
                     file_size=test_case["size"],
                     folder_uuid=folder.uuid,
-                    user_id=test_user.id
+                    user_uuid=test_user.uuid
                 )
                 
                 db_session.add(item)
@@ -625,7 +625,7 @@ class TestArchiveFileOperations:
                 if test_case["should_pass"]:
                     # Should succeed
                     await db_session.refresh(item)
-                    assert item.id is not None
+                    assert item.uuid is not None
                 else:
                     # Should have been handled or flagged
                     await db_session.refresh(item)
@@ -677,7 +677,7 @@ class TestArchivePerformance:
         start_time = time.time()
         
         result = await db_session.execute(
-            select(ArchiveFolder).where(ArchiveFolder.user_id == test_user.id)
+            select(ArchiveFolder).where(ArchiveFolder.user_uuid == test_user.uuid)
         )
         all_folders = result.scalars().all()
         
@@ -690,7 +690,7 @@ class TestArchivePerformance:
     @pytest.mark.asyncio
     async def test_many_archive_items(self, db_session: AsyncSession, test_user: User):
         """Test performance with many archive items."""
-        folder = ArchiveFolder(name="Performance", path="/archive/performance", user_id=test_user.id)
+        folder = ArchiveFolder(name="Performance", path="/archive/performance", user_uuid=test_user.uuid)
         db_session.add(folder)
         await db_session.commit()
         await db_session.refresh(folder)
@@ -706,7 +706,7 @@ class TestArchivePerformance:
                 mime_type="text/plain",
                 file_size=1024 * (i + 1),  # Varying sizes
                 folder_uuid=folder.uuid,
-                user_id=test_user.id
+                user_uuid=test_user.uuid
             )
             items.append(item)
         

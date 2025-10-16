@@ -58,7 +58,7 @@ class FileManagementService:
         """
         try:
             # Check upload status
-            status = chunk_manager.get_upload_status(upload_id)
+            status = await chunk_manager.get_upload_status(upload_id)
             if status["status"] != "completed":
                 raise HTTPException(
                     status_code=400,

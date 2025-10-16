@@ -10,6 +10,9 @@ export interface SearchResult {
   createdAt?: string;
   updatedAt?: string;
   metadata?: Record<string, any>;
+  // optional HTML highlights if backend provides
+  highlight?: string;
+  highlight_title?: string;
 }
 
 export interface SearchStats {
@@ -93,6 +96,8 @@ class SearchService {
       createdAt: item.created_at ?? item.createdAt,
       updatedAt: item.updated_at ?? item.updatedAt,
       metadata: item.metadata ?? {},
+      highlight: item.highlight,
+      highlight_title: item.highlight_title,
     }));
   }
 
