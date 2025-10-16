@@ -69,7 +69,18 @@ class DashboardService {
       return {
         notes: { total: 0, recent: 0 },
         documents: { total: 0, recent: 0 },
-        todos: { total: 0, pending: 0, completed: 0, overdue: 0 },
+        todos: { 
+          total: 0, 
+          pending: 0, 
+          in_progress: 0,
+          blocked: 0,
+          done: 0,
+          cancelled: 0,
+          completed: 0, 
+          overdue: 0,
+          due_today: 0,
+          completed_today: 0
+        },
         diary: { entries: 0, streak: 0 },
         archive: { folders: 0, items: 0 },
         projects: { active: 0 },

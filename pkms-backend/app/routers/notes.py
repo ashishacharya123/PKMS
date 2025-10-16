@@ -136,7 +136,7 @@ async def list_notes(
                 Note.user_uuid == current_user.uuid,
                 Note.is_archived == archived,
                 Note.uuid.in_(note_uuids),
-                Note.is_exclusive_mode == False  # Only show linked (non-exclusive) items
+                Note.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
             )
         )
         if tag:
@@ -156,7 +156,7 @@ async def list_notes(
             and_(
                 Note.user_uuid == current_user.uuid,
                 Note.is_archived == archived,
-                Note.is_exclusive_mode == False  # Only show linked (non-exclusive) items
+                Note.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
             )
         )
         if tag:
@@ -500,7 +500,7 @@ async def commit_note_file_upload(
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("❌ Error committing note file upload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

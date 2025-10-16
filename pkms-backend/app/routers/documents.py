@@ -69,7 +69,6 @@ def _convert_doc_to_response(doc: Document, project_badges: Optional[List[Projec
         is_favorite=doc.is_favorite,
         is_archived=doc.is_archived,
         is_exclusive_mode=doc.is_exclusive_mode,
-        archive_item_uuid=doc.archive_item_uuid,
         upload_status=doc.upload_status,
         created_at=doc.created_at,
         updated_at=doc.updated_at,
@@ -100,7 +99,7 @@ async def commit_document_upload(
             tags=payload.tags,
             project_ids=payload.project_ids,
             is_exclusive_mode=payload.is_exclusive_mode,
-            user_id=current_user.uuid,
+            user_uuid=current_user.uuid,
             document_model=Document,
             tag_service=tag_service,
             project_service=project_service,
@@ -292,7 +291,7 @@ async def list_documents(
                     elif junction.project_name_snapshot:
                         # Deleted project (snapshot)
                         project_badges.append(ProjectBadge(
-                            id=None,
+                            uuid=None,
                             name=junction.project_name_snapshot,
                             color="#6c757d",  # Gray for deleted
                             is_exclusive=junction.is_exclusive,
@@ -413,133 +412,6 @@ async def update_document(
     
     return _convert_doc_to_response(doc, project_badges)
 
-@router.post("/{document_uuid}/archive")
-async def archive_document(
-    document_uuid: str,
-    archive_request: ArchiveDocumentRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Archive a document by copying it to the archive module.
-    
-    This copies the document file to the archive storage and creates an ArchiveItem
-    while preserving the original document. The document is marked as archived.
-    User can safely delete the original document later if desired.
-    """
-    try:
-        logger.info(f"Archiving document {document_uuid} to folder {archive_request.folder_uuid} for user {current_user.uuid}")
-        
-        # Get document
-        doc_result = await db.execute(
-            select(Document)
-            .options(selectinload(Document.tag_objs))
-            .where(and_(Document.uuid == document_uuid, Document.user_uuid == current_user.uuid))
-        )
-        document = doc_result.scalar_one_or_none()
-        if not document:
-            logger.warning(f"Document {document_uuid} not found for user {current_user.uuid}")
-            raise HTTPException(status_code=404, detail="Document not found")
-        
-        logger.info(f"Found document: {document.title} (is_archived: {document.is_archived})")
-        
-        if document.is_archived:
-            logger.warning(f"Document {document_uuid} is already archived")
-            raise HTTPException(status_code=400, detail="Document is already archived")
-        
-        # Verify archive folder exists and belongs to user
-        folder_result = await db.execute(
-            select(ArchiveFolder).where(
-                and_(
-                    ArchiveFolder.uuid == archive_request.folder_uuid,
-                    ArchiveFolder.user_uuid == current_user.uuid
-                )
-            )
-        )
-        archive_folder = folder_result.scalar_one_or_none()
-        if not archive_folder:
-            logger.warning(f"Archive folder {archive_request.folder_uuid} not found for user {current_user.uuid}")
-            raise HTTPException(status_code=404, detail="Archive folder not found")
-        
-        # Check if document file exists
-        original_file_path = get_file_storage_dir() / document.file_path
-        if not original_file_path.exists():
-            logger.error(f"Document file not found on disk: {original_file_path}")
-            raise HTTPException(status_code=404, detail="Document file not found on disk")
-        
-        # Prepare archive storage location
-        archive_dir = get_file_storage_dir() / "archive" / archive_request.folder_uuid
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Generate unique filename for archive
-        archive_filename = f"{uuid_lib.uuid4()}{original_file_path.suffix}"
-        archive_file_path = archive_dir / archive_filename
-        
-        # Copy file to archive location
-        try:
-            shutil.copy2(original_file_path, archive_file_path)
-            logger.info(f"Copied file to archive: {archive_file_path}")
-        except Exception:
-            logger.exception("Failed to copy file to archive")
-            raise HTTPException(status_code=500, detail="Failed to copy file to archive")
-        
-        # Create ArchiveItem record
-        archive_item = ArchiveItem(
-            name=document.title,
-            description=document.description or f"Archived from Documents: {document.title}",
-            folder_uuid=archive_request.folder_uuid,
-            original_filename=document.original_name,
-            stored_filename=archive_filename,
-            file_path=str(archive_file_path.relative_to(get_file_storage_dir())),
-            file_size=document.file_size,
-            mime_type=document.mime_type,
-            extracted_text=getattr(document, "extracted_text", None),
-            user_id=current_user.uuid,
-            is_archived=False,  # In archive module, items start as not archived
-            is_favorite=document.is_favorite,
-            metadata_json=json.dumps({
-                "source": "documents",
-                "original_document_uuid": document.uuid,
-                "archived_at": datetime.now(NEPAL_TZ).isoformat()
-            })
-        )
-        
-        db.add(archive_item)
-        await db.flush()  # Get the UUID
-        
-        # Copy tags if requested using TagService
-        if archive_request.copy_tags and document.tag_objs:
-            tag_names = [tag.name for tag in document.tag_objs]
-            await tag_service.handle_tags(db, archive_item, tag_names, current_user.uuid, "archive", archive_tags)
-        
-        # Update document to mark as archived
-        logger.info(f"Updating document {document_uuid} to archived status")
-        document.is_archived = True
-        document.archive_item_uuid = archive_item.uuid
-        
-        await db.commit()
-        await db.refresh(document)
-        
-        logger.info(f"Document {document_uuid} archived successfully - is_archived: {document.is_archived}, archive_item_uuid: {document.archive_item_uuid}")
-        
-        return {
-            "success": True,
-            "message": "Document archived successfully",
-            "archive_item_uuid": archive_item.uuid,
-            "archive_folder": archive_folder.name,
-            "archive_path": archive_folder.path,
-            "tags_copied": len(document.tag_objs) if archive_request.copy_tags else 0
-        }
-        
-    except HTTPException:
-        await db.rollback()
-        raise
-    except Exception:
-        await db.rollback()
-        logger.exception(f"Error archiving document {document_uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to archive document"
-        )
 
 @router.delete("/{document_uuid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
@@ -563,7 +435,7 @@ async def delete_document(
     
     # Log archive status for clarity
     if doc.is_archived:
-        logger.info(f"Deleting archived document {document_uuid} (archive copy preserved: {doc.archive_item_uuid})")
+        logger.info(f"Deleting archived document {document_uuid}")
     else:
         logger.info(f"Deleting document {document_uuid} (not archived)")
     

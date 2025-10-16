@@ -64,9 +64,14 @@ class SearchService:
             # Format date_text for temporal context
             date_text = self._format_date_text(item.created_at)
             
-            # INSERT OR REPLACE into FTS table (SQLite syntax)
+            # DELETE existing FTS row for this item_uuid to prevent duplicates
             await db.execute(text("""
-                INSERT OR REPLACE INTO fts_content(item_uuid, item_type, user_uuid, title, description, tags, attachments, date_text)
+                DELETE FROM fts_content WHERE item_uuid = :uuid
+            """), {"uuid": item_uuid})
+            
+            # INSERT new FTS row
+            await db.execute(text("""
+                INSERT INTO fts_content(item_uuid, item_type, user_uuid, title, description, tags, attachments, date_text)
                 VALUES (:uuid, :type, :user_uuid, :title, :description, :tags, :attachments, :date_text)
             """), {
                 "uuid": item_uuid,
@@ -131,16 +136,17 @@ class SearchService:
             params = {"query": fts_query, "user_uuid": user_uuid}
             
             if item_types:
-                # Build expanding IN clause safely
-                placeholders = ",".join([f":type_{i}" for i in range(len(item_types))])
-                sql += f" AND item_type IN ({placeholders})"
-                for i, t in enumerate(item_types):
-                    params[f"type_{i}"] = t
+                sql += " AND item_type IN :types"
+                from sqlalchemy import bindparam
+                stmt = text(sql).bindparams(bindparam("types", expanding=True))
+                params["types"] = item_types
+            else:
+                stmt = text(sql)
             
             sql += " ORDER BY score LIMIT :limit"
             params["limit"] = limit
             
-            result = await db.execute(text(sql), params)
+            result = await db.execute(stmt, params)
             fts_results = result.fetchall()
             
             if not fts_results:
@@ -169,7 +175,9 @@ class SearchService:
                     "title": getattr(item, 'title', None) or getattr(item, 'name', None),
                     "description": getattr(item, 'description', None),
                     "created_at": item.created_at.isoformat() if item.created_at else None,
-                    "score": score
+                    "score": score,
+                    "tags": [t.name for t in getattr(item, 'tag_objs', [])] if hasattr(item, 'tag_objs') else [],
+                    "attachments": (await self._extract_attachments(db, item, item_type)).split()
                 }
                 
                 # Add type-specific fields
@@ -202,7 +210,7 @@ class SearchService:
         try:
             if item_type == 'note' and hasattr(item, 'files'):
                 # Load note files if not already loaded
-                if not hasattr(item, '_files_loaded'):
+                if not hasattr(item, 'files') or item.files is None:
                     note_with_files = await db.execute(
                         select(Note).options(selectinload(Note.files)).where(Note.uuid == item.uuid)
                     )
@@ -223,7 +231,7 @@ class SearchService:
             
             elif item_type == 'diary' and hasattr(item, 'media'):
                 # Load diary media if not already loaded
-                if not hasattr(item, '_media_loaded'):
+                if not hasattr(item, 'media') or item.media is None:
                     entry_with_media = await db.execute(
                         select(DiaryEntry).options(selectinload(DiaryEntry.media)).where(DiaryEntry.uuid == item.uuid)
                     )
@@ -243,11 +251,8 @@ class SearchService:
         if not created_at:
             return ''
         
-        try:
-            # Format as "2025 January Friday" for natural language search
-            return created_at.strftime("%Y %B %A")
-        except Exception:
-            return ''
+        # Format as "2025 January Friday" for natural language search
+        return created_at.strftime("%Y %B %A")
     
     def _build_fts_query(self, query: str) -> str:
         """Build FTS5 query string with proper escaping."""

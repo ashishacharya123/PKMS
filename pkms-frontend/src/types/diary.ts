@@ -198,6 +198,14 @@ export interface WellnessStats {
   // Wellness score breakdown
   wellnessComponents: Record<string, number>;
   
+  // Financial data
+  financialTrend: WellnessTrendPoint[];
+  totalIncome: number;
+  totalExpense: number;
+  netSavings: number;
+  averageDailyIncome: number | null;
+  averageDailyExpense: number | null;
+  
   // Insights
   insights: Array<{
     type: 'positive' | 'negative' | 'neutral';

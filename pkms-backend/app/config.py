@@ -157,7 +157,7 @@ def get_file_storage_dir() -> Path:
     This ensures files are accessible outside Docker and not stored in Docker volumes"""
     # For file storage, always use the Windows filesystem mount point
     # This ensures files are accessible outside Docker and not stored in Docker volumes
-    if os.getenv("PKMS_IN_DOCKER", "").lower() in ("1", "true", "yes") or Path("/app/PKMS_Data").exists():
+    if Path("/app/PKMS_Data").exists():
         # Docker environment - use mounted Windows filesystem
         file_storage_dir = Path("/app/PKMS_Data")
     else:
@@ -183,7 +183,7 @@ def get_database_url() -> str:
     return settings.database_url
 
 
-// auth_db_path removed as unused
+# auth_db_path removed as unused
 
 
 def get_redis_url() -> str:

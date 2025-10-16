@@ -61,14 +61,14 @@ async def get_dashboard_stats(
         # Notes Statistics
         notes_total = await db.scalar(
             select(func.count(Note.uuid)).where(
-                and_(Note.user_uuid == user_uuid, Note.is_archived == False)
+                and_(Note.user_uuid == user_uuid, Note.is_archived.is_(False))
             )
         )
         notes_recent = await db.scalar(
             select(func.count(Note.uuid)).where(
                 and_(
                     Note.user_uuid == user_uuid,
-                    Note.is_archived == False,
+                    Note.is_archived.is_(False),
                     Note.created_at >= recent_cutoff
                 )
             )
@@ -77,14 +77,14 @@ async def get_dashboard_stats(
         # Documents Statistics  
         docs_total = await db.scalar(
             select(func.count(Document.uuid)).where(
-                and_(Document.user_uuid == user_uuid, Document.is_archived == False)
+                and_(Document.user_uuid == user_uuid, Document.is_archived.is_(False))
             )
         )
         docs_recent = await db.scalar(
             select(func.count(Document.uuid)).where(
                 and_(
                     Document.user_uuid == user_uuid,
-                    Document.is_archived == False,
+                    Document.is_archived.is_(False),
                     Document.created_at >= recent_cutoff
                 )
             )
@@ -125,7 +125,7 @@ async def get_dashboard_stats(
         # Legacy completed count (for backward compatibility)
         todos_completed = await db.scalar(
             select(func.count(Todo.uuid)).where(
-                and_(Todo.user_uuid == user_uuid, Todo.is_completed == True)
+                and_(Todo.user_uuid == user_uuid, Todo.status == TodoStatus.DONE)
             )
         )
         
@@ -135,7 +135,8 @@ async def get_dashboard_stats(
                 and_(
                     Todo.user_uuid == user_uuid,
                     Todo.status.notin_([TodoStatus.DONE, TodoStatus.CANCELLED]),
-                    Todo.due_date < datetime.now(NEPAL_TZ)
+                    Todo.due_date.is_not(None),
+                    Todo.due_date < datetime.now(NEPAL_TZ).date()
                 )
             )
         )
@@ -144,13 +145,13 @@ async def get_dashboard_stats(
         now_np = datetime.now(NEPAL_TZ)
         start_today = now_np.replace(hour=0, minute=0, second=0, microsecond=0)
         end_today = start_today + timedelta(days=1)
+        today_date = now_np.date()
         todos_due_today = await db.scalar(
             select(func.count(Todo.uuid)).where(
                 and_(
                     Todo.user_uuid == user_uuid,
-                    Todo.is_completed == False,
-                    Todo.due_date >= start_today,
-                    Todo.due_date < end_today,
+                    Todo.status.notin_([TodoStatus.DONE, TodoStatus.CANCELLED]),
+                    Todo.due_date == today_date,
                 )
             )
         )
@@ -160,7 +161,7 @@ async def get_dashboard_stats(
             select(func.count(Todo.uuid)).where(
                 and_(
                     Todo.user_uuid == user_uuid,
-                    Todo.is_completed == True,
+                    Todo.status == TodoStatus.DONE,
                     Todo.completed_at >= start_today,
                     Todo.completed_at < end_today,
                 )
@@ -188,8 +189,8 @@ async def get_dashboard_stats(
             select(func.count(Project.uuid)).where(
                 and_(
                     Project.user_uuid == user_uuid, 
-                    Project.is_archived == False,
-                    Project.is_deleted == False
+                    Project.is_archived.is_(False),
+                    Project.is_deleted.is_(False)
                 )
             )
         )
@@ -346,7 +347,7 @@ async def get_quick_stats(
         # Active projects
         active_projects = await db.scalar(
             select(func.count(Project.uuid)).where(
-                and_(Project.user_uuid == user_uuid, Project.is_archived == False, Project.is_deleted == False)
+                and_(Project.user_uuid == user_uuid, Project.is_archived.is_(False), Project.is_deleted.is_(False))
             )
         )
         
@@ -355,7 +356,7 @@ async def get_quick_stats(
             select(func.count(Todo.uuid)).where(
                 and_(
                     Todo.user_uuid == user_uuid,
-                    Todo.is_completed == False,
+                    Todo.is_completed.is_(False),
                     Todo.due_date < datetime.now(NEPAL_TZ)
                 )
             )

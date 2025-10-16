@@ -26,6 +26,7 @@ from app.database import get_db
 from app.config import NEPAL_TZ, get_data_dir, get_file_storage_dir
 from app.models.diary import DiaryEntry, DiaryMedia, DiaryDailyMetadata
 from app.models.user import User, RecoveryKey
+from app.models.project import Project
 from app.auth.dependencies import get_current_user
 from app.auth.security import verify_password, hash_password
 from app.utils.diary_encryption import write_encrypted_file, read_encrypted_header, InvalidPKMSFile
@@ -411,7 +412,7 @@ async def setup_encryption(
 
         # Save password hint (optional)
         if request.hint is not None:
-        current_user.diary_password_hint = request.hint
+            current_user.diary_password_hint = request.hint
         
         # Save password hash (simulated; actual hashing omitted for brevity)
         current_user.diary_password_hash = "bcrypt$hashed"  # placeholder
@@ -1081,7 +1082,7 @@ async def update_diary_entry(
 ):
     """Update an existing diary entry."""
     # Allow lookup by uuid only (legacy id support removed)
-        condition = DiaryEntry.uuid == entry_ref
+    condition = DiaryEntry.uuid == entry_ref
 
     result = await db.execute(
         select(DiaryEntry).options(selectinload(DiaryEntry.media)).where(
@@ -2160,6 +2161,63 @@ async def get_wellness_stats(
                 "metric": "correlation"
             })
     
+    # Process financial data
+    financial_trend = []
+    total_income = 0.0
+    total_expense = 0.0
+    cumulative_savings = 0.0
+    
+    for date_str, data in sorted(daily_data.items()):
+        metrics = data.get("metrics", {})
+        daily_income = float(metrics.get("daily_income", 0) or 0)
+        daily_expense = float(metrics.get("daily_expense", 0) or 0)
+        daily_savings = daily_income - daily_expense
+        cumulative_savings += daily_savings
+        
+        total_income += daily_income
+        total_expense += daily_expense
+        
+        financial_trend.append({
+            "date": date_str,
+            "income": daily_income,
+            "expense": daily_expense,
+            "savings": daily_savings,
+            "cumulative_savings": cumulative_savings
+        })
+    
+    net_savings = total_income - total_expense
+    avg_daily_income = total_income / days if days > 0 else None
+    avg_daily_expense = total_expense / days if days > 0 else None
+    
+    # Add financial insights
+    if net_savings > 0:
+        insights.append({
+            "type": "positive",
+            "message": f"Great financial management! Net savings of ₹{net_savings:,.0f} over {days} days.",
+            "metric": "financial"
+        })
+    elif net_savings < 0:
+        insights.append({
+            "type": "negative",
+            "message": f"Spending exceeded income by ₹{abs(net_savings):,.0f}. Consider reviewing expenses.",
+            "metric": "financial"
+        })
+    
+    if avg_daily_income and avg_daily_income > 0:
+        savings_rate = (net_savings / total_income) * 100 if total_income > 0 else 0
+        if savings_rate >= 20:
+            insights.append({
+                "type": "positive",
+                "message": f"Excellent savings rate of {savings_rate:.1f}%!",
+                "metric": "financial"
+            })
+        elif savings_rate < 10:
+            insights.append({
+                "type": "neutral",
+                "message": f"Savings rate is {savings_rate:.1f}%. Consider increasing it to 20%+.",
+                "metric": "financial"
+            })
+    
     # Days with data
     days_with_data = len([d for d in daily_data.values() if d["metrics"] or d["mood"] is not None])
     
@@ -2193,6 +2251,12 @@ async def get_wellness_stats(
         mood_sleep_correlation=mood_sleep_pairs,
         correlation_coefficient=round(correlation_coefficient, 3) if correlation_coefficient else None,
         wellness_components=score_components,
+        financial_trend=financial_trend,
+        total_income=round(total_income, 2),
+        total_expense=round(total_expense, 2),
+        net_savings=round(net_savings, 2),
+        average_daily_income=round(avg_daily_income, 2) if avg_daily_income else None,
+        average_daily_expense=round(avg_daily_expense, 2) if avg_daily_expense else None,
         insights=insights
     )
 
@@ -2294,7 +2358,7 @@ async def get_weekly_highlights(
 
         # Finance sums from daily metadata
         md_rows = await db.execute(
-            select(DiaryDailyMetadata.metrics_json)
+            select(DiaryDailyMetadata.daily_income, DiaryDailyMetadata.daily_expense)
             .where(
                 and_(
                     DiaryDailyMetadata.user_uuid == current_user.uuid,
@@ -2305,13 +2369,9 @@ async def get_weekly_highlights(
         )
         total_income = 0.0
         total_expense = 0.0
-        for (metrics_json,) in md_rows.fetchall():
-            try:
-                m = json.loads(metrics_json) if metrics_json else {}
-                total_income += float(m.get("daily_income", 0) or 0)
-                total_expense += float(m.get("daily_expense", 0) or 0)
-            except Exception:
-                continue
+        for (daily_income, daily_expense) in md_rows.fetchall():
+            total_income += float(daily_income or 0)
+            total_expense += float(daily_expense or 0)
 
         highlights = WeeklyHighlights(
             period_start=start_date.strftime("%Y-%m-%d"),

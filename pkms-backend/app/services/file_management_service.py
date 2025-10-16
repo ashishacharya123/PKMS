@@ -24,6 +24,7 @@ from app.config import get_data_dir, get_file_storage_dir
 from app.utils.security import sanitize_filename, validate_file_size
 from app.config import settings
 from sqlalchemy import select, and_
+from app.models.note import NoteFile
 
 logger = logging.getLogger(__name__)
 file_detector = FileTypeDetectionService()

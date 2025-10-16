@@ -15,6 +15,13 @@ export function WeeklyHighlightsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
+  // Currency formatter for NPR
+  const fmt = new Intl.NumberFormat('en-NP', { 
+    style: 'currency', 
+    currency: 'NPR', 
+    maximumFractionDigits: 2 
+  });
+
   // Long TTL cache for session (12h)
   const cacheRef = useRef<{ ts: number; data: WeeklyHighlights | null } | null>(null);
   const TTL_MS = 12 * 60 * 60 * 1000;
@@ -66,7 +73,11 @@ export function WeeklyHighlightsPanel() {
             </Badge>
           )}
         </Group>
-        <ActionIcon variant="subtle" onClick={() => setOpen((v) => !v)}>
+        <ActionIcon
+          variant="subtle"
+          aria-label={open ? 'Collapse weekly highlights' : 'Expand weekly highlights'}
+          onClick={() => setOpen((v) => !v)}
+        >
           {open ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
         </ActionIcon>
       </Group>
@@ -93,13 +104,13 @@ export function WeeklyHighlightsPanel() {
             </Group>
             <Group gap="xs" wrap="wrap">
               <Badge color="indigo" variant="outline">
-                Income NPR {data.totalIncome.toFixed(2)}
+                Income {fmt.format(data.totalIncome)}
               </Badge>
               <Badge color="red" variant="outline">
-                Expense NPR {data.totalExpense.toFixed(2)}
+                Expense {fmt.format(data.totalExpense)}
               </Badge>
               <Badge color={data.netSavings >= 0 ? 'teal' : 'red'} variant="filled">
-                Net {data.netSavings.toFixed(2)}
+                Net {fmt.format(data.netSavings)}
               </Badge>
             </Group>
           </Stack>

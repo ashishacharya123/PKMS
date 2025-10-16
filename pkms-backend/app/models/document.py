@@ -31,8 +31,7 @@ class Document(Base):
     is_exclusive_mode = Column(Boolean, default=False, index=True)  # If True, document is deleted when any of its projects are deleted
     user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     
-    # Archive linkage and upload status
-    archive_item_uuid = Column(String(36), nullable=True, index=True)
+    # Upload status
     upload_status = Column(String(32), nullable=False, default="completed")
     
     # Audit trail

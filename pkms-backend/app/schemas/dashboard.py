@@ -35,3 +35,4 @@ class QuickStats(CamelCaseModel):
     overdue_todos: int
     current_diary_streak: int
     storage_used_mb: float
+    storage_by_module: Dict[str, float] = Field(default_factory=dict)

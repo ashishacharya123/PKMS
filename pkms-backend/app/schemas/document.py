@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, validator, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from pydantic.alias_generators import to_camel
 from typing import List, Optional
 from datetime import datetime
@@ -23,7 +23,7 @@ class DocumentCreate(CamelCaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
     
-    @validator('tags')
+    @field_validator('tags')
     def validate_tags(cls, v):
         from app.utils.security import sanitize_tags
         return sanitize_tags(v or [])
@@ -38,7 +38,6 @@ class DocumentUpdate(CamelCaseModel):
     is_exclusive_mode: Optional[bool] = Field(None, description="If True, document is exclusive to projects and deleted when any project is deleted")
 
 class DocumentResponse(CamelCaseModel):
-    id: int
     uuid: str
     title: str
     original_name: str
@@ -51,7 +50,6 @@ class DocumentResponse(CamelCaseModel):
     is_archived: bool
     is_exclusive_mode: bool
     
-    archive_item_uuid: Optional[str] = None
     upload_status: str
     created_at: datetime
     updated_at: datetime
@@ -66,7 +64,7 @@ class CommitDocumentUploadRequest(CamelCaseModel):
     project_ids: List[str] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this document to")
     is_exclusive_mode: Optional[bool] = Field(default=False, description="If True, document is exclusive to projects and deleted when any project is deleted")
 
-    @validator('tags')
+    @field_validator('tags')
     def validate_tags(cls, v):
         from app.utils.security import sanitize_tags
         return sanitize_tags(v or [])

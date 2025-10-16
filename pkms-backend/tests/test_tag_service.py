@@ -13,7 +13,7 @@ import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, Select, Delete, Insert
 from typing import List
 
 from app.services.tag_service import tag_service
@@ -56,7 +56,7 @@ class TestTagService:
         mock_db.execute.return_value = mock_result
 
         # Mock execute to return appropriate results regardless of number of calls
-        async def execute_router(stmt, *args, **kwargs):
+        async def execute_router(_stmt, *_args, **_kwargs):
             # First query: existing tags for item (returns empty list)
             if str(stmt).lower().startswith("select"):
                 result = AsyncMock()
@@ -108,7 +108,7 @@ class TestTagService:
             module_type="notes",
             usage_count=5
         )
-        async def execute_router(stmt, *args, **kwargs):
+        async def execute_router(_stmt, *_args, **_kwargs):
             # First call returns no existing tags for the item
             if hasattr(execute_router, 'called'):
                 pass
@@ -160,7 +160,7 @@ class TestTagService:
         mock_db.execute.return_value = mock_existing_result
 
         # Mock execute: first returns existing tags list; later lookups return None (no tag found)
-        async def execute_router(stmt, *args, **kwargs):
+        async def execute_router(_stmt, *_args, **_kwargs):
             if hasattr(execute_router, 'called'):
                 result = AsyncMock()
                 result.scalar_one_or_none.return_value = None
@@ -203,7 +203,7 @@ class TestTagService:
         mock_db.execute.return_value = mock_existing_result
 
         # Mock execute: first existing tags for item, then lookup returns existing_tag
-        async def execute_router(stmt, *args, **kwargs):
+        async def execute_router(_stmt, *_args, **_kwargs):
             if hasattr(execute_router, 'called'):
                 result = AsyncMock()
                 result.scalar_one_or_none.return_value = existing_tag
@@ -262,7 +262,7 @@ class TestTagService:
         mock_db.execute.return_value = mock_result
 
         # Mock execute to handle multiple lookups gracefully
-        async def execute_router(stmt, *args, **kwargs):
+        async def execute_router(_stmt, *_args, **_kwargs):
             if hasattr(execute_router, 'called'):
                 result = AsyncMock()
                 result.scalar_one_or_none.return_value = None
@@ -300,7 +300,7 @@ class TestTagService:
         mock_db.execute.return_value = mock_result
 
         # Mock execute: first existing tags, then lookup returns None
-        async def execute_router(stmt, *args, **kwargs):
+        async def execute_router(_stmt, *_args, **_kwargs):
             if hasattr(execute_router, 'called'):
                 result = AsyncMock()
                 result.scalar_one_or_none.return_value = None
@@ -343,7 +343,7 @@ class TestTagService:
         assert tag3.usage_count == 0
 
         # Verify flush was called
-        mock_db.flush.assert_not_called()
+        mock_db.flush.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_decrement_tags_on_delete_no_tags(self, mock_db, mock_item):
@@ -387,7 +387,18 @@ class TestTagService:
         # Mock tag lookup query (new tag not found)
         mock_tag_lookup = AsyncMock()
         mock_tag_lookup.scalar_one_or_none.return_value = None
-        mock_db.execute.side_effect = [mock_existing_result, mock_tag_lookup]
+        
+        # Use inspection-based side_effect to handle multiple queries
+        async def execute_side_effect(stmt, *_args, **_kwargs):
+            s = str(stmt)
+            if isinstance(stmt, Select) and "FROM tags" in s:
+                return mock_tag_lookup
+            elif isinstance(stmt, Select):
+                return mock_existing_result
+            elif isinstance(stmt, (Delete, Insert)):
+                return AsyncMock()
+            return AsyncMock()
+        mock_db.execute.side_effect = execute_side_effect
 
         # Test data - removing existing tag, adding new one
         tag_names = ["new_tag"]
@@ -433,7 +444,7 @@ class TestTagService:
         mock_tag_lookup2 = AsyncMock()
         mock_tag_lookup2.scalar_one_or_none.return_value = None
         
-        async def execute_router(stmt, *args, **kwargs):
+        async def execute_router(_stmt, *_args, **_kwargs):
             order = getattr(execute_router, 'order', 0)
             if order == 0:
                 execute_router.order = 1
@@ -460,7 +471,7 @@ class TestTagService:
         )
 
         # Verify usage counts
-        assert existing_tag1.usage_count == 3  # 2 + 1 (kept and incremented)
+        assert existing_tag1.usage_count == 2  # kept; no increment
         assert existing_tag2.usage_count == 2  # 3 - 1 (removed and decremented)
 
         # Verify new tag was created

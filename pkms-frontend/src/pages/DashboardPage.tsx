@@ -148,6 +148,117 @@ const modules: ModuleInfo[] = [
   }
 ];
 
+// Project Cards Section Component - extracted for performance
+const ProjectCardsSection = () => {
+  const navigate = useNavigate();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loadingProjects, setLoadingProjects] = useState(true);
+
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        const data = await todosService.getProjects();
+        setProjects(data);
+      } catch (error) {
+        console.error('Failed to load projects:', error);
+      } finally {
+        setLoadingProjects(false);
+      }
+    };
+    loadProjects();
+  }, []);
+
+  if (loadingProjects) {
+    return (
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} height={120} radius="md" />
+        ))}
+      </SimpleGrid>
+    );
+  }
+
+  if (projects.length === 0) {
+    return null;
+  }
+
+  return (
+    <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+      {projects.slice(0, 6).map((project) => {
+        const completionPercentage = project.todo_count > 0 
+          ? Math.round((project.completed_count / project.todo_count) * 100) 
+          : 0;
+        
+        return (
+          <Card
+            key={project.uuid}
+            padding="lg"
+            radius="md"
+            withBorder
+            style={{ cursor: 'pointer' }}
+            onClick={() => navigate(`/projects/${project.uuid}`)}
+          >
+            <Stack gap="md">
+              <Group justify="space-between" wrap="nowrap">
+                <Group gap="sm" style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: '50%',
+                      backgroundColor: project.color || '#2196F3',
+                      flexShrink: 0
+                    }}
+                  />
+                  <Text fw={600} size="sm" truncate style={{ flex: 1 }}>
+                    {project.name}
+                  </Text>
+                </Group>
+                <ActionIcon variant="subtle" size="sm" color="gray">
+                  <IconChevronRight size={16} />
+                </ActionIcon>
+              </Group>
+
+              {project.description && (
+                <Text size="xs" c="dimmed" lineClamp={2}>
+                  {project.description}
+                </Text>
+              )}
+
+              <div>
+                <Group justify="space-between" mb={4}>
+                  <Text size="xs" c="dimmed">Progress</Text>
+                  <Text size="sm" fw={600} c={completionPercentage === 100 ? 'green' : 'blue'}>
+                    {completionPercentage}%
+                  </Text>
+                </Group>
+                <Progress
+                  value={completionPercentage}
+                  size="sm"
+                  radius="xl"
+                  color={completionPercentage === 100 ? 'green' : 'blue'}
+                />
+              </div>
+
+              <Group gap="md" justify="space-between">
+                <Badge size="sm" variant="light" color="gray">
+                  <IconFolder size={12} style={{ marginRight: 4 }} />
+                  {project.todo_count} tasks
+                </Badge>
+                {project.completed_count > 0 && (
+                  <Badge size="sm" variant="light" color="green">
+                    {project.completed_count} done
+                  </Badge>
+                )}
+              </Group>
+            </Stack>
+          </Card>
+        );
+      })}
+    </SimpleGrid>
+  );
+};
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
@@ -409,115 +520,6 @@ export function DashboardPage() {
     </Button>
   );
 
-  // Project Cards Section Component
-  const ProjectCardsSection = () => {
-    const [projects, setProjects] = useState<Project[]>([]);
-    const [loadingProjects, setLoadingProjects] = useState(true);
-
-    useEffect(() => {
-      const loadProjects = async () => {
-        try {
-          const data = await todosService.getProjects();
-          setProjects(data);
-        } catch (error) {
-          console.error('Failed to load projects:', error);
-        } finally {
-          setLoadingProjects(false);
-        }
-      };
-      loadProjects();
-    }, []);
-
-    if (loadingProjects) {
-      return (
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} height={120} radius="md" />
-          ))}
-        </SimpleGrid>
-      );
-    }
-
-    if (projects.length === 0) {
-      return null;
-    }
-
-    return (
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
-        {projects.slice(0, 6).map((project) => {
-          const completionPercentage = project.todo_count > 0 
-            ? Math.round((project.completed_count / project.todo_count) * 100) 
-            : 0;
-          
-          return (
-            <Card
-              key={project.uuid}
-              padding="lg"
-              radius="md"
-              withBorder
-              style={{ cursor: 'pointer' }}
-              onClick={() => navigate(`/projects/${project.uuid}`)}
-            >
-              <Stack gap="md">
-                <Group justify="space-between" wrap="nowrap">
-                  <Group gap="sm" style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        width: 12,
-                        height: 12,
-                        borderRadius: '50%',
-                        backgroundColor: project.color || '#2196F3',
-                        flexShrink: 0
-                      }}
-                    />
-                    <Text fw={600} size="sm" truncate style={{ flex: 1 }}>
-                      {project.name}
-                    </Text>
-                  </Group>
-                  <ActionIcon variant="subtle" size="sm" color="gray">
-                    <IconChevronRight size={16} />
-                  </ActionIcon>
-                </Group>
-
-                {project.description && (
-                  <Text size="xs" c="dimmed" lineClamp={2}>
-                    {project.description}
-                  </Text>
-                )}
-
-                <div>
-                  <Group justify="space-between" mb={4}>
-                    <Text size="xs" c="dimmed">Progress</Text>
-                    <Text size="sm" fw={600} c={completionPercentage === 100 ? 'green' : 'blue'}>
-                      {completionPercentage}%
-                    </Text>
-                  </Group>
-                  <Progress
-                    value={completionPercentage}
-                    size="sm"
-                    radius="xl"
-                    color={completionPercentage === 100 ? 'green' : 'blue'}
-                  />
-                </div>
-
-                <Group gap="md" justify="space-between">
-                  <Badge size="sm" variant="light" color="gray">
-                    <IconFolder size={12} style={{ marginRight: 4 }} />
-                    {project.todo_count} tasks
-                  </Badge>
-                  {project.completed_count > 0 && (
-                    <Badge size="sm" variant="light" color="green">
-                      {project.completed_count} done
-                    </Badge>
-                  )}
-                </Group>
-              </Stack>
-            </Card>
-          );
-        })}
-      </SimpleGrid>
-    );
-  };
 
   if (isLoading) {
     return (
@@ -654,9 +656,9 @@ export function DashboardPage() {
               <div>
                 <Text size="sm" c="dimmed">Todo Status</Text>
                 <Group gap="xs" wrap="wrap" mt={4}>
-                  {(((stats as any)?.todos?.in_progress) || 0) > 0 && (
+                  {(stats?.todos?.in_progress || 0) > 0 && (
                     <Badge variant="light" color="cyan" size="sm">
-                      {(stats as any)?.todos?.in_progress} in progress
+                      {stats?.todos?.in_progress} in progress
                     </Badge>
                   )}
                   {(stats?.todos?.blocked || 0) > 0 && (
@@ -684,8 +686,8 @@ export function DashboardPage() {
             <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="md">
               <div>
                 <Text size="sm" c="dimmed">Due Today</Text>
-                <Text fw={600} size="lg" c={(stats as any)?.todos?.due_today > 0 ? 'orange' : undefined}>
-                  {(stats as any)?.todos?.due_today ?? '-'}
+                <Text fw={600} size="lg" c={(stats?.todos?.due_today || 0) > 0 ? 'orange' : undefined}>
+                  {stats?.todos?.due_today ?? '-'}
                 </Text>
               </div>
               <div>
@@ -696,8 +698,8 @@ export function DashboardPage() {
               </div>
               <div>
                 <Text size="sm" c="dimmed">Completed Today</Text>
-                <Text fw={600} size="lg" c={(stats as any)?.todos?.completed_today > 0 ? 'green' : undefined}>
-                  {(stats as any)?.todos?.completed_today ?? '-'}
+                <Text fw={600} size="lg" c={(stats?.todos?.completed_today || 0) > 0 ? 'green' : undefined}>
+                  {stats?.todos?.completed_today ?? '-'}
                 </Text>
               </div>
             </SimpleGrid>

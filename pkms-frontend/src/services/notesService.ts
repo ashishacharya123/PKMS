@@ -30,8 +30,10 @@ export interface Note {
   tags: string[];
   projects: ProjectBadge[];
   
-  // NEW: Additional fields
+  // Additional metadata fields
+  /** Type/category of the note (e.g., 'meeting', 'idea', 'task') */
   note_type?: string;
+  /** Version number for note content tracking */
   version?: number;
 }
 

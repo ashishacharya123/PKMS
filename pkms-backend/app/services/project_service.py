@@ -27,7 +27,7 @@ class ProjectService:
         db: AsyncSession,
         item: any,
         project_uuids: List[str],
-        user_id: int,
+        user_uuid: str,
         association_table: Type,
         item_uuid_field: str
     ):
@@ -38,7 +38,7 @@ class ProjectService:
             db: Database session
             item: The content item (note, document, todo)
             project_uuids: List of project UUIDs to associate
-            user_id: User ID for ownership verification
+            user_uuid: User UUID for ownership verification
             association_table: The junction table (note_projects, document_projects, todo_projects)
             item_uuid_field: The field name for the item UUID in the association table
         """
@@ -56,7 +56,7 @@ class ProjectService:
             select(Project).where(
                 and_(
                     Project.uuid.in_(project_uuids),
-                    Project.user_uuid == user_id
+                    Project.user_uuid == user_uuid
                 )
             )
         )
@@ -148,7 +148,7 @@ class ProjectService:
             elif project_name_snapshot:
                 # Deleted project snapshot
                 badge = ProjectBadge(
-                    id=None,  # Use None for deleted projects
+                    uuid=None,  # Use None for deleted projects
                     name=project_name_snapshot,
                     color="#6c757d",  # Default gray for deleted projects
                     is_deleted=True,

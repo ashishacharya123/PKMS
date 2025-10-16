@@ -377,7 +377,8 @@ async def get_all_database_tables(
             "users", "sessions", "recovery_keys", "notes", "documents", "todos", 
             "projects", "diary_entries", "diary_media", "diary_daily_metadata",
             "archive_folders", "archive_items", "tags", "links", 
-            "note_tags", "document_tags", "todo_tags", "diary_tags", "archive_tags"
+            "note_tags", "document_tags", "todo_tags",
+            "diary_entry_tags", "archive_item_tags", "archive_folder_tags"
         ]
         
         for row in result:
@@ -692,6 +693,8 @@ async def get_sample_rows(
             
         elif table in ["sessions", "recovery_keys"]:
             # System tables - use raw SQL for flexibility
+            if table not in {"sessions", "recovery_keys"}:
+                raise HTTPException(status_code=400, detail="Unsupported table")
             table_query = text(f"SELECT * FROM {table} WHERE user_uuid = :user_uuid LIMIT :limit")
             result = await db.execute(table_query, {"user_uuid": current_user.uuid, "limit": limit})
             rows = result.fetchall()
@@ -718,7 +721,7 @@ async def get_sample_rows(
                 "timestamp": datetime.now(NEPAL_TZ).isoformat()
             }
             
-        elif table in ["note_tags", "document_tags", "todo_tags", "archive_tags"]:
+        elif table in ["note_tags", "document_tags", "todo_tags", "diary_entry_tags", "archive_item_tags", "archive_folder_tags"]:
             # Junction tables - use raw SQL since they don't have direct models
             if table == "note_tags":
                 junction_query = text("""
@@ -747,13 +750,31 @@ async def get_sample_rows(
                     WHERE td.user_uuid = :user_uuid 
                     LIMIT :limit
                 """)
-            elif table == "archive_tags":
+            elif table == "diary_entry_tags":
                 junction_query = text("""
-                    SELECT at.*, ai.name as archive_name, t.name as tag_name 
-                    FROM archive_tags at 
-                    JOIN archive_items ai ON at.archive_item_uuid = ai.uuid 
-                    JOIN tags t ON at.tag_uuid = t.uuid 
-                    WHERE ai.user_uuid = :user_uuid 
+                    SELECT det.*, de.title as diary_title, t.name as tag_name
+                    FROM diary_entry_tags det
+                    JOIN diary_entries de ON det.diary_entry_uuid = de.uuid
+                    JOIN tags t ON det.tag_uuid = t.uuid
+                    WHERE de.user_uuid = :user_uuid
+                    LIMIT :limit
+                """)
+            elif table == "archive_item_tags":
+                junction_query = text("""
+                    SELECT ait.*, ai.name as archive_item_name, t.name as tag_name
+                    FROM archive_item_tags ait
+                    JOIN archive_items ai ON ait.archive_item_uuid = ai.uuid
+                    JOIN tags t ON ait.tag_uuid = t.uuid
+                    WHERE ai.user_uuid = :user_uuid
+                    LIMIT :limit
+                """)
+            elif table == "archive_folder_tags":
+                junction_query = text("""
+                    SELECT aft.*, af.name as archive_folder_name, t.name as tag_name
+                    FROM archive_folder_tags aft
+                    JOIN archive_folders af ON aft.archive_folder_uuid = af.uuid
+                    JOIN tags t ON aft.tag_uuid = t.uuid
+                    WHERE af.user_uuid = :user_uuid
                     LIMIT :limit
                 """)
             
@@ -981,7 +1002,7 @@ async def test_diary_encryption(
             
             # Get media count for this entry
             media_query = select(func.count()).select_from(DiaryMedia).where(
-                DiaryMedia.entry_uuid == sample_entry.uuid
+                DiaryMedia.diary_entry_uuid == sample_entry.uuid
             )
             media_result = await db.execute(media_query)
             media_count = media_result.scalar()
@@ -2465,7 +2486,7 @@ async def test_notes_create(
         note = Note(
             title=f"{title} - {datetime.now().strftime('%H:%M:%S')}",
             content=content,
-            user_id=current_user.id
+            user_uuid=current_user.uuid
         )
         db.add(note)
         await db.flush()
@@ -2502,7 +2523,7 @@ async def test_documents_create(
             file_size=file_size,
             content_type=content_type,
             upload_date=datetime.now(),
-            user_id=current_user.id
+            user_uuid=current_user.uuid
         )
         db.add(document)
         await db.flush()
@@ -2538,7 +2559,7 @@ async def test_todos_create(
             description=description,
             completed=False,
             priority=priority,
-            user_id=current_user.id
+            user_uuid=current_user.uuid
         )
         db.add(todo)
         await db.flush()
@@ -2875,10 +2896,10 @@ async def get_diary_table_details(
         
         # Get sample media entries
         sample_media_query = text("""
-            SELECT uuid, entry_id, mime_type, size_bytes, media_type, 
-                   duration_seconds, created_at,
-                   LENGTH(filename_encrypted) as encrypted_filename_length,
-                   LENGTH(filepath_encrypted) as encrypted_filepath_length
+            SELECT uuid, diary_entry_uuid, mime_type, file_size, media_type,
+                   created_at,
+                   LENGTH(filename) as filename_length,
+                   LENGTH(file_path) as filepath_length
             FROM diary_media 
             WHERE user_uuid = :user_uuid
             ORDER BY created_at DESC
@@ -2890,16 +2911,14 @@ async def get_diary_table_details(
         for row in sample_media_result:
             sample_media.append({
                 "uuid": row[0],
-                "entry_id": row[1],
+                "diary_entry_uuid": row[1],
                 "mime_type": row[2],
-                "size_mb": round(row[3] / (1024 * 1024), 2) if row[3] else 0,
+                "size_mb": round((row[3] or 0) / (1024 * 1024), 2),
                 "media_type": row[4],
-                "duration_seconds": row[5],
-                "created_at": str(row[6]),
-                "encrypted_metadata": {
-                    "filename_encrypted_length": row[7],
-                    "filepath_encrypted_length": row[8],
-                    "has_encrypted_paths": row[7] is not None and row[8] is not None
+                "created_at": str(row[5]),
+                "file_path_lengths": {
+                    "filename_length": row[6],
+                    "filepath_length": row[7]
                 }
             })
         

@@ -419,16 +419,13 @@ class TestArchiveIntegration:
         db_session.add(archive_item)
         await db_session.commit()
         
-        # Mark document as archived
+        # Mark document as archived (simple flag only)
         document.is_archived = True
-        document.archive_item_uuid = archive_item.uuid
         await db_session.commit()
         
         # Verify integration
         assert document.is_archived is True
-        assert document.archive_item_uuid == archive_item.uuid
         assert archive_item.metadata_json is not None
-        assert str(document.id) in archive_item.metadata_json
     
     @pytest.mark.asyncio
     async def test_archive_folder_permissions(self, db_session: AsyncSession):

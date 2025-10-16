@@ -446,7 +446,12 @@ async def list_folders(
         else:
             # Build query (simplified for single user)
             query = select(ArchiveFolder)
-            query = query.where(ArchiveFolder.parent_uuid == parent_uuid)
+            query = query.where(
+                and_(
+                    ArchiveFolder.parent_uuid == parent_uuid,
+                    ArchiveFolder.user_uuid == current_user.uuid
+                )
+            )
             # Archive folders don't use is_archived flag - all are active by being in archive
             query = query.order_by(ArchiveFolder.name)
             result = await db.execute(query)
@@ -578,6 +583,13 @@ async def get_folder(
 ):
     """Get folder details (simplified for single user)"""
     folder_uuid = validate_uuid_format(folder_uuid)
+    res = await db.execute(
+        select(ArchiveFolder.uuid).where(
+            and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.user_uuid == current_user.uuid)
+        )
+    )
+    if not res.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Folder not found")
     return await _get_folder_with_stats(db, folder_uuid)
 
 @router.put("/folders/{folder_uuid}", response_model=FolderResponse)
@@ -727,7 +739,9 @@ async def bulk_move_items(
 
     # Fetch all items to move – ensure they belong to user
     result = await db.execute(
-        select(ArchiveItem).where(ArchiveItem.uuid.in_(payload.items))
+        select(ArchiveItem).where(
+            and_(ArchiveItem.uuid.in_(payload.items), ArchiveItem.user_uuid == current_user.uuid)
+        )
     )
     items_to_move = result.scalars().all()
 
@@ -765,7 +779,9 @@ async def upload_item(
         
         # Verify folder exists (simplified for single user)
         result = await db.execute(
-            select(ArchiveFolder).where(ArchiveFolder.uuid == folder_uuid)
+            select(ArchiveFolder).where(
+                and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.user_uuid == current_user.uuid)
+            )
         )
         folder = result.scalar_one_or_none()
         if not folder:
@@ -1008,8 +1024,8 @@ async def list_folder_items(
     if tag:
         # Join with correct association table for archive items and enforce user scoping
         query = (
-            query.join(archive_item_tags, archive_item_tags.c.archive_item_uuid == ArchiveItem.uuid)
-                 .join(Tag, and_(Tag.id == archive_item_tags.c.tag_id, Tag.user_uuid == current_user.uuid))
+            query.join(archive_item_tags, archive_item_tags.c.item_uuid == ArchiveItem.uuid)
+                 .join(Tag, and_(Tag.uuid == archive_item_tags.c.tag_uuid, Tag.user_uuid == current_user.uuid))
                  .where(Tag.name == tag)
         )
     
@@ -1035,6 +1051,13 @@ async def get_item(
 ):
     """Get item details (simplified for single user)"""
     item_uuid = validate_uuid_format(item_uuid)
+    res = await db.execute(
+        select(ArchiveItem.uuid).where(
+            and_(ArchiveItem.uuid == item_uuid, ArchiveItem.user_uuid == current_user.uuid)
+        )
+    )
+    if not res.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Item not found")
     return await _get_item_with_relations(db, item_uuid)
 
 @router.put("/items/{item_uuid}", response_model=ItemResponse)
@@ -1109,14 +1132,19 @@ async def delete_item(
     try:
         item_uuid = validate_uuid_format(item_uuid)
         
-        # Get item (simplified for single user)
+        # Get item with ownership check
         result = await db.execute(
-            select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.uuid == item_uuid)
+            select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(
+                and_(
+                    ArchiveItem.uuid == item_uuid,
+                    ArchiveItem.user_uuid == current_user.uuid
+                )
+            )
         )
         item = result.scalar_one_or_none()
         
         if not item:
-            raise HTTPException(status_code=404, detail="Item not found")
+            raise HTTPException(status_code=404, detail="Item not found or access denied")
         
         # Delete file from storage
         if item.file_path and Path(item.file_path).exists():

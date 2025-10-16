@@ -8,9 +8,8 @@
 -- USER MANAGEMENT
 -- ================================
 
--- Users table (UUID primary key, retain legacy id as counter if needed by migrations externally)
+-- Users table (UUID primary key)
 CREATE TABLE users (
-    id INTEGER NOT NULL AUTOINCREMENT,
     uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     username VARCHAR(50) NOT NULL UNIQUE,
     email VARCHAR(100) UNIQUE,
@@ -41,8 +40,7 @@ CREATE TABLE sessions (
 
 -- Recovery keys for password reset with security questions (reference users.uuid)
 CREATE TABLE recovery_keys (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    user_uuid VARCHAR(36) NOT NULL,
+    user_uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     key_hash VARCHAR(255) NOT NULL,
     questions_json TEXT NOT NULL,  -- Security questions as JSON
     answers_hash VARCHAR(255) NOT NULL,  -- Hashed answers
@@ -59,7 +57,6 @@ CREATE TABLE recovery_keys (
 
 -- Personal notes and knowledge management
 CREATE TABLE notes (
-    id INTEGER NOT NULL AUTOINCREMENT,
     uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     content TEXT NOT NULL,
@@ -94,7 +91,6 @@ CREATE TABLE notes (
 
 -- File attachments for notes
 CREATE TABLE note_files (
-    id INTEGER NOT NULL AUTOINCREMENT,
     uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     note_uuid VARCHAR(36) NOT NULL,
     user_uuid VARCHAR(36) NOT NULL,
@@ -116,7 +112,6 @@ CREATE TABLE note_files (
 
 -- Document storage and management
 CREATE TABLE documents (
-    id INTEGER NOT NULL AUTOINCREMENT,
     uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     original_name VARCHAR(255) NOT NULL,
     title VARCHAR(255) NOT NULL,
@@ -133,7 +128,6 @@ CREATE TABLE documents (
     is_favorite BOOLEAN DEFAULT FALSE,
     is_archived BOOLEAN DEFAULT FALSE,
     is_exclusive_mode BOOLEAN DEFAULT FALSE,
-    archive_item_uuid VARCHAR(36),
     upload_status VARCHAR(20) DEFAULT 'completed',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -151,7 +145,6 @@ CREATE TABLE documents (
 
 -- Task management projects
 CREATE TABLE projects (
-    id INTEGER NOT NULL AUTOINCREMENT,
     uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
@@ -180,7 +173,6 @@ CREATE TABLE projects (
 
 -- Task management todos
 CREATE TABLE todos (
-    id INTEGER NOT NULL AUTOINCREMENT,
     uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     description TEXT,
@@ -236,7 +228,6 @@ CREATE TABLE todos (
 
 -- Personal diary entries with client-side encryption
 CREATE TABLE diary_entries (
-    id INTEGER NOT NULL AUTOINCREMENT,
     uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     date DATETIME NOT NULL,
@@ -259,19 +250,18 @@ CREATE TABLE diary_entries (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 
     -- Additional metadata
-    daily_metadata_uuid VARCHAR(36),
+    daily_metadata_id VARCHAR(36),
 
     -- Soft Delete
     is_deleted BOOLEAN DEFAULT FALSE,
 
     FOREIGN KEY (user_uuid) REFERENCES users(uuid) ON DELETE CASCADE,
-    FOREIGN KEY (daily_metadata_uuid) REFERENCES diary_daily_metadata(uuid) ON DELETE SET NULL
+    FOREIGN KEY (daily_metadata_id) REFERENCES diary_daily_metadata(uuid) ON DELETE SET NULL
 );
 
 -- Per-day wellness snapshot captured via dashboard
 CREATE TABLE diary_daily_metadata (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    uuid VARCHAR(36) NOT NULL UNIQUE,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     user_uuid VARCHAR(36) NOT NULL,
     date DATETIME NOT NULL,
     nepali_date VARCHAR(20),
@@ -294,7 +284,6 @@ CREATE TABLE diary_daily_metadata (
 
 -- Media attachments for diary entries
 CREATE TABLE diary_media (
-    id INTEGER NOT NULL AUTOINCREMENT,
     uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     diary_entry_uuid VARCHAR(36) NOT NULL,
     filename VARCHAR(255) NOT NULL,
@@ -338,18 +327,19 @@ CREATE TABLE archive_folders (
 
 -- Archive items
 CREATE TABLE archive_items (
-    id INTEGER NOT NULL AUTOINCREMENT,
     uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
-    original_type VARCHAR(50) NOT NULL,
-    original_uuid VARCHAR(36) NOT NULL,
+    original_filename VARCHAR(255) NOT NULL,
+    stored_filename VARCHAR(255) NOT NULL,
     file_path VARCHAR(500) NOT NULL,
     file_size BIGINT NOT NULL,
     mime_type VARCHAR(100) NOT NULL,
     folder_uuid VARCHAR(36),
     user_uuid VARCHAR(36) NOT NULL,
-    archived_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_archived BOOLEAN DEFAULT FALSE,
+    is_favorite BOOLEAN DEFAULT FALSE,
+    metadata_json TEXT DEFAULT '{}',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     
@@ -385,7 +375,6 @@ CREATE TABLE links (
 
 -- Tags for organizing content
 CREATE TABLE tags (
-    id INTEGER NOT NULL AUTOINCREMENT,
     uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     description TEXT,
@@ -492,41 +481,41 @@ CREATE TABLE link_tags (
 
 -- Notes to Projects
 CREATE TABLE note_projects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
     note_uuid VARCHAR(36) NOT NULL,
-    project_uuid VARCHAR(36),
+    project_uuid VARCHAR(36) NOT NULL,
     is_exclusive BOOLEAN DEFAULT FALSE,
     project_name_snapshot VARCHAR(255),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     
     FOREIGN KEY (note_uuid) REFERENCES notes(uuid) ON DELETE CASCADE,
-    UNIQUE(note_uuid, project_uuid)
+    FOREIGN KEY (project_uuid) REFERENCES projects(uuid) ON DELETE CASCADE,
+    PRIMARY KEY (note_uuid, project_uuid)
 );
 
 -- Documents to Projects
 CREATE TABLE document_projects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
     document_uuid VARCHAR(36) NOT NULL,
-    project_uuid VARCHAR(36),
+    project_uuid VARCHAR(36) NOT NULL,
     is_exclusive BOOLEAN DEFAULT FALSE,
     project_name_snapshot VARCHAR(255),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     
     FOREIGN KEY (document_uuid) REFERENCES documents(uuid) ON DELETE CASCADE,
-    UNIQUE(document_uuid, project_uuid)
+    FOREIGN KEY (project_uuid) REFERENCES projects(uuid) ON DELETE CASCADE,
+    PRIMARY KEY (document_uuid, project_uuid)
 );
 
 -- Todos to Projects
 CREATE TABLE todo_projects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
     todo_uuid VARCHAR(36) NOT NULL,
-    project_uuid VARCHAR(36),
+    project_uuid VARCHAR(36) NOT NULL,
     is_exclusive BOOLEAN DEFAULT FALSE,
     project_name_snapshot VARCHAR(255),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     
     FOREIGN KEY (todo_uuid) REFERENCES todos(uuid) ON DELETE CASCADE,
-    UNIQUE(todo_uuid, project_uuid)
+    FOREIGN KEY (project_uuid) REFERENCES projects(uuid) ON DELETE CASCADE,
+    PRIMARY KEY (todo_uuid, project_uuid)
 );
 
 -- ================================
@@ -555,7 +544,7 @@ CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_sessions_user_uuid ON sessions(user_uuid);
 CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
 CREATE INDEX idx_recovery_keys_user_uuid ON recovery_keys(user_uuid);
-CREATE INDEX idx_recovery_keys_expires_at ON recovery_keys(expires_at);
+CREATE INDEX idx_recovery_keys_created_at ON recovery_keys(created_at);
 
 -- Notes
 CREATE INDEX idx_notes_user_uuid ON notes(user_uuid);
@@ -597,7 +586,7 @@ CREATE INDEX idx_diary_entries_mood ON diary_entries(mood);
 CREATE INDEX idx_diary_entries_weather_code ON diary_entries(weather_code);
 CREATE INDEX idx_diary_entries_is_favorite ON diary_entries(is_favorite);
 CREATE INDEX idx_diary_entries_is_archived ON diary_entries(is_archived);
-CREATE INDEX idx_diary_entries_daily_metadata_uuid ON diary_entries(daily_metadata_uuid);
+CREATE INDEX idx_diary_entries_daily_metadata_id ON diary_entries(daily_metadata_id);
 CREATE INDEX idx_diary_daily_metadata_user_uuid ON diary_daily_metadata(user_uuid);
 CREATE INDEX idx_diary_daily_metadata_date ON diary_daily_metadata(date);
 CREATE INDEX idx_diary_daily_metadata_uuid ON diary_daily_metadata(uuid);
@@ -610,7 +599,7 @@ CREATE INDEX idx_archive_folders_user_uuid ON archive_folders(user_uuid);
 CREATE INDEX idx_archive_folders_parent_uuid ON archive_folders(parent_uuid);
 CREATE INDEX idx_archive_items_user_uuid ON archive_items(user_uuid);
 CREATE INDEX idx_archive_items_folder_uuid ON archive_items(folder_uuid);
-CREATE INDEX idx_archive_items_original_type ON archive_items(original_type);
+CREATE INDEX idx_archive_items_original_filename ON archive_items(original_filename);
 
 -- Links
 CREATE INDEX idx_links_user_uuid ON links(user_uuid);

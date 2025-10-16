@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from sqlalchemy import text
-from app.database import get_async_engine, get_db
+from app.database import engine, get_db
 from app.services.search_service import search_service
 from app.models.user import User
 from sqlalchemy import select
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 async def drop_old_fts_tables():
     """Drop the old FTS tables and triggers."""
-    engine = get_async_engine()
+    # Use the shared engine from database module
     
     async with engine.begin() as conn:
         logger.info("🗑️ Dropping old FTS tables and triggers...")
@@ -70,7 +70,7 @@ async def drop_old_fts_tables():
 
 async def create_new_fts_table():
     """Create the new unified FTS table."""
-    engine = get_async_engine()
+    # Use the shared engine from database module
     
     async with engine.begin() as conn:
         logger.info("🏗️ Creating new unified FTS table...")
@@ -126,7 +126,7 @@ async def bulk_index_existing_content():
 
 async def verify_migration():
     """Verify that the migration was successful."""
-    engine = get_async_engine()
+    # Use the shared engine from database module
     
     async with engine.begin() as conn:
         logger.info("🔍 Verifying migration...")

@@ -290,11 +290,9 @@ class TestDocumentModel:
         
         # Archive the document
         document.is_archived = True
-        document.archive_item_uuid = "archive-uuid-123"
         await db_session.commit()
         
         assert document.is_archived is True
-        assert document.archive_item_uuid == "archive-uuid-123"
     
     @pytest.mark.asyncio
     async def test_document_tags_relationship(self, db_session: AsyncSession, test_user: User):

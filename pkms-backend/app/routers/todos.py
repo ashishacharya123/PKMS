@@ -122,8 +122,6 @@ async def todos_stats_overview(
     }
 
 
-        
-from sqlalchemy.orm import selectinload
 
 # --- Helper Functions ---
 
@@ -162,7 +160,7 @@ def _convert_todo_to_response(todo: Todo, project_badges: Optional[List[ProjectB
         priority=todo.priority,
         # Project info now comes from junction table via project_service.build_badges
         order_index=todo.order_index,
-        parent_id=todo.parent_uuid,
+        parent_uuid=todo.parent_uuid,
         subtasks=[_convert_todo_to_response(subtask, []) for subtask in (todo.subtasks or [])] if hasattr(todo, 'subtasks') and todo.subtasks else [],
         start_date=todo.start_date,
         due_date=todo.due_date,
@@ -299,7 +297,7 @@ async def list_todos(
     ).where(
         and_(
             Todo.user_uuid == current_user.uuid,
-            Todo.is_exclusive_mode == False,  # Only show linked (non-exclusive) items
+            Todo.is_exclusive_mode.is_(False),  # Only show linked (non-exclusive) items
             Todo.parent_uuid.is_(None)  # Never list subtasks standalone
         )
     )
@@ -824,6 +822,10 @@ async def create_subtask(
     await db.commit()
     await db.refresh(subtask)
     
+    # Index in search and persist
+    await search_service.index_item(db, subtask, 'todo')
+    await db.commit()
+
     # Reload with tags and project for response
     result = await db.execute(
         select(Todo).options(

@@ -25,6 +25,17 @@ class TodoCreate(CamelCaseModel):
     description: Optional[str] = None
     project_ids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this todo to")
     is_exclusive_mode: Optional[bool] = Field(default=False, description="If True, todo is exclusive to projects and deleted when any project is deleted")
+    
+    @field_validator('project_ids')
+    def validate_project_ids_are_uuid4(cls, v: Optional[List[str]]):
+        if not v:
+            return v
+        import re
+        uuid4 = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+        for pid in v:
+            if not isinstance(pid, str) or not uuid4.match(pid):
+                raise ValueError("project_ids must contain valid UUID4 strings")
+        return v
     start_date: Optional[date] = None
     due_date: Optional[date] = None
     priority: int = 2
@@ -46,6 +57,17 @@ class TodoUpdate(CamelCaseModel):
     order_index: Optional[int] = None
     project_ids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this todo to")
     is_exclusive_mode: Optional[bool] = Field(None, description="If True, todo is exclusive to projects and deleted when any project is deleted")
+    
+    @field_validator('project_ids')
+    def validate_project_ids_are_uuid4_update(cls, v: Optional[List[str]]):
+        if v is None:
+            return v
+        import re
+        uuid4 = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+        for pid in v:
+            if not isinstance(pid, str) or not uuid4.match(pid):
+                raise ValueError("project_ids must contain valid UUID4 strings")
+        return v
     start_date: Optional[date] = None
     due_date: Optional[date] = None
     priority: Optional[int] = None

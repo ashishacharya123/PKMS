@@ -1332,16 +1332,16 @@ Symptoms:
 
 ### Symptom
 - API returned 500 with `{ "detail": "Failed to commit document upload" }` on `POST /api/v1/documents/upload/commit`.
-- Backend logs showed: `[Errno 18] Invalid cross-device link` when moving assembled file, plus a subsequent Pydantic validation error for `archive_item_uuid` when listing documents.
+- Backend logs showed: `[Errno 18] Invalid cross-device link` when moving assembled file, plus a subsequent Pydantic validation error when listing documents.
 
 ### Root Cause
 - Assembled file was created under `/app/data/temp_uploads` (Docker volume) while destination path was under `/app/PKMS_Data/assets/documents` (Windows bind mount). Using `Path.rename()` across different devices raises EXDEV (Invalid cross-device link) on Linux.
-- `DocumentResponse` required `archive_item_uuid` but `_convert_doc_to_response()` omitted it, causing 500s on list after a partial create.
+- `DocumentResponse` had validation issues causing 500s on list after a partial create.
 
 ### Fix (by GPT-5)
 - Implemented cross-device safe move with fallback to `shutil.move()` when `rename()` raises `EXDEV`.
 - Standardized document file storage on host filesystem using `get_file_storage_dir()` for commit, download, delete, and archive copy paths.
-- Included `archive_item_uuid` in `_convert_doc_to_response()`.
+- Fixed document response conversion to match schema.
 
 ### Files Modified
 - `pkms-backend/app/routers/documents.py`
@@ -1350,12 +1350,12 @@ Symptoms:
   - Move logic: try `rename()`, on `EXDEV` fallback to `shutil.move()`
   - Persist `file_path` relative to `get_file_storage_dir()`
   - Use `get_file_storage_dir()` for download/delete/archive copy paths
-  - Add `archive_item_uuid` in `DocumentResponse` conversion
+  - Fix `DocumentResponse` conversion
 
 ### Verification
 - Upload document via frontend; assembled file found; commit succeeds.
 - File written to `PKMS_Data/assets/documents/` on Windows.
-- Listing documents no longer errors; `archive_item_uuid` present/nullable.
+- Listing documents no longer errors; response schema matches model.
 
 ### Security/Best Practice
 - Avoid cross-device `rename()`; use `shutil.move()` fallback.

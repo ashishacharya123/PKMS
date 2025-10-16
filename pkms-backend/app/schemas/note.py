@@ -2,6 +2,10 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator
 from pydantic.alias_generators import to_camel
 from typing import List, Optional
 from datetime import datetime
+import re
+
+# UUID4 regex pattern - hoisted to module scope for performance
+UUID4_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
 
 class CamelCaseModel(BaseModel):
     model_config = ConfigDict(
@@ -34,8 +38,7 @@ class NoteCreate(CamelCaseModel):
     def validate_project_ids_are_uuid4(cls, v: Optional[List[str]]):
         if not v:
             return v
-        import re
-        uuid4_regex = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+        from app.schemas.note import UUID4_RE as uuid4_regex
         for pid in v:
             if not isinstance(pid, str) or not uuid4_regex.match(pid):
                 raise ValueError("project_ids must contain valid UUID4 strings")
@@ -59,8 +62,7 @@ class NoteUpdate(CamelCaseModel):
     def validate_project_ids_are_uuid4_update(cls, v: Optional[List[str]]):
         if v is None:
             return v
-        import re
-        uuid4_regex = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+        from app.schemas.note import UUID4_RE as uuid4_regex
         for pid in v:
             if not isinstance(pid, str) or not uuid4_regex.match(pid):
                 raise ValueError("project_ids must contain valid UUID4 strings")
