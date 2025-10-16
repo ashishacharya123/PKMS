@@ -55,23 +55,23 @@ class SearchService:
             
             # Extract tags without triggering lazy-load
             tags = ''
-            try:
-                model_cls = self.item_type_mapping.get(item_type)
-                if model_cls is not None and hasattr(model_cls, 'tag_objs'):
+            model_cls = self.item_type_mapping.get(item_type)
+            if model_cls is not None and hasattr(model_cls, 'tag_objs'):
+                try:
                     res = await db.execute(
                         select(model_cls)
                         .options(selectinload(getattr(model_cls, 'tag_objs')))
                         .where(model_cls.uuid == item.uuid)
                     )
                     loaded = res.scalar_one_or_none()
-                    if loaded and getattr(loaded, 'tag_objs', None):
+                    if loaded and loaded.tag_objs:
                         tags = ' '.join(t.name for t in loaded.tag_objs)
-            except Exception:
-                # Best-effort; leave tags empty on error
-                pass
+                except Exception:
+                    logger.debug("Tag load failed for %s %s", item_type, item_uuid)
             
-            # Extract attachments (filenames) for files
-            attachments = await self._extract_attachments(db, item, item_type)
+            # Extract attachments (filenames) for files; persist as deterministic string
+            attachments_list = await self._extract_attachments(db, item, item_type)
+            attachments = "\n".join(a for a in attachments_list if a)
             
             # Format date_text for temporal context
             date_text = self._format_date_text(item.created_at)
@@ -239,17 +239,15 @@ class SearchService:
                 if filename:
                     attachments.append(filename)
             
-            elif item_type == 'diary' and hasattr(item, 'media'):
-                # Load diary media if not already loaded
-                if not hasattr(item, 'media') or item.media is None:
-                    entry_with_media = await db.execute(
-                        select(DiaryEntry).options(selectinload(DiaryEntry.media)).where(DiaryEntry.uuid == item.uuid)
-                    )
-                    entry = entry_with_media.scalar_one_or_none()
-                    if entry and entry.media:
-                        attachments.extend([m.filename for m in entry.media if m.filename])
-                else:
-                    attachments.extend([m.filename for m in item.media if m.filename])
+            elif item_type == 'diary':
+                entry_with_media = await db.execute(
+                    select(DiaryEntry)
+                    .options(selectinload(DiaryEntry.media))
+                    .where(DiaryEntry.uuid == item.uuid)
+                )
+                entry = entry_with_media.scalar_one_or_none()
+                if entry and entry.media:
+                    attachments.extend([m.filename for m in entry.media if m.filename])
         
         except Exception:
             logger.exception("Error extracting attachments for %s %s", item_type, getattr(item, "uuid", "<unknown>"))

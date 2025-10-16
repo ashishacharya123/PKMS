@@ -148,7 +148,7 @@ async def _is_diary_unlocked(user_uuid: str) -> bool:
     return await _get_diary_password_from_session(user_uuid) is not None
 
 async def _cleanup_expired_sessions():
-    """Background task to cleanup expired diary sessions."""
+    """Background task to cleanup expired diary sessions and weekly highlights cache."""
     while True:
         try:
             await asyncio.sleep(60)
@@ -164,10 +164,27 @@ async def _cleanup_expired_sessions():
                     try:
                         await _clear_diary_session(user_id)
                     except Exception as e:
-                        logger.error(f"Error clearing session for user {user_id}: {e}")
+                        logger.exception(f"Error clearing session for user {user_id}: {e}")
 
                 if expired_users:
                     logger.info(f"Cleaned up {len(expired_users)} expired diary sessions")
+
+                # Weekly highlights TTL cleanup
+                try:
+                    if '_WEEKLY_HIGHLIGHTS_CACHE' in globals():
+                        expired_uuids = [
+                            uuid for uuid, (ts, _) in _WEEKLY_HIGHLIGHTS_CACHE.items()
+                            if current_time - ts > _WEEKLY_TTL_SECONDS
+                        ]
+                        for uuid in expired_uuids:
+                            try:
+                                del _WEEKLY_HIGHLIGHTS_CACHE[uuid]
+                            except Exception:
+                                pass
+                        if expired_uuids:
+                            logger.info(f"Cleaned up {len(expired_uuids)} expired weekly highlights cache entries")
+                except Exception:
+                    logger.exception("Error cleaning weekly highlights cache")
 
         except asyncio.CancelledError:
             break

@@ -25,7 +25,6 @@ from app.models.tag import Tag
 from app.models.user import User
 from app.models.todo import Project
 from app.models.tag_associations import document_tags
-from app.models.tag_associations import archive_tags
 from app.models.associations import document_projects
 from app.services.tag_service import tag_service
 from app.auth.dependencies import get_current_user
@@ -151,7 +150,12 @@ async def list_documents(
         
         if search:
             # Use unified FTS5 search
-            fts_results = await search_service.search(db, current_user.uuid, search, item_types=["document"], limit=limit)
+            # Fetch enough to apply offset locally (search_service has no offset)
+            from app.utils.security import sanitize_search_query
+            q = sanitize_search_query(search)
+            fts_results = await search_service.search(
+                db, current_user.uuid, q, item_types=["document"], limit=offset + limit
+            )
 
             # Create mapping of document UUID to FTS score for proper ordering
             fts_scores: Dict[str, float] = {}
@@ -161,6 +165,9 @@ async def list_documents(
                     doc_uuids.append(r["uuid"])
                     # Use search service score directly (normalized between 0 and 1)
                     fts_scores[r["uuid"]] = r.get("score", 0.1)
+
+            # Apply offset window
+            doc_uuids = doc_uuids[offset:offset + limit]
             
             logger.info(f"FTS5 search returned {len(doc_uuids)} document UUIDs with scores")
             
@@ -193,12 +200,6 @@ async def list_documents(
             result = await db.execute(query.order_by(Document.is_favorite.desc(), Document.created_at.desc()))
             documents = result.scalars().unique().all()
             logger.info(f"FTS5 query returned {len(documents)} documents")
-            
-            # Order documents by FTS5 relevance score
-            doc_score_pairs = []
-            for doc in documents:
-                score = fts_scores.get(doc.uuid, 0.1)
-                doc_score_pairs.append((doc, score))
             
             # Preserve FTS order as returned by search_service
             docs_by_uuid = {d.uuid: d for d in documents}

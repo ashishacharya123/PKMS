@@ -125,7 +125,6 @@ class DocumentsService {
     };
     const commitResp = await apiService.post<Document>('/documents/upload/commit', commitPayload);
     const created = commitResp.data;
-    // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return created;
   }
 
@@ -142,8 +141,6 @@ class DocumentsService {
    */
   async updateDocument(uuid: string, data: UpdateDocumentRequest): Promise<Document> {
     const response = await apiService.put<Document>(`/documents/${uuid}`, data);
-    // Invalidate search cache for documents
-    // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return response.data;
   }
 
@@ -152,8 +149,6 @@ class DocumentsService {
    */
   async deleteDocument(uuid: string): Promise<{ message: string }> {
     const response = await apiService.delete<{ message: string }>(`/documents/${uuid}`);
-    // Invalidate search cache for documents
-    // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return response.data;
   }
 
@@ -199,7 +194,7 @@ class DocumentsService {
       const resp = await apiService.get(`/documents/${uuid}/preview`);
       return resp.data;
     } catch (error) {
-      console.debug('Failed to fetch document preview:', error);
+      console.warn('Failed to fetch document preview:', error);
       return null;
     }
   }

@@ -466,7 +466,8 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       }));
       
       // If this was the current project filter, clear it
-      if (project && state.currentProjectId === project.uuid) {
+      const current = get().currentProjectId;
+      if (project && current === project.uuid) {
         set({ currentProjectId: null });
         get().loadTodos();
       }

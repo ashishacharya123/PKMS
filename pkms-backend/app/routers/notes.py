@@ -127,8 +127,14 @@ async def list_notes(
     
     if search:
         # Use unified FTS5 search
-        fts_results = await search_service.search(db, current_user.uuid, search, item_types=["note"], limit=limit)
-        note_uuids = [r["uuid"] for r in fts_results if r["type"] == "note"]
+        from app.utils.security import sanitize_search_query
+        search_query = sanitize_search_query(search)
+        fts_results = await search_service.search(
+            db, current_user.uuid, search_query, item_types=["note"], limit=offset + limit
+        )
+        note_results = [r for r in fts_results if r["type"] == "note"]
+        note_results = note_results[offset:offset + limit]
+        note_uuids = [r["uuid"] for r in note_results]
         if not note_uuids:
             return []
         # Fetch notes by UUIDs, preserving FTS5 order
@@ -529,7 +535,14 @@ async def download_note_file(
     if not note_file:
         raise HTTPException(status_code=404, detail="File not found")
     
-    file_path = get_file_storage_dir() / note_file.file_path
+    base = get_file_storage_dir()
+    file_path = (base / note_file.file_path).resolve()
+    try:
+        base_resolved = base.resolve()
+        if not str(file_path).startswith(str(base_resolved)):
+            raise HTTPException(status_code=403, detail="Access denied: Invalid file path")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid file path: {e}")
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
     

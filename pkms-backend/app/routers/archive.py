@@ -37,15 +37,16 @@ import time
 from app.services.chunk_service import chunk_manager
 
 # Path generation utilities for hybrid UUID/name-based system
-async def get_filesystem_path(folder_uuid: str, db: AsyncSession) -> str:
+async def get_filesystem_path(folder_uuid: str, db: AsyncSession, user_uuid: Optional[str] = None) -> str:
     """Build UUID-based path for actual file storage"""
     if not folder_uuid:
         return "/"
     
     # Get the folder
-    result = await db.execute(
-        select(ArchiveFolder).where(ArchiveFolder.uuid == folder_uuid)
-    )
+    cond = (ArchiveFolder.uuid == folder_uuid)
+    if user_uuid:
+        cond = and_(cond, ArchiveFolder.user_uuid == user_uuid)
+    result = await db.execute(select(ArchiveFolder).where(cond))
     folder = result.scalar_one_or_none()
     
     if not folder:
@@ -62,9 +63,10 @@ async def get_filesystem_path(folder_uuid: str, db: AsyncSession) -> str:
             break
         visited.add(current_parent)
         
-        parent_result = await db.execute(
-            select(ArchiveFolder).where(ArchiveFolder.uuid == current_parent)
-        )
+        parent_cond = (ArchiveFolder.uuid == current_parent)
+        if user_uuid:
+            parent_cond = and_(parent_cond, ArchiveFolder.user_uuid == user_uuid)
+        parent_result = await db.execute(select(ArchiveFolder).where(parent_cond))
         parent_folder = parent_result.scalar_one_or_none()
         
         if not parent_folder:
@@ -75,15 +77,16 @@ async def get_filesystem_path(folder_uuid: str, db: AsyncSession) -> str:
     
     return "/" + "/".join(path_parts) + "/"
 
-async def get_display_path(folder_uuid: str, db: AsyncSession) -> str:
+async def get_display_path(folder_uuid: str, db: AsyncSession, user_uuid: Optional[str] = None) -> str:
     """Build name-based path for user display"""
     if not folder_uuid:
         return "/"
     
     # Get the folder
-    result = await db.execute(
-        select(ArchiveFolder).where(ArchiveFolder.uuid == folder_uuid)
-    )
+    cond = (ArchiveFolder.uuid == folder_uuid)
+    if user_uuid:
+        cond = and_(cond, ArchiveFolder.user_uuid == user_uuid)
+    result = await db.execute(select(ArchiveFolder).where(cond))
     folder = result.scalar_one_or_none()
     
     if not folder:
@@ -100,9 +103,10 @@ async def get_display_path(folder_uuid: str, db: AsyncSession) -> str:
             break
         visited.add(current_parent)
         
-        parent_result = await db.execute(
-            select(ArchiveFolder).where(ArchiveFolder.uuid == current_parent)
-        )
+        parent_cond = (ArchiveFolder.uuid == current_parent)
+        if user_uuid:
+            parent_cond = and_(parent_cond, ArchiveFolder.user_uuid == user_uuid)
+        parent_result = await db.execute(select(ArchiveFolder).where(parent_cond))
         parent_folder = parent_result.scalar_one_or_none()
         
         if not parent_folder:
@@ -128,7 +132,7 @@ async def validate_folder_name(name: str, parent_uuid: Optional[str], user_uuid:
     # Check for duplicate names at same level
     query = select(ArchiveFolder).where(
         and_(
-            ArchiveFolder.name == sanitized_name,
+            func.lower(ArchiveFolder.name) == func.lower(sanitized_name),
             ArchiveFolder.parent_uuid == parent_uuid,
             ArchiveFolder.user_uuid == user_uuid
         )
@@ -871,7 +875,7 @@ async def upload_item(
         stored_filename = f"{uuid_lib.uuid4()}{file_extension}"
         
         # Create storage directory using UUID-based path hierarchy
-        filesystem_path = await get_filesystem_path(folder_uuid, db)
+        filesystem_path = await get_filesystem_path(folder_uuid, db, current_user.uuid)
         storage_dir = Path(get_file_storage_dir()) / "archive" / filesystem_path.strip("/")
         storage_dir.mkdir(parents=True, exist_ok=True)
         
@@ -1390,8 +1394,8 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str) -> FolderRe
     total_size = size_result.scalar() or 0
     
     # Generate both path types dynamically
-    display_path = await get_display_path(folder.uuid, db)
-    filesystem_path = await get_filesystem_path(folder.uuid, db)
+    display_path = await get_display_path(folder.uuid, db, current_user.uuid)
+    filesystem_path = await get_filesystem_path(folder.uuid, db, current_user.uuid)
     
     return FolderResponse(
         uuid=folder.uuid,
@@ -1752,7 +1756,7 @@ async def upload_files(
                 
                 # Create storage directory using UUID-based path hierarchy
                 if folder_uuid:
-                    filesystem_path = await get_filesystem_path(folder_uuid, db)
+                    filesystem_path = await get_filesystem_path(folder_uuid, db, current_user.uuid)
                     storage_dir = Path(get_file_storage_dir()) / "archive" / filesystem_path.strip("/")
                 else:
                     # If no folder specified, use a default "unorganized" folder
@@ -1874,9 +1878,20 @@ async def upload_files(
         
         # Only commit after all files are moved successfully
         await db.commit()
-        
+
+        # Index created items for search visibility
+        try:
+            if uploaded_files:
+                uuids = [f["uuid"] for f in uploaded_files]
+                res = await db.execute(select(ArchiveItem).where(ArchiveItem.uuid.in_(uuids)))
+                for it in res.scalars():
+                    await search_service.index_item(db, it, 'archive_item')
+                await db.commit()
+        except Exception:
+            logger.exception("Indexing failed for bulk uploaded archive_items")
+
         logger.info(f"🎉 Successfully uploaded {len(uploaded_files)} files")
-        
+
         return {
             "message": f"Successfully uploaded {len(uploaded_files)} files",
             "files": uploaded_files,
@@ -1975,7 +1990,7 @@ async def commit_uploaded_file(
             raise HTTPException(status_code=413, detail=str(e))
 
         # Prepare destination directory using UUID-based path hierarchy
-        filesystem_path = await get_filesystem_path(folder.uuid, db)
+        filesystem_path = await get_filesystem_path(folder.uuid, db, current_user.uuid)
         dest_dir = Path(get_file_storage_dir()) / "archive" / filesystem_path.strip("/")
         dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2210,8 +2225,21 @@ async def rename_item(
                 detail="Item not found"
             )
         
-        # Update the item name
-        item.name = new_name.strip()
+        # Update the item name with uniqueness check within folder
+        proposed = new_name.strip()
+        dup = await db.execute(
+            select(ArchiveItem).where(
+                and_(
+                    ArchiveItem.folder_uuid == item.folder_uuid,
+                    func.lower(ArchiveItem.name) == func.lower(proposed),
+                    ArchiveItem.user_uuid == current_user.uuid,
+                    ArchiveItem.uuid != item.uuid
+                )
+            )
+        )
+        if dup.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail=f"File '{proposed}' already exists in this folder.")
+        item.name = proposed
         item.updated_at = datetime.utcnow()
         
         await db.commit()
