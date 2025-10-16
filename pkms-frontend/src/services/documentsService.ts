@@ -20,7 +20,6 @@ export interface ProjectBadge {
 }
 
 export interface Document {
-  id?: string;
   uuid: string;
   title: string;
   original_name: string;
@@ -40,7 +39,6 @@ export interface Document {
 }
 
 export interface DocumentSummary {
-  id?: string;
   uuid: string;
   title: string;
   original_name: string;
@@ -73,7 +71,6 @@ export interface UpdateDocumentRequest {
 }
 
 export interface SearchResult {
-  id?: string;
   uuid: string;
   original_name: string;
   mime_type: string;
@@ -104,6 +101,9 @@ class DocumentsService {
     onProgress?: (progress: number) => void,
     projectIds?: string[],
     isExclusive?: boolean,
+    /**
+     * @deprecated Use projectIds instead. Will be removed in v2.0.
+     */
     projectId?: number // Legacy support
   ): Promise<Document> {
     // Use chunked upload uniformly to match backend capabilities
@@ -198,8 +198,8 @@ class DocumentsService {
     try {
       const resp = await apiService.get(`/documents/${uuid}/preview`);
       return resp.data;
-    } catch {
-      console.debug('Failed to fetch document preview');
+    } catch (error) {
+      console.debug('Failed to fetch document preview:', error);
       return null;
     }
   }

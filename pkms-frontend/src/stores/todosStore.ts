@@ -504,6 +504,8 @@ export const useTodosStore = create<TodosState>((set, get) => ({
   },
   
   setProjectFilter: (projectId: string | null) => {
+    const prev = get().currentProjectId;
+    if (prev === projectId) return;
     set({ currentProjectId: projectId });
     get().loadTodos();
   },

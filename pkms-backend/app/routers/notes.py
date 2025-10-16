@@ -89,6 +89,7 @@ def _convert_note_to_response(note: Note, project_badges: Optional[List[ProjectB
     """Convert Note model to NoteResponse."""
     badges = project_badges or []
     return NoteResponse(
+        id=note.id if hasattr(note, 'id') else 0,
         uuid=note.uuid,
         title=note.title,
         content=note.content,
@@ -314,7 +315,7 @@ async def update_note(
 
     # Process links if content was updated
     if note_data.content:
-        await _process_note_links(db, note, note_data.content, current_user.uuid)
+        await _process_note_links(db, note, note.content, current_user.uuid)
 
     await db.commit()
     

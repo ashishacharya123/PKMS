@@ -53,10 +53,22 @@ class SearchService:
             title = getattr(item, 'title', None) or getattr(item, 'name', None) or ''
             description = getattr(item, 'description', None) or ''
             
-            # Extract tags from tag_objs relationship
+            # Extract tags without triggering lazy-load
             tags = ''
-            if hasattr(item, 'tag_objs') and item.tag_objs:
-                tags = ' '.join([tag.name for tag in item.tag_objs])
+            try:
+                model_cls = self.item_type_mapping.get(item_type)
+                if model_cls is not None and hasattr(model_cls, 'tag_objs'):
+                    res = await db.execute(
+                        select(model_cls)
+                        .options(selectinload(getattr(model_cls, 'tag_objs')))
+                        .where(model_cls.uuid == item.uuid)
+                    )
+                    loaded = res.scalar_one_or_none()
+                    if loaded and getattr(loaded, 'tag_objs', None):
+                        tags = ' '.join(t.name for t in loaded.tag_objs)
+            except Exception:
+                # Best-effort; leave tags empty on error
+                pass
             
             # Extract attachments (filenames) for files
             attachments = await self._extract_attachments(db, item, item_type)

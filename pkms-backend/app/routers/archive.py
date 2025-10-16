@@ -1187,9 +1187,10 @@ async def delete_item(
                 logger.warning(f"⚠️ Failed to delete file: {str(e)}")
         
         # Delete thumbnail if exists
-        if item.thumbnail_path and Path(item.thumbnail_path).exists():
+        thumb_path = getattr(item, "thumbnail_path", None)
+        if thumb_path and Path(thumb_path).exists():
             try:
-                Path(item.thumbnail_path).unlink()
+                Path(thumb_path).unlink()
             except Exception as e:
                 logger.warning(f"⚠️ Failed to delete thumbnail: {str(e)}")
         
@@ -1443,9 +1444,9 @@ async def _get_item_with_relations(db: AsyncSession, item_uuid: str) -> ItemResp
         mime_type=item.mime_type,
         file_size=item.file_size,
         metadata=metadata,
-        thumbnail_path=item.thumbnail_path,
+        thumbnail_path=getattr(item, "thumbnail_path", None),
         is_favorite=item.is_favorite,
-        version=item.version,
+        version=getattr(item, "version", None),
         created_at=item.created_at,
         updated_at=item.updated_at,
         tags=tag_names

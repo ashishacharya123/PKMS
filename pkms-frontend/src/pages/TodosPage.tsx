@@ -1184,7 +1184,7 @@ export function TodosPage() {
                   leftSection={<IconUpload size={14} />}
                   size="xs"
                   variant="light"
-              onClick={() => { setSelectedProjectIdForUpload(currentProjectId ? String(currentProjectId) : null); setProjectUploadModalOpen(true); }}
+              onClick={() => { setSelectedProjectIdForUpload(currentProjectId); setProjectUploadModalOpen(true); }}
                   disabled={!currentProjectId}
                   fullWidth
                 >

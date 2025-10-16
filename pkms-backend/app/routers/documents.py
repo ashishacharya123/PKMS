@@ -200,9 +200,9 @@ async def list_documents(
                 score = fts_scores.get(doc.uuid, 0.1)
                 doc_score_pairs.append((doc, score))
             
-            # Sort by score descending so higher relevance appears first (normalized score)
-            doc_score_pairs.sort(key=lambda x: x[1], reverse=True)
-            ordered_docs = [doc for doc, score in doc_score_pairs]
+            # Preserve FTS order as returned by search_service
+            docs_by_uuid = {d.uuid: d for d in documents}
+            ordered_docs = [docs_by_uuid[u] for u in doc_uuids if u in docs_by_uuid]
             
             logger.info(f"Final ordered result: {len(ordered_docs)} documents (ordered by FTS relevance)")
         else:

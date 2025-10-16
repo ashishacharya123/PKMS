@@ -53,7 +53,7 @@ export interface Todo {
   due_date?: string;
   priority: number;
   status: string;  // Now matches backend
-  todo_type?: string;  // task, checklist, subtask
+  todo_type?: 'task' | 'checklist' | 'subtask';
   order_index: number;  // New field for Kanban ordering
   parent_id?: number;  // For subtasks
   subtasks?: Todo[];  // Nested subtasks
