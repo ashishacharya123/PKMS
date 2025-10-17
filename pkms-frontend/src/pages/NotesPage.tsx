@@ -38,7 +38,11 @@ import {
   // IconNotes,
   IconAlertTriangle,
   IconStar,
-  IconStarFilled
+  IconStarFilled,
+  IconUsers,
+  IconWorld,
+  IconFileText,
+  IconHistory
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
@@ -372,7 +376,7 @@ export function NotesPage() {
                           onClick={(e) => {
                             e.stopPropagation();
                             sessionStorage.setItem('notesScrollY', String(window.scrollY));
-                            navigate(`/notes/${note.id}`);
+                            navigate(`/notes/${note.uuid}`);
                           }}
                         >
                           Edit
@@ -416,7 +420,7 @@ export function NotesPage() {
                           style={{ cursor: 'pointer', color: '#228be6' }}
                           onClick={() => {
                             sessionStorage.setItem('notesScrollY', String(window.scrollY));
-                            navigate(`/notes/${note.id}`);
+                            navigate(`/notes/${note.uuid}`);
                           }}
                         >
                           {note.title}
@@ -459,10 +463,34 @@ export function NotesPage() {
                             {tag}
                           </Badge>
                         ))}
-                        {(note.tags?.length || 0) > 2 && (
-                          <Badge size="xs" variant="outline">+{(note.tags?.length || 0) - 2}</Badge>
+                      </Group>
+                      
+                      {/* NEW: Note Type and Versioning */}
+                      <Group gap="xs">
+                        {note.note_type && note.note_type !== 'general' && (
+                          <Tooltip label={`Note type: ${note.note_type}`}>
+                            <Badge size="xs" variant="outline" color="blue">
+                              <IconFileText size={10} style={{ marginRight: 4 }} />
+                              {note.note_type}
+                            </Badge>
+                          </Tooltip>
+                        )}
+                        {note.version && note.version > 1 && (
+                          <Tooltip label={`Version ${note.version}`}>
+                            <Badge size="xs" variant="outline" color="gray">
+                              <IconHistory size={10} style={{ marginRight: 4 }} />
+                              v{note.version}
+                            </Badge>
+                          </Tooltip>
                         )}
                       </Group>
+
+                {/* NEW: Tag Count */}
+                <Group gap="xs">
+                  {(note.tags?.length || 0) > 2 && (
+                    <Badge size="xs" variant="outline">+{(note.tags?.length || 0) - 2}</Badge>
+                  )}
+                </Group>
                       <Text size="xs" c="dimmed" lineClamp={1}>
                         {truncateText(note.preview, 100)}
                       </Text>
@@ -497,7 +525,7 @@ export function NotesPage() {
                         leftSection={<IconEdit size={14} />}
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/notes/${note.id}`);
+                          navigate(`/notes/${note.uuid}`);
                         }}
                       >
                         Edit
@@ -546,7 +574,7 @@ export function NotesPage() {
                       style={{ cursor: 'pointer', color: '#228be6' }}
                       onClick={() => {
                         sessionStorage.setItem('notesScrollY', String(window.scrollY));
-                        navigate(`/notes/${note.id}`);
+                        navigate(`/notes/${note.uuid}`);
                       }}
                     >
                       {note.title}
@@ -641,7 +669,7 @@ export function NotesPage() {
                       leftSection={<IconEdit size={14} />}
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`/notes/${note.id}`);
+                        navigate(`/notes/${note.uuid}`);
                       }}
                     >
                       Edit

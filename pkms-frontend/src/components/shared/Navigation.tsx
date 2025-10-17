@@ -30,6 +30,7 @@ import {
   IconDatabase,
   IconKey,
   IconRefresh,
+  IconRotateClockwise,
 } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
 import dashboardService from '../../services/dashboardService';
@@ -307,17 +308,30 @@ export function Navigation({ collapsed = false }: NavigationProps) {
             
             <Menu.Divider />
             <Menu.Label>Search Tools</Menu.Label>
-            <Menu.Item 
+            <Menu.Item
               leftSection={<IconSearch size={14} />}
               onClick={() => navigate('/search/unified')}
             >
               Unified Search
             </Menu.Item>
-            <Menu.Item 
+            <Menu.Item
               leftSection={<IconSearch size={14} />}
               onClick={() => navigate('/search/fuzzy')}
             >
               Fuzzy Search
+            </Menu.Item>
+            <Menu.Item
+              leftSection={<IconRotateClockwise size={14} />}
+              onClick={async () => {
+                try {
+                  await apiService.reindexSearchContent();
+                  setUserMenuOpened(false);
+                } catch (e) {
+                  // reindexSearchContent already handles notifications
+                }
+              }}
+            >
+              Re-index Content
             </Menu.Item>
             
             <Menu.Item 

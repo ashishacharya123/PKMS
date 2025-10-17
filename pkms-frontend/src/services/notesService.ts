@@ -29,6 +29,10 @@ export interface Note {
   updated_at: string;
   tags: string[];
   projects: ProjectBadge[];
+  
+  // NEW: Additional fields
+  note_type?: string;
+  version?: number;
 }
 
 export interface NoteSummary {
@@ -44,6 +48,10 @@ export interface NoteSummary {
   tags: string[];
   preview: string;
   projects: ProjectBadge[];
+  
+  // NEW: Additional fields
+  note_type?: string;
+  version?: number;
 }
 
 export interface NoteFile {
@@ -61,7 +69,7 @@ export interface CreateNoteRequest {
   title: string;
   content: string;
   tags?: string[];
-  projectIds?: number[];
+  projectIds?: string[];
   isExclusiveMode?: boolean;
 }
 
@@ -71,7 +79,7 @@ export interface UpdateNoteRequest {
   tags?: string[];
   is_archived?: boolean;
   is_favorite?: boolean;
-  projectIds?: number[];
+  projectIds?: string[];
   isExclusiveMode?: boolean;
 }
 

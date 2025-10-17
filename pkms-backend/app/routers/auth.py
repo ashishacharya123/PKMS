@@ -108,7 +108,7 @@ async def setup_user(
     key_hash, key_salt = hash_recovery_key(recovery_key)
     
     recovery_record = RecoveryKey(
-        user_id=user.id,
+        user_uuid=user.uuid,
         key_hash=key_hash,
         questions_json=json.dumps(user_data.recovery_questions),
         answers_hash=answers_hash,
@@ -120,7 +120,7 @@ async def setup_user(
     session_token = generate_session_token()
     session = Session(
         session_token=session_token,
-        user_id=user.id,
+        user_uuid=user.uuid,
         expires_at=datetime.now(NEPAL_TZ) + timedelta(days=7),
         ip_address=None,
         user_agent="internal-setup"
@@ -129,7 +129,7 @@ async def setup_user(
     await db.commit()
 
     # Create JWT access token
-    access_token = create_access_token(data={"sub": str(user.id)})
+    access_token = create_access_token(data={"sub": str(user.uuid)})
 
     # Set access token in HttpOnly cookie (XSS protection)
     response.set_cookie(
@@ -154,7 +154,7 @@ async def setup_user(
     return TokenResponse(
         access_token=access_token,  # Still return in body for backward compatibility during transition
         expires_in=settings.access_token_expire_minutes * 60,
-        user_id=user.id,
+        user_uuid=user.uuid,
         username=user.username
     )
 
@@ -202,7 +202,7 @@ async def login(
         )
     
     # Create access token
-    token_data = {"sub": str(user.id), "username": user.username}
+    token_data = {"sub": str(user.uuid), "username": user.username}
     access_token = create_access_token(token_data)
     
     # Create or update session
@@ -211,13 +211,13 @@ async def login(
     
     # Clean up old sessions for this user
     await db.execute(
-        delete(Session).where(Session.user_id == user.id)
+        delete(Session).where(Session.user_uuid == user.uuid)
     )
     
     # Create new session
     session = Session(
         session_token=session_token,
-        user_id=user.id,
+        user_uuid=user.uuid,
         expires_at=expires_at,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent", "")[:500]
@@ -253,7 +253,7 @@ async def login(
         access_token=access_token,  # Still return in body for backward compatibility during transition
         token_type="bearer",
         expires_in=settings.access_token_expire_minutes * 60,
-        user_id=user.id,
+        user_uuid=user.uuid,
         username=user.username
     )
 
@@ -488,13 +488,13 @@ async def refresh_access_token(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
 
         # Get user
-        result = await db.execute(select(User).where(User.id == session.user_id))
+        result = await db.execute(select(User).where(User.uuid == session.user_uuid))
         user = result.scalar_one_or_none()
         if not user or not user.is_active:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account disabled")
 
         # Issue new access token
-        access_token = create_access_token(data={"sub": str(user.id)})
+        access_token = create_access_token(data={"sub": str(user.uuid)})
 
         # SECURITY: Invalidate the used refresh token to prevent replay attacks
         # Generate new session token to prevent session fixation

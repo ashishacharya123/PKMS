@@ -23,8 +23,7 @@ class ProjectBadge(CamelCaseModel):
 class TodoCreate(CamelCaseModel):
     title: str = Field(..., min_length=1)
     description: Optional[str] = None
-    project_id: Optional[int] = None  # Legacy single project
-    project_ids: Optional[List[int]] = Field(default_factory=list, max_items=10, description="List of project IDs to link this todo to")
+    project_ids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this todo to")
     is_exclusive_mode: Optional[bool] = Field(default=False, description="If True, todo is exclusive to projects and deleted when any project is deleted")
     start_date: Optional[date] = None
     due_date: Optional[date] = None
@@ -43,11 +42,9 @@ class TodoCreate(CamelCaseModel):
 class TodoUpdate(CamelCaseModel):
     title: Optional[str] = Field(None, min_length=1)
     description: Optional[str] = None
-    is_completed: Optional[bool] = None
     status: Optional[str] = None
     order_index: Optional[int] = None
-    project_id: Optional[int] = None  # Legacy single project
-    project_ids: Optional[List[int]] = Field(None, max_items=10, description="List of project IDs to link this todo to")
+    project_ids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this todo to")
     is_exclusive_mode: Optional[bool] = Field(None, description="If True, todo is exclusive to projects and deleted when any project is deleted")
     start_date: Optional[date] = None
     due_date: Optional[date] = None
@@ -68,12 +65,11 @@ class TodoResponse(CamelCaseModel):
     title: str
     description: Optional[str]
     status: str
-    is_completed: bool
     is_archived: bool
     is_favorite: bool
     is_exclusive_mode: bool
     priority: int
-    project_id: Optional[int]  # Legacy single project
+    project_uuid: Optional[str]  # Legacy single project
     project_name: Optional[str]  # Legacy single project name
     order_index: int = 0
     parent_id: Optional[int] = None
@@ -85,6 +81,11 @@ class TodoResponse(CamelCaseModel):
     updated_at: datetime
     tags: List[str]
     projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this todo belongs to")
+    
+    @property
+    def is_completed(self) -> bool:
+        """Computed property: todo is completed if status is 'done'"""
+        return self.status == 'done'
 
 class ProjectCreate(CamelCaseModel):
     name: str
