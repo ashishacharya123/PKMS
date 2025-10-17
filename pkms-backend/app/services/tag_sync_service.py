@@ -94,7 +94,7 @@ class TagSyncService:
         try:
             # Get todo with tags
             result = await db.execute(
-                select(Todo).options(selectinload(Todo.tag_objs)).where(Todo.id == todo_id)
+                select(Todo).options(selectinload(Todo.tag_objs)).where(Todo.uuid == todo_id)
             )
             todo = result.scalar_one_or_none()
             
@@ -108,7 +108,7 @@ class TagSyncService:
             # Update tags_text column
             await db.execute(
                 update(Todo)
-                .where(Todo.id == todo_id)
+                .where(Todo.uuid == todo_id)
                 .values(tags_text=tags_text)
             )
             
@@ -270,7 +270,7 @@ class TagSyncService:
                 await TagSyncService.sync_document_tags(db, document[0])
             
             # Sync todos
-            todos = await db.execute(select(Todo.id))
+            todos = await db.execute(select(Todo.uuid))
             for todo in todos:
                 await TagSyncService.sync_todo_tags(db, todo[0])
             

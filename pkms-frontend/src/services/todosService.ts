@@ -3,7 +3,7 @@ import { coreDownloadService, DownloadProgress } from './shared/coreDownloadServ
 
 // Types for todos
 export interface ProjectBadge {
-  id: number | null;  // null if project is deleted
+  uuid: string | null;  // null if project is deleted
   name: string;
   color: string;
   isExclusive: boolean;
@@ -11,7 +11,6 @@ export interface ProjectBadge {
 }
 
 export interface Project {
-  id: number;
   uuid: string;
   name: string;
   description?: string;
@@ -21,6 +20,12 @@ export interface Project {
   updated_at: string;
   todo_count: number;
   completed_count: number;
+  
+  // NEW: Additional fields
+  status?: string;
+  start_date?: string;
+  end_date?: string;
+  progress_percentage?: number;
 }
 
 export interface ProjectCreate {
@@ -48,6 +53,7 @@ export interface Todo {
   due_date?: string;
   priority: number;
   status: string;  // Now matches backend
+  todo_type?: 'task' | 'checklist' | 'subtask';
   order_index: number;  // New field for Kanban ordering
   parent_id?: number;  // For subtasks
   subtasks?: Todo[];  // Nested subtasks
@@ -59,13 +65,27 @@ export interface Todo {
   is_archived: boolean;
   is_favorite?: boolean;
   projects: ProjectBadge[];
+  
+  // NEW: Additional fields
+  completion_percentage?: number;
+  estimate_minutes?: number;
+  actual_minutes?: number;
+  
+  // NEW: Checklist functionality
+  checklist_items?: ChecklistItem[];
+}
+
+export interface ChecklistItem {
+  text: string;
+  completed: boolean;
+  order: number;
 }
 
 export interface TodoCreate {
   title: string;
   description?: string;
   project_id?: number;  // Legacy single project
-  projectIds?: number[];  // Multi-project support
+  projectIds?: string[];  // Multi-project support (UUIDs)
   isExclusiveMode?: boolean;
   parent_id?: number;  // For creating subtasks
   start_date?: string;
@@ -81,7 +101,7 @@ export interface TodoUpdate {
   title?: string;
   description?: string;
   project_id?: number;  // Legacy single project
-  projectIds?: number[];  // Multi-project support
+  projectIds?: string[];  // Multi-project support (UUIDs)
   isExclusiveMode?: boolean;
   parent_id?: number;  // For moving subtasks
   start_date?: string;
@@ -130,7 +150,7 @@ export interface TodoStats {
 export interface TodoListParams {
   status?: string;
   priority?: number;
-  project_id?: number;
+  project_uuid?: string;
   due_date?: string;
   overdue?: boolean;
   tag?: string;
@@ -216,12 +236,13 @@ class TodosService {
   async deleteTodo(todoUuid: string): Promise<void> {
     await apiService.delete(`${this.baseUrl}/${todoUuid}`);
   }
-
   async archiveTodo(todoUuid: string, archive: boolean = true): Promise<Todo> {
-    const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoUuid}/archive?archive=${archive}`);
+    const response = await apiService.patch<Todo>(
+      `${this.baseUrl}/${todoUuid}/archive?archive=${archive}`
+    );
     return response.data;
   }
-
+  
   /* ---------------------------------------------------------------------- */
   /*                               DOWNLOADS                                */
   /* ---------------------------------------------------------------------- */

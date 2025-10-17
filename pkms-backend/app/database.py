@@ -12,7 +12,6 @@ import os
 from pathlib import Path
 
 from app.config import get_database_url, settings, get_data_dir
-from app.services.fts_service_enhanced import enhanced_fts_service
 
 # Import Base and all models to register them with Base.metadata
 # This ensures all tables are created by Base.metadata.create_all()
@@ -199,57 +198,57 @@ async def init_db():
                 # User & Auth indexes
                 "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);",
                 "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);",
-                "CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);",
+                "CREATE INDEX IF NOT EXISTS idx_sessions_user_uuid ON sessions(user_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);",
-                "CREATE INDEX IF NOT EXISTS idx_recovery_keys_user_id ON recovery_keys(user_id);",
+                "CREATE INDEX IF NOT EXISTS idx_recovery_keys_user_uuid ON recovery_keys(user_uuid);",
                 
                 # Notes indexes
-                "CREATE INDEX IF NOT EXISTS idx_notes_user_id ON notes(user_id);",
-                "CREATE INDEX IF NOT EXISTS idx_notes_user_created ON notes(user_id, created_at DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_notes_user_uuid ON notes(user_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_notes_user_created ON notes(user_uuid, created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_notes_created_at ON notes(created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_notes_title ON notes(title);",
-                "CREATE INDEX IF NOT EXISTS idx_notes_user_search ON notes(user_id, title);",
+                "CREATE INDEX IF NOT EXISTS idx_notes_user_search ON notes(user_uuid, title);",
                 "CREATE INDEX IF NOT EXISTS idx_notes_archived ON notes(is_archived);",
                 "CREATE INDEX IF NOT EXISTS idx_note_files_note_uuid ON note_files(note_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_note_files_user_id ON note_files(user_id);",
+                "CREATE INDEX IF NOT EXISTS idx_note_files_user_uuid ON note_files(user_uuid);",
                 
-                # Documents indexes  
-                "CREATE INDEX IF NOT EXISTS idx_documents_user_id ON documents(user_id);",
-                "CREATE INDEX IF NOT EXISTS idx_documents_user_mime ON documents(user_id, mime_type);",
+                # Documents indexes
+                "CREATE INDEX IF NOT EXISTS idx_documents_user_uuid ON documents(user_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_documents_user_mime ON documents(user_uuid, mime_type);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_uuid ON documents(uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_title ON documents(title);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_archived ON documents(is_archived);",
                 
                 # Todos indexes
-                "CREATE INDEX IF NOT EXISTS idx_todos_user_id ON todos(user_id);",
-                "CREATE INDEX IF NOT EXISTS idx_todos_user_status ON todos(user_id, is_completed);",
+                "CREATE INDEX IF NOT EXISTS idx_todos_user_uuid ON todos(user_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_todos_user_status ON todos(user_uuid, status);",
                 "CREATE INDEX IF NOT EXISTS idx_todos_priority ON todos(priority);",
-                "CREATE INDEX IF NOT EXISTS idx_todos_user_status_priority ON todos(user_id, is_completed, priority);",
-                "CREATE INDEX IF NOT EXISTS idx_todos_user_priority_date ON todos(user_id, priority DESC, created_at DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_todos_user_status_priority ON todos(user_uuid, status, priority);",
+                "CREATE INDEX IF NOT EXISTS idx_todos_user_priority_date ON todos(user_uuid, priority DESC, created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date);",
-                "CREATE INDEX IF NOT EXISTS idx_todos_project_id ON todos(project_id);",
-                "CREATE INDEX IF NOT EXISTS idx_projects_user_id ON projects(user_id);",
+                # project_id removed; projects are via association now
+                "CREATE INDEX IF NOT EXISTS idx_projects_user_uuid ON projects(user_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(is_archived);",
                 
                 # Diary indexes
-                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_id ON diary_entries(user_id);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_date ON diary_entries(user_id, date);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_uuid ON diary_entries(user_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_date ON diary_entries(user_uuid, date);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_day_of_week ON diary_entries(day_of_week);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_date ON diary_entries(date);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_mood ON diary_entries(mood);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_location ON diary_entries(location);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_is_template_date ON diary_entries(user_id, is_template, date DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_is_template_date ON diary_entries(user_uuid, is_template, date DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_media_entry_uuid ON diary_media(diary_entry_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_media_user_id ON diary_media(user_id);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_media_user_uuid ON diary_media(user_uuid);",
                 
                 # Archive indexes
-                "CREATE INDEX IF NOT EXISTS idx_archive_folders_user_id ON archive_folders(user_id);",
+                "CREATE INDEX IF NOT EXISTS idx_archive_folders_user_uuid ON archive_folders(user_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_parent ON archive_folders(parent_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_path ON archive_folders(path);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_name ON archive_folders(name);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_archived ON archive_folders(is_archived);",
-                "CREATE INDEX IF NOT EXISTS idx_archive_items_user_id ON archive_items(user_id);",
+                "CREATE INDEX IF NOT EXISTS idx_archive_items_user_uuid ON archive_items(user_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_items_folder ON archive_items(folder_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_items_name ON archive_items(name);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_items_mime_type ON archive_items(mime_type);",
@@ -257,9 +256,9 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_archive_items_archived ON archive_items(is_archived);",
                 
                 # Tags indexes
-                "CREATE INDEX IF NOT EXISTS idx_tags_user_id ON tags(user_id);",
+                "CREATE INDEX IF NOT EXISTS idx_tags_user_uuid ON tags(user_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);",
-                "CREATE INDEX IF NOT EXISTS idx_tags_name_user ON tags(name, user_id);",
+                "CREATE INDEX IF NOT EXISTS idx_tags_name_user ON tags(name, user_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_tags_module_type ON tags(module_type, name);",
                 "CREATE INDEX IF NOT EXISTS idx_tags_usage_count ON tags(usage_count DESC);",
                 
@@ -270,10 +269,12 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_document_tags_tag_uuid ON document_tags(tag_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_todo_tags_todo_uuid ON todo_tags(todo_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_todo_tags_tag_uuid ON todo_tags(tag_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_tags_diary_entry_uuid ON diary_tags(diary_entry_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_tags_tag_uuid ON diary_tags(tag_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_archive_tags_item_uuid ON archive_tags(item_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_archive_tags_tag_uuid ON archive_tags(tag_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_entry_tags_entry_uuid ON diary_entry_tags(diary_entry_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_entry_tags_tag_uuid ON diary_entry_tags(tag_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_archive_item_tags_item_uuid ON archive_item_tags(item_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_archive_item_tags_tag_uuid ON archive_item_tags(tag_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_archive_folder_tags_folder_uuid ON archive_folder_tags(folder_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_archive_folder_tags_tag_uuid ON archive_folder_tags(tag_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_link_tags_link_uuid ON link_tags(link_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_link_tags_tag_uuid ON link_tags(tag_uuid);",
             ]
@@ -290,22 +291,34 @@ async def init_db():
             
             logger.info(f"✅ {created_count} performance indexes created/verified")
         
-        # Phase 4: Initialize FTS5 full-text search
+        # Phase 4: Initialize FTS5 full-text search (unified approach)
         logger.info("🔍 Phase 4: Initializing FTS5 full-text search...")
         async with get_db_session() as session:
             try:
-                fts_success = await enhanced_fts_service.initialize_enhanced_fts_tables(session)
-                if fts_success:
-                    # Populate FTS tables with existing data
-                    populate_success = await enhanced_fts_service.populate_enhanced_fts_tables(session)
-                    if populate_success:
-                        logger.info("✅ FTS5 initialization and population completed successfully")
-                    else:
-                        logger.warning("⚠️ FTS5 tables created but population failed")
-                else:
-                    logger.warning("⚠️ FTS5 initialization failed - search performance will be limited")
+                # Create the unified fts_content table using the schema from tables_schema.sql
+                await session.execute(text("""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS fts_content USING fts5(
+                        item_uuid UNINDEXED,
+                        item_type UNINDEXED,
+                        user_uuid UNINDEXED,
+                        title,
+                        description,
+                        tags,
+                        attachments,
+                        date_text,
+                        tokenize='porter unicode61'
+                    );
+                """))
+
+                logger.info("✅ FTS5 unified table created successfully")
+
+                # Note: We don't populate existing data here to avoid slowing down startup
+                # Data will be indexed on-demand through the search_service
+
             except Exception as e:
-                logger.error(f"❌ FTS5 initialization error: {e}")
+                # TODO: Narrow exception type; broad catch is temporary during recovery
+                logger.exception(f"❌ FTS5 initialization error: {e}")
+                logger.warning("⚠️ Search functionality will be limited")
         
         # Phase 5: Create essential data directories
         logger.info("📁 Phase 5: Creating essential data directories...")

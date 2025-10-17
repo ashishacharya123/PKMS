@@ -46,7 +46,8 @@ type ChartType =
   | 'energy-stress'
   | 'hydration'
   | 'mood-sleep-correlation'
-  | 'wellness-score';
+  | 'wellness-score'
+  | 'financial-analysis';
 
 const CHART_OPTIONS = [
   { value: 'mood-trend', label: '📊 Mood Trend' },
@@ -57,6 +58,7 @@ const CHART_OPTIONS = [
   { value: 'hydration', label: '💧 Hydration Tracking' },
   { value: 'mood-sleep-correlation', label: '🔗 Mood vs Sleep Correlation' },
   { value: 'wellness-score', label: '📈 Wellness Score Breakdown' },
+  { value: 'financial-analysis', label: '💰 Financial Analysis' },
 ];
 
 const PERIOD_OPTIONS = [
@@ -149,6 +151,7 @@ export function WellnessAnalytics() {
       'hydration': 'habits',
       'mood-sleep-correlation': 'correlation',
       'wellness-score': 'overall',
+      'financial-analysis': 'financial',
     };
     
     const relevantMetric = metricMap[selectedChart];
@@ -403,6 +406,103 @@ export function WellnessAnalytics() {
               />
             </RadarChart>
           </ResponsiveContainer>
+        );
+      }
+
+      case 'financial-analysis': {
+        if (!wellnessData?.financialTrend?.length) {
+          return (
+            <Alert icon={<IconAlertCircle size={16} />} color="blue">
+              No financial data available for the selected period. Start tracking your daily income and expenses in your diary entries.
+            </Alert>
+          );
+        }
+
+        const currencyFormatter = new Intl.NumberFormat('en-NP', {
+          style: 'currency',
+          currency: 'NPR',
+          maximumFractionDigits: 0
+        });
+
+        return (
+          <Stack gap="md">
+            {/* Financial Summary Cards */}
+            <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }} spacing="md">
+              <Card withBorder>
+                <Text size="sm" c="dimmed">Total Income</Text>
+                <Text fw={600} size="lg" c="green">
+                  {currencyFormatter.format(wellnessData.totalIncome)}
+                </Text>
+              </Card>
+              <Card withBorder>
+                <Text size="sm" c="dimmed">Total Expense</Text>
+                <Text fw={600} size="lg" c="red">
+                  {currencyFormatter.format(wellnessData.totalExpense)}
+                </Text>
+              </Card>
+              <Card withBorder>
+                <Text size="sm" c="dimmed">Net Savings</Text>
+                <Text fw={600} size="lg" c={wellnessData.netSavings >= 0 ? "teal" : "red"}>
+                  {currencyFormatter.format(wellnessData.netSavings)}
+                </Text>
+              </Card>
+              <Card withBorder>
+                <Text size="sm" c="dimmed">Savings Rate</Text>
+                <Text fw={600} size="lg" c="blue">
+                  {wellnessData.totalIncome > 0 ? `${((wellnessData.netSavings / wellnessData.totalIncome) * 100).toFixed(1)}%` : '0%'}
+                </Text>
+              </Card>
+            </SimpleGrid>
+
+            {/* Income vs Expense Bar Chart */}
+            <Card withBorder>
+              <Text fw={600} mb="md">Daily Income vs Expense</Text>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={wellnessData.financialTrend}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="date" 
+                    tickFormatter={(value) => new Date(value).toLocaleDateString('en-NP', { month: 'short', day: 'numeric' })}
+                  />
+                  <YAxis tickFormatter={(value) => currencyFormatter.format(value as number)} />
+                  <Tooltip 
+                    formatter={(value: number, name: string) => [currencyFormatter.format(value), name]}
+                    labelFormatter={(value) => new Date(value).toLocaleDateString('en-NP')}
+                  />
+                  <Legend />
+                  <Bar dataKey="income" fill="#51cf66" name="Income" />
+                  <Bar dataKey="expense" fill="#ff6b6b" name="Expense" />
+                </BarChart>
+              </ResponsiveContainer>
+            </Card>
+
+            {/* Cumulative Savings Line Chart */}
+            <Card withBorder>
+              <Text fw={600} mb="md">Cumulative Savings Trend</Text>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={wellnessData.financialTrend}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="date" 
+                    tickFormatter={(value) => new Date(value).toLocaleDateString('en-NP', { month: 'short', day: 'numeric' })}
+                  />
+                  <YAxis tickFormatter={(value) => `₹${value.toLocaleString()}`} />
+                  <Tooltip 
+                    formatter={(value: number) => [currencyFormatter.format(value), 'Cumulative Savings']}
+                    labelFormatter={(value) => new Date(value).toLocaleDateString('en-NP')}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="cumulativeSavings" 
+                    stroke="#339af0" 
+                    strokeWidth={3}
+                    dot={{ fill: '#339af0', strokeWidth: 2, r: 4 }}
+                    activeDot={{ r: 6, stroke: '#339af0', strokeWidth: 2 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </Card>
+          </Stack>
         );
       }
 

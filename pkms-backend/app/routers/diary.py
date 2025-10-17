@@ -26,29 +26,33 @@ from app.database import get_db
 from app.config import NEPAL_TZ, get_data_dir, get_file_storage_dir
 from app.models.diary import DiaryEntry, DiaryMedia, DiaryDailyMetadata
 from app.models.user import User, RecoveryKey
+from app.models.project import Project
 from app.auth.dependencies import get_current_user
 from app.auth.security import verify_password, hash_password
 from app.utils.diary_encryption import write_encrypted_file, read_encrypted_header, InvalidPKMSFile
 from app.models.tag import Tag
 from app.models.tag_associations import diary_tags
 from app.services.chunk_service import chunk_manager
-from app.services.fts_service_enhanced import enhanced_fts_service
+from app.services.tag_service import tag_service
+from app.services.search_service import search_service
 from app.schemas.diary import (
     DiaryEntryCreate,
+    DiaryEntryUpdate,
     DiaryEntryResponse,
     DiaryEntrySummary,
-    DiaryCalendarData,
-    MoodStats,
-    WellnessStats,
-    WellnessTrendPoint,
-    DiaryMediaResponse,
-    DiaryMediaUpload,
-    CommitDiaryMediaRequest,
+    DiaryDailyMetadata as DiaryDailyMetadataSchema,
     DiaryDailyMetadataResponse,
     DiaryDailyMetadataUpdate,
+    WeeklyHighlights,
     WEATHER_CODE_LABELS,
     EncryptionSetupRequest,
     EncryptionUnlockRequest,
+    DiaryCalendarData,
+    MoodStats,
+    WellnessStats,
+    DiaryMediaResponse,
+    DiaryMediaUpload,
+    CommitDiaryMediaRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,8 +62,8 @@ router = APIRouter(tags=["diary"])
 WEATHER_CODE_DEFAULT = None
 
 # Secure in-memory session store for diary encryption material with async safety
-# Format: {user_id: {"key": bytes, "timestamp": float, "expires_at": float}}
-_diary_sessions: Dict[int, Dict[str, any]] = {}
+# Format: {user_uuid: {"key": bytes, "timestamp": float, "expires_at": float}}
+_diary_sessions: Dict[str, Dict[str, any]] = {}
 _diary_sessions_lock = asyncio.Lock()
 DIARY_SESSION_TIMEOUT = 1800  # 30 minutes in seconds (aligned with app session)
 
@@ -69,49 +73,48 @@ async def _get_session_lock():
     async with _diary_sessions_lock:
         yield
 
-async def _get_diary_password_from_session(user_id: int) -> Optional[bytes]:
+async def _get_diary_password_from_session(user_uuid: str) -> Optional[bytes]:
     """Get diary derived key from session if valid and not expired."""
     async with _get_session_lock():
-        if user_id not in _diary_sessions:
+        if user_uuid not in _diary_sessions:
             return None
         
-        session = _diary_sessions[user_id]
+        session = _diary_sessions[user_uuid]
         current_time = time.time()
         
         # Check if session has expired (atomic check and clear)
         if current_time > session["expires_at"]:
-            logger.info(f"Diary session expired for user {user_id}")
-            await _clear_diary_session(user_id)
+            logger.info(f"Diary session expired for user {user_uuid}")
+            await _clear_diary_session(user_uuid)
             return None
         
         return session["key"]
 
-async def _store_diary_password_in_session(user_id: int, password: str):
+async def _store_diary_password_in_session(user_uuid: str, password: str):
     """Store derived diary key in secure session with expiry.
     
-    SECURITY: Uses proper key derivation with salt and stores both key and salt
-    for secure encryption operations.
+    Also derives a salt for better security and rotates after timeout.
     """
     async with _get_session_lock():
         current_time = time.time()
         key, salt = _derive_diary_encryption_key(password)
         
-        _diary_sessions[user_id] = {
+        _diary_sessions[user_uuid] = {
             "key": key,
             "salt": salt,
             "timestamp": current_time,
             "expires_at": current_time + DIARY_SESSION_TIMEOUT
         }
-        logger.info(f"Diary session created for user {user_id}, expires in {DIARY_SESSION_TIMEOUT}s")
+        logger.info(f"Diary session created for user {user_uuid}, expires in {DIARY_SESSION_TIMEOUT}s")
 
-async def _clear_diary_session(user_id: int):
+async def _clear_diary_session(user_uuid: str):
     """Clear diary session and password from memory.
     
-    SECURITY: Securely overwrites all sensitive data in memory before deletion.
+    Overwrite memory buffers where possible before deletion for added security.
     """
     async with _get_session_lock():
-        if user_id in _diary_sessions:
-            session = _diary_sessions[user_id]
+        if user_uuid in _diary_sessions:
+            session = _diary_sessions[user_uuid]
             
             # Securely overwrite all sensitive data
             try:
@@ -130,24 +133,24 @@ async def _clear_diary_session(user_id: int):
                 session["expires_at"] = 0.0
                 
             except Exception as e:
-                logger.warning(f"Error securely clearing session data for user {user_id}: {e}")
+                logger.warning(f"Error securely clearing session data for user {user_uuid}: {e}")
             
             # Remove from dictionary and force garbage collection
-            del _diary_sessions[user_id]
-            logger.info(f"Diary session cleared for user {user_id}")
+            del _diary_sessions[user_uuid]
+            logger.info(f"Diary session cleared for user {user_uuid}")
             
             # Force cleanup
             gc.collect()
 
-async def _is_diary_unlocked(user_id: int) -> bool:
+async def _is_diary_unlocked(user_uuid: str) -> bool:
     """Check if diary is currently unlocked for user."""
-    return await _get_diary_password_from_session(user_id) is not None
+    return await _get_diary_password_from_session(user_uuid) is not None
 
 async def _cleanup_expired_sessions():
-    """Periodically clean up expired diary sessions with error recovery."""
+    """Background task to cleanup expired diary sessions and weekly highlights cache."""
     while True:
         try:
-            await asyncio.sleep(300)  # Run every 5 minutes
+            await asyncio.sleep(60)
 
             async with _get_session_lock():
                 current_time = time.time()
@@ -160,17 +163,30 @@ async def _cleanup_expired_sessions():
                     try:
                         await _clear_diary_session(user_id)
                     except Exception as e:
-                        logger.error(f"Error clearing session for user {user_id}: {e}")
+                        logger.exception(f"Error clearing session for user {user_id}: {e}")
 
                 if expired_users:
                     logger.info(f"Cleaned up {len(expired_users)} expired diary sessions")
 
+                # Weekly highlights TTL cleanup
+                try:
+                    if '_WEEKLY_HIGHLIGHTS_CACHE' in globals():
+                        expired_uuids = [
+                            uuid for uuid, (ts, _) in _WEEKLY_HIGHLIGHTS_CACHE.items()
+                            if current_time - ts > _WEEKLY_TTL_SECONDS
+                        ]
+                        for uuid in expired_uuids:
+                            try:
+                                del _WEEKLY_HIGHLIGHTS_CACHE[uuid]
+                            except Exception:
+                                pass
+                        if expired_uuids:
+                            logger.info(f"Cleaned up {len(expired_uuids)} expired weekly highlights cache entries")
+                except Exception:
+                    logger.exception("Error cleaning weekly highlights cache")
+
         except asyncio.CancelledError:
             break
-        except Exception as e:
-            logger.error(f"Critical error in session cleanup: {e}")
-            # Don't exit - continue cleanup loop
-            continue
 
 # Start cleanup task when module is imported (application startup)
 try:
@@ -231,55 +247,6 @@ def _generate_diary_file_path(entry_uuid: str) -> Path:
     return diary_dir / filename
 
 
-async def _handle_diary_tags(db: AsyncSession, entry: DiaryEntry, tag_names: List[str], user_id: int):
-    """Handle diary entry tag associations and update usage counts."""
-    from app.models.tag import Tag
-    from app.models.tag_associations import diary_tags
-    from sqlalchemy import delete
-    
-    # Clear existing tag associations
-    await db.execute(
-        delete(diary_tags).where(diary_tags.c.diary_entry_uuid == entry.uuid)
-    )
-    
-    if not tag_names:
-        return
-    
-    for tag_name in tag_names:
-        # Get or create tag with proper module_type
-        result = await db.execute(
-            select(Tag).where(
-                and_(
-                    Tag.name == tag_name,
-                    Tag.user_id == user_id,
-                    Tag.module_type == "diary"
-                )
-            )
-        )
-        tag = result.scalar_one_or_none()
-        
-        if not tag:
-            # Create new tag with diary module_type
-            tag = Tag(
-                name=tag_name,
-                user_id=user_id,
-                module_type="diary",
-                usage_count=1,
-                color="#10b981"  # Green color for diary tags
-            )
-            db.add(tag)
-            await db.flush()
-        else:
-            # Increment usage count
-            tag.usage_count += 1
-        
-        # Create association
-        await db.execute(
-            diary_tags.insert().values(
-                diary_entry_uuid=entry.uuid,
-                tag_uuid=tag.uuid
-            )
-        )
 
     # Update denormalized tags_text for FTS and summaries
     try:
@@ -332,38 +299,52 @@ def _calculate_day_of_week(entry_date: date) -> int:
     # Python weekday(): Monday=0..Sunday=6 → convert to Sunday=0..Saturday=6
     return (entry_date.weekday() + 1) % 7
 
-async def _upsert_daily_metadata(
+async def _get_or_create_daily_metadata(
     db: AsyncSession,
-    user_id: int,
+    user_uuid: str,
     entry_date: datetime,
     nepali_date: Optional[str],
-    metrics: Dict[str, Any]
+    metrics: Dict[str, Any],
+    daily_income: Optional[int] = None,
+    daily_expense: Optional[int] = None,
+    is_office_day: Optional[bool] = None
 ) -> DiaryDailyMetadata:
     result = await db.execute(
-        select(DiaryDailyMetadata)
-        .where(
-            and_(
-                DiaryDailyMetadata.user_id == user_id,
-                func.date(DiaryDailyMetadata.date) == entry_date.date(),
-            )
+        select(DiaryDailyMetadata).where(
+            and_(DiaryDailyMetadata.user_uuid == user_uuid, DiaryDailyMetadata.date == entry_date.date())
         )
-        .with_for_update()
     )
     snapshot = result.scalar_one_or_none()
+
     if snapshot:
-        existing_metrics = json.loads(snapshot.metrics_json) if snapshot.metrics_json else {}
-        merged = {**existing_metrics, **metrics}
+        # Merge metrics (existing + new)
+        existing = {}
+        try:
+            existing = json.loads(snapshot.metrics_json or "{}")
+        except Exception:
+            existing = {}
+        merged = {**existing, **(metrics or {})}
         snapshot.metrics_json = json.dumps(merged)
         snapshot.nepali_date = nepali_date or snapshot.nepali_date
+        if daily_income is not None:
+            snapshot.daily_income = daily_income
+        if daily_expense is not None:
+            snapshot.daily_expense = daily_expense
+        if is_office_day is not None:
+            snapshot.is_office_day = is_office_day
         snapshot.updated_at = datetime.now(NEPAL_TZ)
         await db.flush()
         return snapshot
 
+    # Create new snapshot
     snapshot = DiaryDailyMetadata(
-        user_id=user_id,
-        date=entry_date.replace(tzinfo=NEPAL_TZ),
+        user_uuid=user_uuid,
+        date=entry_date.date(),
         nepali_date=nepali_date,
         metrics_json=json.dumps(metrics or {}),
+        daily_income=daily_income or 0,
+        daily_expense=daily_expense or 0,
+        is_office_day=is_office_day or False,
     )
     db.add(snapshot)
     await db.flush()
@@ -399,39 +380,30 @@ async def get_encryption_status(
     try:
         # Simple check: encryption is setup if user has diary_password_hash
         is_setup = current_user.diary_password_hash is not None
-        is_unlocked = await _is_diary_unlocked(current_user.id) if is_setup else False
+        is_unlocked = await _is_diary_unlocked(current_user.uuid) if is_setup else False
         
         # Additional security info for monitoring
-        session_info = {}
-        if is_unlocked and current_user.id in _diary_sessions:
-            session = _diary_sessions[current_user.id]
-            time_remaining = max(0, int(session["expires_at"] - time.time()))
-            session_info = {
-                "session_expires_in": time_remaining,
-                "session_created_at": session["timestamp"]
-            }
-        
+        # Note: Do not include sensitive details
         logger.info(
-            f"Diary encryption status for user {current_user.id}: "
+            f"Diary encryption status for user {current_user.uuid}: "
             f"{'setup' if is_setup else 'not setup'}, "
             f"{'unlocked' if is_unlocked else 'locked'}"
         )
         return {
             "is_setup": is_setup,
             "is_unlocked": is_unlocked,
-            **session_info,
         }
         
     except (ValueError, TypeError) as e:
         # Handle specific data type errors
-        logger.warning(f"Data type error checking diary encryption status for user {current_user.id}: {type(e).__name__}")
+        logger.warning(f"Data type error checking diary encryption status for user {current_user.uuid}: {type(e).__name__}")
         return {"is_setup": False}
     except Exception as e:
         # SECURITY: Don't expose system details in error messages
-        logger.error(f"Unexpected error checking diary encryption status for user {current_user.id}: {type(e).__name__}")
+        logger.error(f"Unexpected error checking diary encryption status for user {current_user.uuid}: {type(e).__name__}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Unable to check diary encryption status"
+            detail="Failed to check diary encryption status"
         )
 
 @router.post("/encryption/setup")
@@ -445,33 +417,35 @@ async def setup_encryption(
     Stores diary_password_hash and diary_password_hint in the User model.
     """
     try:
-        logger.info(f"Setting up diary encryption for user {current_user.id}")
+        logger.info(f"Setting up diary encryption for user {current_user.uuid}")
         
         # Hash the diary password using bcrypt
-        from app.auth.security import hash_password
-        pwd_hash = hash_password(request.password)
+        if not request.password or len(request.password) < 8:
+            raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+        # Derive and store key in session store
+        await _store_diary_password_in_session(current_user.uuid, request.password)
+
+        # Save password hint (optional)
+        if request.hint is not None:
+            current_user.diary_password_hint = request.hint
         
-        # Store in User model
-        current_user.diary_password_hash = pwd_hash
-        current_user.diary_password_hint = request.hint
-        
-        # Mark user as no longer first-time login since they've set up diary
-        if current_user.is_first_login:
-            current_user.is_first_login = False
+        # Hash the diary password using bcrypt
+        current_user.diary_password_hash = hash_password(request.password)
         
         await db.commit()
         
-        logger.info(f"Diary encryption setup completed for user {current_user.id}")
+        logger.info(f"Diary encryption setup completed for user {current_user.uuid}")
         return {"success": True}
         
     except (ValueError, TypeError) as e:
         # Handle specific data type errors
-        logger.warning(f"Data type error setting up diary encryption for user {current_user.id}: {type(e).__name__}")
+        logger.warning(f"Data type error setting up diary encryption for user {current_user.uuid}: {type(e).__name__}")
         await db.rollback()
         return {"success": False, "error": "Invalid data provided"}
     except Exception as e:
         # SECURITY: Don't expose system details in error messages
-        logger.error(f"Unexpected error setting up diary encryption for user {current_user.id}: {type(e).__name__}")
+        logger.error(f"Unexpected error setting up diary encryption for user {current_user.uuid}: {type(e).__name__}")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -489,11 +463,11 @@ async def unlock_encryption(
     Validates against diary_password_hash in the User model.
     """
     try:
-        logger.info(f"Diary unlock attempt for user {current_user.id}")
+        logger.info(f"Diary unlock attempt for user {current_user.uuid}")
         
         # Check if diary encryption is set up
         if not current_user.diary_password_hash:
-            logger.warning(f"No diary password hash found for user {current_user.id}")
+            logger.warning(f"No diary password hash found for user {current_user.uuid}")
             return {"success": False, "error": "Diary encryption not set up"}
         
         # SECURITY: Validate password with constant-time comparison
@@ -504,20 +478,20 @@ async def unlock_encryption(
         
         if password_valid:
             # Store password in secure session for subsequent operations
-            await _store_diary_password_in_session(current_user.id, request.password)
-            logger.info(f"Diary unlock successful for user {current_user.id}")
+            await _store_diary_password_in_session(current_user.uuid, request.password)
+            logger.info(f"Diary unlock successful for user {current_user.uuid}")
             return {"success": True, "session_expires_in": DIARY_SESSION_TIMEOUT}
         else:
-            logger.warning(f"Diary unlock failed due to incorrect password for user {current_user.id}")
+            logger.warning(f"Diary unlock failed due to incorrect password for user {current_user.uuid}")
             return {"success": False, "error": "Incorrect diary password"}
         
     except (ValueError, TypeError) as e:
         # Handle specific data type errors
-        logger.warning(f"Data type error unlocking diary encryption for user {current_user.id}: {type(e).__name__}")
+        logger.warning(f"Data type error unlocking diary encryption for user {current_user.uuid}: {type(e).__name__}")
         return {"success": False, "error": "Invalid data provided"}
     except Exception as e:
         # SECURITY: Don't expose system details in error messages
-        logger.error(f"Unexpected error unlocking diary encryption for user {current_user.id}: {type(e).__name__}")
+        logger.error(f"Unexpected error unlocking diary encryption for user {current_user.uuid}: {type(e).__name__}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to unlock diary encryption"
@@ -534,17 +508,17 @@ async def lock_encryption(
     the user to unlock again for subsequent operations.
     """
     try:
-        logger.info(f"Diary lock requested for user {current_user.id}")
+        logger.info(f"Diary lock requested for user {current_user.uuid}")
         
         # Clear the session (password) from memory
-        await _clear_diary_session(current_user.id)
+        await _clear_diary_session(current_user.uuid)
         
-        logger.info(f"Diary locked successfully for user {current_user.id}")
+        logger.info(f"Diary locked successfully for user {current_user.uuid}")
         return {"success": True, "message": "Diary locked successfully"}
         
     except Exception as e:
         # SECURITY: Don't expose system details in error messages
-        logger.error(f"Unexpected error locking diary encryption for user {current_user.id}: {type(e).__name__}")
+        logger.error(f"Unexpected error locking diary encryption for user {current_user.uuid}: {type(e).__name__}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to lock diary encryption"
@@ -567,7 +541,7 @@ async def get_password_hint(
         
     except Exception as e:
         # SECURITY: Don't expose system details in error messages
-        logger.error(f"Unexpected error getting password hint for user {current_user.id}: {type(e).__name__}")
+        logger.error(f"Unexpected error getting password hint for user {current_user.uuid}: {type(e).__name__}")
         return {"hint": ""}
 
 # --- API Endpoints ---
@@ -580,18 +554,21 @@ async def create_diary_entry(
 ):
     """Create a new diary entry with file-based encrypted storage."""
     try:
-        logger.info(f"Creating diary entry for user {current_user.id} on {entry_data.date}")
+        logger.info(f"Creating diary entry for user {current_user.uuid} on {entry_data.date}")
         
         entry_date = datetime.combine(entry_data.date, datetime.min.time())
         day_of_week = _calculate_day_of_week(entry_data.date)
         
         # Upsert daily metadata snapshot for this day
-        daily_metadata = await _upsert_daily_metadata(
+        daily_metadata = await _get_or_create_daily_metadata(
             db=db,
-            user_id=current_user.id,
+            user_uuid=current_user.uuid,
             entry_date=entry_date,
             nepali_date=entry_data.nepali_date,
             metrics=entry_data.daily_metrics or {},
+            daily_income=entry_data.daily_income,
+            daily_expense=entry_data.daily_expense,
+            is_office_day=entry_data.is_office_day,
         )
 
         entry = DiaryEntry(
@@ -608,10 +585,10 @@ async def create_diary_entry(
             location=entry_data.location,
             is_template=entry_data.is_template,
             from_template_id=entry_data.from_template_id,
-            user_id=current_user.id,
+            user_uuid=current_user.uuid,
             encryption_iv=entry_data.encryption_iv,
             encryption_tag=None,
-            daily_metadata_id=daily_metadata.id if daily_metadata else None,
+            daily_metadata_id=daily_metadata.uuid if daily_metadata else None,
         )
         
         db.add(entry)
@@ -653,14 +630,17 @@ async def create_diary_entry(
         await db.refresh(entry)
         
         if entry_data.tags:
-            await _handle_diary_tags(db, entry, entry_data.tags, current_user.id)
+            await tag_service.handle_tags(db, entry, entry_data.tags, current_user.uuid, "diary", diary_tags)
             await db.commit()
+        
+        # Index in search
+        await search_service.index_item(db, entry, 'diary')
+        await db.commit()
         
         tags = await _get_entry_tags(db, entry.uuid)
         daily_metrics = json.loads(daily_metadata.metrics_json) if daily_metadata and daily_metadata.metrics_json else {}
         response = DiaryEntryResponse(
             uuid=entry.uuid,
-            id=entry.id,
             date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
             title=entry.title,
             encrypted_blob=entry_data.encrypted_blob,
@@ -669,6 +649,9 @@ async def create_diary_entry(
             weather_code=entry.weather_code,
             location=entry.location,
             daily_metrics=daily_metrics,
+            daily_income=daily_metadata.daily_income if daily_metadata else 0,
+            daily_expense=daily_metadata.daily_expense if daily_metadata else 0,
+            is_office_day=daily_metadata.is_office_day if daily_metadata else False,
             nepali_date=daily_metadata.nepali_date if daily_metadata else entry_data.nepali_date,
             is_template=entry.is_template,
             from_template_id=entry.from_template_id,
@@ -682,7 +665,7 @@ async def create_diary_entry(
         
     except (ValueError, TypeError) as e:
         # Handle specific data type errors
-        logger.warning(f"Data type error creating diary entry for user {current_user.id}: {type(e).__name__}")
+        logger.warning(f"Data type error creating diary entry for user {current_user.uuid}: {type(e).__name__}")
         await db.rollback()
         # Clean up temp file on DB rollback
         try:
@@ -693,7 +676,7 @@ async def create_diary_entry(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid data provided")
     except Exception as e:
         # SECURITY: Don't expose system details in error messages
-        logger.error(f"Unexpected error creating diary entry for user {current_user.id}: {type(e).__name__}")
+        logger.error(f"Unexpected error creating diary entry for user {current_user.uuid}: {type(e).__name__}")
         await db.rollback()
         # Clean up temp file on DB rollback
         try:
@@ -719,7 +702,7 @@ async def list_diary_entries(
     """List diary entries with filtering. Uses FTS5 for text search if search_title is provided."""
     
     # Check if diary is unlocked
-    diary_password = await _get_diary_password_from_session(current_user.id)
+    diary_password = await _get_diary_password_from_session(current_user.uuid)
     if not diary_password:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -731,7 +714,7 @@ async def list_diary_entries(
     
     # Subquery to count media per entry
     media_count_subquery = (
-        select(DiaryMedia.diary_entry_uuid, func.count(DiaryMedia.id).label("media_count"))
+        select(DiaryMedia.diary_entry_uuid, func.count(DiaryMedia.uuid).label("media_count"))
         .group_by(DiaryMedia.diary_entry_uuid)
         .subquery()
     )
@@ -740,17 +723,21 @@ async def list_diary_entries(
 
     summaries = []
     if search_title:
-        # Use centralized FTS5 for full-text search (title, tags, metadata)
-        id_list = await enhanced_fts_service.search_diary_entries(
-            db, search_title, current_user.id, limit=limit, offset=offset
-        )
-        if not id_list:
+        # Use unified FTS5 search
+        fts_results = await search_service.search(db, current_user.uuid, search_title, item_types=["diary"], limit=limit)
+
+        if not fts_results:
             return []
+
+        # Extract UUIDs from FTS results
+        uuid_list = [r["uuid"] for r in fts_results if r["type"] == "diary"]
+        if not uuid_list:
+            return []
+
         # Fetch full rows, preserving FTS5 order
         entry_query = (
             select(
                 DiaryEntry.uuid,
-                DiaryEntry.id,
                 DiaryEntry.title,
                 DiaryEntry.date,
                 DiaryEntry.mood,
@@ -766,8 +753,8 @@ async def list_diary_entries(
                 DiaryEntry.content_length,
             )
             .outerjoin(media_count_subquery, DiaryEntry.uuid == media_count_subquery.c.diary_entry_uuid)
-            .outerjoin(daily_metadata_alias, DiaryEntry.daily_metadata_id == daily_metadata_alias.id)
-            .where(and_(DiaryEntry.uuid.in_(id_list), DiaryEntry.user_id == current_user.id))
+            .outerjoin(daily_metadata_alias, DiaryEntry.daily_metadata_id == daily_metadata_alias.uuid)
+            .where(and_(DiaryEntry.uuid.in_(uuid_list), DiaryEntry.user_uuid == current_user.uuid))
         )
         # Apply other filters
         # Apply year/month via date-range for index usage
@@ -796,12 +783,11 @@ async def list_diary_entries(
         # Map uuid to row for FTS5 order
         row_map = {row.uuid: row for row in entry_rows}
         tag_map = await _get_tags_for_entries(db, list(row_map.keys()))
-        for uuid in id_list:
+        for uuid in uuid_list:
             r = row_map.get(uuid)
             if r:
                 summary = DiaryEntrySummary(
                     uuid=r.uuid,
-                    id=r.id,
                     date=r.date.date() if isinstance(r.date, datetime) else r.date,
                     title=r.title,
                     mood=r.mood,
@@ -825,7 +811,6 @@ async def list_diary_entries(
         query = (
             select(
                 DiaryEntry.uuid,
-                DiaryEntry.id,
                 DiaryEntry.title,
                 DiaryEntry.date,
                 DiaryEntry.mood,
@@ -841,8 +826,8 @@ async def list_diary_entries(
                 DiaryEntry.content_length,
             )
             .outerjoin(media_count_subquery, DiaryEntry.uuid == media_count_subquery.c.diary_entry_uuid)
-            .outerjoin(daily_metadata_alias, DiaryEntry.daily_metadata_id == daily_metadata_alias.id)
-            .where(DiaryEntry.user_id == current_user.id)
+            .outerjoin(daily_metadata_alias, DiaryEntry.daily_metadata_id == daily_metadata_alias.uuid)
+            .where(DiaryEntry.user_uuid == current_user.uuid)
         )
         # Apply year/month via date-range for index usage
         if year and month:
@@ -871,7 +856,6 @@ async def list_diary_entries(
         for row in entry_rows:
             summary = DiaryEntrySummary(
                 uuid=row.uuid,
-                id=row.id,
                 date=row.date.date() if isinstance(row.date, datetime) else row.date,
                 title=row.title,
                 mood=row.mood,
@@ -899,7 +883,7 @@ async def get_diary_entries_by_date(
 ):
     """Get all diary entries for a specific date."""
     # Require diary to be unlocked
-    diary_password = await _get_diary_password_from_session(current_user.id)
+    diary_password = await _get_diary_password_from_session(current_user.uuid)
     if not diary_password:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -915,7 +899,7 @@ async def get_diary_entries_by_date(
         .where(
             and_(
                 func.date(DiaryEntry.date) == entry_date,
-                DiaryEntry.user_id == current_user.id
+                DiaryEntry.user_uuid == current_user.uuid
             )
         ).order_by(DiaryEntry.date.asc())
     )
@@ -944,7 +928,6 @@ async def get_diary_entries_by_date(
         nepali_date = entry.daily_metadata.nepali_date if entry.daily_metadata else None
         res = DiaryEntryResponse(
             uuid=entry.uuid,
-            id=entry.id,
             date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
             nepali_date=nepali_date,
             title=entry.title,
@@ -977,16 +960,12 @@ async def get_diary_entry_by_id(
     Reads encrypted content from file but returns it in API-compatible format.
     """
     # Require diary to be unlocked
-    diary_password = await _get_diary_password_from_session(current_user.id)
+    diary_password = await _get_diary_password_from_session(current_user.uuid)
     if not diary_password:
         raise HTTPException(status_code=401, detail="Diary is locked. Please unlock first.")
     
     try:
-        # Allow lookup by numeric id or uuid
-        try:
-            numeric_id = int(entry_ref)
-            condition = DiaryEntry.id == numeric_id
-        except ValueError:
+        # Allow lookup by uuid only (legacy id support removed)
             condition = DiaryEntry.uuid == entry_ref
 
         result = await db.execute(
@@ -996,7 +975,7 @@ async def get_diary_entry_by_id(
                 selectinload(DiaryEntry.daily_metadata)
             )
             .where(
-                and_(condition, DiaryEntry.user_id == current_user.id)
+                and_(condition, DiaryEntry.user_uuid == current_user.uuid)
             )
         )
         entry = result.scalar_one_or_none()
@@ -1072,7 +1051,6 @@ async def get_diary_entry_by_id(
         nepali_date = entry.daily_metadata.nepali_date if entry.daily_metadata else None
         response = DiaryEntryResponse(
             uuid=entry.uuid,
-            id=entry.id,
             date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
             nepali_date=nepali_date,
             title=entry.title,
@@ -1082,6 +1060,9 @@ async def get_diary_entry_by_id(
             location=entry.location,
             mood=entry.mood,
             daily_metrics=daily_metrics,
+            daily_income=entry.daily_metadata.daily_income if entry.daily_metadata else 0,
+            daily_expense=entry.daily_metadata.daily_expense if entry.daily_metadata else 0,
+            is_office_day=entry.daily_metadata.is_office_day if entry.daily_metadata else False,
             is_template=entry.is_template,
             from_template_id=entry.from_template_id,
             created_at=entry.created_at,
@@ -1117,16 +1098,12 @@ async def update_diary_entry(
     db: AsyncSession = Depends(get_db)
 ):
     """Update an existing diary entry."""
-    # Allow lookup by numeric id or uuid
-    try:
-        numeric_id = int(entry_ref)
-        condition = DiaryEntry.id == numeric_id
-    except ValueError:
-        condition = DiaryEntry.uuid == entry_ref
+    # Allow lookup by uuid only (legacy id support removed)
+    condition = DiaryEntry.uuid == entry_ref
 
     result = await db.execute(
         select(DiaryEntry).options(selectinload(DiaryEntry.media)).where(
-            and_(condition, DiaryEntry.user_id == current_user.id)
+            and_(condition, DiaryEntry.user_uuid == current_user.uuid)
         )
     )
     entry = result.scalar_one_or_none()
@@ -1138,16 +1115,19 @@ async def update_diary_entry(
     entry.mood = entry_data.mood
     entry.weather_code = entry_data.weather_code
     entry.location = entry_data.location
-    if entry_data.daily_metrics is not None or entry_data.nepali_date is not None:
+    if entry_data.daily_metrics is not None or entry_data.nepali_date is not None or entry_data.daily_income is not None or entry_data.daily_expense is not None or entry_data.is_office_day is not None:
         entry_date = entry.date
-        daily_metadata = await _upsert_daily_metadata(
-            db,
-            user_id=current_user.id,
+        daily_metadata = await _get_or_create_daily_metadata(
+            db=db,
+            user_uuid=current_user.uuid,
             entry_date=entry_date,
             nepali_date=entry_data.nepali_date,
-            metrics=entry_data.daily_metrics or {}
+            metrics=entry_data.daily_metrics or {},
+            daily_income=entry_data.daily_income,
+            daily_expense=entry_data.daily_expense,
+            is_office_day=entry_data.is_office_day,
         )
-        entry.daily_metadata_id = daily_metadata.id
+        entry.daily_metadata_id = daily_metadata.uuid
     entry.is_template = entry_data.is_template
     entry.from_template_id = entry_data.from_template_id
     entry.day_of_week = _calculate_day_of_week(entry_data.date)
@@ -1184,7 +1164,7 @@ async def update_diary_entry(
 
     # Update tags if provided
     if entry_data.tags is not None:
-        await _handle_diary_tags(db, entry, entry_data.tags, current_user.id)
+        await tag_service.handle_tags(db, entry, entry_data.tags, current_user.uuid, "diary", diary_tags)
 
     # CRITICAL FIX: Use transaction to ensure atomicity of DB commit + file move
     try:
@@ -1226,11 +1206,14 @@ async def update_diary_entry(
         raise HTTPException(status_code=500, detail="Failed to finalize diary entry file storage")
     await db.refresh(entry)
 
+    # Index in search
+    await search_service.index_item(db, entry, 'diary')
+    await db.commit()
+
     daily_metrics = json.loads(entry.daily_metadata.metrics_json) if entry.daily_metadata and entry.daily_metadata.metrics_json else {}
     nepali_date = entry.daily_metadata.nepali_date if entry.daily_metadata else None
     return DiaryEntryResponse(
         uuid=entry.uuid,
-        id=entry.id,
         date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
         title=entry.title,
         encrypted_blob=entry_data.encrypted_blob,
@@ -1239,13 +1222,17 @@ async def update_diary_entry(
         weather_code=entry.weather_code,
         location=entry.location,
         daily_metrics=daily_metrics,
+        daily_income=entry.daily_metadata.daily_income if entry.daily_metadata else 0,
+        daily_expense=entry.daily_metadata.daily_expense if entry.daily_metadata else 0,
+        is_office_day=entry.daily_metadata.is_office_day if entry.daily_metadata else False,
         nepali_date=nepali_date,
         is_template=entry.is_template,
         from_template_id=entry.from_template_id,
         created_at=entry.created_at,
         updated_at=entry.updated_at,
         media_count=len(entry.media) if hasattr(entry, 'media') else 0,
-        tags=await _get_entry_tags(db, entry.uuid)
+        tags=await _get_entry_tags(db, entry.uuid),
+        content_length=entry.content_length
     )
     
     except HTTPException:
@@ -1278,23 +1265,19 @@ async def delete_diary_entry(
     """
     try:
         # Check if diary is unlocked first
-        diary_password = await _get_diary_password_from_session(current_user.id)
+        diary_password = await _get_diary_password_from_session(current_user.uuid)
         if not diary_password:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Diary is locked. Please unlock diary first."
             )
 
-        # Allow lookup by numeric id or uuid
-        try:
-            numeric_id = int(entry_ref)
-            condition = DiaryEntry.id == numeric_id
-        except ValueError:
+        # Allow lookup by uuid only (legacy id support removed)
             condition = DiaryEntry.uuid == entry_ref
 
         result = await db.execute(
-            select(DiaryEntry).where(
-                and_(condition, DiaryEntry.user_id == current_user.id)
+            select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(
+                and_(condition, DiaryEntry.user_uuid == current_user.uuid)
             )
         )
         entry = result.scalar_one_or_none()
@@ -1314,6 +1297,12 @@ async def delete_diary_entry(
             except Exception as e:
                 logger.error(f"Failed to delete diary file {entry.content_file_path}: {str(e)}")
                 # Continue with DB deletion even if file deletion fails
+        
+        # Decrement tag usage counts BEFORE deleting entry
+        await tag_service.decrement_tags_on_delete(db, entry)
+
+        # Remove from search index BEFORE deleting entry
+        await search_service.remove_item(db, entry.uuid)
         
         await db.delete(entry)
         await db.commit()
@@ -1341,7 +1330,7 @@ async def get_entry_media(
 ):
     """Get all media associated with a diary entry."""
     # Check if diary is unlocked first
-    diary_password = await _get_diary_password_from_session(current_user.id)
+    diary_password = await _get_diary_password_from_session(current_user.uuid)
     if not diary_password:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1351,7 +1340,7 @@ async def get_entry_media(
     # First, ensure the user has access to the diary entry
     entry_res = await db.execute(
         select(DiaryEntry.uuid).where(
-            and_(DiaryEntry.uuid == entry_ref, DiaryEntry.user_id == current_user.id)
+            and_(DiaryEntry.uuid == entry_ref, DiaryEntry.user_uuid == current_user.uuid)
         )
     )
     entry_uuid = entry_res.scalar_one_or_none()
@@ -1394,7 +1383,7 @@ async def commit_diary_media_upload(
     """
     try:
         # Check if diary is unlocked first
-        diary_password = await _get_diary_password_from_session(current_user.id)
+        diary_password = await _get_diary_password_from_session(current_user.uuid)
         if not diary_password:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -1406,7 +1395,7 @@ async def commit_diary_media_upload(
             select(DiaryEntry).where(
                 and_(
                     DiaryEntry.uuid == payload.entry_id,
-                    DiaryEntry.user_id == current_user.id
+                    DiaryEntry.user_uuid == current_user.uuid
                 )
             )
         )
@@ -1421,7 +1410,7 @@ async def commit_diary_media_upload(
         diary_media = DiaryMedia(
             uuid=str(uuid_lib.uuid4()),
             diary_entry_uuid=entry.uuid,
-            user_id=current_user.id,
+            user_uuid=current_user.uuid,
             filename="temp",  # Will be updated with proper name
             original_name="",
             file_path="temp",  # Will be updated
@@ -1437,7 +1426,7 @@ async def commit_diary_media_upload(
 
         # Generate proper filename using the naming scheme: {date}_{diary_id}_{media_id}.dat
         entry_date = entry.date.strftime("%Y-%m-%d")
-        encrypted_filename = f"{entry_date}_{entry.uuid}_{diary_media.id}.dat"
+        encrypted_filename = f"{entry_date}_{entry.uuid}_{diary_media.uuid}.dat"
 
         # Check assembled file status
         status_obj = await chunk_manager.get_upload_status(payload.file_id)
@@ -1485,21 +1474,24 @@ async def commit_diary_media_upload(
         # No need to scan database for uniqueness
         
         # SECURITY: Atomic check and retrieval to prevent race conditions
-        session = _diary_sessions.get(current_user.id)
-        if not session or time.time() > session["expires_at"]:
-            await _clear_diary_session(current_user.id)
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Diary session expired. Please unlock diary again."
-            )
+        async with _get_session_lock():
+            session = _diary_sessions.get(current_user.uuid)
+            if not session or time.time() > session["expires_at"]:
+                await _clear_diary_session(current_user.uuid)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Diary session expired. Please unlock diary again."
+                )
+            # Make a copy of the key while holding the lock
+            encryption_key = session["key"]
         
-        encryption_key = session["key"]
+        # Use the copied key outside the lock
         aesgcm = AESGCM(encryption_key)
         
         # Encrypt the file content using user's unique key
         encrypted_content = aesgcm.encrypt(iv, file_content, None)
         
-        logger.info(f"Media encrypted using user-specific diary password for user {current_user.id}")
+        logger.info(f"Media encrypted using user-specific diary password for user {current_user.uuid}")
         
         # Extract file extension (strip leading dot)
         file_extension = assembled.suffix.lstrip('.').lower() if assembled.suffix else ""
@@ -1524,7 +1516,7 @@ async def commit_diary_media_upload(
 
         # Calculate and update entry media count
         media_count_result = await db.execute(
-            select(func.count(DiaryMedia.id)).where(DiaryMedia.diary_entry_uuid == entry.uuid)
+            select(func.count(DiaryMedia.uuid)).where(DiaryMedia.diary_entry_uuid == entry.uuid)
         )
         new_media_count = media_count_result.scalar() or 0
         entry.media_count = new_media_count
@@ -1606,9 +1598,9 @@ async def download_diary_media(
     """
     try:
         # SECURITY: Check diary is unlocked and get password from session  
-        diary_password = await _get_diary_password_from_session(current_user.id)
+        diary_password = await _get_diary_password_from_session(current_user.uuid)
         if not diary_password:
-            logger.warning(f"Diary not unlocked for download attempt by user {current_user.id}")
+            logger.warning(f"Diary not unlocked for download attempt by user {current_user.uuid}")
             raise HTTPException(status_code=401, detail="Diary is locked. Please unlock first.")
         
         # Get media record
@@ -1618,7 +1610,7 @@ async def download_diary_media(
             .where(
                 and_(
                     DiaryMedia.uuid == media_uuid,
-                    DiaryEntry.user_id == current_user.id
+                    DiaryEntry.user_uuid == current_user.uuid
                 )
             )
         )
@@ -1647,24 +1639,28 @@ async def download_diary_media(
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
             
             # Get the encryption key from the current diary session (same key used for encryption)
-            diary_session = _diary_sessions.get(current_user.id)
-            if not diary_session:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Diary session expired. Please unlock diary again."
-                )
+            async with _get_session_lock():
+                diary_session = _diary_sessions.get(current_user.uuid)
+                if not diary_session:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Diary session expired. Please unlock diary again."
+                    )
+                
+                # SECURITY: Check if session has expired
+                current_time = time.time()
+                if current_time > diary_session["expires_at"]:
+                    logger.info(f"Diary session expired for user {current_user.uuid}")
+                    await _clear_diary_session(current_user.uuid)
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Diary session expired. Please unlock diary again."
+                    )
+                
+                # Copy the key while holding the lock
+                encryption_key = diary_session["key"]
             
-            # SECURITY: Check if session has expired
-            current_time = time.time()
-            if current_time > diary_session["expires_at"]:
-                logger.info(f"Diary session expired for user {current_user.id}")
-                await _clear_diary_session(current_user.id)
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Diary session expired. Please unlock diary again."
-                )
-            
-            encryption_key = diary_session["key"]  # Use the same key from session
+            # Use the copied key outside the lock
             aesgcm = AESGCM(encryption_key)
             
             # SECURITY: Decrypt the content with proper error handling
@@ -1692,7 +1688,7 @@ async def download_diary_media(
             temp_file.flush()
             temp_file.close()  # Close but don't delete
             
-            logger.info(f"Successfully decrypted media {media_uuid} for user {current_user.id}")
+            logger.info(f"Successfully decrypted media {media_uuid} for user {current_user.uuid}")
             
             # FileResponse will clean up after streaming
             from starlette.background import BackgroundTask
@@ -1765,18 +1761,18 @@ async def get_calendar_data(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    logger.info(f"Fetching calendar data for user {current_user.id}, year {year}, month {month}")
+    logger.info(f"Fetching calendar data for user {current_user.uuid}, year {year}, month {month}")
     """Get calendar data for a specific month, showing which days have entries."""
     
     # Subquery to count media per day
     media_count_subquery = (
         select(
             func.date(DiaryMedia.created_at).label("media_date"),
-            func.count(DiaryMedia.id).label("media_count")
+            func.count(DiaryMedia.uuid).label("media_count")
         )
         .where(
             and_(
-                DiaryMedia.user_id == current_user.id,
+                DiaryMedia.user_uuid == current_user.uuid,
                 extract('year', DiaryMedia.created_at) == year,
                 extract('month', DiaryMedia.created_at) == month
             )
@@ -1789,11 +1785,11 @@ async def get_calendar_data(
         select(
             func.date(DiaryEntry.date).label("entry_date"),
             func.avg(DiaryEntry.mood).label("avg_mood"),
-            func.count(DiaryEntry.id).label("entry_count")
+            func.count(DiaryEntry.uuid).label("entry_count")
         )
         .where(
             and_(
-                DiaryEntry.user_id == current_user.id,
+                DiaryEntry.user_uuid == current_user.uuid,
                 extract('year', DiaryEntry.date) == year,
                 extract('month', DiaryEntry.date) == month,
                 DiaryEntry.is_template == False
@@ -1849,10 +1845,10 @@ async def get_mood_stats(
     """Get mood statistics."""
     # Mood Distribution
     dist_query = (
-        select(DiaryEntry.mood, func.count(DiaryEntry.id).label("count"))
+        select(DiaryEntry.mood, func.count(DiaryEntry.uuid).label("count"))
         .where(
             and_(
-                DiaryEntry.user_id == current_user.id,
+                DiaryEntry.user_uuid == current_user.uuid,
                 DiaryEntry.mood.isnot(None)
             )
         )
@@ -1864,7 +1860,7 @@ async def get_mood_stats(
     # Average Mood
     avg_query = select(func.avg(DiaryEntry.mood)).where(
         and_(
-            DiaryEntry.user_id == current_user.id,
+            DiaryEntry.user_uuid == current_user.uuid,
             DiaryEntry.mood.isnot(None)
         )
     )
@@ -1899,7 +1895,7 @@ async def get_wellness_stats(
         select(DiaryEntry)
         .where(
             and_(
-                DiaryEntry.user_id == current_user.id,
+                DiaryEntry.user_uuid == current_user.uuid,
                 func.date(DiaryEntry.date) >= start_date,
                 func.date(DiaryEntry.date) <= end_date
             )
@@ -1914,7 +1910,7 @@ async def get_wellness_stats(
         select(DiaryDailyMetadata)
         .where(
             and_(
-                DiaryDailyMetadata.user_id == current_user.id,
+                DiaryDailyMetadata.user_uuid == current_user.uuid,
                 func.date(DiaryDailyMetadata.date) >= start_date,
                 func.date(DiaryDailyMetadata.date) <= end_date
             )
@@ -2190,6 +2186,63 @@ async def get_wellness_stats(
                 "metric": "correlation"
             })
     
+    # Process financial data
+    financial_trend = []
+    total_income = 0.0
+    total_expense = 0.0
+    cumulative_savings = 0.0
+    
+    for date_str, data in sorted(daily_data.items()):
+        metrics = data.get("metrics", {})
+        daily_income = float(metrics.get("daily_income", 0) or 0)
+        daily_expense = float(metrics.get("daily_expense", 0) or 0)
+        daily_savings = daily_income - daily_expense
+        cumulative_savings += daily_savings
+        
+        total_income += daily_income
+        total_expense += daily_expense
+        
+        financial_trend.append({
+            "date": date_str,
+            "income": daily_income,
+            "expense": daily_expense,
+            "savings": daily_savings,
+            "cumulative_savings": cumulative_savings
+        })
+    
+    net_savings = total_income - total_expense
+    avg_daily_income = total_income / days if days > 0 else None
+    avg_daily_expense = total_expense / days if days > 0 else None
+    
+    # Add financial insights
+    if net_savings > 0:
+        insights.append({
+            "type": "positive",
+            "message": f"Great financial management! Net savings of ₹{net_savings:,.0f} over {days} days.",
+            "metric": "financial"
+        })
+    elif net_savings < 0:
+        insights.append({
+            "type": "negative",
+            "message": f"Spending exceeded income by ₹{abs(net_savings):,.0f}. Consider reviewing expenses.",
+            "metric": "financial"
+        })
+    
+    if avg_daily_income and avg_daily_income > 0:
+        savings_rate = (net_savings / total_income) * 100 if total_income > 0 else 0
+        if savings_rate >= 20:
+            insights.append({
+                "type": "positive",
+                "message": f"Excellent savings rate of {savings_rate:.1f}%!",
+                "metric": "financial"
+            })
+        elif savings_rate < 10:
+            insights.append({
+                "type": "neutral",
+                "message": f"Savings rate is {savings_rate:.1f}%. Consider increasing it to 20%+.",
+                "metric": "financial"
+            })
+    
     # Days with data
     days_with_data = len([d for d in daily_data.values() if d["metrics"] or d["mood"] is not None])
     
@@ -2223,9 +2276,146 @@ async def get_wellness_stats(
         mood_sleep_correlation=mood_sleep_pairs,
         correlation_coefficient=round(correlation_coefficient, 3) if correlation_coefficient else None,
         wellness_components=score_components,
+        financial_trend=financial_trend,
+        total_income=round(total_income, 2),
+        total_expense=round(total_expense, 2),
+        net_savings=round(net_savings, 2),
+        average_daily_income=round(avg_daily_income, 2) if avg_daily_income else None,
+        average_daily_expense=round(avg_daily_expense, 2) if avg_daily_expense else None,
         insights=insights
     )
 
+_WEEKLY_HIGHLIGHTS_CACHE: Dict[str, tuple[float, WeeklyHighlights]] = {}
+_WEEKLY_TTL_SECONDS = 30
+
+@router.get("/weekly-highlights", response_model=WeeklyHighlights)
+async def get_weekly_highlights(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Return a simple weekly highlights summary across modules and diary finances."""
+    try:
+        import time as _t
+        # Cache per user_uuid
+        now_ts = _t.time()
+        cached = _WEEKLY_HIGHLIGHTS_CACHE.get(current_user.uuid)
+        if cached and (now_ts - cached[0] < _WEEKLY_TTL_SECONDS):
+            return cached[1]
+        end_date = datetime.now(NEPAL_TZ).date()
+        start_date = end_date - timedelta(days=6)
+
+        # Aggregate counts
+        from app.models.note import Note
+        from app.models.document import Document
+        from app.models.todo import Todo
+
+        notes_created = await db.scalar(
+            select(func.count(Note.uuid)).where(
+                and_(
+                    Note.user_uuid == current_user.uuid,
+                    func.date(Note.created_at) >= start_date,
+                    func.date(Note.created_at) <= end_date,
+                )
+            )
+        )
+        documents_uploaded = await db.scalar(
+            select(func.count(Document.uuid)).where(
+                and_(
+                    Document.user_uuid == current_user.uuid,
+                    func.date(Document.created_at) >= start_date,
+                    func.date(Document.created_at) <= end_date,
+                )
+            )
+        )
+        todos_completed = await db.scalar(
+            select(func.count(Todo.uuid)).where(
+                and_(
+                    Todo.user_uuid == current_user.uuid,
+                    Todo.completed_at.isnot(None),
+                    func.date(Todo.completed_at) >= start_date,
+                    func.date(Todo.completed_at) <= end_date,
+                )
+            )
+        )
+        diary_entries = await db.scalar(
+            select(func.count(DiaryEntry.uuid)).where(
+                and_(
+                    DiaryEntry.user_uuid == current_user.uuid,
+                    func.date(DiaryEntry.date) >= start_date,
+                    func.date(DiaryEntry.date) <= end_date,
+                )
+            )
+        )
+
+        from app.models.archive import ArchiveItem
+        from app.models.todo import TodoStatus
+
+        archive_items_added = await db.scalar(
+            select(func.count(ArchiveItem.uuid)).where(
+                and_(
+                    ArchiveItem.user_uuid == current_user.uuid,
+                    func.date(ArchiveItem.created_at) >= start_date,
+                    func.date(ArchiveItem.created_at) <= end_date,
+                )
+            )
+        )
+
+        projects_created = await db.scalar(
+            select(func.count(Project.uuid)).where(
+                and_(
+                    Project.user_uuid == current_user.uuid,
+                    func.date(Project.created_at) >= start_date,
+                    func.date(Project.created_at) <= end_date,
+                )
+            )
+        )
+
+        projects_completed = await db.scalar(
+            select(func.count(Project.uuid)).where(
+                and_(
+                    Project.user_uuid == current_user.uuid,
+                    Project.status == 'completed',
+                    func.date(Project.updated_at) >= start_date,
+                    func.date(Project.updated_at) <= end_date,
+                )
+            )
+        )
+
+        # Finance sums from daily metadata
+        md_rows = await db.execute(
+            select(DiaryDailyMetadata.daily_income, DiaryDailyMetadata.daily_expense)
+            .where(
+                and_(
+                    DiaryDailyMetadata.user_uuid == current_user.uuid,
+                    func.date(DiaryDailyMetadata.date) >= start_date,
+                    func.date(DiaryDailyMetadata.date) <= end_date,
+                )
+            )
+        )
+        total_income = 0.0
+        total_expense = 0.0
+        for (daily_income, daily_expense) in md_rows.fetchall():
+            total_income += float(daily_income or 0)
+            total_expense += float(daily_expense or 0)
+
+        highlights = WeeklyHighlights(
+            period_start=start_date.strftime("%Y-%m-%d"),
+            period_end=end_date.strftime("%Y-%m-%d"),
+            notes_created=int(notes_created or 0),
+            documents_uploaded=int(documents_uploaded or 0),
+            todos_completed=int(todos_completed or 0),
+            diary_entries=int(diary_entries or 0),
+            archive_items_added=int(archive_items_added or 0),
+            projects_created=int(projects_created or 0),
+            projects_completed=int(projects_completed or 0),
+            total_income=round(total_income, 2),
+            total_expense=round(total_expense, 2),
+            net_savings=round(total_income - total_expense, 2),
+        )
+        _WEEKLY_HIGHLIGHTS_CACHE[current_user.uuid] = (now_ts, highlights)
+        return highlights
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load weekly highlights: {str(e)}")
 
 @router.get("/daily-metadata/{target_date}", response_model=DiaryDailyMetadataResponse)
 async def get_daily_metadata(
@@ -2242,7 +2432,7 @@ async def get_daily_metadata(
         select(DiaryDailyMetadata)
         .where(
             and_(
-                DiaryDailyMetadata.user_id == current_user.id,
+                DiaryDailyMetadata.user_uuid == current_user.uuid,
                 func.date(DiaryDailyMetadata.date) == date_obj,
             )
         )
@@ -2266,12 +2456,15 @@ async def update_daily_metadata(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD")
 
-    snapshot = await _upsert_daily_metadata(
+    snapshot = await _get_or_create_daily_metadata(
         db=db,
-        user_id=current_user.id,
+        user_uuid=current_user.uuid,
         entry_date=date_obj,
         nepali_date=payload.nepali_date,
         metrics=payload.metrics,
+        daily_income=payload.daily_income,
+        daily_expense=payload.daily_expense,
+        is_office_day=payload.is_office_day,
     )
     await db.commit()
     await db.refresh(snapshot)

@@ -10,6 +10,11 @@ from fastapi import Request, HTTPException, status
 from fastapi.responses import JSONResponse
 from typing import Optional, Callable, Awaitable
 from urllib.parse import parse_qs
+from datetime import datetime, timezone
+from sqlalchemy import select, func
+from app.database import get_db
+from app.models.user import Session
+from app.routers.diary import _get_diary_password_from_session
 
 logger = logging.getLogger(__name__)
 
@@ -83,15 +88,15 @@ class DiaryAccessMiddleware:
                 )
 
             # Verify session exists and is valid
-            from app.database import get_db
-            from app.models.user import Session
-            from sqlalchemy import select
-            from datetime import datetime
-            
-            async with get_db() as db:
-                result = await db.execute(select(Session).where(Session.session_token == session_token))
+            async for db in get_db():
+                result = await db.execute(
+                    select(Session).where(
+                        Session.session_token == session_token,
+                        Session.expires_at > func.now()
+                    )
+                )
                 session = result.scalar_one_or_none()
-                if not session or session.expires_at < datetime.now():
+                if not session:
                     logger.warning("🚫 Diary search attempt with expired session")
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -99,13 +104,13 @@ class DiaryAccessMiddleware:
                     )
 
                 # Check if user has unlocked diary
-                from app.routers.diary import _get_diary_password_from_session
-                if not await _get_diary_password_from_session(session.user_id):
-                    logger.warning(f"🚫 Diary search attempt without unlocked diary for user {session.user_id}")
+                if not await _get_diary_password_from_session(session.user_uuid):
+                    logger.warning(f"🚫 Diary search attempt without unlocked diary for user {session.user_uuid}")
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="Diary must be unlocked to search"
                     )
+                break  # Exit after first iteration
 
         # Note: Removing 'diary' from local lists doesn't affect the original request
         # This filtering should be handled at the service layer, not in middleware

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -14,7 +14,10 @@ import {
   ActionIcon,
   Alert,
   LoadingOverlay,
-  Tooltip
+  Tooltip,
+  Progress,
+  RingProgress,
+  SimpleGrid
 } from '@mantine/core';
 import {
   IconArrowLeft,
@@ -25,7 +28,9 @@ import {
   IconAlertTriangle,
   IconNote,
   IconFile,
-  IconCheckbox
+  IconCheckbox,
+  IconCalendar,
+  IconProgress
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { todosService, Project, Todo } from '../services/todosService';
@@ -54,6 +59,19 @@ export function ProjectDashboardPage() {
   const exclusiveTodos = todos.filter(t => t.isExclusiveMode);
   const linkedTodos = todos.filter(t => !t.isExclusiveMode);
 
+  const todoCounts = useMemo(() => {
+    const byStatus: any = { done: 0, in_progress: 0, pending: 0, blocked: 0, cancelled: 0 };
+    for (const t of todos) {
+      const k = t.status as keyof typeof byStatus;
+      byStatus[k] = (byStatus[k] ?? 0) + 1;
+    }
+    return {
+      ...byStatus,
+      total: todos.length,
+      completedPct: project?.todo_count ? (project.completed_count / project.todo_count) * 100 : 0,
+    };
+  }, [todos, project?.todo_count, project?.completed_count]);
+
   useAuthenticatedEffect(() => {
     if (projectId) {
       loadProjectData();
@@ -77,13 +95,13 @@ export function ProjectDashboardPage() {
 
       // Filter items by project (temporary solution until services support UUID filtering)
       const filteredNotes = notesData.filter(note =>
-        note.projects?.some(p => p.id === projectData.id)
+        note.projects?.some(p => p.uuid === projectData.uuid)
       );
       const filteredDocs = docsData.filter(doc =>
-        doc.projects?.some(p => p.id === projectData.id)
+        doc.projects?.some(p => p.uuid === projectData.uuid)
       );
       const filteredTodos = todosData.filter(todo =>
-        todo.projects?.some(p => p.id === projectData.id)
+        todo.projects?.some(p => p.uuid === projectData.uuid)
       );
 
       setNotes(filteredNotes);
@@ -243,28 +261,188 @@ export function ProjectDashboardPage() {
           </Group>
         </Group>
 
-        {/* Stats */}
-        <Group gap="md">
-          <Paper p="md" withBorder style={{ flex: 1 }}>
+        {/* Stats with Visual Progress */}
+        <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }} spacing="md">
+          <Paper p="md" withBorder>
             <Stack gap={4}>
               <Text size="xs" c="dimmed">Total Tasks</Text>
               <Text size="xl" fw={700}>{project.todo_count}</Text>
             </Stack>
           </Paper>
-          <Paper p="md" withBorder style={{ flex: 1 }}>
+          <Paper p="md" withBorder>
             <Stack gap={4}>
               <Text size="xs" c="dimmed">Completed</Text>
               <Text size="xl" fw={700} c="green">{project.completed_count}</Text>
             </Stack>
           </Paper>
-          <Paper p="md" withBorder style={{ flex: 1 }}>
+          <Paper p="md" withBorder>
             <Stack gap={4}>
-              <Text size="xs" c="dimmed">Progress</Text>
+              <Text size="xs" c="dimmed">In Progress</Text>
               <Text size="xl" fw={700} c="blue">
-                {project.todo_count > 0 ? Math.round((project.completed_count / project.todo_count) * 100) : 0}%
+                {todos.filter(t => t.status === 'in_progress').length}
               </Text>
             </Stack>
           </Paper>
+          <Paper p="md" withBorder>
+            <Stack gap={4}>
+              <Text size="xs" c="dimmed">Blocked</Text>
+              <Text size="xl" fw={700} c="red">
+                {todos.filter(t => t.status === 'blocked').length}
+              </Text>
+            </Stack>
+          </Paper>
+        </SimpleGrid>
+
+        {/* Visual Progress Indicator */}
+        <Paper p="lg" withBorder>
+          <Stack gap="md">
+            <Group justify="space-between">
+              <Text fw={600} size="lg">Overall Progress</Text>
+              <Text size="xl" fw={700} c="blue">{Math.round(todoCounts.completedPct)}%</Text>
+            </Group>
+            <Progress
+              value={todoCounts.completedPct}
+              size="xl"
+              radius="md"
+              color="blue"
+              animated
+            />
+            <Group gap="xl" justify="center">
+              <Stack gap={2} align="center">
+                <Text size="xs" c="dimmed">Completed</Text>
+                <Badge color="green" variant="filled" size="lg">
+                  {project.completed_count}
+                </Badge>
+              </Stack>
+              <Stack gap={2} align="center">
+                <Text size="xs" c="dimmed">Remaining</Text>
+                <Badge color="gray" variant="filled" size="lg">
+                  {project.todo_count - project.completed_count}
+                </Badge>
+              </Stack>
+              <Stack gap={2} align="center">
+                <Text size="xs" c="dimmed">Total</Text>
+                <Badge color="blue" variant="filled" size="lg">
+                  {project.todo_count}
+                </Badge>
+              </Stack>
+            </Group>
+          </Stack>
+        </Paper>
+
+        {/* Todo Status Breakdown */}
+        <Paper p="lg" withBorder>
+          <Stack gap="md">
+            <Text fw={600} size="lg">Task Status Breakdown</Text>
+            <Group justify="center">
+              <RingProgress
+                size={200}
+                thickness={24}
+                sections={[
+                  { value: project.todo_count > 0 ? (todoCounts.done / project.todo_count) * 100 : 0, color: 'green', tooltip: `Done: ${todoCounts.done}` },
+                  { value: project.todo_count > 0 ? (todoCounts.in_progress / project.todo_count) * 100 : 0, color: 'blue', tooltip: `In Progress: ${todoCounts.in_progress}` },
+                  { value: project.todo_count > 0 ? (todoCounts.pending / project.todo_count) * 100 : 0, color: 'yellow', tooltip: `Pending: ${todoCounts.pending}` },
+                  { value: project.todo_count > 0 ? (todoCounts.blocked / project.todo_count) * 100 : 0, color: 'red', tooltip: `Blocked: ${todoCounts.blocked}` },
+                  { value: project.todo_count > 0 ? (todoCounts.cancelled / project.todo_count) * 100 : 0, color: 'gray', tooltip: `Cancelled: ${todoCounts.cancelled}` },
+                ]}
+                label={
+                  <div style={{ textAlign: 'center' }}>
+                    <Text size="xl" fw={700}>{project.todo_count}</Text>
+                    <Text size="xs" c="dimmed">Total Tasks</Text>
+                  </div>
+                }
+              />
+            </Group>
+            <SimpleGrid cols={{ base: 2, sm: 3, md: 5 }} spacing="xs">
+              <Paper p="sm" withBorder style={{ backgroundColor: 'var(--mantine-color-green-0)' }}>
+                <Stack gap={2} align="center">
+                  <Badge color="green" size="lg">{todoCounts.done}</Badge>
+                  <Text size="xs" c="dimmed">Done</Text>
+                </Stack>
+              </Paper>
+              <Paper p="sm" withBorder style={{ backgroundColor: 'var(--mantine-color-blue-0)' }}>
+                <Stack gap={2} align="center">
+                  <Badge color="blue" size="lg">{todoCounts.in_progress}</Badge>
+                  <Text size="xs" c="dimmed">In Progress</Text>
+                </Stack>
+              </Paper>
+              <Paper p="sm" withBorder style={{ backgroundColor: 'var(--mantine-color-yellow-0)' }}>
+                <Stack gap={2} align="center">
+                  <Badge color="yellow" size="lg">{todoCounts.pending}</Badge>
+                  <Text size="xs" c="dimmed">Pending</Text>
+                </Stack>
+              </Paper>
+              <Paper p="sm" withBorder style={{ backgroundColor: 'var(--mantine-color-red-0)' }}>
+                <Stack gap={2} align="center">
+                  <Badge color="red" size="lg">{todoCounts.blocked}</Badge>
+                  <Text size="xs" c="dimmed">Blocked</Text>
+                </Stack>
+              </Paper>
+              <Paper p="sm" withBorder style={{ backgroundColor: 'var(--mantine-color-gray-0)' }}>
+                <Stack gap={2} align="center">
+                  <Badge color="gray" size="lg">{todoCounts.cancelled}</Badge>
+                  <Text size="xs" c="dimmed">Cancelled</Text>
+                </Stack>
+              </Paper>
+            </SimpleGrid>
+          </Stack>
+        </Paper>
+
+        {/* NEW: Project Details */}
+        <Group gap="md">
+          {/* Project Status */}
+          {project.status && (
+            <Paper p="md" withBorder style={{ flex: 1 }}>
+              <Stack gap={4}>
+                <Group gap="xs">
+                  <IconProgress size={16} />
+                  <Text size="xs" c="dimmed">Status</Text>
+                </Group>
+                <Badge 
+                  color={
+                    project.status === 'active' ? 'green' :
+                    project.status === 'on_hold' ? 'yellow' :
+                    project.status === 'completed' ? 'blue' :
+                    project.status === 'cancelled' ? 'red' : 'gray'
+                  }
+                  variant="light"
+                >
+                  {project.status.replace('_', ' ').toUpperCase()}
+                </Badge>
+              </Stack>
+            </Paper>
+          )}
+
+          {/* Project Timeline */}
+          {(project.start_date || project.end_date) && (
+            <Paper p="md" withBorder style={{ flex: 1 }}>
+              <Stack gap={4}>
+                <Group gap="xs">
+                  <IconCalendar size={16} />
+                  <Text size="xs" c="dimmed">Timeline</Text>
+                </Group>
+                <Text size="sm">
+                  {project.start_date && `Start: ${new Date(project.start_date).toLocaleDateString()}`}
+                  {project.start_date && project.end_date && ' • '}
+                  {project.end_date && `End: ${new Date(project.end_date).toLocaleDateString()}`}
+                </Text>
+              </Stack>
+            </Paper>
+          )}
+
+          {/* Project Progress Percentage */}
+          {project.progress_percentage !== undefined && (
+            <Paper p="md" withBorder style={{ flex: 1 }}>
+              <Stack gap={4}>
+                <Group gap="xs">
+                  <IconProgress size={16} />
+                  <Text size="xs" c="dimmed">Overall Progress</Text>
+                </Group>
+                <Text size="xl" fw={700} c="blue">{project.progress_percentage}%</Text>
+              </Stack>
+            </Paper>
+          )}
+
         </Group>
 
         {/* Exclusive Items Warning */}

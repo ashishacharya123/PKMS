@@ -17,6 +17,7 @@ class DashboardStats(CamelCaseModel):
     todos: Dict[str, int]
     diary: Dict[str, int]
     archive: Dict[str, int]
+    projects: Dict[str, int] = Field(default_factory=dict)  # Added: active projects count
     last_updated: datetime
 
 class ModuleActivity(CamelCaseModel):
@@ -34,3 +35,4 @@ class QuickStats(CamelCaseModel):
     overdue_todos: int
     current_diary_streak: int
     storage_used_mb: float
+    storage_by_module: Dict[str, float] = Field(default_factory=dict)

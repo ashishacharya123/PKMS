@@ -9,7 +9,7 @@ import { coreDownloadService, DownloadProgress } from './shared/coreDownloadServ
 // Removed SMALL_FILE_THRESHOLD since we're using chunked upload consistently
 
 export interface ProjectBadge {
-  id: number | null;  // null if project is deleted
+  uuid: string | null;  // null if project is deleted (snapshot)
   name: string;
   color: string;
   isExclusive: boolean;
@@ -29,6 +29,12 @@ export interface Note {
   updated_at: string;
   tags: string[];
   projects: ProjectBadge[];
+  
+  // Additional metadata fields
+  /** Type/category of the note (e.g., 'meeting', 'idea', 'task') */
+  note_type?: string;
+  /** Version number for note content tracking */
+  version?: number;
 }
 
 export interface NoteSummary {
@@ -44,6 +50,10 @@ export interface NoteSummary {
   tags: string[];
   preview: string;
   projects: ProjectBadge[];
+  
+  // NEW: Additional fields
+  note_type?: string;
+  version?: number;
 }
 
 export interface NoteFile {
@@ -61,7 +71,7 @@ export interface CreateNoteRequest {
   title: string;
   content: string;
   tags?: string[];
-  projectIds?: number[];
+  projectIds?: string[];
   isExclusiveMode?: boolean;
 }
 
@@ -71,7 +81,7 @@ export interface UpdateNoteRequest {
   tags?: string[];
   is_archived?: boolean;
   is_favorite?: boolean;
-  projectIds?: number[];
+  projectIds?: string[];
   isExclusiveMode?: boolean;
 }
 

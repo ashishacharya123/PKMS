@@ -4,7 +4,7 @@ import { IconLock, IconLink, IconTrash } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 
 export interface ProjectBadge {
-  id: number | null;
+  uuid: string | null;
   name: string;
   color: string;
   isExclusive: boolean;
@@ -30,9 +30,9 @@ export const ProjectBadges: React.FC<ProjectBadgesProps> = ({
     return null;
   }
 
-  const handleBadgeClick = (projectId: number | null) => {
-    if (clickable && projectId != null) {  // Explicit null/undefined check (allows 0)
-      navigate(`/projects/${projectId}`);
+  const handleBadgeClick = (projectUuid: string | null) => {
+    if (clickable && projectUuid) {
+      navigate(`/projects/${projectUuid}`);
     }
   };
 
@@ -42,11 +42,11 @@ export const ProjectBadges: React.FC<ProjectBadgesProps> = ({
   return (
     <Group gap="xs">
       {visibleProjects.map((project, index) => {
-        const isClickable = clickable && !project.isDeleted && project.id;
+        const isClickable = clickable && !project.isDeleted && project.uuid;
         
         return (
           <Tooltip
-            key={`${project.id || 'deleted'}-${index}`}
+            key={`${project.uuid || 'deleted'}-${index}`}
             label={
               <div>
                 <Text size="xs" fw={600}>{project.name}</Text>
@@ -71,7 +71,7 @@ export const ProjectBadges: React.FC<ProjectBadgesProps> = ({
                 cursor: isClickable ? 'pointer' : 'default',
                 opacity: project.isDeleted ? 0.6 : 1
               }}
-              onClick={() => handleBadgeClick(project.id)}
+              onClick={() => handleBadgeClick(project.uuid)}
               leftSection={
                 project.isDeleted ? (
                   <IconTrash size={12} />
@@ -94,7 +94,7 @@ export const ProjectBadges: React.FC<ProjectBadgesProps> = ({
             <div>
               <Text size="xs" fw={600}>Additional Projects</Text>
               {projects.slice(maxVisible).map((p, idx) => (
-                <Text key={`${p.id || 'deleted'}-${idx}`} size="xs">
+                <Text key={`${p.uuid || 'deleted'}-${idx}`} size="xs">
                   • {p.name}
                 </Text>
               ))}

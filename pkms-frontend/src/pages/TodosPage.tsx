@@ -34,6 +34,7 @@ import { MultiProjectSelector } from '../components/common/MultiProjectSelector'
 import { ProjectBadges } from '../components/common/ProjectBadges';
 import { SubtaskList } from '../components/todos/SubtaskList';
 import { useViewPreferences } from '../hooks/useViewPreferences';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import {
   IconPlus,
   IconSearch,
@@ -138,8 +139,8 @@ export function TodosPage() {
   const [todoForm, setTodoForm] = useState({
     title: '',
     description: '',
-    project_id: null as number | null,
-    projectIds: [] as number[],
+    project_id: null as string | null,
+    projectIds: [] as string[],
     isExclusive: false,
     start_date: '',
     due_date: '',
@@ -162,7 +163,7 @@ export function TodosPage() {
   const [projectUploadTagSuggestions, setProjectUploadTagSuggestions] = useState<string[]>([]);
   const [projectUploadProgress, setProjectUploadProgress] = useState<number>(0);
   const [isProjectUploading, setIsProjectUploading] = useState<boolean>(false);
-  const [selectedProjectIdForUpload, setSelectedProjectIdForUpload] = useState<number | null>(null);
+  const [selectedProjectIdForUpload, setSelectedProjectIdForUpload] = useState<string | null>(null);
 
   // Store state
   const {
@@ -196,6 +197,20 @@ export function TodosPage() {
     updateTodoWithSubtasks,
     clearError
   } = useTodosStore();
+
+  // Keyboard shortcuts: favorites/archive toggles, focus search, refresh
+  useKeyboardShortcuts({
+    shortcuts: [
+      { key: '/', action: () => {
+          const input = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement | null;
+          input?.focus();
+        }, description: 'Focus search', category: 'Navigation' },
+      { key: 'r', action: () => { loadTodos(); loadProjects(); loadStats(); }, description: 'Refresh todos', category: 'General' },
+      { key: '?', ctrl: true, action: () => { /* help handled by hook notification if enabled elsewhere */ }, description: 'Show shortcuts', category: 'Help' },
+    ],
+    enabled: true,
+    showNotifications: false,
+  });
 
   // Load data on mount - wait for authentication
   useAuthenticatedEffect(() => {
@@ -316,7 +331,8 @@ export function TodosPage() {
       ...todoForm,
       due_date: todoForm.due_date || undefined,
       tags: todoForm.tags,
-      project_id: todoForm.project_id === null ? undefined : todoForm.project_id,
+      // Force legacy single project_id to be omitted; use projectIds (UUIDs) only
+      project_id: undefined,
       projectIds: todoForm.projectIds.length > 0 ? todoForm.projectIds : undefined,
       isExclusiveMode: todoForm.projectIds.length > 0 ? todoForm.isExclusive : undefined
     });
@@ -504,7 +520,7 @@ export function TodosPage() {
                 title: todo.title,
                 description: (todo as any).description || '',
                 project_id: (todo as any).project_id || null,
-                projectIds: (todo as any).projects?.map((p: any) => p.id) || [],
+                projectIds: (todo as any).projects?.map((p: any) => p.uuid) || [],
                 isExclusive: (todo as any).isExclusiveMode ?? (todo as any).is_exclusive_mode ?? false,
                 start_date: todo.start_date || '',
                 due_date: todo.due_date || '',
@@ -513,12 +529,12 @@ export function TodosPage() {
               });
               setTodoModalOpen(true);
             }}
-            onTodoDelete={(todoId: number, title: string) => {
-              const t = paginatedTodos.find(x => x.id === todoId);
+            onTodoDelete={(todoUuid: string, title: string) => {
+              const t = paginatedTodos.find(x => x.uuid === todoUuid);
               if (t) handleDeleteTodo((t as any).uuid, title);
             }}
-            onTodoArchive={(todoId: number) => {
-              const t = paginatedTodos.find(x => x.id === todoId);
+            onTodoArchive={(todoUuid: string) => {
+              const t = paginatedTodos.find(x => x.uuid === todoUuid);
               if (t) (t as any).is_archived ? unarchiveTodo((t as any).uuid) : archiveTodo((t as any).uuid);
             }}
           />
@@ -534,7 +550,7 @@ export function TodosPage() {
                 title: todo.title,
                 description: (todo as any).description || '',
                 project_id: (todo as any).project_id || null,
-                projectIds: (todo as any).projects?.map((p: any) => p.id) || [],
+                projectIds: (todo as any).projects?.map((p: any) => p.uuid) || [],
                 isExclusive: (todo as any).isExclusiveMode ?? (todo as any).is_exclusive_mode ?? false,
                 start_date: todo.start_date || '',
                 due_date: todo.due_date || '',
@@ -543,12 +559,12 @@ export function TodosPage() {
               });
               setTodoModalOpen(true);
             }}
-            onTodoDelete={(todoId: number, title: string) => {
-              const t = paginatedTodos.find(x => x.id === todoId);
+            onTodoDelete={(todoUuid: string, title: string) => {
+              const t = paginatedTodos.find(x => x.uuid === todoUuid);
               if (t) handleDeleteTodo((t as any).uuid, title);
             }}
-            onTodoArchive={(todoId: number) => {
-              const t = paginatedTodos.find(x => x.id === todoId);
+            onTodoArchive={(todoUuid: string) => {
+              const t = paginatedTodos.find(x => x.uuid === todoUuid);
               if (t) (t as any).is_archived ? unarchiveTodo((t as any).uuid) : archiveTodo((t as any).uuid);
             }}
           />
@@ -558,7 +574,7 @@ export function TodosPage() {
       default:
         return (
           <ViewModeLayouts
-            items={paginatedTodos.map(todo => ({...todo, id: todo.id})) as any[]}
+            items={paginatedTodos.map(todo => ({...todo, id: todo.uuid})) as any[]}
             viewMode={viewMode as any}
             isLoading={isLoading}
             emptyMessage={
@@ -573,7 +589,7 @@ export function TodosPage() {
                 title: todo.title,
                 description: todo.description || '',
                 project_id: todo.project_id,
-                projectIds: todo.projects?.map((p: any) => p.id) || [],
+                projectIds: todo.projects?.map((p: any) => p.uuid) || [],
                 isExclusive: todo.isExclusiveMode ?? todo.is_exclusive_mode ?? false,
                 start_date: todo.start_date || '',
                 due_date: todo.due_date || '',
@@ -736,12 +752,12 @@ export function TodosPage() {
                       leftSection={<IconPlus size={14} />}
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleAddSubtask(todo.id);
+                        handleAddSubtask(todo.uuid);
                       }}
                     >
                       Add Subtask
                     </Menu.Item>
-                    {todo.status !== 'completed' && (
+                    {todo.status !== 'done' && (
                       <Menu.Item 
                         leftSection={<IconCheck size={14} />}
                     onClick={(e) => {
@@ -782,7 +798,7 @@ export function TodosPage() {
                 onSubtaskComplete={handleSubtaskComplete}
                 onSubtaskEdit={handleSubtaskEdit}
                 onSubtaskDelete={handleSubtaskDelete}
-                onAddSubtask={() => handleAddSubtask(todo.id)}
+                onAddSubtask={() => handleAddSubtask(todo.uuid)}
               />
             </Stack>
             )}
@@ -790,7 +806,7 @@ export function TodosPage() {
               <Group key="title" gap="xs">
                 <Checkbox
                   checked={todo.status === 'done'}
-                  onChange={() => handleCompleteTodo(todo.id)}
+                  onChange={() => handleCompleteTodo(todo.uuid)}
                   disabled={todo.status === 'done'}
                   size="sm"
                 />
@@ -810,7 +826,7 @@ export function TodosPage() {
                        title: todo.title,
                        description: '',
                        project_id: todo.project_id,
-                       projectIds: todo.projects?.map((p: any) => p.id) || [],
+                       projectIds: todo.projects?.map((p: any) => p.uuid) || [],
                        isExclusive: todo.isExclusiveMode ?? todo.is_exclusive_mode ?? false,
                        start_date: '',
                        due_date: todo.due_date || '',
@@ -878,14 +894,14 @@ export function TodosPage() {
                 <Menu.Dropdown>
                   <Menu.Item 
                     leftSection={<IconEdit size={14} />}
-                    onClick={(e) => {
+                      onClick={(e) => {
                       e.stopPropagation();
                       setEditingTodo(todo);
                       setTodoForm({
                         title: todo.title,
                         description: '',
                         project_id: todo.project_id,
-                        projectIds: todo.projects?.map((p: any) => p.id) || [],
+                        projectIds: todo.projects?.map((p: any) => p.uuid) || [],
                         isExclusive: todo.isExclusiveMode ?? todo.is_exclusive_mode ?? false,
                         start_date: '',
                         due_date: todo.due_date || '',
@@ -897,7 +913,7 @@ export function TodosPage() {
                   >
                     Edit
                   </Menu.Item>
-                  {todo.status !== 'completed' && (
+                  {todo.status !== 'done' && (
                     <Menu.Item 
                       leftSection={<IconCheck size={14} />}
                       onClick={(e) => {
@@ -1022,7 +1038,7 @@ export function TodosPage() {
       title: subtask.title,
       description: (subtask as any).description || '',
       project_id: (subtask as any).project_id,
-      projectIds: (subtask as any).projects?.map((p: any) => p.id) || [],
+      projectIds: (subtask as any).projects?.map((p: any) => p.uuid) || [],
       isExclusive: (subtask as any).isExclusiveMode ?? (subtask as any).is_exclusive_mode ?? false,
       start_date: (subtask as any).start_date || '',
       due_date: (subtask as any).due_date || '',
@@ -1032,7 +1048,7 @@ export function TodosPage() {
     setTodoModalOpen(true);
   };
 
-  const handleAddSubtask = (parentId: number) => {
+  const handleAddSubtask = (parentId: string) => {
     setEditingTodo({
       id: 0,
       title: '',
@@ -1140,12 +1156,12 @@ export function TodosPage() {
                 
                 {(projects || []).map((project) => (
                   <Button
-                    key={project.id}
-                    variant={currentProjectId === project.id ? 'filled' : 'subtle'}
+                    key={project.uuid}
+                    variant={currentProjectId === project.uuid ? 'filled' : 'subtle'}
                     size="xs"
                     justify="space-between"
                     fullWidth
-                    onClick={() => setProjectFilter(project.id)}
+                    onClick={() => setProjectFilter(project.uuid)}
                   >
                     <Group gap="xs">
                       <div
@@ -1168,7 +1184,7 @@ export function TodosPage() {
                   leftSection={<IconUpload size={14} />}
                   size="xs"
                   variant="light"
-                  onClick={() => { setSelectedProjectIdForUpload(currentProjectId || null); setProjectUploadModalOpen(true); }}
+              onClick={() => { setSelectedProjectIdForUpload(currentProjectId); setProjectUploadModalOpen(true); }}
                   disabled={!currentProjectId}
                   fullWidth
                 >
@@ -1386,12 +1402,12 @@ export function TodosPage() {
               placeholder="Select project"
               data={[
                 { value: '', label: 'No Project' },
-                                            ...(projects || []).map(p => ({ value: p.id.toString(), label: p.name }))
+                ...(projects || []).map(p => ({ value: p.uuid, label: p.name }))
               ]}
-              value={todoForm.project_id?.toString() || ''}
+              value={todoForm.project_id || ''}
               onChange={(value) => setTodoForm({ 
                 ...todoForm, 
-                project_id: value ? parseInt(value) : null 
+                project_id: value ? value : null 
               })}
             />
             
@@ -1535,12 +1551,12 @@ export function TodosPage() {
         size="md"
       >
         <Stack gap="md">
-          <Select
+            <Select
             label="Project"
             placeholder="Select project"
-            data={[...(projects || []).map(p => ({ value: p.id.toString(), label: p.name }))]}
-            value={selectedProjectIdForUpload ? String(selectedProjectIdForUpload) : ''}
-            onChange={(value) => setSelectedProjectIdForUpload(value ? parseInt(value) : null)}
+              data={[...(projects || []).map(p => ({ value: p.uuid, label: p.name }))]}
+              value={selectedProjectIdForUpload ? selectedProjectIdForUpload : ''}
+              onChange={(value) => setSelectedProjectIdForUpload(value ? value : null)}
             required
           />
           <FileInput

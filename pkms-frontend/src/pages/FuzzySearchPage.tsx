@@ -32,17 +32,32 @@ import {
 } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
+// Lightweight sanitizer to preserve <mark> and strip other tags/attributes
+const sanitizeHighlight = (html: string): string => {
+  if (!html) return '';
+  // Remove script/style tags entirely
+  html = html.replace(/<\/(?:script|style)>/gi, '').replace(/<(?:script|style)[^>]*>[\s\S]*?<\/(?:script|style)>/gi, '');
+  // Remove event handlers and javascript: URLs
+  html = html.replace(/ on[a-z]+\s*=\s*"[^"]*"/gi, '')
+             .replace(/ on[a-z]+\s*=\s*'[^']*'/gi, '')
+             .replace(/ on[a-z]+\s*=\s*[^\s>]+/gi, '')
+             .replace(/javascript:\s*/gi, '');
+  // Strip all tags except <mark>
+  html = html.replace(/<(?!\/?mark(?=>|\s))[^>]+>/gi, '');
+  return html;
+};
 
 // Types
 interface SearchResult {
   type: string;
   module: string;
-  id?: number;
-  uuid?: string;
+  uuid: string;
   title?: string;
   name?: string;
   content?: string;
   description?: string;
+  highlight?: string;
+  highlight_title?: string;
   tags: string[];
   created_at: string;
   updated_at: string;
@@ -147,7 +162,7 @@ export default function FuzzySearchPage() {
           notes: 'note',
           documents: 'document',
           todos: 'todo',
-          // diary: 'diary', // ❌ SECURITY: Diary search removed from global search
+          folders: 'folder',
           archive: 'archive'
         };
         const mappedModules = selectedModules
@@ -506,7 +521,7 @@ export default function FuzzySearchPage() {
 
             <Stack gap="sm">
               {results.map((result, index) => (
-                <Card key={`${result.module}-${result.id || result.uuid}-${index}`} withBorder padding="md">
+                <Card key={`${result.module}-${result.uuid}-${index}`} withBorder padding="md">
                   <Group justify="space-between" align="flex-start">
                     <div style={{ flex: 1 }}>
                       <Group gap="xs" mb="xs">
@@ -548,12 +563,12 @@ export default function FuzzySearchPage() {
                       </Group>
                       
                       <Text fw={500} size="sm" mb={4}>
-                        {result.title || result.name}
+                        <span dangerouslySetInnerHTML={{ __html: sanitizeHighlight(result.highlight_title || result.title || result.name || '') }} />
                       </Text>
                       
-                      {(result.content || result.description) && (
+                      {(result.highlight || result.content || result.description) && (
                         <Text size="xs" c="dimmed" lineClamp={2}>
-                          {result.content || result.description}
+                          <span dangerouslySetInnerHTML={{ __html: sanitizeHighlight(result.highlight || result.content || result.description || '') }} />
                         </Text>
                       )}
 

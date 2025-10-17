@@ -57,7 +57,7 @@ async def setup_user(
     Everything is set up in one go - no more first_login complexity!
     """
     # Check if any user already exists (use COUNT to avoid MultipleResultsFound)
-    user_count = await db.scalar(select(func.count(User.id)))
+    user_count = await db.scalar(select(func.count(User.uuid)))
     if user_count and user_count > 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -108,7 +108,7 @@ async def setup_user(
     key_hash, key_salt = hash_recovery_key(recovery_key)
     
     recovery_record = RecoveryKey(
-        user_id=user.id,
+        user_uuid=user.uuid,
         key_hash=key_hash,
         questions_json=json.dumps(user_data.recovery_questions),
         answers_hash=answers_hash,
@@ -120,7 +120,7 @@ async def setup_user(
     session_token = generate_session_token()
     session = Session(
         session_token=session_token,
-        user_id=user.id,
+        user_uuid=user.uuid,
         expires_at=datetime.now(NEPAL_TZ) + timedelta(days=7),
         ip_address=None,
         user_agent="internal-setup"
@@ -129,7 +129,7 @@ async def setup_user(
     await db.commit()
 
     # Create JWT access token
-    access_token = create_access_token(data={"sub": str(user.id)})
+    access_token = create_access_token(data={"sub": str(user.uuid)})
 
     # Set access token in HttpOnly cookie (XSS protection)
     response.set_cookie(
@@ -154,7 +154,7 @@ async def setup_user(
     return TokenResponse(
         access_token=access_token,  # Still return in body for backward compatibility during transition
         expires_in=settings.access_token_expire_minutes * 60,
-        user_id=user.id,
+        user_uuid=user.uuid,
         username=user.username
     )
 
@@ -177,7 +177,7 @@ async def login(
     
     if not user:
         # Check if system has ANY users for proper error message
-        user_count = await db.scalar(select(func.count(User.id)))
+        user_count = await db.scalar(select(func.count(User.uuid)))
         if user_count == 0:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -202,7 +202,7 @@ async def login(
         )
     
     # Create access token
-    token_data = {"sub": str(user.id), "username": user.username}
+    token_data = {"sub": str(user.uuid), "username": user.username}
     access_token = create_access_token(token_data)
     
     # Create or update session
@@ -211,13 +211,13 @@ async def login(
     
     # Clean up old sessions for this user
     await db.execute(
-        delete(Session).where(Session.user_id == user.id)
+        delete(Session).where(Session.user_uuid == user.uuid)
     )
     
     # Create new session
     session = Session(
         session_token=session_token,
-        user_id=user.id,
+        user_uuid=user.uuid,
         expires_at=expires_at,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent", "")[:500]
@@ -253,7 +253,7 @@ async def login(
         access_token=access_token,  # Still return in body for backward compatibility during transition
         token_type="bearer",
         expires_in=settings.access_token_expire_minutes * 60,
-        user_id=user.id,
+        user_uuid=user.uuid,
         username=user.username
     )
 
@@ -271,7 +271,7 @@ async def logout(
     try:
         # Clear diary session (in-memory) on logout for safety
         from app.routers.diary import _clear_diary_session
-        _clear_diary_session(current_user.id)
+        await _clear_diary_session(current_user.uuid)
         
         # Delete session from database (only current user's session)
         if session_token:
@@ -279,13 +279,13 @@ async def logout(
                 delete(Session).where(
                     and_(
                         Session.session_token == session_token,
-                        Session.user_id == current_user.id
+                        Session.user_uuid == current_user.uuid
                     )
                 )
             )
             await db.commit()
     except Exception as e:
-        logger.warning(f"Logout cleanup failed for user {current_user.id}: {e}")
+        logger.warning(f"Logout cleanup failed for user {current_user.uuid}: {e}")
     
     # Clear cookies
     response.delete_cookie(key="pkms_token", samesite="strict")
@@ -324,7 +324,7 @@ async def get_recovery_questions(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
     recovery_key_res = await db.execute(
-        select(RecoveryKey).where(RecoveryKey.user_id == user.id)
+        select(RecoveryKey).where(RecoveryKey.user_uuid == user.uuid)
     )
     recovery_key = recovery_key_res.scalar_one_or_none()
 
@@ -338,7 +338,7 @@ async def get_recovery_questions(
         questions = json.loads(recovery_key.questions_json)
         return {"questions": questions}
     except json.JSONDecodeError:
-        logger.error(f"Failed to parse recovery questions for user {user.id}")
+        logger.error(f"Failed to parse recovery questions for user {user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Could not retrieve recovery questions."
@@ -367,7 +367,7 @@ async def reset_password(
         user = user_res.scalar_one_or_none()
     else:
         # Count users instead of loading all
-        user_count = await db.scalar(select(func.count(User.id)))
+        user_count = await db.scalar(select(func.count(User.uuid)))
         if user_count == 1:
             # Get the single user
             user_res = await db.execute(select(User).limit(1))
@@ -382,7 +382,7 @@ async def reset_password(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
     # Get recovery key for this user
-    result = await db.execute(select(RecoveryKey).where(RecoveryKey.user_id == user.id))
+    result = await db.execute(select(RecoveryKey).where(RecoveryKey.user_uuid == user.uuid))
     recovery_record = result.scalar_one_or_none()
 
     if not recovery_record:
@@ -488,13 +488,13 @@ async def refresh_access_token(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
 
         # Get user
-        result = await db.execute(select(User).where(User.id == session.user_id))
+        result = await db.execute(select(User).where(User.uuid == session.user_uuid))
         user = result.scalar_one_or_none()
         if not user or not user.is_active:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account disabled")
 
         # Issue new access token
-        access_token = create_access_token(data={"sub": str(user.id)})
+        access_token = create_access_token(data={"sub": str(user.uuid)})
 
         # SECURITY: Invalidate the used refresh token to prevent replay attacks
         # Generate new session token to prevent session fixation
@@ -527,9 +527,8 @@ async def refresh_access_token(
         )
 
         # Set new refresh cookie with new token
-        from datetime import datetime, timezone
-        # Use the timezone-aware expires_at we already processed
-        remaining = int((expires_at - now).total_seconds()) if expires_at else settings.refresh_token_lifetime_days * 24 * 60 * 60
+        # Use the updated session.expires_at
+        remaining = int((session.expires_at - now).total_seconds()) if session.expires_at else settings.refresh_token_lifetime_days * 24 * 60 * 60
         response.set_cookie(
             key="pkms_refresh",
             value=new_session_token,
@@ -542,7 +541,7 @@ async def refresh_access_token(
         return TokenResponse(
             access_token=access_token,
             expires_in=settings.access_token_expire_minutes * 60,
-            user_id=user.id,
+            user_uuid=user.uuid,
             username=user.username
         )
     except HTTPException:

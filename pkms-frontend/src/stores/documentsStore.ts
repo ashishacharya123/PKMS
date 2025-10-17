@@ -29,7 +29,7 @@ interface DocumentsState {
   showArchived: boolean;
   showFavoritesOnly: boolean;
   showProjectOnly: boolean;
-  currentProjectId: number | null;
+  currentProjectId: string | null;
   
   // Pagination
   limit: number;
@@ -40,7 +40,7 @@ interface DocumentsState {
   loadDocuments: () => Promise<void>;
   loadMore: () => Promise<void>;
   loadDocument: (uuid: string) => Promise<void>;
-  uploadDocument: (file: File, tags?: string[], projectIds?: number[], isExclusive?: boolean) => Promise<Document | null>;
+  uploadDocument: (file: File, tags?: string[], projectIds?: string[], isExclusive?: boolean) => Promise<Document | null>;
   updateDocument: (uuid: string, data: UpdateDocumentRequest) => Promise<Document | null>;
   deleteDocument: (uuid: string) => Promise<boolean>;
   toggleArchive: (uuid: string, archived: boolean) => Promise<Document | null>;
@@ -62,7 +62,7 @@ interface DocumentsState {
   setShowArchived: (show: boolean) => void;
   setShowFavoritesOnly: (show: boolean) => void;
   setShowProjectOnly: (show: boolean) => void;
-  setCurrentProjectId: (id: number | null) => void;
+  setCurrentProjectId: (id: string | null) => void;
   
   // UI Actions
   clearError: () => void;
@@ -109,7 +109,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         search: state.searchQuery || undefined,
         archived: state.showArchived,
         is_favorite: state.showFavoritesOnly || undefined,
-        project_id: state.currentProjectId || undefined,
+        project_uuid: state.currentProjectId || undefined,
         // Fixed: Don't send conflicting filters
         // - If showProjectOnly is true: send project_only=true (show only docs WITH projects)
         // - If showProjectOnly is false: send nothing (show ALL docs, both with and without projects)
@@ -148,7 +148,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         search: state.searchQuery || undefined,
         archived: state.showArchived,
         is_favorite: state.showFavoritesOnly || undefined,
-        project_id: state.currentProjectId || undefined,
+        project_uuid: state.currentProjectId || undefined,
         project_only: state.showProjectOnly || undefined,
         // REMOVED: unassigned_only - was backwards logic causing uploaded docs to be hidden
         limit: state.limit,
@@ -185,7 +185,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     }
   },
   
-  uploadDocument: async (file: File, tags: string[] = [], projectIds: number[] = [], isExclusive: boolean = false) => {
+  uploadDocument: async (file: File, tags: string[] = [], projectIds: string[] = [], isExclusive: boolean = false) => {
     set({ isUploading: true, error: null, uploadProgress: 0 });
     
     try {
@@ -290,7 +290,6 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         description: updatedDocument.description,
         is_favorite: updatedDocument.is_favorite,
         is_archived: updatedDocument.is_archived,
-        archive_item_uuid: updatedDocument.archive_item_uuid,
         upload_status: updatedDocument.upload_status,
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
@@ -360,7 +359,6 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         description: updatedDocument.description,
         is_favorite: updatedDocument.is_favorite,
         is_archived: updatedDocument.is_archived,
-        archive_item_uuid: updatedDocument.archive_item_uuid,
         upload_status: updatedDocument.upload_status,
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
@@ -539,7 +537,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     get().loadDocuments();
   },
 
-  setCurrentProjectId: (id: number | null) => {
+  setCurrentProjectId: (id: string | null) => {
     set({ currentProjectId: id });
     get().loadDocuments();
   },

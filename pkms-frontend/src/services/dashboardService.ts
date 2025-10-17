@@ -12,8 +12,14 @@ export interface DashboardStats {
   todos: {
     total: number;
     pending: number;
-    completed: number;
+    in_progress?: number;  // Status-based count
+    blocked?: number;     // Status-based count
+    done?: number;        // Status-based count
+    cancelled?: number;   // Status-based count
+    completed: number;    // Legacy field
     overdue: number;
+    due_today?: number;
+    completed_today?: number;
   };
   diary: {
     entries: number;
@@ -22,6 +28,9 @@ export interface DashboardStats {
   archive: {
     folders: number;
     items: number;
+  };
+  projects?: {
+    active: number;
   };
   last_updated: string;
 }
@@ -40,6 +49,7 @@ export interface QuickStats {
   overdue_todos: number;
   current_diary_streak: number;
   storage_used_mb: number;
+  storage_by_module?: Record<string, number>;
 }
 
 class DashboardService {
@@ -59,9 +69,21 @@ class DashboardService {
       return {
         notes: { total: 0, recent: 0 },
         documents: { total: 0, recent: 0 },
-        todos: { total: 0, pending: 0, completed: 0, overdue: 0 },
+        todos: { 
+          total: 0, 
+          pending: 0, 
+          in_progress: 0,
+          blocked: 0,
+          done: 0,
+          cancelled: 0,
+          completed: 0, 
+          overdue: 0,
+          due_today: 0,
+          completed_today: 0
+        },
         diary: { entries: 0, streak: 0 },
         archive: { folders: 0, items: 0 },
+        projects: { active: 0 },
         last_updated: new Date().toISOString()
       };
     }

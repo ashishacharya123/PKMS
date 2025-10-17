@@ -2,10 +2,11 @@
 User Model for Authentication and User Management
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from datetime import datetime
+from uuid import uuid4
 
 from app.models.base import Base
 from app.config import nepal_now
@@ -21,7 +22,7 @@ class User(Base):
     
     __tablename__ = "users"
     
-    id = Column(Integer, primary_key=True, index=True)
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=True)
     password_hash = Column(String(255), nullable=False)  # bcrypt hash (includes salt)
@@ -53,7 +54,7 @@ class User(Base):
     archive_items = relationship("ArchiveItem", back_populates="user", cascade="all, delete-orphan")
     
     def __repr__(self):
-        return f"<User(id={self.id}, username='{self.username}')>"
+        return f"<User(uuid={self.uuid}, username='{self.username}')>"
 
 
 class Session(Base):
@@ -62,7 +63,7 @@ class Session(Base):
     __tablename__ = "sessions"
     
     session_token = Column(String(255), primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     last_activity = Column(DateTime(timezone=True), server_default=nepal_now())
@@ -73,7 +74,7 @@ class Session(Base):
     user = relationship("User", back_populates="sessions")
     
     def __repr__(self):
-        return f"<Session(session_token='{self.session_token}', user_id={self.user_id})>"
+        return f"<Session(session_token='{self.session_token}', user_uuid={self.user_uuid})>"
 
 
 class RecoveryKey(Base):
@@ -81,8 +82,8 @@ class RecoveryKey(Base):
     
     __tablename__ = "recovery_keys"
     
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     key_hash = Column(String(255), nullable=False)
     questions_json = Column(Text, nullable=False)  # Security questions as JSON
     answers_hash = Column(String(255), nullable=False)  # Hashed answers
@@ -94,4 +95,4 @@ class RecoveryKey(Base):
     user = relationship("User", back_populates="recovery_keys")
     
     def __repr__(self):
-        return f"<RecoveryKey(id={self.id}, user_id={self.user_id})>" 
+        return f"<RecoveryKey(uuid={self.uuid}, user_uuid={self.user_uuid})>" 

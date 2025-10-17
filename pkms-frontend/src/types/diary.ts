@@ -19,6 +19,13 @@ export interface DiaryDailyMetrics {
   reading_time?: number;       // minutes
   social_interaction?: boolean;
   
+  // Financial (simple, NPR)
+  daily_income?: number;
+  daily_expense?: number;
+  
+  // Context
+  is_office_day?: boolean;
+  
   custom_fields?: Record<string, any>;
 }
 
@@ -81,6 +88,7 @@ export interface DiaryEntrySummary {
   encryption_iv: string;
   tags: string[];
   content_length?: number;
+  is_favorite?: boolean;
 }
 
 export interface DiaryFormValues {
@@ -138,6 +146,13 @@ export interface WellnessTrendPoint {
   label?: string;
 }
 
+export interface FinancialPoint {
+  date?: string;
+  income: number;
+  expense: number;
+  cumulativeSavings: number;
+}
+
 export interface WellnessStats {
   // Period info
   periodStart: string;
@@ -190,12 +205,35 @@ export interface WellnessStats {
   // Wellness score breakdown
   wellnessComponents: Record<string, number>;
   
+  // Financial data
+  financialTrend: FinancialPoint[];
+  totalIncome: number;
+  totalExpense: number;
+  netSavings: number;
+  averageDailyIncome: number | null;
+  averageDailyExpense: number | null;
+  
   // Insights
   insights: Array<{
     type: 'positive' | 'negative' | 'neutral';
     message: string;
     metric: string;
   }>;
+}
+
+export interface WeeklyHighlights {
+  periodStart: string;
+  periodEnd: string;
+  notesCreated: number;
+  documentsUploaded: number;
+  todosCompleted: number;
+  diaryEntries: number;
+  archiveItemsAdded: number;
+  projectsCreated: number;
+  projectsCompleted: number;
+  totalIncome: number;
+  totalExpense: number;
+  netSavings: number;
 }
 
 export type SortField = 'date' | 'created_at' | 'mood';

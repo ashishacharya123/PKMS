@@ -3,7 +3,7 @@ import { ViewMode } from './ViewMenu';
 import classes from './ViewModeLayouts.module.css';
 
 interface BaseItem {
-  id: string | number;
+  uuid: string;
   title?: string;
   name?: string;
   created_at?: string;
@@ -66,7 +66,7 @@ export function ViewModeLayouts<T extends BaseItem>({
       <SimpleGrid cols={{ base: 2, sm: 3, md: 4, lg: 6 }} spacing="xs">
         {items.map((item) => (
           <Card
-            key={item.id}
+            key={item.uuid}
             withBorder
             p="xs"
             className={onItemClick ? classes.hoverCard : undefined}
@@ -82,7 +82,7 @@ export function ViewModeLayouts<T extends BaseItem>({
                 lineClamp={2} 
                 style={{ textAlign: 'center', wordBreak: 'break-word' }}
               >
-                {item.title || item.name || `Item ${item.id}`}
+                {item.title || item.name || `Item ${item.uuid}`}
               </Text>
             </Stack>
           </Card>
@@ -97,7 +97,7 @@ export function ViewModeLayouts<T extends BaseItem>({
       <SimpleGrid cols={{ base: 1, sm: 2, md: 3, lg: 4 }} spacing="md">
         {items.map((item) => (
           <Card
-            key={item.id}
+            key={item.uuid}
             withBorder
             padding="md"
             className={onItemClick ? classes.hoverCard : undefined}
@@ -115,7 +115,7 @@ export function ViewModeLayouts<T extends BaseItem>({
                   lineClamp={2} 
                   style={{ textAlign: 'center', wordBreak: 'break-word' }}
                 >
-                  {item.title || item.name || `Item ${item.id}`}
+                  {item.title || item.name || `Item ${item.uuid}`}
                 </Text>
                 {item.tags && item.tags.length > 0 && (
                   <Stack gap={4} justify="center">
@@ -145,7 +145,7 @@ export function ViewModeLayouts<T extends BaseItem>({
       <Stack gap="xs">
         {items.map((item) => (
           <Card
-            key={item.id}
+            key={item.uuid}
             withBorder
             p="md"
             className={onItemClick ? classes.hoverCardDetails : undefined}
@@ -169,7 +169,7 @@ export function ViewModeLayouts<T extends BaseItem>({
           <Title order={5}>Details</Title>
           {items.map((item) => (
             <Stack 
-              key={item.id} 
+              key={item.uuid} 
               gap="xs" 
               p="sm" 
               className={onItemClick ? classes.hoverCardDetails : undefined}
@@ -179,7 +179,7 @@ export function ViewModeLayouts<T extends BaseItem>({
               onClick={() => onItemClick?.(item)}
             >
               {detailHeaders.map((header, idx) => (
-                <Group key={`${item.id}-${header}`} justify="space-between" align="center">
+                <Group key={`${item.uuid}-${header}`} justify="space-between" align="center">
                   <Text fw={500}>{header}</Text>
                   <Text>{renderDetailColumns(item)[idx]}</Text>
                 </Group>

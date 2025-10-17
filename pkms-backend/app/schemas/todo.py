@@ -14,7 +14,7 @@ class CamelCaseModel(BaseModel):
 
 class ProjectBadge(CamelCaseModel):
     """Project badge for displaying project associations on items"""
-    id: Optional[int]  # None if project is deleted
+    uuid: Optional[str] = None  # None if project is deleted (snapshot)
     name: str
     color: str
     is_exclusive: bool
@@ -23,9 +23,19 @@ class ProjectBadge(CamelCaseModel):
 class TodoCreate(CamelCaseModel):
     title: str = Field(..., min_length=1)
     description: Optional[str] = None
-    project_id: Optional[int] = None  # Legacy single project
-    project_ids: Optional[List[int]] = Field(default_factory=list, max_items=10, description="List of project IDs to link this todo to")
+    project_ids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this todo to")
     is_exclusive_mode: Optional[bool] = Field(default=False, description="If True, todo is exclusive to projects and deleted when any project is deleted")
+    
+    @field_validator('project_ids')
+    def validate_project_ids_are_uuid4(cls, v: Optional[List[str]]):
+        if not v:
+            return v
+        import re
+        uuid4 = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+        for pid in v:
+            if not isinstance(pid, str) or not uuid4.match(pid):
+                raise ValueError("project_ids must contain valid UUID4 strings")
+        return v
     start_date: Optional[date] = None
     due_date: Optional[date] = None
     priority: int = 2
@@ -43,12 +53,21 @@ class TodoCreate(CamelCaseModel):
 class TodoUpdate(CamelCaseModel):
     title: Optional[str] = Field(None, min_length=1)
     description: Optional[str] = None
-    is_completed: Optional[bool] = None
     status: Optional[str] = None
     order_index: Optional[int] = None
-    project_id: Optional[int] = None  # Legacy single project
-    project_ids: Optional[List[int]] = Field(None, max_items=10, description="List of project IDs to link this todo to")
+    project_ids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this todo to")
     is_exclusive_mode: Optional[bool] = Field(None, description="If True, todo is exclusive to projects and deleted when any project is deleted")
+    
+    @field_validator('project_ids')
+    def validate_project_ids_are_uuid4_update(cls, v: Optional[List[str]]):
+        if v is None:
+            return v
+        import re
+        uuid4 = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+        for pid in v:
+            if not isinstance(pid, str) or not uuid4.match(pid):
+                raise ValueError("project_ids must contain valid UUID4 strings")
+        return v
     start_date: Optional[date] = None
     due_date: Optional[date] = None
     priority: Optional[int] = None
@@ -63,20 +82,18 @@ class TodoUpdate(CamelCaseModel):
         return v
 
 class TodoResponse(CamelCaseModel):
-    id: int
-    uuid: Optional[str] = None
+    uuid: str
     title: str
     description: Optional[str]
     status: str
-    is_completed: bool
     is_archived: bool
     is_favorite: bool
     is_exclusive_mode: bool
     priority: int
-    project_id: Optional[int]  # Legacy single project
+    project_uuid: Optional[str]  # Legacy single project
     project_name: Optional[str]  # Legacy single project name
     order_index: int = 0
-    parent_id: Optional[int] = None
+    parent_uuid: Optional[str] = None
     subtasks: List['TodoResponse'] = Field(default_factory=list)
     start_date: Optional[date]
     due_date: Optional[date]
@@ -85,20 +102,24 @@ class TodoResponse(CamelCaseModel):
     updated_at: datetime
     tags: List[str]
     projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this todo belongs to")
+    
+    @property
+    def is_completed(self) -> bool:
+        """Computed property: todo is completed if status is 'done'"""
+        return self.status == 'done'
 
 class ProjectCreate(CamelCaseModel):
     name: str
     description: Optional[str] = None
     color: Optional[str] = None
-    tags: Optional[List[str]] = Field(default=[], max_items=20)
+    tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
 
 class ProjectResponse(CamelCaseModel):
-    id: int
-    uuid: Optional[str] = None
+    uuid: str
     name: str
     description: Optional[str]
     color: Optional[str]
     is_archived: bool
     todo_count: int = 0
     completed_count: int = 0
-    tags: List[str] = []
+    tags: List[str] = Field(default_factory=list)

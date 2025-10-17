@@ -12,7 +12,7 @@ import { coreDownloadService, DownloadProgress } from './shared/coreDownloadServ
 // Removed legacy direct-upload progress mapper
 
 export interface ProjectBadge {
-  id: number | null;  // null if project is deleted
+  uuid: string | null;  // null if project is deleted (snapshot)
   name: string;
   color: string;
   isExclusive: boolean;
@@ -20,7 +20,6 @@ export interface ProjectBadge {
 }
 
 export interface Document {
-  id: number;
   uuid: string;
   title: string;
   original_name: string;
@@ -32,7 +31,6 @@ export interface Document {
   is_favorite: boolean;
   is_archived: boolean;
   isExclusiveMode: boolean;
-  archive_item_uuid?: string;
   upload_status: string;
   created_at: string;
   updated_at: string;
@@ -41,7 +39,6 @@ export interface Document {
 }
 
 export interface DocumentSummary {
-  id: number;
   uuid: string;
   title: string;
   original_name: string;
@@ -53,7 +50,6 @@ export interface DocumentSummary {
   is_favorite: boolean;
   is_archived: boolean;
   isExclusiveMode: boolean;
-  archive_item_uuid?: string;
   upload_status: string;
   created_at: string;
   updated_at: string;
@@ -70,12 +66,11 @@ export interface UpdateDocumentRequest {
   tags?: string[];
   is_archived?: boolean;
   metadata?: Record<string, any>;
-  projectIds?: number[];
+  projectIds?: string[];
   isExclusiveMode?: boolean;
 }
 
 export interface SearchResult {
-  id: number;
   uuid: string;
   original_name: string;
   mime_type: string;
@@ -88,7 +83,7 @@ export interface DocumentsListParams {
   archived?: boolean;
   is_favorite?: boolean;
   tag?: string;
-  project_id?: number;
+  project_uuid?: string;
   project_only?: boolean;
   unassigned_only?: boolean;
   search?: string;
@@ -104,8 +99,11 @@ class DocumentsService {
     file: File, 
     tags: string[] = [],
     onProgress?: (progress: number) => void,
-    projectIds?: number[],
+    projectIds?: string[],
     isExclusive?: boolean,
+    /**
+     * @deprecated Use projectIds instead. Will be removed in v2.0.
+     */
     projectId?: number // Legacy support
   ): Promise<Document> {
     // Use chunked upload uniformly to match backend capabilities
@@ -127,7 +125,6 @@ class DocumentsService {
     };
     const commitResp = await apiService.post<Document>('/documents/upload/commit', commitPayload);
     const created = commitResp.data;
-    // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return created;
   }
 
@@ -144,8 +141,6 @@ class DocumentsService {
    */
   async updateDocument(uuid: string, data: UpdateDocumentRequest): Promise<Document> {
     const response = await apiService.put<Document>(`/documents/${uuid}`, data);
-    // Invalidate search cache for documents
-    // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return response.data;
   }
 
@@ -154,8 +149,6 @@ class DocumentsService {
    */
   async deleteDocument(uuid: string): Promise<{ message: string }> {
     const response = await apiService.delete<{ message: string }>(`/documents/${uuid}`);
-    // Invalidate search cache for documents
-    // searchService.invalidateCacheForContentType('document'); // Method removed in search refactor
     return response.data;
   }
 
@@ -198,8 +191,10 @@ class DocumentsService {
    */
   async getDocumentPreview(uuid: string): Promise<any> {
     try {
-      return await apiService.get(`/documents/${uuid}/preview`);
+      const resp = await apiService.get(`/documents/${uuid}/preview`);
+      return resp.data;
     } catch (error) {
+      console.warn('Failed to fetch document preview:', error);
       return null;
     }
   }
@@ -290,8 +285,8 @@ class DocumentsService {
     if (bytes === 0) return '0 Bytes';
     
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
     
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }

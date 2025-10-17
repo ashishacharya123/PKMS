@@ -6,8 +6,8 @@ import { TodoSummary } from '../../services/todosService';
 interface CalendarViewProps {
   todos: TodoSummary[];
   onTodoEdit: (todo: TodoSummary) => void;
-  onTodoDelete?: (todoId: number, title: string) => void;
-  onTodoArchive?: (todoId: number) => void;
+  onTodoDelete?: (todoUuid: string, title: string) => void;
+  onTodoArchive?: (todoUuid: string) => void;
 }
 
 interface CalendarDay {
@@ -177,7 +177,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             <Stack gap="xs">
               {day.todos.slice(0, 3).map(todo => (
                 <Paper
-                  key={todo.id}
+                  key={todo.uuid}
                   shadow="xs"
                   p="xs"
                   style={{
@@ -220,14 +220,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       </Menu.Item>
                       <Menu.Item
                         leftSection={<IconArchive size={12} />}
-                        onClick={() => onTodoArchive && onTodoArchive(todo.id)}
+                        onClick={() => onTodoArchive && onTodoArchive(todo.uuid)}
                       >
                         Archive
                       </Menu.Item>
                       <Menu.Item
                         leftSection={<IconTrash size={12} />}
                         color="red"
-                        onClick={() => onTodoDelete && onTodoDelete(todo.id, todo.title)}
+                        onClick={() => onTodoDelete && onTodoDelete(todo.uuid, todo.title)}
                       >
                         Delete
                       </Menu.Item>

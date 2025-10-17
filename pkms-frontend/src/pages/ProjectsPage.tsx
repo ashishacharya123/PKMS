@@ -277,7 +277,7 @@ export function ProjectsPage() {
                 const completionPct = getCompletionPercentage(project);
                 
                 return (
-                  <Grid.Col key={project.id} span={{ base: 12, sm: 6, md: 4 }}>
+                  <Grid.Col key={project.uuid} span={{ base: 12, sm: 6, md: 4 }}>
                     <Paper
                       p="md"
                       withBorder
@@ -290,7 +290,7 @@ export function ProjectsPage() {
                           boxShadow: 'var(--mantine-shadow-md)'
                         }
                       }}
-                      onClick={() => navigate(`/projects/${project.id}`)}
+                      onClick={() => navigate(`/projects/${project.uuid}`)}
                     >
                       <Stack gap="sm">
                         {/* Header */}

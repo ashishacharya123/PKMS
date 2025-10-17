@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Group, Text, Paper, Stack, Badge, ActionIcon, Menu } from '@mantine/core';
-import { IconDots, IconEdit, IconTrash, IconArchive } from '@tabler/icons-react';
+import { Box, Group, Text, Paper, Stack, Badge, ActionIcon, Menu, Progress, Tooltip } from '@mantine/core';
+import { IconDots, IconEdit, IconTrash, IconArchive, IconClock, IconUsers, IconWorld } from '@tabler/icons-react';
 import { Todo, TodoSummary, updateTodoStatus, reorderTodo } from '../../services/todosService';
 import { useDragAndDrop } from '../../hooks/useDragAndDrop';
 import { SubtaskList } from './SubtaskList';
@@ -167,7 +167,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             <Stack gap="sm">
               {lane.todos.map((todo, index) => (
                 <Paper
-                  key={todo.id}
+                  key={todo.uuid}
                   shadow="xs"
                   p="sm"
                   style={{ 
@@ -200,6 +200,19 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                           </Badge>
                         )}
                         
+                        {todo.todo_type && todo.todo_type !== 'task' && (
+                          <Badge 
+                            size="xs" 
+                            variant="light" 
+                            color={
+                              todo.todo_type === 'checklist' ? 'blue' :
+                              todo.todo_type === 'subtask' ? 'gray' : 'default'
+                            }
+                          >
+                            {todo.todo_type}
+                          </Badge>
+                        )}
+                        
                         {todo.tags.map((tag, tagIndex) => (
                           <Badge key={tagIndex} size="xs" variant="light">
                             {tag}
@@ -227,6 +240,79 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                           })()}
                         </Group>
                       )}
+
+                      {/* NEW: Start Date Display */}
+                      {todo.start_date && (
+                        <Group gap="xs" align="center">
+                          <Text size="xs" c="dimmed">
+                            Start: {new Date(todo.start_date).toLocaleDateString()}
+                          </Text>
+                        </Group>
+                      )}
+
+                      {/* NEW: Completion Progress */}
+                      {todo.completion_percentage !== undefined && todo.completion_percentage > 0 && (
+                        <Box>
+                          <Group justify="space-between" mb={2}>
+                            <Text size="xs" c="dimmed">Progress</Text>
+                            <Text size="xs" c="dimmed">{todo.completion_percentage}%</Text>
+                          </Group>
+                          <Progress 
+                            value={todo.completion_percentage} 
+                            size="xs" 
+                            color={todo.completion_percentage === 100 ? 'green' : 'blue'}
+                          />
+                        </Box>
+                      )}
+
+                      {/* NEW: Time Tracking */}
+                      {(todo.estimate_minutes || todo.actual_minutes) && (
+                        <Group gap="xs" align="center">
+                          <IconClock size={12} />
+                          {todo.estimate_minutes && (
+                            <Tooltip label="Estimated time">
+                              <Text size="xs" c="dimmed">
+                                Est: {Math.floor(todo.estimate_minutes / 60)}h {todo.estimate_minutes % 60}m
+                              </Text>
+                            </Tooltip>
+                          )}
+                          {todo.actual_minutes && (
+                            <Tooltip label="Actual time spent">
+                              <Text size="xs" c="dimmed">
+                                Actual: {Math.floor(todo.actual_minutes / 60)}h {todo.actual_minutes % 60}m
+                              </Text>
+                            </Tooltip>
+                          )}
+                        </Group>
+                      )}
+
+                      {/* NEW: Checklist Items */}
+                      {todo.todo_type === 'checklist' && todo.checklist_items && todo.checklist_items.length > 0 && (
+                        <Box>
+                          <Text size="xs" c="dimmed" mb={2}>Checklist:</Text>
+                          <Stack gap={2}>
+                            {todo.checklist_items.slice(0, 3).map((item, index) => (
+                              <Group key={index} gap="xs" align="center">
+                                <Text size="xs" style={{ 
+                                  textDecoration: item.completed ? 'line-through' : 'none',
+                                  opacity: item.completed ? 0.6 : 1
+                                }}>
+                                  {item.text}
+                                </Text>
+                                {item.completed && (
+                                  <Text size="xs" c="green">✓</Text>
+                                )}
+                              </Group>
+                            ))}
+                            {todo.checklist_items.length > 3 && (
+                              <Text size="xs" c="dimmed">
+                                +{todo.checklist_items.length - 3} more items
+                              </Text>
+                            )}
+                          </Stack>
+                        </Box>
+                      )}
+
                     </Box>
 
                     <Menu>

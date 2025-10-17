@@ -55,7 +55,6 @@ class Settings(BaseSettings):
     
     # Database
     database_url: str = "sqlite+aiosqlite:///./data/pkm_metadata.db"
-    auth_db_path: str = "./data/auth.db"
     
     # Redis Configuration
     redis_url: str = "redis://localhost:6379/0"
@@ -184,9 +183,7 @@ def get_database_url() -> str:
     return settings.database_url
 
 
-def get_auth_db_path() -> Path:
-    """Get the authentication database path"""
-    return get_data_dir() / "auth.db"
+# auth_db_path removed as unused
 
 
 def get_redis_url() -> str:

@@ -65,26 +65,16 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    user_id_str = payload.get("sub")
-    if user_id_str is None:
+    user_uuid = payload.get("sub")
+    if not user_uuid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Convert string user_id to integer for database query
-    try:
-        user_id = int(user_id_str)
-    except (ValueError, TypeError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid user ID in token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    # Get user from database
-    result = await db.execute(select(User).where(User.id == user_id))
+
+    # Get user from database by UUID
+    result = await db.execute(select(User).where(User.uuid == user_uuid))
     user = result.scalar_one_or_none()
     
     if user is None:
@@ -134,12 +124,12 @@ async def get_optional_user(
         if not payload:
             return None
         
-        user_id = payload.get("sub")
-        if user_id is None:
+        user_uuid = payload.get("sub")
+        if user_uuid is None:
             return None
         
         # Get user from database
-        result = await db.execute(select(User).where(User.id == user_id))
+        result = await db.execute(select(User).where(User.uuid == user_uuid))
         user = result.scalar_one_or_none()
         
         if user is None or not user.is_active:

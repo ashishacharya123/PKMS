@@ -7,6 +7,7 @@ import {
   MoodStats,
   WellnessStats,
   DiaryDailyMetadata,
+  WeeklyHighlights,
 } from '../types/diary';
 import { coreUploadService } from './shared/coreUploadService';
 import { coreDownloadService } from './shared/coreDownloadService';
@@ -128,6 +129,12 @@ class DiaryService {
     return response.data;
   }
 
+  async getEntriesByDate(entryDate: string): Promise<DiaryEntrySummary[]> {
+    // entryDate should be in YYYY-MM-DD
+    const response = await apiService.get<DiaryEntrySummary[]>(`${this.baseUrl}/entries/date/${entryDate}`);
+    return response.data;
+  }
+
   async getEntryById(id: number): Promise<DiaryEntry> {
     const response = await apiService.get<DiaryEntry>(`${this.baseUrl}/entries/${id}`);
     return response.data;
@@ -193,6 +200,11 @@ class DiaryService {
     const response = await apiService.get<WellnessStats>(
       `${this.baseUrl}/stats/wellness?days=${days}`
     );
+    return response.data;
+  }
+
+  async getWeeklyHighlights(): Promise<WeeklyHighlights> {
+    const response = await apiService.get<WeeklyHighlights>(`${this.baseUrl}/weekly-highlights`);
     return response.data;
   }
 

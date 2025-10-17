@@ -25,6 +25,7 @@ import {
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import ViewModeLayouts, { formatDate, formatFileSize } from '../components/common/ViewModeLayouts';
 import { useViewPreferences } from '../hooks/useViewPreferences';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { MultiProjectSelector } from '../components/common/MultiProjectSelector';
 import { ProjectBadges } from '../components/common/ProjectBadges';
 import {
@@ -105,7 +106,7 @@ export function DocumentsPage() {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadTags, setUploadTags] = useState<string[]>([]);
-  const [uploadProjectIds, setUploadProjectIds] = useState<number[]>([]);
+  const [uploadProjectIds, setUploadProjectIds] = useState<string[]>([]);
   const [uploadIsExclusive, setUploadIsExclusive] = useState(false);
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const { getPreference, updatePreference } = useViewPreferences();
@@ -143,6 +144,19 @@ export function DocumentsPage() {
 
   // Image preview state (inline viewer)
   const [imagePreview, setImagePreview] = useState<{ url: string; name: string } | null>(null);
+
+  // Keyboard shortcuts: search focus, toggle archived/favorites via sidebar, refresh
+  useKeyboardShortcuts({
+    shortcuts: [
+      { key: '/', action: () => {
+          const input = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement | null;
+          input?.focus();
+        }, description: 'Focus search', category: 'Navigation' },
+      { key: 'r', action: () => loadDocuments(), description: 'Refresh documents', category: 'General' },
+    ],
+    enabled: true,
+    showNotifications: false,
+  });
 
   useEffect(() => {
     setSearch(debouncedSearchQuery);
@@ -836,7 +850,7 @@ export function DocumentsPage() {
 
           <MultiProjectSelector
             value={uploadProjectIds}
-            onChange={setUploadProjectIds}
+            onChange={(ids) => setUploadProjectIds(ids)}
             isExclusive={uploadIsExclusive}
             onExclusiveChange={setUploadIsExclusive}
             description="Link this document to one or more projects"

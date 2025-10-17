@@ -17,19 +17,16 @@ class ArchiveFolder(Base):
     
     __tablename__ = "archive_folders"
     
-    id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
     parent_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
     is_archived = Column(Boolean, default=False, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
     
-    # FTS5 Search Support
-    tags_text = Column(Text, nullable=True, default="")  # Denormalized tags for FTS5 search
     
     # Relationships
     user = relationship("User", back_populates="archive_folders")
@@ -38,7 +35,7 @@ class ArchiveFolder(Base):
     tag_objs = relationship("Tag", secondary=archive_folder_tags, back_populates="archive_folders")
     
     def __repr__(self):
-        return f"<ArchiveFolder(uuid={self.uuid}, id={self.id}, name='{self.name}', parent_uuid='{self.parent_uuid}')>"
+        return f"<ArchiveFolder(uuid={self.uuid}, name='{self.name}', parent_uuid='{self.parent_uuid}')>"
 
 
 class ArchiveItem(Base):
@@ -46,8 +43,7 @@ class ArchiveItem(Base):
     
     __tablename__ = "archive_items"
     
-    id = Column(Integer, primary_key=True, index=True)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
     original_filename = Column(String(255), nullable=False)
@@ -58,15 +54,13 @@ class ArchiveItem(Base):
     folder_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
     is_archived = Column(Boolean, default=False, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
     
     # Additional metadata as JSON
     metadata_json = Column(Text, default="{}")  # Additional metadata as JSON
     
-    # FTS5 Search Support
-    tags_text = Column(Text, nullable=True, default="")  # Denormalized tags for FTS5 search
     
     # Relationships
     user = relationship("User", back_populates="archive_items")
@@ -74,4 +68,4 @@ class ArchiveItem(Base):
     tag_objs = relationship("Tag", secondary=archive_item_tags, back_populates="archive_items")
     
     def __repr__(self):
-        return f"<ArchiveItem(uuid={self.uuid}, id={self.id}, name='{self.name}', folder_uuid='{self.folder_uuid}')>" 
+        return f"<ArchiveItem(uuid={self.uuid}, name='{self.name}', folder_uuid='{self.folder_uuid}')>" 

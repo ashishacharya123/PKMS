@@ -44,7 +44,7 @@ export function NoteEditorPage() {
   const [content, setContent] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
-  const [projectIds, setProjectIds] = useState<number[]>([]);
+  const [projectIds, setProjectIds] = useState<string[]>([]);
   const [isExclusive, setIsExclusive] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -92,7 +92,7 @@ export function NoteEditorPage() {
         color: 'green'
       });
       // After creating a new note, return to the notes listing and highlight the new item
-      navigate('/notes', { state: { highlightNoteId: newNote.id } });
+      navigate('/notes', { state: { highlightNoteId: newNote.uuid } });
     },
     onError: () => {
       notifications.show({
@@ -129,7 +129,13 @@ export function NoteEditorPage() {
       setTitle(currentNote.title);
       setContent(currentNote.content);
       setTags(currentNote.tags);
-      setProjectIds(currentNote.projects?.filter(p => !p.isDeleted).map(p => p.id).filter((id): id is number => id !== null) || []);
+      setProjectIds(
+        currentNote.projects
+          ?.filter(p => !p.isDeleted)
+          .map(p => p as any)
+          .map(p => p.uuid)
+          .filter((uuid: string | null | undefined): uuid is string => Boolean(uuid)) || []
+      );
       setIsExclusive(currentNote.isExclusiveMode || false);
       setHasUnsavedChanges(false);
       // Load attachments for this note

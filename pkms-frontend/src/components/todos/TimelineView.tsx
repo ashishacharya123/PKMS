@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Group, Text, Paper, Stack, Badge, ActionIcon, Menu, Button, Select } from '@mantine/core';
-import { IconDots, IconEdit, IconTrash, IconArchive } from '@tabler/icons-react';
+import { Box, Group, Text, Paper, Stack, Badge, ActionIcon, Menu, Button, Select, Progress, Tooltip } from '@mantine/core';
+import { IconDots, IconEdit, IconTrash, IconArchive, IconClock, IconUsers, IconWorld } from '@tabler/icons-react';
 import { Todo } from '../../services/todosService';
 
 interface TimelineViewProps {
   todos: Todo[];
   onTodoEdit: (todo: Todo) => void;
-  onTodoDelete?: (todoId: number, title: string) => void;
-  onTodoArchive?: (todoId: number) => void;
+  onTodoDelete?: (todoUuid: string, title: string) => void;
+  onTodoArchive?: (todoUuid: string) => void;
 }
 
 interface TimelineTodo extends Todo {
@@ -217,7 +217,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
           
           return (
             <Box
-              key={todo.id}
+              key={todo.uuid}
               style={{
                 position: 'absolute',
                 left: position.left,
@@ -269,6 +269,33 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                     )}
                   </Group>
 
+                  {/* NEW: Completion Progress */}
+                  {todo.completion_percentage !== undefined && todo.completion_percentage > 0 && (
+                    <Progress 
+                      value={todo.completion_percentage} 
+                      size="xs" 
+                      color={todo.completion_percentage === 100 ? 'green' : 'blue'}
+                      style={{ height: '2px' }}
+                    />
+                  )}
+
+                  {/* NEW: Time Tracking & Collaboration Icons */}
+                  <Group gap={2} justify="space-between">
+                    <Group gap={2}>
+                      {todo.estimate_minutes && (
+                        <Tooltip label={`Est: ${Math.floor(todo.estimate_minutes / 60)}h ${todo.estimate_minutes % 60}m`}>
+                          <IconClock size={8} color="gray" />
+                        </Tooltip>
+                      )}
+                      {todo.actual_minutes && (
+                        <Tooltip label={`Actual: ${Math.floor(todo.actual_minutes / 60)}h ${todo.actual_minutes % 60}m`}>
+                          <IconClock size={8} color="blue" />
+                        </Tooltip>
+                      )}
+                    </Group>
+                    
+                  </Group>
+
                   <Menu>
                     <Menu.Target>
                       <ActionIcon size="xs" variant="subtle" style={{ alignSelf: 'flex-end' }}>
@@ -284,14 +311,14 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                       </Menu.Item>
                       <Menu.Item
                         leftSection={<IconArchive size={12} />}
-                        onClick={() => onTodoArchive && onTodoArchive(todo.id)}
+                        onClick={() => onTodoArchive && onTodoArchive(todo.uuid)}
                       >
                         Archive
                       </Menu.Item>
                       <Menu.Item
                         leftSection={<IconTrash size={12} />}
                         color="red"
-                        onClick={() => onTodoDelete && onTodoDelete(todo.id, todo.title)}
+                        onClick={() => onTodoDelete && onTodoDelete(todo.uuid, todo.title)}
                       >
                         Delete
                       </Menu.Item>

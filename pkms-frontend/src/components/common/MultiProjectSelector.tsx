@@ -13,14 +13,14 @@ import { IconAlertCircle, IconLock, IconLink } from '@tabler/icons-react';
 import { todosService } from '../../services/todosService';
 
 interface Project {
-  id: number;
+  uuid: string;
   name: string;
   color: string;
 }
 
 interface MultiProjectSelectorProps {
-  value: number[];
-  onChange: (projectIds: number[]) => void;
+  value: string[];
+  onChange: (projectIds: string[]) => void;
   isExclusive: boolean;
   onExclusiveChange: (isExclusive: boolean) => void;
   label?: string;
@@ -59,17 +59,17 @@ export const MultiProjectSelector: React.FC<MultiProjectSelectorProps> = ({
   };
 
   const selectData = projects.map(p => ({
-    value: p.id.toString(),
+    value: p.uuid,
     label: p.name,
     // Store color in custom prop for potential future use
     color: p.color
   }));
 
   const handleChange = (values: string[]) => {
-    onChange(values.map(v => parseInt(v, 10)));
+    onChange(values);
   };
 
-  const selectedProjects = projects.filter(p => value.includes(p.id));
+  const selectedProjects = projects.filter(p => value.includes(p.uuid));
 
   return (
     <Stack gap="sm">
@@ -78,7 +78,7 @@ export const MultiProjectSelector: React.FC<MultiProjectSelectorProps> = ({
         description={description}
         placeholder={loading ? "Loading projects..." : "Select projects (optional)"}
         data={selectData}
-        value={value.map(v => v.toString())}
+        value={value}
         onChange={handleChange}
         searchable
         clearable
@@ -86,7 +86,7 @@ export const MultiProjectSelector: React.FC<MultiProjectSelectorProps> = ({
         error={error}
         leftSection={loading ? <Loader size="xs" /> : undefined}
         renderOption={({ option }) => {
-          const project = projects.find(p => p.id.toString() === option.value);
+          const project = projects.find(p => p.uuid === option.value);
           return (
             <Group gap="xs">
               <div
@@ -146,7 +146,7 @@ export const MultiProjectSelector: React.FC<MultiProjectSelectorProps> = ({
             <Text size="xs" c="dimmed">Selected:</Text>
             {selectedProjects.map(p => (
               <Badge
-                key={p.id}
+                key={p.uuid}
                 color={p.color}
                 variant="light"
                 size="sm"

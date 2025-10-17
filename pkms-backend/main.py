@@ -30,14 +30,13 @@ from app.routers import (
     diary,
     archive,
     dashboard,
-    search,
     backup,
     tags,
     uploads,
     testing_router,
     advanced_fuzzy,
 )
-from app.routers.search_enhanced import router as search_enhanced_router
+from app.routers.search import router as search_endpoints_router
 from app.services.chunk_service import chunk_manager
 from app.services.search_cache_service import search_cache_service
 
@@ -107,15 +106,7 @@ async def lifespan(app: FastAPI):
         logger.info("Database initialized successfully")
         
         # Initialize FTS5 tables and triggers
-        logger.info("Initializing FTS5 search tables...")
-        try:
-            from app.services.fts_service_enhanced import enhanced_fts_service
-            async with get_db_session() as db:
-                await enhanced_fts_service.initialize_enhanced_fts_tables(db)
-            logger.info("FTS5 search tables initialized successfully")
-        except Exception as fts_error:
-            logger.exception("FTS5 initialization failed")
-            logger.info("Search will fall back to basic queries")
+        logger.info("FTS5 search tables are now managed by the unified SearchService")
         
         # Start background tasks
         logger.info("Starting background tasks...")
@@ -185,10 +176,9 @@ app.include_router(documents.router, prefix="/api/v1/documents")
 app.include_router(todos.router, prefix="/api/v1/todos")
 app.include_router(diary.router, prefix="/api/v1/diary")
 app.include_router(archive.router, prefix="/api/v1/archive")
-# app.include_router(archive_improvements.router, prefix="/api/v1")  # Temporarily disabled due to import issues
+# Removed archive_improvements disabled include (module deprecated)
 app.include_router(dashboard.router, prefix="/api/v1/dashboard")
-# app.include_router(search.router, prefix="/api/v1/search")  # Disabled to avoid route collision
-app.include_router(search_enhanced_router, prefix="/api/v1")  # Enhanced search with all endpoints
+app.include_router(search_endpoints_router, prefix="/api/v1")  # Unified search endpoints
 app.include_router(backup.router, prefix="/api/v1/backup")
 app.include_router(tags.router, prefix="/api/v1/tags")
 app.include_router(uploads.router, prefix="/api/v1")
