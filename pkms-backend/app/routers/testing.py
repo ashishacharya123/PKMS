@@ -763,7 +763,7 @@ async def get_sample_rows(
                 junction_query = text("""
                     SELECT ait.*, ai.name as archive_item_name, t.name as tag_name
                     FROM archive_item_tags ait
-                    JOIN archive_items ai ON ait.archive_item_uuid = ai.uuid
+                    JOIN archive_items ai ON ait.item_uuid = ai.uuid
                     JOIN tags t ON ait.tag_uuid = t.uuid
                     WHERE ai.user_uuid = :user_uuid
                     LIMIT :limit

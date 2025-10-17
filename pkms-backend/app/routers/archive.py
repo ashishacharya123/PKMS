@@ -444,7 +444,7 @@ async def list_folders(
             folder_responses = []
             for uuid in uuid_list:
                 if uuid in folder_map:
-                    folder_response = await _get_folder_with_stats(db, uuid)
+                    folder_response = await _get_folder_with_stats(db, uuid, current_user.uuid)
                     folder_responses.append(folder_response)
             return folder_responses
         else:
@@ -504,7 +504,7 @@ async def get_folder_tree(
         folder_trees = []
         for uuid in uuid_list:
             if uuid in folder_map:
-                folder_response = await _get_folder_with_stats(db, uuid)
+                folder_response = await _get_folder_with_stats(db, uuid, current_user.uuid)
                 folder_trees.append(FolderTree(folder=folder_response, children=[], items=[]))
         return folder_trees
     else:
@@ -594,7 +594,7 @@ async def get_folder(
     )
     if not res.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Folder not found")
-    return await _get_folder_with_stats(db, folder_uuid)
+    return await _get_folder_with_stats(db, folder_uuid, current_user.uuid)
 
 @router.put("/folders/{folder_uuid}", response_model=FolderResponse)
 async def update_folder(

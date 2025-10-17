@@ -131,7 +131,6 @@ CREATE TABLE documents (
     user_id INTEGER NOT NULL,
     is_favorite BOOLEAN DEFAULT FALSE,
     is_archived BOOLEAN DEFAULT FALSE,
-    archive_item_uuid VARCHAR(36),       -- Reference to ArchiveItem when archived
     upload_status VARCHAR(20) DEFAULT 'completed',  -- pending, processing, completed, failed
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
