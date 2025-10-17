@@ -19,7 +19,8 @@ from app.models.base import Base
 from app.models.user import User, Session, RecoveryKey
 from app.models.note import Note, NoteFile
 from app.models.document import Document
-from app.models.todo import Todo, Project
+from app.models.todo import Todo
+from app.models.project import Project
 from app.models.diary import DiaryEntry, DiaryMedia
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import Tag
@@ -203,52 +204,52 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_recovery_keys_user_uuid ON recovery_keys(user_uuid);",
                 
                 # Notes indexes
-                "CREATE INDEX IF NOT EXISTS idx_notes_user_uuid ON notes(user_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_notes_user_created ON notes(user_uuid, created_at DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_notes_created_by ON notes(created_by);",
+                "CREATE INDEX IF NOT EXISTS idx_notes_user_created ON notes(created_by, created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_notes_created_at ON notes(created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_notes_title ON notes(title);",
-                "CREATE INDEX IF NOT EXISTS idx_notes_user_search ON notes(user_uuid, title);",
+                "CREATE INDEX IF NOT EXISTS idx_notes_user_search ON notes(created_by, title);",
                 "CREATE INDEX IF NOT EXISTS idx_notes_archived ON notes(is_archived);",
                 "CREATE INDEX IF NOT EXISTS idx_note_files_note_uuid ON note_files(note_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_note_files_user_uuid ON note_files(user_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_note_files_created_by ON note_files(created_by);",
                 
                 # Documents indexes
-                "CREATE INDEX IF NOT EXISTS idx_documents_user_uuid ON documents(user_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_documents_user_mime ON documents(user_uuid, mime_type);",
+                "CREATE INDEX IF NOT EXISTS idx_documents_created_by ON documents(created_by);",
+                "CREATE INDEX IF NOT EXISTS idx_documents_user_mime ON documents(created_by, mime_type);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_uuid ON documents(uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_title ON documents(title);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_archived ON documents(is_archived);",
                 
                 # Todos indexes
-                "CREATE INDEX IF NOT EXISTS idx_todos_user_uuid ON todos(user_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_todos_user_status ON todos(user_uuid, status);",
+                "CREATE INDEX IF NOT EXISTS idx_todos_created_by ON todos(created_by);",
+                "CREATE INDEX IF NOT EXISTS idx_todos_user_status ON todos(created_by, status);",
                 "CREATE INDEX IF NOT EXISTS idx_todos_priority ON todos(priority);",
-                "CREATE INDEX IF NOT EXISTS idx_todos_user_status_priority ON todos(user_uuid, status, priority);",
-                "CREATE INDEX IF NOT EXISTS idx_todos_user_priority_date ON todos(user_uuid, priority DESC, created_at DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_todos_user_status_priority ON todos(created_by, status, priority);",
+                "CREATE INDEX IF NOT EXISTS idx_todos_user_priority_date ON todos(created_by, priority DESC, created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_todos_due_date ON todos(due_date);",
                 # project_id removed; projects are via association now
-                "CREATE INDEX IF NOT EXISTS idx_projects_user_uuid ON projects(user_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_projects_created_by ON projects(created_by);",
                 "CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(is_archived);",
                 
                 # Diary indexes
-                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_uuid ON diary_entries(user_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_date ON diary_entries(user_uuid, date);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_entries_created_by ON diary_entries(created_by);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_date ON diary_entries(created_by, date);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_day_of_week ON diary_entries(day_of_week);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_date ON diary_entries(date);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_mood ON diary_entries(mood);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_location ON diary_entries(location);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_is_template_date ON diary_entries(user_uuid, is_template, date DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_is_template_date ON diary_entries(created_by, is_template, date DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_media_entry_uuid ON diary_media(diary_entry_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_media_user_uuid ON diary_media(user_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_diary_media_created_by ON diary_media(created_by);",
                 
                 # Archive indexes
-                "CREATE INDEX IF NOT EXISTS idx_archive_folders_user_uuid ON archive_folders(user_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_archive_folders_created_by ON archive_folders(created_by);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_parent ON archive_folders(parent_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_path ON archive_folders(path);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_name ON archive_folders(name);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_archived ON archive_folders(is_archived);",
-                "CREATE INDEX IF NOT EXISTS idx_archive_items_user_uuid ON archive_items(user_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_archive_items_created_by ON archive_items(created_by);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_items_folder ON archive_items(folder_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_items_name ON archive_items(name);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_items_mime_type ON archive_items(mime_type);",
@@ -256,9 +257,9 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_archive_items_archived ON archive_items(is_archived);",
                 
                 # Tags indexes
-                "CREATE INDEX IF NOT EXISTS idx_tags_user_uuid ON tags(user_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_tags_created_by ON tags(created_by);",
                 "CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);",
-                "CREATE INDEX IF NOT EXISTS idx_tags_name_user ON tags(name, user_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_tags_name_user ON tags(name, created_by);",
                 "CREATE INDEX IF NOT EXISTS idx_tags_module_type ON tags(module_type, name);",
                 "CREATE INDEX IF NOT EXISTS idx_tags_usage_count ON tags(usage_count DESC);",
                 
@@ -300,7 +301,7 @@ async def init_db():
                     CREATE VIRTUAL TABLE IF NOT EXISTS fts_content USING fts5(
                         item_uuid UNINDEXED,
                         item_type UNINDEXED,
-                        user_uuid UNINDEXED,
+                        created_by UNINDEXED,
                         title,
                         description,
                         tags,

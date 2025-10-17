@@ -35,8 +35,8 @@ async def unified_search(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Unified search failed: %s", e)
-        raise HTTPException(status_code=500, detail="Search failed")
+        logger.exception("Unified search failed")
+        raise HTTPException(status_code=500, detail="Search failed") from None
 
 @router.post("/search/reindex", status_code=200, tags=["Search"])
 async def reindex_user_content(

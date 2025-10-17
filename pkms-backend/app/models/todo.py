@@ -65,11 +65,8 @@ class Todo(Base):
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
     
-    # Foreign keys
-    user_uuid = Column(String(36), ForeignKey("users.uuid"), nullable=False)
-    
     # Audit trail
-    created_by = Column(String(36), ForeignKey("users.uuid"), nullable=False)
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     
     # Soft Delete
     is_deleted = Column(Boolean, default=False, index=True)
@@ -102,51 +99,7 @@ class Todo(Base):
     
     
     # Phase 2: Subtask relationships
-    subtasks = relationship("Todo", backref="parent", remote_side=[uuid], cascade="all, delete-orphan")
+    subtasks = relationship("Todo", backref="parent", remote_side=[uuid], cascade="all")
     
     def __repr__(self):
-        return f"<Todo(uuid={self.uuid}, title='{self.title}', status='{self.status}')>"
-
-
-class Project(Base):
-    """Project model for organizing todos"""
-    
-    __tablename__ = "projects"
-    
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
-    
-    name = Column(String(255), nullable=False, index=True)
-    description = Column(Text, nullable=True)
-    color = Column(String(7), default="#3498db")  # Hex color code
-    is_archived = Column(Boolean, default=False, index=True)
-    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
-    
-    # Project Lifecycle
-    status = Column(String(20), default='active', index=True)  # active, on_hold, completed, cancelled
-    start_date = Column(Date, nullable=True)  # Project timeline
-    end_date = Column(Date, nullable=True)  # Project timeline
-    progress_percentage = Column(Integer, default=0)  # 0-100 percentage complete
-    
-    # UI/UX
-    icon = Column(String(50), nullable=True)
-    sort_order = Column(Integer, default=0)
-    is_favorite = Column(Boolean, default=False, index=True)
-    
-    # Soft Delete
-    is_deleted = Column(Boolean, default=False, index=True)
-    
-    
-    # Relationships
-    user = relationship("User", back_populates="projects")
-    tag_objs = relationship("Tag", secondary=project_tags, back_populates="projects")
-    
-    # Many-to-many relationships
-    from app.models.associations import note_projects, document_projects, todo_projects
-    notes = relationship("Note", secondary=note_projects, back_populates="projects")
-    documents_multi = relationship("Document", secondary=document_projects, back_populates="projects")
-    todos_multi = relationship("Todo", secondary=todo_projects, back_populates="projects")
-    
-    def __repr__(self):
-        return f"<Project(uuid={self.uuid}, name='{self.name}')>" 
+        return f"<Todo(uuid={self.uuid}, title='{self.title}', status='{self.status}')>" 

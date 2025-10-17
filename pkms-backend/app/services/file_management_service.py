@@ -9,6 +9,7 @@ Handles:
 - Document and note file uploads
 """
 
+import asyncio
 import shutil
 import hashlib
 import uuid as uuid_lib

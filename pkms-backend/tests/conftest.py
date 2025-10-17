@@ -13,7 +13,9 @@ from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 
-from app.main import app
+import sys
+sys.path.append('..')
+from main import app
 from app.database import Base, get_db
 from app.models.user import User
 from app.auth.security import hash_password, create_access_token
@@ -41,6 +43,7 @@ async def test_engine():
     
     # Create all tables
     async with engine.begin() as conn:
+        await conn.execute("PRAGMA foreign_keys=ON;")
         await conn.run_sync(Base.metadata.create_all)
         # Ensure FTS5 table exists for search tests
         await conn.execute(

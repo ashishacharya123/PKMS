@@ -1,6 +1,6 @@
 from .note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFileResponse, CommitNoteFileRequest
 from .archive import FolderCreate, FolderUpdate, ItemUpdate, FolderResponse, ItemResponse, ItemSummary, FolderTree, BulkMoveRequest, CommitUploadRequest
-from .diary import EncryptionSetupRequest, EncryptionUnlockRequest, DiaryEntryCreate, DiaryEntryResponse, DiaryEntrySummary, DiaryCalendarData, MoodStats, DiaryMediaResponse, DiaryMediaUpload, CommitDiaryMediaRequest
+from .diary import EncryptionSetupRequest, EncryptionUnlockRequest, DiaryEntryCreate, DiaryEntryUpdate, DiaryEntryResponse, DiaryEntrySummary, DiaryCalendarData, MoodStats, DiaryMediaResponse, DiaryMediaUpload, CommitDiaryMediaRequest, DiaryDailyMetadata, DiaryDailyMetadataResponse, DiaryDailyMetadataUpdate, WeeklyHighlights, WellnessTrendPoint
 from .document import DocumentCreate, DocumentUpdate, DocumentResponse, CommitDocumentUploadRequest, ArchiveDocumentRequest
 from .link import LinkResponse, LinkCreate, LinkUpdate
 from .tag import TagResponse, TagAutocompleteResponse

@@ -14,7 +14,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 from app.database import get_db
-from app.models.todo import Todo, Project
+from app.models.todo import Todo
+from app.models.project import Project
 from app.models.tag import Tag
 from app.models.user import User
 from app.models.associations import todo_projects
@@ -40,13 +41,13 @@ async def todos_stats_overview(
     """Return high-level statistics for the current user's todos and projects."""
     # Total counts
     total_todos = (await db.execute(
-        select(func.count(Todo.uuid)).where(Todo.user_uuid == current_user.uuid)
+        select(func.count(Todo.uuid)).where(Todo.created_by == current_user.uuid)
     )).scalar() or 0
 
     # Counts by status
     status_counts = (await db.execute(
         select(Todo.status, func.count(Todo.uuid))
-        .where(Todo.user_uuid == current_user.uuid)
+        .where(Todo.created_by == current_user.uuid)
         .group_by(Todo.status)
     )).all()
     
@@ -63,7 +64,7 @@ async def todos_stats_overview(
 
     archived_count = (await db.execute(
         select(func.count(Todo.uuid)).where(and_(
-            Todo.user_uuid == current_user.uuid,
+            Todo.created_by == current_user.uuid,
             Todo.is_archived.is_(True)
         ))
     )).scalar() or 0
@@ -73,7 +74,7 @@ async def todos_stats_overview(
     now_date = _date_cls.today()
     overdue_count = (await db.execute(
         select(func.count(Todo.uuid)).where(and_(
-            Todo.user_uuid == current_user.uuid,
+            Todo.created_by == current_user.uuid,
             Todo.status != 'done',
             Todo.is_archived.is_(False),
             Todo.due_date.is_not(None),
@@ -84,19 +85,19 @@ async def todos_stats_overview(
     # By priority
     by_priority_rows = (await db.execute(
         select(Todo.priority, func.count(Todo.uuid))
-        .where(Todo.user_uuid == current_user.uuid)
+        .where(Todo.created_by == current_user.uuid)
         .group_by(Todo.priority)
     )).all()
     by_priority = {int(priority): int(count) for priority, count in by_priority_rows}
 
     # Projects summary
     total_projects = (await db.execute(
-        select(func.count(Project.uuid)).where(Project.user_uuid == current_user.uuid)
+        select(func.count(Project.uuid)).where(Project.created_by == current_user.uuid)
     )).scalar() or 0
 
     archived_projects = (await db.execute(
         select(func.count(Project.uuid)).where(and_(
-            Project.user_uuid == current_user.uuid,
+            Project.created_by == current_user.uuid,
             Project.is_archived.is_(True)
         ))
     )).scalar() or 0
@@ -225,11 +226,8 @@ async def create_todo(
             start_date=todo_data.start_date,
             due_date=todo_data.due_date,
             is_exclusive_mode=todo_data.is_exclusive_mode or False,
-            user_uuid=current_user.uuid,
+            created_by=current_user.uuid,
             is_archived=todo_data.is_archived or False,
-            
-            # Audit trail
-            created_by=current_user.uuid
         )
         db.add(todo)
         await db.flush()
@@ -296,7 +294,7 @@ async def list_todos(
         selectinload(Todo.projects)
     ).where(
         and_(
-            Todo.user_uuid == current_user.uuid,
+            Todo.created_by == current_user.uuid,
             Todo.is_exclusive_mode.is_(False),  # Only show linked (non-exclusive) items
             Todo.parent_uuid.is_(None)  # Never list subtasks standalone
         )
@@ -333,7 +331,7 @@ async def list_todos(
                 selectinload(Todo.projects)
             ).where(and_(
                 Todo.parent_uuid.in_(todo_uuids),
-                Todo.user_uuid == current_user.uuid
+                Todo.created_by == current_user.uuid
             )).order_by(Todo.parent_uuid, Todo.order_index)
         )
         all_subtasks = subtasks_result.scalars().all()
@@ -384,7 +382,7 @@ async def create_project(
         raise HTTPException(status_code=400, detail="Invalid color format. Must be a valid hex color (e.g., #3498db)")
     
     payload["color"] = color
-    project = Project(**payload, user_uuid=current_user.uuid)
+    project = Project(**payload, created_by=current_user.uuid)
     db.add(project)
     await db.commit()
     await db.refresh(project)
@@ -405,7 +403,7 @@ async def list_projects(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(Project).options(selectinload(Project.tag_objs)).where(Project.user_uuid == current_user.uuid)
+    query = select(Project).options(selectinload(Project.tag_objs)).where(Project.created_by == current_user.uuid)
     if archived is not None:
         query = query.where(Project.is_archived == archived)
     if tag:
@@ -425,7 +423,7 @@ async def list_projects(
             func.sum(case((Todo.status == TodoStatus.DONE, 1), else_=0)).label("completed")
         )
         .join(Todo, Todo.uuid == todo_projects.c.todo_uuid)
-        .where(and_(todo_projects.c.project_uuid.in_(project_uuids), Todo.user_uuid == current_user.uuid))
+        .where(and_(todo_projects.c.project_uuid.in_(project_uuids), Todo.created_by == current_user.uuid))
         .group_by(todo_projects.c.project_uuid)
     )
     counts_result = await db.execute(counts_stmt)
@@ -446,7 +444,7 @@ async def get_project(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
-        select(Project).where(and_(Project.uuid == project_uuid, Project.user_uuid == current_user.uuid))
+        select(Project).where(and_(Project.uuid == project_uuid, Project.created_by == current_user.uuid))
     )
     project = result.scalar_one_or_none()
     if not project:
@@ -463,7 +461,7 @@ async def update_project(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
-        select(Project).where(and_(Project.uuid == project_uuid, Project.user_uuid == current_user.uuid))
+        select(Project).where(and_(Project.uuid == project_uuid, Project.created_by == current_user.uuid))
     )
     project = result.scalar_one_or_none()
     if not project:
@@ -504,7 +502,7 @@ async def delete_project(
     from sqlalchemy import update, delete as sql_delete
     
     result = await db.execute(
-        select(Project).where(and_(Project.uuid == project_uuid, Project.user_uuid == current_user.uuid))
+        select(Project).where(and_(Project.uuid == project_uuid, Project.created_by == current_user.uuid))
     )
     project = result.scalar_one_or_none()
     if not project:
@@ -585,7 +583,7 @@ async def get_todo(
         select(Todo).options(
             selectinload(Todo.tag_objs),
             selectinload(Todo.projects)
-        ).where(and_(Todo.uuid == todo_uuid, Todo.user_uuid == current_user.uuid))
+        ).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -604,7 +602,7 @@ async def update_todo(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
-        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_uuid == current_user.uuid))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -672,7 +670,7 @@ async def archive_todo(
         select(Todo).options(
             selectinload(Todo.tag_objs),
             selectinload(Todo.projects)
-        ).where(and_(Todo.uuid == todo_uuid, Todo.user_uuid == current_user.uuid))
+        ).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -693,7 +691,7 @@ async def delete_todo(
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
-        select(Todo).options(selectinload(Todo.tag_objs)).where(and_(Todo.uuid == todo_uuid, Todo.user_uuid == current_user.uuid))
+        select(Todo).options(selectinload(Todo.tag_objs)).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -717,7 +715,7 @@ async def update_todo_status(
 ):
     """Update todo status."""
     result = await db.execute(
-        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_uuid == current_user.uuid))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -765,7 +763,7 @@ async def reorder_todo(
 ):
     """Update todo order index for Kanban board positioning."""
     result = await db.execute(
-        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_uuid == current_user.uuid))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -813,7 +811,7 @@ async def create_subtask(
     """Create a subtask for the specified todo."""
     # Verify parent todo exists and belongs to user
     parent_result = await db.execute(
-        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_uuid == current_user.uuid))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
     )
     parent_todo = parent_result.scalar_one_or_none()
     if not parent_todo:
@@ -830,10 +828,7 @@ async def create_subtask(
         due_date=subtask_data.due_date,
         parent_uuid=parent_todo.uuid,
         # Projects will be inherited via project associations
-        user_uuid=current_user.uuid,
-        
-        # Audit trail
-        created_by=current_user.uuid
+        created_by=current_user.uuid,
     )
     
     db.add(subtask)
@@ -868,7 +863,7 @@ async def get_subtasks(
     """Get all subtasks for the specified todo."""
     # Verify parent todo exists and belongs to user
     parent_result = await db.execute(
-        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_uuid == current_user.uuid))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
     )
     parent_todo = parent_result.scalar_one_or_none()
     if not parent_todo:
@@ -881,7 +876,7 @@ async def get_subtasks(
             selectinload(Todo.projects)
         ).where(and_(
             Todo.parent_uuid == parent_todo.uuid,
-            Todo.user_uuid == current_user.uuid
+            Todo.created_by == current_user.uuid
         )).order_by(Todo.order_index)
     )
     subtasks = result.scalars().all()
@@ -905,7 +900,7 @@ async def move_subtask(
     """Move a subtask to a different parent or make it a top-level todo."""
     # Verify todo exists and belongs to user
     result = await db.execute(
-        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_uuid == current_user.uuid))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
     )
     todo = result.scalar_one_or_none()
     if not todo:
@@ -914,7 +909,7 @@ async def move_subtask(
     # If moving to a new parent, verify it exists and belongs to user
     if parent_uuid is not None:
         parent_result = await db.execute(
-            select(Todo).where(and_(Todo.uuid == parent_uuid, Todo.user_uuid == current_user.uuid))
+            select(Todo).where(and_(Todo.uuid == parent_uuid, Todo.created_by == current_user.uuid))
         )
         parent_todo = parent_result.scalar_one_or_none()
         if not parent_todo:
@@ -983,7 +978,7 @@ async def reorder_subtasks(
     """Reorder subtasks for the specified todo."""
     # Verify parent todo exists and belongs to user
     parent_result = await db.execute(
-        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.user_uuid == current_user.uuid))
+        select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
     )
     parent_todo = parent_result.scalar_one_or_none()
     if not parent_todo:
@@ -995,7 +990,7 @@ async def reorder_subtasks(
             select(Todo).where(and_(
                 Todo.uuid == subtask_uuid,
                 Todo.parent_uuid == parent_todo.uuid,
-                Todo.user_uuid == current_user.uuid
+                Todo.created_by == current_user.uuid
             ))
         )
         subtask = subtask_result.scalar_one_or_none()

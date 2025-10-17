@@ -23,13 +23,13 @@ class ArchiveFolder(Base):
     parent_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
     is_archived = Column(Boolean, default=False, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
-    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
-    
-    
+
+
     # Relationships
-    user = relationship("User", back_populates="archive_folders")
+    user = relationship("User", back_populates="archive_folders", foreign_keys=[created_by])
     parent = relationship("ArchiveFolder", remote_side=[uuid], backref="children")
     items = relationship("ArchiveItem", back_populates="folder", cascade="all, delete-orphan")
     tag_objs = relationship("Tag", secondary=archive_folder_tags, back_populates="archive_folders")
@@ -54,7 +54,7 @@ class ArchiveItem(Base):
     folder_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
     is_archived = Column(Boolean, default=False, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
-    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
     
@@ -63,7 +63,7 @@ class ArchiveItem(Base):
     
     
     # Relationships
-    user = relationship("User", back_populates="archive_items")
+    user = relationship("User", back_populates="archive_items", foreign_keys=[created_by])
     folder = relationship("ArchiveFolder", back_populates="items")
     tag_objs = relationship("Tag", secondary=archive_item_tags, back_populates="archive_items")
     

@@ -37,15 +37,18 @@ class Tag(Base):
     
     is_system = Column(Boolean, default=False, index=True)  # System tags can't be deleted
     is_archived = Column(Boolean, default=False, index=True)
-    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
     
     # CRITICAL: Ensures a user can't have the same tag name within the same module.
     __table_args__ = (
-        UniqueConstraint('name', 'user_uuid', 'module_type', name='_user_module_tag_uc'),
+        UniqueConstraint('name', 'created_by', 'module_type', name='_user_module_tag_uc'),
     )
     
+    # Relationships
+    user = relationship("User", back_populates="tags", foreign_keys=[created_by])
+
     # Relationships to content models
     notes = relationship("Note", secondary=note_tags, back_populates="tag_objs")
     documents = relationship("Document", secondary=document_tags, back_populates="tag_objs")

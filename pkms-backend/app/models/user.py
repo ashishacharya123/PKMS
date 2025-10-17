@@ -42,16 +42,18 @@ class User(Base):
     # Relationships
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
     recovery_keys = relationship("RecoveryKey", back_populates="user", cascade="all, delete-orphan")
-    notes = relationship("Note", back_populates="user", cascade="all, delete-orphan")
-    note_files = relationship("NoteFile", back_populates="user", cascade="all, delete-orphan")
-    documents = relationship("Document", back_populates="user", cascade="all, delete-orphan")
-    todos = relationship("Todo", back_populates="user", cascade="all, delete-orphan")
-    projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
-    diary_entries = relationship("DiaryEntry", back_populates="user", cascade="all, delete-orphan")
-    diary_media = relationship("DiaryMedia", back_populates="user", cascade="all, delete-orphan")
-    diary_daily_metadata = relationship("DiaryDailyMetadata", back_populates="user", cascade="all, delete-orphan")
-    archive_folders = relationship("ArchiveFolder", back_populates="user", cascade="all, delete-orphan")
-    archive_items = relationship("ArchiveItem", back_populates="user", cascade="all, delete-orphan")
+    notes = relationship("Note", back_populates="user", cascade="all, delete-orphan", foreign_keys="Note.created_by")
+    note_files = relationship("NoteFile", back_populates="user", cascade="all, delete-orphan", foreign_keys="NoteFile.created_by")
+    documents = relationship("Document", back_populates="user", cascade="all, delete-orphan", foreign_keys="Document.created_by")
+    todos = relationship("Todo", back_populates="user", cascade="all, delete-orphan", foreign_keys="Todo.created_by")
+    projects = relationship("Project", back_populates="user", cascade="all, delete-orphan", foreign_keys="Project.created_by")
+    diary_entries = relationship("DiaryEntry", back_populates="user", cascade="all, delete-orphan", foreign_keys="DiaryEntry.created_by")
+    diary_media = relationship("DiaryMedia", back_populates="user", cascade="all, delete-orphan", foreign_keys="DiaryMedia.created_by")
+    diary_daily_metadata = relationship("DiaryDailyMetadata", back_populates="user", cascade="all, delete-orphan", foreign_keys="DiaryDailyMetadata.created_by")
+    archive_folders = relationship("ArchiveFolder", back_populates="user", cascade="all, delete-orphan", foreign_keys="ArchiveFolder.created_by")
+    archive_items = relationship("ArchiveItem", back_populates="user", cascade="all, delete-orphan", foreign_keys="ArchiveItem.created_by")
+    links = relationship("Link", back_populates="user", cascade="all, delete-orphan", foreign_keys="Link.created_by")
+    tags = relationship("Tag", back_populates="user", cascade="all, delete-orphan", foreign_keys="Tag.created_by")
     
     def __repr__(self):
         return f"<User(uuid={self.uuid}, username='{self.username}')>"

@@ -33,7 +33,7 @@ class DiaryEntry(Base):
     is_archived = Column(Boolean, default=False, index=True)
     is_template = Column(Boolean, default=False, index=True)  # Template flag for reusable entries
     from_template_id = Column(String(36), nullable=True, index=True)  # Source template UUID/ID
-    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
     
@@ -61,11 +61,11 @@ class DiaryDailyMetadata(Base):
 
     __tablename__ = "diary_daily_metadata"
     __table_args__ = (
-        UniqueConstraint('user_uuid', 'date', name='uq_diary_daily_metadata_user_date'),
+        UniqueConstraint('created_by', 'date', name='uq_diary_daily_metadata_user_date'),
     )
 
     uuid = Column(String(36), primary_key=True, default=lambda: str(uuid4()), index=True)
-    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     date = Column(DateTime(timezone=True), nullable=False, index=True)
     nepali_date = Column(String(20), nullable=True)
     
@@ -86,7 +86,7 @@ class DiaryDailyMetadata(Base):
     entries = relationship("DiaryEntry", back_populates="daily_metadata")
 
     def __repr__(self):
-        return f"<DiaryDailyMetadata(uuid={self.uuid}, user_uuid={self.user_uuid}, date={self.date})>"
+        return f"<DiaryDailyMetadata(uuid={self.uuid}, created_by={self.created_by}, date={self.date})>"
 
 
 class DiaryMedia(Base):
@@ -106,7 +106,7 @@ class DiaryMedia(Base):
     caption = Column(Text, nullable=True)
     is_encrypted = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
-    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
     

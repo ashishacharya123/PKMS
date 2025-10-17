@@ -24,7 +24,7 @@ from app.config import NEPAL_TZ, get_data_dir, get_file_storage_dir
 from app.models.document import Document
 from app.models.tag import Tag
 from app.models.user import User
-from app.models.todo import Project
+from app.models.project import Project
 from app.models.tag_associations import document_tags
 from app.models.associations import document_projects
 from app.services.tag_service import tag_service
@@ -157,14 +157,11 @@ async def list_documents(
                 db, current_user.uuid, q, item_types=["document"], limit=limit, offset=offset
             )
 
-            # Create mapping of document UUID to FTS score for proper ordering
-            fts_scores: Dict[str, float] = {}
+            # Collect document UUIDs in FTS order (bm25 ASC = better first)
             doc_uuids: List[str] = []
             for r in fts_results:
                 if r["type"] == "document":
                     doc_uuids.append(r["uuid"])
-                    # Use search service score directly (normalized between 0 and 1)
-                    fts_scores[r["uuid"]] = r.get("score", 0.1)
 
             # Offset applied at search_service; keep order as returned
             
@@ -176,7 +173,7 @@ async def list_documents(
             # Fetch documents by UUIDs
             query = select(Document).options(selectinload(Document.tag_objs)).where(
                 and_(
-                    Document.user_uuid == current_user.uuid,
+                    Document.created_by == current_user.uuid,
                     Document.is_archived == archived,
                     Document.uuid.in_(doc_uuids),
                     Document.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
@@ -210,7 +207,7 @@ async def list_documents(
             logger.info(f"Using regular query for archived={archived}")
             query = select(Document).options(selectinload(Document.tag_objs)).where(
                 and_(
-                    Document.user_uuid == current_user.uuid,
+                    Document.created_by == current_user.uuid,
                     Document.is_archived == archived,
                     Document.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
                 )
@@ -250,8 +247,9 @@ async def list_documents(
             # Collect all project UUIDs (both live and deleted)
             project_uuids = set()
             for junction in junctions:
-                if junction.project_uuid:
-                    project_uuids.add(junction.project_uuid)
+                pj = junction._mapping["project_uuid"]
+                if pj:
+                    project_uuids.add(pj)
 
             # Single query to fetch all live projects
             projects = []
@@ -268,9 +266,10 @@ async def list_documents(
             # Group junctions by document_uuid
             junctions_by_doc: Dict[str, list] = {}
             for junction in junctions:
-                if junction.document_uuid not in junctions_by_doc:
-                    junctions_by_doc[junction.document_uuid] = []
-                junctions_by_doc[junction.document_uuid].append(junction)
+                doc_uuid = junction._mapping["document_uuid"]
+                if doc_uuid not in junctions_by_doc:
+                    junctions_by_doc[doc_uuid] = []
+                junctions_by_doc[doc_uuid].append(junction)
         
             # Build project badges for each document
             for d in ordered_docs:
@@ -318,7 +317,7 @@ async def get_document(
     """Get a specific document by UUID."""
     result = await db.execute(
         select(Document).options(selectinload(Document.tag_objs)).where(
-            and_(Document.uuid == document_uuid, Document.user_uuid == current_user.uuid)
+            and_(Document.uuid == document_uuid, Document.created_by == current_user.uuid)
         )
     )
     doc = result.scalar_one_or_none()
@@ -339,7 +338,7 @@ async def download_document(
     """Download a document file."""
     result = await db.execute(
         select(Document).where(
-            and_(Document.uuid == document_uuid, Document.user_uuid == current_user.uuid)
+            and_(Document.uuid == document_uuid, Document.created_by == current_user.uuid)
         )
     )
     doc = result.scalar_one_or_none()
@@ -370,7 +369,7 @@ async def update_document(
     """Update document metadata and tags."""
     result = await db.execute(
         select(Document).options(selectinload(Document.tag_objs)).where(
-            and_(Document.uuid == document_uuid, Document.user_uuid == current_user.uuid)
+            and_(Document.uuid == document_uuid, Document.created_by == current_user.uuid)
         )
     )
     doc = result.scalar_one_or_none()
@@ -426,7 +425,7 @@ async def delete_document(
     """
     result = await db.execute(
         select(Document).options(selectinload(Document.tag_objs)).where(
-            and_(Document.uuid == document_uuid, Document.user_uuid == current_user.uuid)
+            and_(Document.uuid == document_uuid, Document.created_by == current_user.uuid)
         )
     )
     doc = result.scalar_one_or_none()
@@ -442,9 +441,8 @@ async def delete_document(
     # Delete the physical file
     try:
         file_to_delete = get_file_storage_dir() / doc.file_path
-        if await asyncio.to_thread(file_to_delete.exists):
-            await asyncio.to_thread(file_to_delete.unlink)
-            logger.info(f"Deleted document file: {file_to_delete}")
+        await asyncio.to_thread(file_to_delete.unlink, missing_ok=True)
+        logger.info(f"Deleted document file: {file_to_delete}")
     except Exception as e:
         logger.warning(f"Could not delete file {doc.file_path}: {e}")
         # Continue with database deletion even if file deletion fails

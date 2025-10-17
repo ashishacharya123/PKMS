@@ -42,7 +42,7 @@ async def autocomplete_tags(
 
     # Fetch all tag names for this user (distinct names)
     result = await db.execute(
-        select(Tag.name).where(Tag.user_uuid == current_user.uuid)
+        select(Tag.name).where(Tag.created_by == current_user.uuid)
     )
     tag_names = [row[0] for row in result.fetchall()]
 
@@ -53,7 +53,7 @@ async def autocomplete_tags(
     if not q:
         result = await db.execute(
             select(Tag.name)
-            .where(Tag.user_uuid == current_user.uuid)
+            .where(Tag.created_by == current_user.uuid)
             .order_by(Tag.usage_count.desc(), Tag.name)
             .limit(limit)
         )
@@ -106,7 +106,7 @@ async def autocomplete_tags_enhanced(
     try:
         query = select(Tag.name, Tag.color, Tag.module_type).where(
             and_(
-                Tag.user_uuid == current_user.uuid,
+                Tag.created_by == current_user.uuid,
                 Tag.name.ilike(pattern)
             )
         )

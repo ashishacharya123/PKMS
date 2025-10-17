@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional, Type
 from fastapi import HTTPException
 
-from app.models.todo import Project
+from app.models.project import Project
 from app.models.associations import note_projects, document_projects, todo_projects
 from app.schemas.document import ProjectBadge
 
@@ -56,7 +56,7 @@ class ProjectService:
             select(Project).where(
                 and_(
                     Project.uuid.in_(project_uuids),
-                    Project.user_uuid == user_uuid
+                    Project.created_by == user_uuid
                 )
             )
         )
@@ -223,7 +223,7 @@ class ProjectService:
             name=name,
             description=description,
             color=color,
-            user_uuid=user_uuid
+            created_by=user_uuid
         )
         db.add(project)
         await db.flush()
@@ -248,7 +248,7 @@ class ProjectService:
             select(Project).where(
                 and_(
                     Project.uuid == project_uuid,
-                    Project.user_uuid == user_uuid
+                    Project.created_by == user_uuid
                 )
             )
         )

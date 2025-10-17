@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 
 from ..models.note import Note
 from ..models.document import Document
-from ..models.todo import Todo, Project
+from ..models.todo import Todo
+from ..models.project import Project
 from ..models.diary import DiaryEntry
 from ..models.link import Link
 from ..models.archive import ArchiveFolder, ArchiveItem
@@ -49,7 +50,7 @@ class SearchService:
         try:
             # Extract common fields
             item_uuid = str(item.uuid)
-            user_uuid = getattr(item, 'user_uuid', None)
+            user_uuid = getattr(item, 'created_by', None)
             title = getattr(item, 'title', None) or getattr(item, 'name', None) or ''
             description = getattr(item, 'description', None) or ''
             
@@ -83,12 +84,12 @@ class SearchService:
             
             # INSERT new FTS row
             await db.execute(text("""
-                INSERT INTO fts_content(item_uuid, item_type, user_uuid, title, description, tags, attachments, date_text)
-                VALUES (:uuid, :type, :user_uuid, :title, :description, :tags, :attachments, :date_text)
+                INSERT INTO fts_content(item_uuid, item_type, created_by, title, description, tags, attachments, date_text)
+                VALUES (:uuid, :type, :created_by, :title, :description, :tags, :attachments, :date_text)
             """), {
                 "uuid": item_uuid,
                 "type": item_type,
-                "user_uuid": user_uuid,
+                "created_by": user_uuid,
                 "title": title,
                 "description": description,
                 "tags": tags,
@@ -144,7 +145,7 @@ class SearchService:
             sql = """
                 SELECT item_uuid, item_type, bm25(fts_content) AS score
                 FROM fts_content
-                WHERE fts_content MATCH :query AND user_uuid = :user_uuid
+                WHERE fts_content MATCH :query AND created_by = :user_uuid
             """
             params = {"query": fts_query, "user_uuid": user_uuid}
             
@@ -321,56 +322,56 @@ class SearchService:
 
         # Index notes
         notes_result = await db.execute(
-            select(Note).options(selectinload(Note.tag_objs)).where(Note.user_uuid == user_uuid)
+            select(Note).options(selectinload(Note.tag_objs)).where(Note.created_by == user_uuid)
         )
         for note in notes_result.scalars():
             await self.index_item(db, note, 'note')
 
         # Index documents
         docs_result = await db.execute(
-            select(Document).options(selectinload(Document.tag_objs)).where(Document.user_uuid == user_uuid)
+            select(Document).options(selectinload(Document.tag_objs)).where(Document.created_by == user_uuid)
         )
         for doc in docs_result.scalars():
             await self.index_item(db, doc, 'document')
 
         # Index todos
         todos_result = await db.execute(
-            select(Todo).options(selectinload(Todo.tag_objs)).where(Todo.user_uuid == user_uuid)
+            select(Todo).options(selectinload(Todo.tag_objs)).where(Todo.created_by == user_uuid)
         )
         for todo in todos_result.scalars():
             await self.index_item(db, todo, 'todo')
 
         # Index projects
         projects_result = await db.execute(
-            select(Project).options(selectinload(Project.tag_objs)).where(Project.user_uuid == user_uuid)
+            select(Project).options(selectinload(Project.tag_objs)).where(Project.created_by == user_uuid)
         )
         for project in projects_result.scalars():
             await self.index_item(db, project, 'project')
 
         # Index diary entries
         diary_result = await db.execute(
-            select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.user_uuid == user_uuid)
+            select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.created_by == user_uuid)
         )
         for entry in diary_result.scalars():
             await self.index_item(db, entry, 'diary')
 
         # Index links
         links_result = await db.execute(
-            select(Link).options(selectinload(Link.tag_objs)).where(Link.user_uuid == user_uuid)
+            select(Link).options(selectinload(Link.tag_objs)).where(Link.created_by == user_uuid)
         )
         for link in links_result.scalars():
             await self.index_item(db, link, 'link')
 
         # Index archive folders
         folders_result = await db.execute(
-            select(ArchiveFolder).options(selectinload(ArchiveFolder.tag_objs)).where(ArchiveFolder.user_uuid == user_uuid)
+            select(ArchiveFolder).options(selectinload(ArchiveFolder.tag_objs)).where(ArchiveFolder.created_by == user_uuid)
         )
         for folder in folders_result.scalars():
             await self.index_item(db, folder, 'archive_folder')
 
         # Index archive items
         items_result = await db.execute(
-            select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.user_uuid == user_uuid)
+            select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.created_by == user_uuid)
         )
         for item in items_result.scalars():
             await self.index_item(db, item, 'archive_item')

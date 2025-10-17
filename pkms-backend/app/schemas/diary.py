@@ -15,17 +15,6 @@ WEATHER_CODE_LABELS = {
 }
 
 
-WEATHER_CODE_LABELS = {
-    0: "clear",
-    1: "partly_cloudy",
-    2: "cloudy",
-    3: "rain",
-    4: "storm",
-    5: "snow",
-    6: "scorching_sun",
-}
-
-
 class CamelCaseModel(BaseModel):
     model_config = ConfigDict(
         alias_generator=to_camel,
@@ -46,21 +35,21 @@ class EncryptionUnlockRequest(CamelCaseModel):
 
 
 
-class DiaryEntryCreate(CamelCaseModel):
-    date: date
+class DiaryEntryUpdate(CamelCaseModel):
+    date: Optional[date] = None
     title: Optional[str] = Field(None, max_length=255)
-    encrypted_blob: str
-    encryption_iv: str
+    encrypted_blob: Optional[str] = None
+    encryption_iv: Optional[str] = None
     mood: Optional[int] = Field(None, ge=1, le=5)
     weather_code: Optional[int] = Field(None, ge=0, le=6)
     location: Optional[str] = Field(None, max_length=100)
-    content_length: Optional[int] = None  # plaintext character count
+    content_length: Optional[int] = None
     daily_metrics: Optional[Dict[str, Any]] = None
     nepali_date: Optional[str] = None
-    daily_income: Optional[int] = Field(None, ge=0)  # Income in NPR
-    daily_expense: Optional[int] = Field(None, ge=0)  # Expense in NPR
-    is_office_day: Optional[bool] = False  # Was this an office/work day?
-    is_template: Optional[bool] = False
+    daily_income: Optional[int] = Field(None, ge=0)
+    daily_expense: Optional[int] = Field(None, ge=0)
+    is_office_day: Optional[bool] = None
+    is_template: Optional[bool] = None
     from_template_id: Optional[str] = None
     tags: Optional[List[str]] = None
 
@@ -80,6 +69,22 @@ class DiaryEntryCreate(CamelCaseModel):
     def default_tags(cls, v):
         return v or []
 
+
+class DiaryEntryCreate(CamelCaseModel):
+    date: date
+    title: Optional[str] = Field(None, max_length=255)
+    encrypted_blob: str
+    encryption_iv: str
+    mood: Optional[int] = Field(None, ge=1, le=5)
+    weather_code: Optional[int] = Field(None, ge=0, le=6)
+    location: Optional[str] = Field(None, max_length=100)
+    content_length: Optional[int] = None  # plaintext character count
+    daily_metrics: Optional[Dict[str, Any]] = None
+    nepali_date: Optional[str] = None
+    daily_income: Optional[int] = Field(None, ge=0)  # Income in NPR
+    daily_expense: Optional[int] = Field(None, ge=0)  # Expense in NPR
+    is_office_day: Optional[bool] = False  # Was this an office/work day?
+    is_template: Optional[bool] = False
     from_template_id: Optional[str] = None
     tags: Optional[List[str]] = None
 
@@ -118,16 +123,12 @@ class DiaryEntryResponse(CamelCaseModel):
     is_office_day: Optional[bool] = False  # Was this an office/work day?
     is_template: bool
     from_template_id: Optional[str]
-    from_template_id: Optional[str]
     created_at: datetime
     updated_at: datetime
     media_count: int
     tags: List[str] = []
     content_length: int
-    content_length: int
 
-    @validator("daily_metrics", pre=True, always=True)
-    def parse_daily_metrics(cls, v):
     @validator("daily_metrics", pre=True, always=True)
     def parse_daily_metrics(cls, v):
         if isinstance(v, str):
@@ -154,13 +155,7 @@ class DiaryEntrySummary(CamelCaseModel):
     location: Optional[str]
     daily_metrics: Dict[str, Any]
     nepali_date: Optional[str]
-    weather_code: Optional[int]
-    weather_label: Optional[str] = None
-    location: Optional[str]
-    daily_metrics: Dict[str, Any]
-    nepali_date: Optional[str]
     is_template: bool
-    from_template_id: Optional[str]
     from_template_id: Optional[str]
     created_at: datetime
     media_count: int
@@ -173,18 +168,6 @@ class DiaryEntrySummary(CamelCaseModel):
     @validator("daily_metrics", pre=True, always=True)
     def parse_daily_metrics_summary(cls, v):
         if isinstance(v, str):
-            try:
-                return json.loads(v)
-            except json.JSONDecodeError:
-                return {}
-        return v or {}
-
-    @validator("weather_label", always=True)
-    def set_weather_label_summary(cls, v, values):
-        code = values.get("weather_code")
-        return WEATHER_CODE_LABELS.get(code) if code is not None else None
-
-
             try:
                 return json.loads(v)
             except json.JSONDecodeError:
@@ -222,26 +205,25 @@ class WellnessStats(CamelCaseModel):
     """Comprehensive wellness analytics across all metrics"""
     
 class WeeklyHighlights(CamelCaseModel):
+    # Period info (calculated on the fly)
     period_start: str
     period_end: str
+    total_days: int
+    days_with_data: int
+
+    # Summary metrics (for top cards)
     notes_created: int
     documents_uploaded: int
     todos_completed: int
     diary_entries: int
     archive_items_added: int
-    projects_created: int
-    projects_completed: int
+    projects_created: int  # TODO: Remove when project model is separated
+    projects_completed: int  # TODO: Remove when project model is separated
     total_income: float
     total_expense: float
     net_savings: float
 
-    # Period info
-    period_start: str
-    period_end: str
-    total_days: int
-    days_with_data: int
-    
-    # Summary metrics (for top cards)
+    # Wellness metrics (calculated from diary entries)
     wellness_score: Optional[float]  # 0-100 composite score
     average_mood: Optional[float]
     average_sleep: Optional[float]
@@ -288,6 +270,19 @@ class WeeklyHighlights(CamelCaseModel):
     
     # Insights
     insights: List[Dict[str, str]]  # [{type: 'positive', message: '...', metric: 'sleep'}, ...]
+
+
+class DiaryDailyMetadata(CamelCaseModel):
+    date: date
+    nepali_date: Optional[str] = None
+    metrics: Dict[str, Any] = {}
+    daily_income: Optional[int] = Field(None, ge=0)
+    daily_expense: Optional[int] = Field(None, ge=0)
+    is_office_day: Optional[bool] = False
+
+    @validator("metrics", pre=True, always=True)
+    def validate_metrics(cls, v):
+        return v or {}
 
 
 class DiaryDailyMetadataResponse(CamelCaseModel):

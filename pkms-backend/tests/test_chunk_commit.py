@@ -31,9 +31,7 @@ async def test_document_chunk_commit_moves_and_indexes(async_client: AsyncClient
     doc = resp.json()
     doc_uuid = doc["uuid"]
 
-    # File should exist at final path and FTS should have a row
-    final_path = Path(doc["file_path"]) if "file_path" in doc else None
-    # Check FTS row exists
+    # Verify FTS row exists
     res = await db_session.execute(text("SELECT 1 FROM fts_content WHERE item_uuid = :u"), {"u": doc_uuid})
     assert res.fetchone() is not None
 

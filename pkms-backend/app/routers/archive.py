@@ -22,6 +22,7 @@ from app.schemas.archive import (
 from typing import List, Optional, Dict, Any
 import asyncio
 from datetime import datetime
+from app.config import NEPAL_TZ
 from pathlib import Path
 import uuid as uuid_lib
 import json
@@ -30,7 +31,6 @@ import aiofiles
 import logging
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-import asyncio
 from io import BytesIO
 from functools import lru_cache, wraps
 import time
@@ -46,7 +46,7 @@ async def get_filesystem_path(folder_uuid: str, db: AsyncSession, user_uuid: Opt
     # Get the folder
     cond = (ArchiveFolder.uuid == folder_uuid)
     if user_uuid:
-        cond = and_(cond, ArchiveFolder.user_uuid == user_uuid)
+        cond = and_(cond, ArchiveFolder.created_by == user_uuid)
     result = await db.execute(select(ArchiveFolder).where(cond))
     folder = result.scalar_one_or_none()
     
@@ -66,7 +66,7 @@ async def get_filesystem_path(folder_uuid: str, db: AsyncSession, user_uuid: Opt
         
         parent_cond = (ArchiveFolder.uuid == current_parent)
         if user_uuid:
-            parent_cond = and_(parent_cond, ArchiveFolder.user_uuid == user_uuid)
+            parent_cond = and_(parent_cond, ArchiveFolder.created_by == user_uuid)
         parent_result = await db.execute(select(ArchiveFolder).where(parent_cond))
         parent_folder = parent_result.scalar_one_or_none()
         
@@ -86,7 +86,7 @@ async def get_display_path(folder_uuid: str, db: AsyncSession, user_uuid: Option
     # Get the folder
     cond = (ArchiveFolder.uuid == folder_uuid)
     if user_uuid:
-        cond = and_(cond, ArchiveFolder.user_uuid == user_uuid)
+        cond = and_(cond, ArchiveFolder.created_by == user_uuid)
     result = await db.execute(select(ArchiveFolder).where(cond))
     folder = result.scalar_one_or_none()
     
@@ -106,7 +106,7 @@ async def get_display_path(folder_uuid: str, db: AsyncSession, user_uuid: Option
         
         parent_cond = (ArchiveFolder.uuid == current_parent)
         if user_uuid:
-            parent_cond = and_(parent_cond, ArchiveFolder.user_uuid == user_uuid)
+            parent_cond = and_(parent_cond, ArchiveFolder.created_by == user_uuid)
         parent_result = await db.execute(select(ArchiveFolder).where(parent_cond))
         parent_folder = parent_result.scalar_one_or_none()
         
@@ -135,7 +135,7 @@ async def validate_folder_name(name: str, parent_uuid: Optional[str], user_uuid:
         and_(
             func.lower(ArchiveFolder.name) == func.lower(sanitized_name),
             ArchiveFolder.parent_uuid == parent_uuid,
-            ArchiveFolder.user_uuid == user_uuid
+            ArchiveFolder.created_by == user_uuid
         )
     )
     
@@ -333,7 +333,7 @@ async def create_folder(
                 and_(
                     ArchiveFolder.parent_uuid == folder_data.parent_uuid,
                     func.lower(ArchiveFolder.name) == func.lower(folder_data.name),
-                    ArchiveFolder.user_uuid == current_user.uuid
+                    ArchiveFolder.created_by == current_user.uuid
                     # Archive folders don't use is_archived flag - all are active by being in archive
                 )
             )
@@ -353,7 +353,7 @@ async def create_folder(
                 select(ArchiveFolder).where(
                     and_(
                         ArchiveFolder.uuid == folder_data.parent_uuid,
-                        ArchiveFolder.user_uuid == current_user.uuid
+                        ArchiveFolder.created_by == current_user.uuid
                     )
                 )
             )
@@ -372,7 +372,7 @@ async def create_folder(
             name=folder_data.name.strip(),
             description=folder_data.description,
             parent_uuid=folder_data.parent_uuid,
-            user_uuid=current_user.uuid
+            created_by=current_user.uuid
         )
         
         db.add(folder)
@@ -442,11 +442,50 @@ async def list_folders(
             result = await db.execute(query)
             folders = result.scalars().all()
             folder_map = {f.uuid: f for f in folders}
+
+            # Batch-load folder stats to avoid N+1 queries
+            folder_uuids = [f.uuid for f in folders]
+            # Pre-compute counts with grouped queries
+            item_counts = {
+                r[0]: r[1] for r in (await db.execute(
+                    select(ArchiveItem.folder_uuid, func.count(ArchiveItem.uuid))
+                    .where(ArchiveItem.folder_uuid.in_(folder_uuids))
+                    .group_by(ArchiveItem.folder_uuid)
+                )).all()
+            }
+            sub_counts = {
+                r[0]: r[1] for r in (await db.execute(
+                    select(ArchiveFolder.parent_uuid, func.count(ArchiveFolder.uuid))
+                    .where(ArchiveFolder.parent_uuid.in_(folder_uuids))
+                    .group_by(ArchiveFolder.parent_uuid)
+                )).all()
+            }
+            sizes = {
+                r[0]: r[1] or 0 for r in (await db.execute(
+                    select(ArchiveItem.folder_uuid, func.sum(ArchiveItem.file_size))
+                    .where(ArchiveItem.folder_uuid.in_(folder_uuids))
+                    .group_by(ArchiveItem.folder_uuid)
+                )).all()
+            }
+
             folder_responses = []
-            for uuid in uuid_list:
-                if uuid in folder_map:
-                    folder_response = await _get_folder_with_stats(db, uuid, current_user.uuid)
-                    folder_responses.append(folder_response)
+            for f in folders:
+                display_path = await get_display_path(f.uuid, db, current_user.uuid)
+                filesystem_path = await get_filesystem_path(f.uuid, db, current_user.uuid)
+                folder_responses.append(FolderResponse(
+                    uuid=f.uuid,
+                    name=f.name,
+                    description=f.description,
+                    parent_uuid=f.parent_uuid,
+                    path=display_path,
+                    display_path=display_path,
+                    filesystem_path=filesystem_path,
+                    created_at=f.created_at,
+                    updated_at=f.updated_at,
+                    item_count=item_counts.get(f.uuid, 0),
+                    subfolder_count=sub_counts.get(f.uuid, 0),
+                    total_size=sizes.get(f.uuid, 0),
+                ))
             return folder_responses
         else:
             # Build query (simplified for single user)
@@ -454,7 +493,7 @@ async def list_folders(
             query = query.where(
                 and_(
                     ArchiveFolder.parent_uuid == parent_uuid,
-                    ArchiveFolder.user_uuid == current_user.uuid
+                    ArchiveFolder.created_by == current_user.uuid
                 )
             )
             # Archive folders don't use is_archived flag - all are active by being in archive
@@ -551,7 +590,7 @@ async def get_folder_tree(
             # Get folders for this parent
             folder_query = select(ArchiveFolder).where(
                 and_(
-                    ArchiveFolder.user_uuid == current_user.uuid,
+                    ArchiveFolder.created_by == current_user.uuid,
                     ArchiveFolder.parent_uuid == parent_uuid
                 )
             )
@@ -608,7 +647,7 @@ async def get_folder_tree(
                 items_query = select(ArchiveItem).where(
                     and_(
                         ArchiveItem.folder_uuid == f.uuid,
-                        ArchiveItem.user_uuid == current_user.uuid
+                        ArchiveItem.created_by == current_user.uuid
                     )
                 )
                 items_result = await db.execute(items_query.order_by(ArchiveItem.name))
@@ -640,7 +679,7 @@ async def get_folder_breadcrumb(
     while current_folder_uuid:
         folder_query = select(ArchiveFolder).where(
             ArchiveFolder.uuid == current_folder_uuid,
-            ArchiveFolder.user_uuid == current_user.uuid
+            ArchiveFolder.created_by == current_user.uuid
         )
         result = await db.execute(folder_query)
         folder = result.scalar_one_or_none()
@@ -669,7 +708,7 @@ async def get_folder(
     folder_uuid = validate_uuid_format(folder_uuid)
     res = await db.execute(
         select(ArchiveFolder.uuid).where(
-            and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.user_uuid == current_user.uuid)
+            and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.created_by == current_user.uuid)
         )
     )
     if not res.scalar_one_or_none():
@@ -693,7 +732,7 @@ async def update_folder(
             select(ArchiveFolder).where(
                 and_(
                     ArchiveFolder.uuid == folder_uuid,
-                    ArchiveFolder.user_uuid == current_user.uuid
+                    ArchiveFolder.created_by == current_user.uuid
                 )
             )
         )
@@ -743,7 +782,7 @@ async def delete_folder(
         result = await db.execute(
             select(ArchiveFolder)
             .options(selectinload(ArchiveFolder.tag_objs))
-            .where(and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.user_uuid == current_user.uuid))
+            .where(and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.created_by == current_user.uuid))
         )
         folder = result.scalar_one_or_none()
         
@@ -825,7 +864,7 @@ async def bulk_move_items(
         select(ArchiveFolder).where(
             and_(
                 ArchiveFolder.uuid == payload.target_folder,
-                ArchiveFolder.user_uuid == current_user.uuid
+                ArchiveFolder.created_by == current_user.uuid
             )
         )
     )
@@ -836,7 +875,7 @@ async def bulk_move_items(
     # Fetch all items to move – ensure they belong to user
     result = await db.execute(
         select(ArchiveItem).where(
-            and_(ArchiveItem.uuid.in_(payload.items), ArchiveItem.user_uuid == current_user.uuid)
+            and_(ArchiveItem.uuid.in_(payload.items), ArchiveItem.created_by == current_user.uuid)
         )
     )
     items_to_move = result.scalars().all()
@@ -876,7 +915,7 @@ async def upload_item(
         # Verify folder exists (simplified for single user)
         result = await db.execute(
             select(ArchiveFolder).where(
-                and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.user_uuid == current_user.uuid)
+                and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.created_by == current_user.uuid)
             )
         )
         folder = result.scalar_one_or_none()
@@ -926,7 +965,7 @@ async def upload_item(
                 and_(
                     ArchiveItem.folder_uuid == folder_uuid,
                     func.lower(ArchiveItem.name) == func.lower(item_name),
-                    ArchiveItem.user_uuid == current_user.uuid
+                    ArchiveItem.created_by == current_user.uuid
                     # Archive items don't need archived filtering - they're all active in archive
                 )
             )
@@ -997,7 +1036,7 @@ async def upload_item(
             stored_filename=stored_filename,
             mime_type=mime_type,
             file_size=file_size,
-            user_uuid=current_user.uuid,
+            created_by=current_user.uuid,
             name=item_name,
             description=item_description,
             tags=all_tags
@@ -1091,7 +1130,7 @@ async def list_folder_items(
         select(ArchiveFolder).where(
             and_(
                 ArchiveFolder.uuid == folder_uuid,
-                ArchiveFolder.user_uuid == current_user.uuid
+                ArchiveFolder.created_by == current_user.uuid
             )
         )
     )
@@ -1102,7 +1141,7 @@ async def list_folder_items(
     query = select(ArchiveItem).where(
         and_(
             ArchiveItem.folder_uuid == folder_uuid,
-            ArchiveItem.user_uuid == current_user.uuid
+            ArchiveItem.created_by == current_user.uuid
         )
     )
     
@@ -1156,7 +1195,7 @@ async def get_item(
     item_uuid = validate_uuid_format(item_uuid)
     res = await db.execute(
         select(ArchiveItem.uuid).where(
-            and_(ArchiveItem.uuid == item_uuid, ArchiveItem.user_uuid == current_user.uuid)
+            and_(ArchiveItem.uuid == item_uuid, ArchiveItem.created_by == current_user.uuid)
         )
     )
     if not res.scalar_one_or_none():
@@ -1180,7 +1219,7 @@ async def update_item(
             select(ArchiveItem).where(
                 and_(
                     ArchiveItem.uuid == item_uuid,
-                    ArchiveItem.user_uuid == current_user.uuid
+                    ArchiveItem.created_by == current_user.uuid
                 )
             )
         )
@@ -1195,7 +1234,7 @@ async def update_item(
                 select(ArchiveFolder).where(
                     and_(
                         ArchiveFolder.uuid == item_data.folder_uuid,
-                        ArchiveFolder.user_uuid == current_user.uuid
+                        ArchiveFolder.created_by == current_user.uuid
                     )
                 )
             )
@@ -1254,7 +1293,7 @@ async def delete_item(
             select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(
                 and_(
                     ArchiveItem.uuid == item_uuid,
-                    ArchiveItem.user_uuid == current_user.uuid
+                    ArchiveItem.created_by == current_user.uuid
                 )
             )
         )
@@ -1315,7 +1354,7 @@ async def download_item(
         select(ArchiveItem).where(
             and_(
                 ArchiveItem.uuid == item_uuid,
-                ArchiveItem.user_uuid == current_user.uuid
+                ArchiveItem.created_by == current_user.uuid
             )
         )
     )
@@ -1796,7 +1835,7 @@ async def upload_files(
             folder_query = select(ArchiveFolder).where(
                 and_(
                     ArchiveFolder.uuid == folder_uuid,
-                    ArchiveFolder.user_uuid == current_user.uuid
+                    ArchiveFolder.created_by == current_user.uuid
                 )
             )
             folder_result = await db.execute(folder_query)
@@ -1898,7 +1937,7 @@ async def upload_files(
                     stored_filename=safe_filename,
                     mime_type=detection_result["mime_type"],
                     file_size=len(file_content),
-                    user_uuid=current_user.uuid,
+                    created_by=current_user.uuid,
                     name=Path(file.filename).stem,
                     description=description,
                     tags=tag_names,
@@ -2050,7 +2089,7 @@ async def commit_uploaded_file(
             select(ArchiveFolder).where(
                 and_(
                     ArchiveFolder.uuid == payload.folder_uuid,
-                    ArchiveFolder.user_uuid == current_user.uuid
+                    ArchiveFolder.created_by == current_user.uuid
                 )
             )
         )
@@ -2136,7 +2175,7 @@ async def commit_uploaded_file(
             stored_filename=stored_filename,
             mime_type=status.get("mime_type", "application/octet-stream"),
             file_size=final_file_size,
-            user_uuid=current_user.uuid,
+            created_by=current_user.uuid,
             name=payload.name,
             description=payload.description,
             tags=payload.tags
@@ -2185,7 +2224,7 @@ async def debug_fts_status(
         result = await db.execute(text("""
             SELECT COUNT(*) as archive_items_count 
             FROM archive_items 
-            WHERE user_uuid = :user_uuid
+            WHERE created_by = :user_uuid
         """), {"user_uuid": current_user.uuid})
         archive_items_count = result.scalar()
         
@@ -2194,7 +2233,7 @@ async def debug_fts_status(
             fts_result = await db.execute(text("""
                 SELECT COUNT(*) as fts_count 
                 FROM fts_content 
-                WHERE user_uuid = :user_uuid AND item_type = 'archive_item'
+                WHERE created_by = :user_uuid AND item_type = 'archive_item'
             """), {"user_uuid": current_user.uuid})
             fts_count = fts_result.scalar()
         except Exception as e:
@@ -2246,7 +2285,7 @@ async def rename_folder(
             select(ArchiveFolder).where(
                 and_(
                     ArchiveFolder.uuid == folder_uuid,
-                    ArchiveFolder.user_uuid == current_user.uuid
+                    ArchiveFolder.created_by == current_user.uuid
                 )
             )
         )
@@ -2263,7 +2302,7 @@ async def rename_folder(
         
         # Update the folder name
         folder.name = new_name.strip()
-        folder.updated_at = datetime.utcnow()
+        folder.updated_at = datetime.now(NEPAL_TZ)
         
         await db.commit()
         await db.refresh(folder)
@@ -2294,7 +2333,7 @@ async def rename_item(
             select(ArchiveItem).where(
                 and_(
                     ArchiveItem.uuid == item_uuid,
-                    ArchiveItem.user_uuid == current_user.uuid
+                    ArchiveItem.created_by == current_user.uuid
                 )
             )
         )
@@ -2313,7 +2352,7 @@ async def rename_item(
                 and_(
                     ArchiveItem.folder_uuid == item.folder_uuid,
                     func.lower(ArchiveItem.name) == func.lower(proposed),
-                    ArchiveItem.user_uuid == current_user.uuid,
+                    ArchiveItem.created_by == current_user.uuid,
                     ArchiveItem.uuid != item.uuid
                 )
             )
@@ -2321,7 +2360,7 @@ async def rename_item(
         if dup.scalar_one_or_none():
             raise HTTPException(status_code=409, detail=f"File '{proposed}' already exists in this folder.")
         item.name = proposed
-        item.updated_at = datetime.utcnow()
+        item.updated_at = datetime.now(NEPAL_TZ)
         
         await db.commit()
         await db.refresh(item)
@@ -2351,7 +2390,7 @@ async def download_folder(
             select(ArchiveFolder).where(
                 and_(
                     ArchiveFolder.uuid == folder_uuid,
-                    ArchiveFolder.user_uuid == current_user.uuid
+                    ArchiveFolder.created_by == current_user.uuid
                 )
             )
         )

@@ -24,7 +24,7 @@ from app.models.user import User
 from app.models.tag import Tag
 from app.models.tag_associations import note_tags
 from app.models.link import Link
-from app.models.todo import Project
+from app.models.project import Project
 from app.models.associations import note_projects
 from app.auth.dependencies import get_current_user
 from app.utils.security import sanitize_text_input, sanitize_tags
@@ -56,7 +56,7 @@ async def _process_note_links(db: AsyncSession, note: Note, content: str, user_u
     
     for url in urls:
         existing_link = await db.execute(
-            select(Link).where(and_(Link.url == url, Link.user_uuid == user_uuid))
+            select(Link).where(and_(Link.url == url, Link.created_by == user_uuid))
         )
         
         if not existing_link.scalar_one_or_none():
@@ -64,7 +64,7 @@ async def _process_note_links(db: AsyncSession, note: Note, content: str, user_u
                 title=f"Link from note: {note.title}",
                 url=url,
                 description=f"Found in note '{note.title}'",
-                user_uuid=user_uuid
+                created_by=user_uuid
             )
             db.add(link)
 
@@ -73,7 +73,7 @@ async def _get_note_with_relations(db: AsyncSession, note_uuid: str, user_uuid: 
     result = await db.execute(
         select(Note)
         .options(selectinload(Note.tag_objs), selectinload(Note.files))
-        .where(and_(Note.uuid == note_uuid, Note.user_uuid == user_uuid))
+        .where(and_(Note.uuid == note_uuid, Note.created_by == user_uuid))
     )
     note = result.scalar_one_or_none()
     
@@ -140,7 +140,7 @@ async def list_notes(
         # Fetch notes by UUIDs, preserving FTS5 order
         query = select(Note).options(selectinload(Note.tag_objs)).where(
             and_(
-                Note.user_uuid == current_user.uuid,
+                Note.created_by == current_user.uuid,
                 Note.is_archived == archived,
                 Note.uuid.in_(note_uuids),
                 Note.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
@@ -161,7 +161,7 @@ async def list_notes(
         # Fallback to regular query
         query = select(Note).options(selectinload(Note.tag_objs)).where(
             and_(
-                Note.user_uuid == current_user.uuid,
+                Note.created_by == current_user.uuid,
                 Note.is_archived == archived,
                 Note.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
             )
@@ -218,7 +218,6 @@ async def create_note(
             content=sanitized_content,
             size_bytes=content_size,
             is_exclusive_mode=note_data.is_exclusive_mode or False,
-            user_uuid=current_user.uuid,
             created_by=current_user.uuid
         )
         db.add(note)
@@ -282,7 +281,7 @@ async def update_note(
     """Update an existing note."""
     result = await db.execute(
         select(Note).options(selectinload(Note.tag_objs)).where(
-            and_(Note.uuid == note_uuid, Note.user_uuid == current_user.uuid)
+            and_(Note.uuid == note_uuid, Note.created_by == current_user.uuid)
         )
     )
     note = result.scalar_one_or_none()
@@ -351,7 +350,7 @@ async def delete_note(
     """Delete a note and its associated files."""
     result = await db.execute(
         select(Note).options(selectinload(Note.files), selectinload(Note.tag_objs)).where(
-            and_(Note.uuid == note_uuid, Note.user_uuid == current_user.uuid)
+            and_(Note.uuid == note_uuid, Note.created_by == current_user.uuid)
         )
     )
     note = result.scalar_one_or_none()
@@ -370,11 +369,11 @@ async def delete_note(
                     file_path = get_file_storage_dir() / note_file.file_path
                     if file_path.exists():
                         file_path.unlink()
-                        logger.info(f"🗑️ Deleted note file: {file_path}")
+                        logger.info(f"Deleted note file: {file_path}")
                     else:
                         logger.warning(f"File not found, cannot delete: {file_path}")
                 except Exception as e:
-                    logger.error(f"⚠️ Could not delete file {note_file.file_path}: {e}")
+                    logger.error(f"Could not delete file {note_file.file_path}: {e}")
 
         # Decrement tag usage counts BEFORE deleting note (associations will cascade)
         await tag_service.decrement_tags_on_delete(db, note)
@@ -386,11 +385,11 @@ async def delete_note(
         logger.info(f"Deleting note record with UUID: {note_uuid} from the database.")
         await db.delete(note)
         await db.commit()
-        logger.info(f"✅ Successfully deleted note with UUID: {note_uuid}")
+        logger.info(f"Successfully deleted note with UUID: {note_uuid}")
         
     except Exception as e:
         await db.rollback()
-        logger.error(f"❌ Failed to delete note with UUID: {note_uuid}. Error: {str(e)}")
+        logger.error(f"Failed to delete note with UUID: {note_uuid}. Error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete note due to an internal error: {str(e)}")
 
 @router.patch("/{note_uuid}/archive", response_model=NoteResponse)
@@ -404,7 +403,7 @@ async def archive_note(
     try:
         # Get note
         result = await db.execute(
-            select(Note).where(and_(Note.uuid == note_uuid, Note.user_uuid == current_user.uuid))
+            select(Note).where(and_(Note.uuid == note_uuid, Note.created_by == current_user.uuid))
         )
         note = result.scalar_one_or_none()
         if not note:
@@ -416,7 +415,7 @@ async def archive_note(
         await db.refresh(note)
         
         action = "archived" if archive else "unarchived"
-        logger.info(f"✅ Successfully {action} note '{note.title}' for user {current_user.username}")
+        logger.info(f"Successfully {action} note '{note.title}' for user {current_user.username}")
         
         # Include project badges for consistency
         project_badges = await project_service.build_badges(db, note.uuid, note.is_exclusive_mode, note_projects, "note_uuid")
@@ -426,7 +425,7 @@ async def archive_note(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"❌ Error archiving note: {str(e)}")
+        logger.error(f"Error archiving note: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to archive note. Please try again."
@@ -444,7 +443,7 @@ async def get_note_files(
     # First get the note to verify it exists and belongs to user
     note_result = await db.execute(
         select(Note).where(
-            and_(Note.uuid == note_uuid, Note.user_uuid == current_user.uuid)
+            and_(Note.uuid == note_uuid, Note.created_by == current_user.uuid)
         )
     )
     note = note_result.scalar_one_or_none()
@@ -508,7 +507,7 @@ async def commit_note_file_upload(
     except HTTPException:
         raise
     except Exception:
-        logger.exception("❌ Error committing note file upload")
+        logger.exception("Error committing note file upload")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to commit note file upload"
@@ -527,7 +526,7 @@ async def download_note_file(
         .where(
             and_(
                 NoteFile.uuid == file_uuid,
-                Note.user_uuid == current_user.uuid
+                Note.created_by == current_user.uuid
             )
         )
     )
@@ -570,7 +569,7 @@ async def delete_note_file(
         .where(
             and_(
                 NoteFile.uuid == file_uuid,
-                Note.user_uuid == current_user.uuid
+                Note.created_by == current_user.uuid
             )
         )
     )
@@ -585,9 +584,9 @@ async def delete_note_file(
         file_path = get_file_storage_dir() / note_file.file_path
         if file_path.exists():
             file_path.unlink()
-            logger.info(f"🗑️ Deleted note file: {file_path}")
+            logger.info(f"Deleted note file: {file_path}")
     except Exception as e:
-        logger.warning(f"⚠️ Could not delete file {note_file.file_path}: {e}")
+        logger.warning(f"Could not delete file {note_file.file_path}: {e}")
     
     # Delete the database record
     await db.delete(note_file)
@@ -617,7 +616,7 @@ async def get_note_links(
     # Verify note exists and belongs to user
     note_result = await db.execute(
         select(Note.content).where(
-            and_(Note.uuid == note_uuid, Note.user_uuid == current_user.uuid)
+            and_(Note.uuid == note_uuid, Note.created_by == current_user.uuid)
         )
     )
     note = note_result.scalar_one_or_none()
@@ -633,7 +632,7 @@ async def get_note_links(
     if urls:
         result = await db.execute(
             select(Link).where(
-                and_(Link.url.in_(urls), Link.user_uuid == current_user.uuid)
+                and_(Link.url.in_(urls), Link.created_by == current_user.uuid)
             )
         )
         existing_links = result.scalars().all()

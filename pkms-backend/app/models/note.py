@@ -26,10 +26,9 @@ class Note(Base):
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
     is_exclusive_mode = Column(Boolean, default=False, index=True)  # If True, note is deleted when any of its projects are deleted
-    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
-    
+
     # Audit trail
-    created_by = Column(String(36), ForeignKey("users.uuid"), nullable=False)
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
@@ -74,10 +73,10 @@ class NoteFile(Base):
     mime_type = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)  # Optional description/caption
     is_archived = Column(Boolean, default=False, index=True)
-    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)  # Who uploaded this file
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
-    
+
     # Relationships
     note = relationship("Note", back_populates="files")
     user = relationship("User", back_populates="note_files")

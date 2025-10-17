@@ -31,6 +31,23 @@ You can run the backend pytest suites locally via PowerShell or cmd using provid
   scripts\run-backend-tests.bat test_chunk_commit.py
   ```
 
+## Run Selective Tests
+For more granular test selection, use pytest's `-k` option with expressions. File paths are relative to `pkms-backend/tests`.
+
+Examples:
+- Run tests matching pattern:
+  ```powershell
+  pkms-backend/venv/Scripts/python -m pytest -q -k "unified and not slow"
+  ```
+- Run specific test function:
+  ```powershell
+  pkms-backend/venv/Scripts/python -m pytest -q -k "test_unified_search"
+  ```
+- Run tests with "search" in name (note quoting for patterns with spaces):
+  ```powershell
+  pkms-backend/venv/Scripts/python -m pytest -q -k "search"
+  ```
+
 ## Notable Test Suites
 - `tests/test_search_unified.py`: Unified FTS search (item_types, has_attachments, order, offset/limit)
 - `tests/test_chunk_commit.py`: Chunk commit with real temp files; asserts DB row + file move + FTS persisted

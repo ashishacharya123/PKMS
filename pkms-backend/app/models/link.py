@@ -20,7 +20,7 @@ class Link(Base):
     title = Column(String(255), nullable=False, index=True)
     url = Column(String(2000), nullable=False)
     description = Column(Text, nullable=True)
-    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     is_favorite = Column(Boolean, default=False)
     is_archived = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
@@ -29,7 +29,7 @@ class Link(Base):
     is_deleted = Column(Boolean, default=False, index=True)
     
     # Relationships
-    user = relationship("User")
+    user = relationship("User", back_populates="links", foreign_keys=[created_by])
     tag_objs = relationship("Tag", secondary="link_tags", back_populates="links")
     
     def __repr__(self):

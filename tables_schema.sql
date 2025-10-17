@@ -1,7 +1,43 @@
 -- PKMS Database Schema
 -- Generated: January 28, 2025
+-- Updated: October 17, 2025 - CRITICAL ARCHITECTURAL NOTES ADDED
 -- Source: Current SQLAlchemy models in pkms-backend/app/models/
 -- Description: Complete database schema for Personal Knowledge Management System
+
+-- ============================================================
+-- 🚨 CRITICAL ARCHITECTURAL NOTES - READ BEFORE MODIFYING
+-- ============================================================
+--
+-- MODEL vs SCHEMA FIELD MISMATCH:
+-- The SQLAlchemy models use different field names than this schema:
+-- - Models use: `created_by` (UUID string field)
+-- - Schema shows: `user_id` (integer field)
+--
+-- ⚠️  CURRENT IMPLEMENTATION:
+-- - ALL SQLAlchemy models use `created_by` (UUID string)
+-- - ALL database queries must use `Model.created_by == current_user_uuid`
+-- - NEVER use `Model.user_uuid` - it doesn't exist!
+--
+-- 📋 REQUIRED PATTERN:
+-- ```python
+# In every function
+current_user_uuid = current_user.uuid
+# In queries
+select(Model).where(Model.created_by == current_user_uuid)
+# In creation
+Model(field=value, created_by=current_user_uuid)
+-- ```
+--
+-- 🔧 EVENTUAL MIGRATION NEEDED:
+-- - This schema needs migration to match models
+-- - Change `user_id INTEGER` to `created_by VARCHAR(36)`
+-- - Update all foreign key references
+-- - Update all indexes
+--
+-- 📖 SEE ALSO:
+-- - ARCHITECTURAL_RULES.md - Complete pattern documentation
+-- - app/models/ - Current SQLAlchemy model definitions
+-- ============================================================
 
 -- ================================
 -- USERS & AUTHENTICATION
@@ -9,20 +45,20 @@
 
 -- Main user table with authentication and diary encryption
 CREATE TABLE users (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     username VARCHAR(50) NOT NULL UNIQUE,
     email VARCHAR(100) UNIQUE,
     password_hash VARCHAR(255) NOT NULL,  -- bcrypt hash (includes salt)
     login_password_hint VARCHAR(255),     -- Simple hint for login password
-    
+
     -- Diary encryption fields (separate from login auth)
     diary_password_hash VARCHAR(255),     -- bcrypt hash for diary encryption
     diary_password_hint VARCHAR(255),     -- Hint for diary password
-    
+
     is_active BOOLEAN DEFAULT TRUE,
     is_first_login BOOLEAN DEFAULT TRUE,
     settings_json TEXT DEFAULT '{}',      -- User preferences as JSON
-    
+
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_login DATETIME
@@ -31,28 +67,28 @@ CREATE TABLE users (
 -- User session management for authentication
 CREATE TABLE sessions (
     session_token VARCHAR(255) NOT NULL PRIMARY KEY,
-    user_id INTEGER NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
     expires_at DATETIME NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
     ip_address VARCHAR(45),               -- IPv6 support
     user_agent VARCHAR(500),
-    
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- Password recovery system with security questions
 CREATE TABLE recovery_keys (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
+    user_uuid VARCHAR(36) NOT NULL,
     key_hash VARCHAR(255) NOT NULL,
     questions_json TEXT NOT NULL,         -- Security questions as JSON
     answers_hash VARCHAR(255) NOT NULL,   -- Hashed answers
     salt VARCHAR(255) NOT NULL,           -- Salt for answers
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_used DATETIME,
-    
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+
+    FOREIGN KEY (user_uuid) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- ================================
@@ -61,19 +97,18 @@ CREATE TABLE recovery_keys (
 
 -- Universal tagging system for all content types
 CREATE TABLE tags (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    uuid VARCHAR(36) NOT NULL UNIQUE,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     description TEXT,
     color VARCHAR(7) DEFAULT '#6c757d',   -- Hex color code
     module_type VARCHAR(20) DEFAULT 'general',  -- notes, documents, todos, diary, archive, general
-    user_id INTEGER NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
     is_system BOOLEAN DEFAULT FALSE,      -- System tags vs user tags
     usage_count INTEGER DEFAULT 0,       -- Track tag usage frequency
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- ================================
@@ -82,25 +117,24 @@ CREATE TABLE tags (
 
 -- Personal notes and knowledge management
 CREATE TABLE notes (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    uuid VARCHAR(36) NOT NULL UNIQUE,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     content TEXT NOT NULL,
     file_count INTEGER DEFAULT 0 NOT NULL,  -- Count of attached files
-    user_id INTEGER NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
     is_favorite BOOLEAN DEFAULT FALSE,
     is_archived BOOLEAN DEFAULT FALSE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- File attachments for notes (documents, images, etc.)
 CREATE TABLE note_files (
     uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     note_uuid VARCHAR(36) NOT NULL,
-    user_id INTEGER NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
     filename VARCHAR(255) NOT NULL,       -- Stored filename on disk
     original_name VARCHAR(255) NOT NULL,  -- Original uploaded name
     file_path VARCHAR(500) NOT NULL,      -- Path relative to data directory
@@ -108,9 +142,9 @@ CREATE TABLE note_files (
     mime_type VARCHAR(100) NOT NULL,
     description TEXT,                     -- Optional description/caption
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
+
     FOREIGN KEY (note_uuid) REFERENCES notes(uuid) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- ================================
@@ -119,8 +153,7 @@ CREATE TABLE note_files (
 
 -- Document storage and management
 CREATE TABLE documents (
-    id INTEGER NOT NULL PRIMARY KEY,
-    uuid VARCHAR(36) NOT NULL UNIQUE,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     original_name VARCHAR(255) NOT NULL, -- Original name uploaded by user
     title VARCHAR(255) NOT NULL,
     filename VARCHAR(255) NOT NULL,      -- Stored filename on disk
@@ -128,14 +161,14 @@ CREATE TABLE documents (
     file_size INTEGER NOT NULL,
     mime_type VARCHAR(100) NOT NULL,
     description TEXT,
-    user_id INTEGER NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
     is_favorite BOOLEAN DEFAULT FALSE,
     is_archived BOOLEAN DEFAULT FALSE,
     upload_status VARCHAR(20) DEFAULT 'completed',  -- pending, processing, completed, failed
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- ================================
@@ -144,37 +177,36 @@ CREATE TABLE documents (
 
 -- Task management projects
 CREATE TABLE projects (
-    id INTEGER NOT NULL PRIMARY KEY,
-    uuid VARCHAR(36) NOT NULL UNIQUE,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     color VARCHAR(7) DEFAULT '#3498db',   -- Hex color code
     is_archived BOOLEAN DEFAULT FALSE,
-    user_id INTEGER NOT NULL,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    created_by VARCHAR(36) NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- Task management todos
 CREATE TABLE todos (
-    id INTEGER NOT NULL PRIMARY KEY,
-    uuid VARCHAR(36) NOT NULL UNIQUE,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     description TEXT,
-    is_completed BOOLEAN DEFAULT FALSE,
     is_archived BOOLEAN DEFAULT FALSE,
+    is_favorite BOOLEAN DEFAULT FALSE,
+    is_exclusive_mode BOOLEAN DEFAULT FALSE,  -- If True, todo is deleted when any of its projects are deleted
     priority INTEGER DEFAULT 2,          -- 1=low, 2=medium, 3=high, 4=urgent
-    user_id INTEGER NOT NULL,
-    project_id INTEGER,
-    due_date DATETIME,
+    status VARCHAR(20) DEFAULT 'pending',  -- pending, in_progress, blocked, done, cancelled
+    due_date DATE,
     completed_at DATETIME,
+    created_by VARCHAR(36) NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- ================================
@@ -183,55 +215,62 @@ CREATE TABLE todos (
 
 -- Personal diary entries with client-side encryption
 CREATE TABLE diary_entries (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    uuid VARCHAR(36) NOT NULL UNIQUE,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
-    day_of_week SMALLINT NOT NULL,        -- 0=Sunday .. 6=Saturday
-    media_count INTEGER DEFAULT 0 NOT NULL,
-    content_file_path VARCHAR(500) NOT NULL,  -- Path to encrypted .dat file
-    file_hash VARCHAR(128) NOT NULL,      -- SHA-256 of encrypted file for integrity
+    date DATETIME NOT NULL,
     mood SMALLINT,                        -- 1=very bad .. 5=very good
     weather_code SMALLINT,                -- 0 clear .. 6 scorching sun
     location VARCHAR(100),                -- Location for filtering
+    day_of_week SMALLINT,                 -- 0=Sunday .. 6=Saturday
+    media_count INTEGER DEFAULT 0 NOT NULL,
     content_length INTEGER DEFAULT 0 NOT NULL, -- Plaintext character count
-    is_favorite BOOLEAN DEFAULT FALSE,
-    is_archived BOOLEAN DEFAULT FALSE,
-    is_template BOOLEAN DEFAULT FALSE,
-    from_template_id VARCHAR(36),         -- Template UUID reference
-    user_id INTEGER NOT NULL,
-    date DATETIME NOT NULL,
-    encryption_iv VARCHAR(255),           -- AES-GCM IV (base64)
+    content_file_path VARCHAR(500),       -- Path to encrypted .dat file
+    file_hash VARCHAR(128),               -- SHA-256 of encrypted file for integrity
     encryption_tag VARCHAR(255),          -- AES-GCM auth tag (base64)
+    encryption_iv VARCHAR(255),           -- AES-GCM IV (base64)
     file_hash_algorithm VARCHAR(32) DEFAULT 'sha256',
     content_file_version INTEGER DEFAULT 1,
-    daily_metadata_id INTEGER,            -- FK into diary_daily_metadata
+    is_favorite BOOLEAN DEFAULT FALSE,
+    is_archived BOOLEAN DEFAULT FALSE,
+    is_template BOOLEAN DEFAULT FALSE,    -- Template flag for reusable entries
+    from_template_id VARCHAR(36),         -- Source template UUID reference
+    daily_metadata_id VARCHAR(36),        -- FK into diary_daily_metadata
+    is_deleted BOOLEAN DEFAULT FALSE,     -- Soft Delete
+    created_by VARCHAR(36) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (daily_metadata_id) REFERENCES diary_daily_metadata(id) ON DELETE SET NULL
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE,
+    FOREIGN KEY (daily_metadata_id) REFERENCES diary_daily_metadata(uuid) ON DELETE SET NULL
 );
 
 -- Per-day wellness snapshot captured via dashboard
 CREATE TABLE diary_daily_metadata (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
+    created_by VARCHAR(36) NOT NULL,
     date DATETIME NOT NULL,
     nepali_date VARCHAR(20),              -- BS date (YYYY-MM-DD)
+
+    -- Financial tracking (in NPR)
+    daily_income INTEGER DEFAULT 0,       -- Income in NPR for the day
+    daily_expense INTEGER DEFAULT 0,      -- Expense in NPR for the day
+
+    -- Office/work tracking
+    is_office_day BOOLEAN DEFAULT FALSE,  -- Was this an office/work day?
+
+    -- Generic metrics (legacy)
     metrics_json TEXT NOT NULL DEFAULT '{}', -- Wellness metrics JSON
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    UNIQUE (user_id, date),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    UNIQUE (created_by, date),
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- Encrypted media attachments for diary entries
 CREATE TABLE diary_media (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    uuid VARCHAR(36) NOT NULL UNIQUE,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     diary_entry_uuid VARCHAR(36) NOT NULL,
-    user_id INTEGER NOT NULL,
     filename VARCHAR(255) NOT NULL,
     original_name VARCHAR(255) NOT NULL,
     file_path VARCHAR(500) NOT NULL,      -- Points to encrypted .dat file
@@ -240,10 +279,13 @@ CREATE TABLE diary_media (
     media_type VARCHAR(20) NOT NULL,      -- photo, video, voice
     caption TEXT,
     is_encrypted BOOLEAN DEFAULT FALSE,
+    is_archived BOOLEAN DEFAULT FALSE,
+    is_deleted BOOLEAN DEFAULT FALSE,     -- Soft Delete
+    created_by VARCHAR(36) NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
+
     FOREIGN KEY (diary_entry_uuid) REFERENCES diary_entries(uuid) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- ================================
@@ -257,18 +299,17 @@ CREATE TABLE archive_folders (
     description TEXT,
     path VARCHAR(1000) NOT NULL,         -- Full path for hierarchy
     parent_uuid VARCHAR(36),
-    user_id INTEGER NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (parent_uuid) REFERENCES archive_folders(uuid) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- Files within archive folders
 CREATE TABLE archive_items (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    uuid VARCHAR(36) NOT NULL UNIQUE,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     folder_uuid VARCHAR(36) NOT NULL,
@@ -279,14 +320,14 @@ CREATE TABLE archive_items (
     mime_type VARCHAR(100) NOT NULL,
     thumbnail_path VARCHAR(1000),
     metadata_json TEXT DEFAULT '{}',      -- Additional metadata as JSON
-    user_id INTEGER NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
     is_favorite BOOLEAN DEFAULT FALSE,
     version VARCHAR(50) DEFAULT '1.0',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
+
     FOREIGN KEY (folder_uuid) REFERENCES archive_folders(uuid) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- ================================
@@ -295,17 +336,16 @@ CREATE TABLE archive_items (
 
 -- URL bookmarks and web resources
 CREATE TABLE links (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    uuid VARCHAR(36) NOT NULL UNIQUE,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     url VARCHAR(2000) NOT NULL,
     description TEXT,
-    user_id INTEGER NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
     is_favorite BOOLEAN DEFAULT FALSE,
     is_archived BOOLEAN DEFAULT FALSE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- ================================
@@ -379,44 +419,55 @@ CREATE TABLE link_tags (
 -- User-related indexes
 CREATE INDEX idx_users_username ON users(username);
 CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX idx_users_uuid ON users(uuid);
+CREATE INDEX idx_sessions_created_by ON sessions(created_by);
 CREATE INDEX idx_sessions_expires_at ON sessions(expires_at);
-CREATE INDEX idx_recovery_keys_user_id ON recovery_keys(user_id);
+CREATE INDEX idx_sessions_last_activity ON sessions(last_activity);
+CREATE INDEX idx_recovery_keys_created_by ON recovery_keys(created_by);
+CREATE INDEX idx_recovery_keys_uuid ON recovery_keys(uuid);
 
 -- Content indexes
-CREATE INDEX idx_notes_user_id ON notes(user_id);
+CREATE INDEX idx_notes_created_by ON notes(created_by);
 CREATE INDEX idx_notes_title ON notes(title);
 CREATE INDEX idx_notes_uuid ON notes(uuid);
 CREATE INDEX idx_note_files_note_uuid ON note_files(note_uuid);
-CREATE INDEX idx_note_files_user_id ON note_files(user_id);
+CREATE INDEX idx_note_files_created_by ON note_files(created_by);
 
-CREATE INDEX idx_documents_user_id ON documents(user_id);
+CREATE INDEX idx_documents_created_by ON documents(created_by);
 CREATE INDEX idx_documents_title ON documents(title);
 CREATE INDEX idx_documents_uuid ON documents(uuid);
 
-CREATE INDEX idx_todos_user_id ON todos(user_id);
+CREATE INDEX idx_todos_created_by ON todos(created_by);
 CREATE INDEX idx_todos_is_completed ON todos(is_completed);
 CREATE INDEX idx_todos_is_archived ON todos(is_archived);
-CREATE INDEX idx_projects_user_id ON projects(user_id);
+CREATE INDEX idx_projects_created_by ON projects(created_by);
+CREATE INDEX idx_projects_uuid ON projects(uuid);
 
-CREATE INDEX idx_diary_entries_user_id ON diary_entries(user_id);
+CREATE INDEX idx_diary_entries_created_by ON diary_entries(created_by);
 CREATE INDEX idx_diary_entries_date ON diary_entries(date);
+CREATE INDEX idx_diary_entries_created_by_date ON diary_entries(created_by, date);
 CREATE INDEX idx_diary_entries_day_of_week ON diary_entries(day_of_week);
+CREATE INDEX idx_diary_entries_uuid ON diary_entries(uuid);
 -- Nepali date is now stored in diary_daily_metadata
 -- CREATE INDEX idx_diary_entries_nepali_date ON diary_entries(nepali_date);
 CREATE INDEX idx_diary_daily_metadata_nepali_date ON diary_daily_metadata(nepali_date);
+CREATE INDEX idx_diary_daily_metadata_uuid ON diary_daily_metadata(uuid);
 CREATE INDEX idx_diary_media_diary_entry_uuid ON diary_media(diary_entry_uuid);
+CREATE INDEX idx_diary_media_uuid ON diary_media(uuid);
 
-CREATE INDEX idx_archive_folders_user_id ON archive_folders(user_id);
+CREATE INDEX idx_archive_folders_created_by ON archive_folders(created_by);
 CREATE INDEX idx_archive_folders_parent_uuid ON archive_folders(parent_uuid);
-CREATE INDEX idx_archive_items_user_id ON archive_items(user_id);
+CREATE INDEX idx_archive_items_created_by ON archive_items(created_by);
 CREATE INDEX idx_archive_items_folder_uuid ON archive_items(folder_uuid);
 CREATE INDEX idx_archive_items_mime_type ON archive_items(mime_type);
+CREATE INDEX idx_archive_folders_uuid ON archive_folders(uuid);
+CREATE INDEX idx_archive_items_uuid ON archive_items(uuid);
 
-CREATE INDEX idx_links_user_id ON links(user_id);
+CREATE INDEX idx_links_created_by ON links(created_by);
+CREATE INDEX idx_links_uuid ON links(uuid);
 
 -- Tag-related indexes
-CREATE INDEX idx_tags_user_id ON tags(user_id);
+CREATE INDEX idx_tags_created_by ON tags(created_by);
 CREATE INDEX idx_tags_name ON tags(name);
 CREATE INDEX idx_tags_module_type ON tags(module_type);
 CREATE INDEX idx_tags_uuid ON tags(uuid);
@@ -428,7 +479,7 @@ CREATE INDEX idx_tags_uuid ON tags(uuid);
 -- This schema represents the current state of the PKMS database as of January 28, 2025
 -- 
 -- Key Features:
--- 1. UUID-based primary keys for most content (with integer fallback for some tables)
+-- 1. Integer-based primary keys with AUTOINCREMENT for all tables (UUIDs used as business keys)
 -- 2. Client-side encryption for diary content and media
 -- 3. Hierarchical folder structure for archive module
 -- 4. Universal tagging system across all content types

@@ -26,6 +26,16 @@ git checkout feature/db-optimisation
 # Merge the updated main branch into your feature branch
 git merge main
 ```
+
+**Alternative: Rebase Workflow (Optional)**
+For a cleaner, linear history, you can use rebase instead of merge:
+```bash
+# Alternative to merge: rebase your changes on top of updated main
+git fetch origin main
+git rebase origin/main
+```
+*This creates a linear history but requires force-pushing if you've already pushed your feature branch. Choose based on team preference and whether others are working on your branch.*
+
 *This is the most important ritual for preventing large, difficult merge conflicts in the future.*
 
 ---

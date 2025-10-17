@@ -1,0 +1,225 @@
+"""
+Project Model for Organizing Work Items
+
+Projects can contain todos, documents, notes, and have tags for better organization.
+Supports FTS5 search and project duplication functionality.
+"""
+
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Date
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+from uuid import uuid4
+from datetime import datetime, date
+
+from app.models.base import Base
+from app.config import nepal_now
+from app.models.tag_associations import project_tags
+from app.models.associations import note_projects, document_projects, todo_projects
+
+
+class Project(Base):
+    """Project model for organizing todos, documents, and notes"""
+
+    __tablename__ = "projects"
+
+    # Primary identity
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
+
+    # Basic info
+    name = Column(String(255), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+
+    # Visual customization
+    color = Column(String(7), default="#3498db")  # Hex color code
+    icon = Column(String(50), nullable=True)
+    sort_order = Column(Integer, default=0)
+
+    # Status and lifecycle
+    status = Column(String(20), default='active', index=True)  # active, on_hold, completed, cancelled
+    is_archived = Column(Boolean, default=False, index=True)
+    is_favorite = Column(Boolean, default=False, index=True)
+    is_deleted = Column(Boolean, default=False, index=True)
+    progress_percentage = Column(Integer, default=0)  # 0-100 percentage complete
+
+    # Timeline
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
+
+    # Audit trail
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+
+    # Search indexing
+    search_vector = Column(Text, nullable=True)  # For FTS5 - will be populated with searchable content
+
+    # Relationships
+    user = relationship("User", back_populates="projects", foreign_keys="Project.created_by")
+    tag_objs = relationship("Tag", secondary=project_tags, back_populates="projects")
+
+    # Many-to-many relationships
+    notes = relationship("Note", secondary=note_projects, back_populates="projects")
+    documents_multi = relationship("Document", secondary=document_projects, back_populates="projects")
+    todos_multi = relationship("Todo", secondary=todo_projects, back_populates="projects")
+
+    def duplicate(self, session, name_suffix="Copy", include_associated_items=False):
+        """
+        Create a duplicate of this project.
+
+        Args:
+            session: SQLAlchemy session
+            name_suffix: Suffix to add to project name (default: "Copy")
+            include_associated_items: Whether to copy associated todos, documents, notes
+
+        Returns:
+            Project: The new duplicated project
+        """
+        # Create new project with copied data
+        new_project = Project(
+            name=f"{self.name} - {name_suffix}",
+            description=self.description,
+            color=self.color,
+            icon=self.icon,
+            status=self.status,
+            sort_order=self.sort_order + 1,  # Place it after original
+            start_date=self.start_date,
+            end_date=self.end_date,
+            created_by=self.created_by,
+            # Reset completion-related fields
+            progress_percentage=0,
+            is_archived=False,
+            is_favorite=False
+        )
+
+        session.add(new_project)
+        session.flush()  # Get the UUID for new project
+
+        # Copy tags
+        for tag in self.tag_objs:
+            new_project.tag_objs.append(tag)
+
+        # Optionally copy associated items
+        if include_associated_items:
+            # Copy todos (create new todos, not reference existing ones)
+            for todo in self.todos_multi:
+                # This would need to be implemented in todo service
+                # For now, just create relationship without duplication
+                new_project.todos_multi.append(todo)
+
+            # Copy documents (reference existing documents)
+            for document in self.documents_multi:
+                new_project.documents_multi.append(document)
+
+            # Copy notes (reference existing notes)
+            for note in self.notes:
+                new_project.notes.append(note)
+
+        # Update search vector for new project
+        new_project.update_search_vector()
+
+        return new_project
+
+    def update_search_vector(self):
+        """
+        Update the search vector for FTS5 indexing.
+        Should be called whenever project data changes.
+        """
+        # Collect tag names
+        tag_names = " ".join([tag.name for tag in self.tag_objs]) if self.tag_objs else ""
+
+        # Build search content
+        search_content = f"{self.name} {self.description or ''} {tag_names}"
+
+        # Update search vector (simple implementation - could be enhanced with proper FTS5 functions)
+        self.search_vector = search_content.strip()
+
+    def get_project_summary(self, session):
+        """
+        Get a summary of project statistics.
+
+        Args:
+            session: SQLAlchemy session
+
+        Returns:
+            dict: Project summary with counts and stats
+        """
+        from sqlalchemy import select, func
+
+        # Count associated items
+        todo_count = len(self.todos_multi) if self.todos_multi else 0
+        document_count = len(self.documents_multi) if self.documents_multi else 0
+        note_count = len(self.notes) if self.notes else 0
+
+        # Count completed todos
+        completed_todos = 0
+        if self.todos_multi:
+            completed_todos = sum(1 for todo in self.todos_multi if todo.status == 'done')
+
+        # Calculate actual progress if not manually set
+        if todo_count > 0:
+            actual_progress = int((completed_todos / todo_count) * 100)
+        else:
+            actual_progress = 0
+
+        return {
+            'uuid': self.uuid,
+            'name': self.name,
+            'status': self.status,
+            'progress_percentage': self.progress_percentage,
+            'actual_progress': actual_progress,
+            'todo_count': todo_count,
+            'completed_todos': completed_todos,
+            'document_count': document_count,
+            'note_count': note_count,
+            'tag_count': len(self.tag_objs) if self.tag_objs else 0,
+            'start_date': self.start_date,
+            'end_date': self.end_date,
+            'days_remaining': (self.end_date - date.today()).days if self.end_date and self.end_date > date.today() else None
+        }
+
+    def __repr__(self):
+        return f"<Project(uuid={self.uuid}, name='{self.name}', status='{self.status}')>"
+
+
+# FTS5 trigger function (would be created in database migration)
+def create_project_fts_trigger():
+    """
+    SQL for creating FTS5 trigger for projects.
+    This should be added to database migrations.
+    """
+    return """
+    -- Create FTS5 virtual table for projects
+    CREATE VIRTUAL TABLE IF NOT EXISTS projects_fts USING fts5(
+        project_uuid UNINDEXED,
+        name,
+        description,
+        tag_names,
+        content='projects',
+        content_rowid='rowid'
+    );
+
+    -- Trigger to update FTS index when project changes
+    CREATE TRIGGER IF NOT EXISTS projects_fts_insert AFTER INSERT ON projects BEGIN
+        INSERT INTO projects_fts(project_uuid, name, description, tag_names)
+        VALUES (NEW.uuid, NEW.name, COALESCE(NEW.description, ''),
+                (SELECT GROUP_CONCAT(t.name, ' ')
+                 FROM tags t
+                 JOIN project_tags pt ON t.uuid = pt.tag_uuid
+                 WHERE pt.project_uuid = NEW.uuid));
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS projects_fts_update AFTER UPDATE ON projects BEGIN
+        UPDATE projects_fts SET
+            name = NEW.name,
+            description = COALESCE(NEW.description, ''),
+            tag_names = (SELECT GROUP_CONCAT(t.name, ' ')
+                        FROM tags t
+                        JOIN project_tags pt ON t.uuid = pt.tag_uuid
+                        WHERE pt.project_uuid = NEW.uuid)
+        WHERE project_uuid = NEW.uuid;
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS projects_fts_delete AFTER DELETE ON projects BEGIN
+        DELETE FROM projects_fts WHERE project_uuid = OLD.uuid;
+    END;
+    """
