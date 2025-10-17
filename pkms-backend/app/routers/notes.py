@@ -29,7 +29,10 @@ from app.auth.dependencies import get_current_user
 from app.utils.security import sanitize_text_input, sanitize_tags
 from app.services.chunk_service import chunk_manager
 from app.services.file_detection import FileTypeDetectionService
-from app.services.fts_service_enhanced import enhanced_fts_service
+from app.services.tag_service import tag_service
+from app.services.project_service import project_service
+from app.services.file_management_service import file_management_service
+from app.services.search_service import search_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["notes"])
@@ -38,76 +41,10 @@ router = APIRouter(tags=["notes"])
 file_detector = FileTypeDetectionService()
 
 
-
 # --- Helper Functions ---
 
-async def _handle_note_tags(db: AsyncSession, note: Note, tag_names: List[str], user_id: int):
-    """Handle note tag associations and update usage counts."""
-    # Get existing tags for this note to track changes
-    existing_tags_result = await db.execute(
-        select(Tag).join(note_tags).where(
-            and_(
-                note_tags.c.note_uuid == note.uuid,
-                Tag.user_id == user_id
-            )
-        )
-    )
-    existing_tags = existing_tags_result.scalars().all()
-    existing_tag_names = {tag.name for tag in existing_tags}
-    new_tag_names = set(tag_names)
-    
-    # Decrement usage count for removed tags
-    removed_tag_names = existing_tag_names - new_tag_names
-    for existing_tag in existing_tags:
-        if existing_tag.name in removed_tag_names:
-            existing_tag.usage_count = max(0, existing_tag.usage_count - 1)
-    
-    # Clear existing tag associations
-    await db.execute(
-        delete(note_tags).where(note_tags.c.note_uuid == note.uuid)
-    )
-    
-    if not tag_names:
-        return
 
-    for tag_name in tag_names:
-        # Get or create tag with proper module_type
-        result = await db.execute(
-            select(Tag).where(
-                and_(
-                    Tag.name == tag_name,
-                    Tag.user_id == user_id,
-                    Tag.module_type == "notes"
-                )
-            )
-        )
-        tag = result.scalar_one_or_none()
-        
-        if not tag:
-            # Create new tag with notes module_type
-            tag = Tag(
-                name=tag_name,
-                user_id=user_id,
-                module_type="notes",
-                usage_count=1,
-                color="#3b82f6"  # Blue color for note tags
-            )
-            db.add(tag)
-            await db.flush()
-        else:
-            # Only increment usage count for newly added tags
-            if tag_name not in existing_tag_names:
-                tag.usage_count += 1
-        
-        # Create association
-        await db.execute(
-            note_tags.insert().values(
-                note_uuid=note.uuid,
-                tag_uuid=tag.uuid
-            )
-        )
-
-async def _process_note_links(db: AsyncSession, note: Note, content: str, user_id: int):
+async def _process_note_links(db: AsyncSession, note: Note, content: str, user_uuid: str):
     """Extract and process links from note content."""
     import re
     
@@ -118,7 +55,7 @@ async def _process_note_links(db: AsyncSession, note: Note, content: str, user_i
     
     for url in urls:
         existing_link = await db.execute(
-            select(Link).where(and_(Link.url == url, Link.user_id == user_id))
+            select(Link).where(and_(Link.url == url, Link.user_uuid == user_uuid))
         )
         
         if not existing_link.scalar_one_or_none():
@@ -126,113 +63,27 @@ async def _process_note_links(db: AsyncSession, note: Note, content: str, user_i
                 title=f"Link from note: {note.title}",
                 url=url,
                 description=f"Found in note '{note.title}'",
-                user_id=user_id
+                user_uuid=user_uuid
             )
             db.add(link)
 
-async def _get_note_with_relations(db: AsyncSession, note_uuid: str, user_id: int) -> NoteResponse:
+async def _get_note_with_relations(db: AsyncSession, note_uuid: str, user_uuid: str) -> NoteResponse:
     """Get note with all related data."""
     result = await db.execute(
         select(Note)
         .options(selectinload(Note.tag_objs), selectinload(Note.files))
-        .where(and_(Note.uuid == note_uuid, Note.user_id == user_id))
+        .where(and_(Note.uuid == note_uuid, Note.user_uuid == user_uuid))
     )
     note = result.scalar_one_or_none()
     
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
     
-    # Build project badges
-    project_badges = await _build_project_badges(db, note.id, note.is_exclusive_mode)
+    # Build project badges via service
+    project_badges = await project_service.build_badges(db, note.uuid, note.is_exclusive_mode, note_projects, "note_uuid")
     
     return _convert_note_to_response(note, project_badges)
 
-
-
-async def _handle_note_projects(db: AsyncSession, note: Note, project_ids: List[int], user_id: int):
-    """Link note to projects via junction table.
-    
-    Verifies user owns all requested projects before linking.
-    """
-    # SECURITY: Verify user owns all requested projects
-    if project_ids:
-        result = await db.execute(
-            select(Project.id).where(
-                and_(
-                    Project.id.in_(project_ids),
-                    Project.user_id == user_id
-                )
-            )
-        )
-        owned_project_ids = {row[0] for row in result.fetchall()}
-        
-        # Check if any requested project IDs are not owned by user
-        invalid_ids = set(project_ids) - owned_project_ids
-        if invalid_ids:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"You do not have access to project(s): {', '.join(map(str, invalid_ids))}"
-            )
-    
-    # Clear existing project links
-    await db.execute(
-        delete(note_projects).where(note_projects.c.note_id == note.id)
-    )
-    
-    # Add new project links (now verified)
-    if project_ids:
-        for project_id in project_ids:
-            await db.execute(
-                note_projects.insert().values(
-                    note_id=note.id,
-                    project_id=project_id,
-                    project_name_snapshot=None  # Will be set on project deletion
-                )
-            )
-
-async def _build_project_badges(db: AsyncSession, note_id: int, is_exclusive: bool) -> List[ProjectBadge]:
-    """Build project badges from junction table (live projects and deleted snapshots)."""
-    from sqlalchemy import select
-    
-    # Query junction table for this note
-    result = await db.execute(
-        select(
-            note_projects.c.project_id,
-            note_projects.c.project_name_snapshot
-        ).where(note_projects.c.note_id == note_id)
-    )
-    
-    badges = []
-    for row in result:
-        project_id = row.project_id
-        snapshot_name = row.project_name_snapshot
-        
-        if project_id is not None:
-            # Live project - fetch current details
-            project_result = await db.execute(
-                select(Project).where(Project.id == project_id)
-            )
-            project = project_result.scalar_one_or_none()
-            if project:
-                badges.append(ProjectBadge(
-                    id=project.id,
-                    name=project.name,
-                    color=project.color,
-                    is_exclusive=is_exclusive,  # Note's exclusive mode applies to all its projects
-                    is_deleted=False
-                ))
-        else:
-            # Deleted project - use snapshot
-            if snapshot_name:
-                badges.append(ProjectBadge(
-                    id=None,
-                    name=snapshot_name,
-                    color="#6c757d",  # Gray for deleted projects
-                    is_exclusive=False,  # Was linked (survived deletion, so not exclusive)
-                    is_deleted=True
-                ))
-    
-    return badges
 
 def _convert_note_to_response(note: Note, project_badges: Optional[List[ProjectBadge]] = None) -> NoteResponse:
     """Convert Note model to NoteResponse."""
@@ -275,17 +126,17 @@ async def list_notes(
     """
     
     if search:
-        # Use FTS5 for full-text search
-        fts_results = await enhanced_fts_service.search_all(db, search, current_user.id, content_types=["notes"], limit=limit, offset=offset)
-        note_ids = [r["id"] for r in fts_results if r["type"] == "note"]
-        if not note_ids:
+        # Use unified FTS5 search
+        fts_results = await search_service.search(db, current_user.uuid, search, item_types=["note"], limit=limit)
+        note_uuids = [r["uuid"] for r in fts_results if r["type"] == "note"]
+        if not note_uuids:
             return []
-        # Fetch notes by IDs, preserving FTS5 order
+        # Fetch notes by UUIDs, preserving FTS5 order
         query = select(Note).options(selectinload(Note.tag_objs)).where(
             and_(
-                Note.user_id == current_user.id,
+                Note.user_uuid == current_user.uuid,
                 Note.is_archived == archived,
-                Note.id.in_(note_ids),
+                Note.uuid.in_(note_uuids),
                 Note.is_exclusive_mode == False  # Only show linked (non-exclusive) items
             )
         )
@@ -298,13 +149,13 @@ async def list_notes(
         result = await db.execute(query)
         notes = result.scalars().unique().all()
         # Order notes by FTS5 relevance
-        notes_by_id = {n.id: n for n in notes}
-        ordered_notes = [notes_by_id[nid] for nid in note_ids if nid in notes_by_id]
+        notes_by_uuid = {n.uuid: n for n in notes}
+        ordered_notes = [notes_by_uuid[nuid] for nuid in note_uuids if nuid in notes_by_uuid]
     else:
         # Fallback to regular query
         query = select(Note).options(selectinload(Note.tag_objs)).where(
             and_(
-                Note.user_id == current_user.id,
+                Note.user_uuid == current_user.uuid,
                 Note.is_archived == archived,
                 Note.is_exclusive_mode == False  # Only show linked (non-exclusive) items
             )
@@ -315,7 +166,7 @@ async def list_notes(
             query = query.where(Note.file_count > 0 if has_files else Note.file_count == 0)
         if is_favorite is not None:
             query = query.where(Note.is_favorite == is_favorite)
-        query = query.order_by(Note.updated_at.desc()).offset(offset).limit(limit)
+        query = query.order_by(Note.is_favorite.desc(), Note.updated_at.desc()).offset(offset).limit(limit)
         result = await db.execute(query)
         ordered_notes = result.scalars().unique().all()
     summaries = []
@@ -324,7 +175,7 @@ async def list_notes(
         preview = ""
         if note.content:
             preview = note.content[:200] + "..." if len(note.content) > 200 else note.content
-        project_badges = await _build_project_badges(db, note.id, note.is_exclusive_mode)
+        project_badges = await project_service.build_badges(db, note.uuid, note.is_exclusive_mode, note_projects, "note_uuid")
         summary = NoteSummary(
             id=note.id,
             uuid=note.uuid,
@@ -354,11 +205,16 @@ async def create_note(
         sanitized_title = sanitize_text_input(note_data.title, 200)
         sanitized_content = sanitize_text_input(note_data.content, 100000)  # 100KB limit
         
+        # Calculate content size in bytes
+        content_size = len(sanitized_content.encode('utf-8'))
+        
         note = Note(
             title=sanitized_title,
             content=sanitized_content,
+            size_bytes=content_size,
             is_exclusive_mode=note_data.is_exclusive_mode or False,
-            user_id=current_user.id
+            user_uuid=current_user.uuid,
+            created_by=current_user.uuid
         )
         db.add(note)
         await db.flush()
@@ -367,14 +223,14 @@ async def create_note(
         if note_data.tags:
             # SECURITY: Sanitize tags to prevent XSS injection
             sanitized_tags = sanitize_tags(note_data.tags)
-            await _handle_note_tags(db, note, sanitized_tags, current_user.id)
+            await tag_service.handle_tags(db, note, sanitized_tags, current_user.id, "notes", note_tags)
         
         # Handle projects
         if note_data.project_ids:
-            await _handle_note_projects(db, note, note_data.project_ids, current_user.id)
+            await project_service.handle_associations(db, note, note_data.project_ids, current_user.id, note_projects, "note_uuid")
         
         # Process links in content
-        await _process_note_links(db, note, note_data.content, current_user.id)
+        await _process_note_links(db, note, note_data.content, current_user.uuid)
         
         await db.commit()
         
@@ -386,8 +242,11 @@ async def create_note(
         )
         note_with_tags = result.scalar_one()
         
+        # Index in search
+        await search_service.index_item(db, note_with_tags, 'note')
+        
         # Build project badges
-        project_badges = await _build_project_badges(db, note_with_tags.id, note_with_tags.is_exclusive_mode)
+        project_badges = await project_service.build_badges(db, note_with_tags.uuid, note_with_tags.is_exclusive_mode, note_projects, "note_uuid")
         
         return _convert_note_to_response(note_with_tags, project_badges)
     except Exception as e:
@@ -405,7 +264,7 @@ async def get_note(
     db: AsyncSession = Depends(get_db)
 ):
     """Get a specific note by UUID."""
-    return await _get_note_with_relations(db, note_uuid, current_user.id)
+    return await _get_note_with_relations(db, note_uuid, current_user.uuid)
 
 @router.put("/{note_uuid}", response_model=NoteResponse)
 async def update_note(
@@ -417,7 +276,7 @@ async def update_note(
     """Update an existing note."""
     result = await db.execute(
         select(Note).options(selectinload(Note.tag_objs)).where(
-            and_(Note.uuid == note_uuid, Note.user_id == current_user.id)
+            and_(Note.uuid == note_uuid, Note.user_uuid == current_user.uuid)
         )
     )
     note = result.scalar_one_or_none()
@@ -431,13 +290,14 @@ async def update_note(
         # SECURITY: Sanitize tags to prevent XSS injection
         raw_tags = update_data.pop("tags")
         sanitized_tags = sanitize_tags(raw_tags)
-        await _handle_note_tags(db, note, sanitized_tags, current_user.id)
+        await tag_service.handle_tags(db, note, sanitized_tags, current_user.uuid, "notes", note_tags)
 
     # Handle projects if provided
     if "project_ids" in update_data:
-        await _handle_note_projects(db, note, update_data.pop("project_ids"), current_user.id)
+        await project_service.handle_associations(db, note, update_data.pop("project_ids"), current_user.id, note_projects, "note_uuid")
 
     # SECURITY: Validate and sanitize update fields
+    content_updated = False
     for key, value in update_data.items():
         if key in ['title', 'content'] and value is not None:
             if key == 'title':
@@ -446,11 +306,16 @@ async def update_note(
                 value = sanitize_text_input(value, 200)
             elif key == 'content':
                 value = sanitize_text_input(value, 100000)  # 100KB limit
+                content_updated = True
         setattr(note, key, value)
+
+    # Update size_bytes if content was modified
+    if content_updated:
+        note.size_bytes = len(note.content.encode('utf-8'))
 
     # Process links if content was updated
     if note_data.content:
-        await _process_note_links(db, note, note_data.content, current_user.id)
+        await _process_note_links(db, note, note_data.content, current_user.uuid)
 
     await db.commit()
     
@@ -462,8 +327,11 @@ async def update_note(
     )
     note_with_tags = result.scalar_one()
     
+    # Index in search
+    await search_service.index_item(db, note_with_tags, 'note')
+    
     # Build project badges
-    project_badges = await _build_project_badges(db, note_with_tags.id, note_with_tags.is_exclusive_mode)
+    project_badges = await project_service.build_badges(db, note_with_tags.uuid, note_with_tags.is_exclusive_mode, note_projects, "note_uuid")
     
     return _convert_note_to_response(note_with_tags, project_badges)
 
@@ -476,7 +344,7 @@ async def delete_note(
     """Delete a note and its associated files."""
     result = await db.execute(
         select(Note).options(selectinload(Note.files), selectinload(Note.tag_objs)).where(
-            and_(Note.uuid == note_uuid, Note.user_id == current_user.id)
+            and_(Note.uuid == note_uuid, Note.user_uuid == current_user.uuid)
         )
     )
     note = result.scalar_one_or_none()
@@ -484,7 +352,7 @@ async def delete_note(
         logger.warning(f"Attempted to delete non-existent note with UUID: {note_uuid} for user: {current_user.id}")
         raise HTTPException(status_code=404, detail="Note not found")
 
-    logger.info(f"Attempting to delete note with UUID: {note_uuid} for user: {current_user.id}")
+    logger.info(f"Attempting to delete note with UUID: {note_uuid} for user: {current_user.uuid}")
 
     try:
         # Delete associated files from disk
@@ -502,11 +370,10 @@ async def delete_note(
                     logger.error(f"⚠️ Could not delete file {note_file.file_path}: {e}")
 
         # Decrement tag usage counts BEFORE deleting note (associations will cascade)
-        if note.tag_objs:
-            logger.info(f"Decrementing usage count for {len(note.tag_objs)} tags")
-            for tag in note.tag_objs:
-                tag.usage_count = max(0, tag.usage_count - 1)
-                logger.debug(f"Tag '{tag.name}' usage count: {tag.usage_count + 1} -> {tag.usage_count}")
+        await tag_service.decrement_tags_on_delete(db, note)
+
+        # Remove from search index BEFORE deleting note
+        await search_service.remove_item(db, note_uuid)
 
         # Delete note (cascade will handle note_tags associations automatically)
         logger.info(f"Deleting note record with UUID: {note_uuid} from the database.")
@@ -530,7 +397,7 @@ async def archive_note(
     try:
         # Get note
         result = await db.execute(
-            select(Note).where(and_(Note.uuid == note_uuid, Note.user_id == current_user.id))
+            select(Note).where(and_(Note.uuid == note_uuid, Note.user_uuid == current_user.uuid))
         )
         note = result.scalar_one_or_none()
         if not note:
@@ -545,7 +412,7 @@ async def archive_note(
         logger.info(f"✅ Successfully {action} note '{note.title}' for user {current_user.username}")
         
         # Include project badges for consistency
-        project_badges = await _build_project_badges(db, note.id, note.is_exclusive_mode)
+        project_badges = await project_service.build_badges(db, note.uuid, note.is_exclusive_mode, note_projects, "note_uuid")
         return _convert_note_to_response(note, project_badges)
         
     except HTTPException:
@@ -567,10 +434,10 @@ async def get_note_files(
     db: AsyncSession = Depends(get_db)
 ):
     """Get all files attached to a note."""
-    # First get the note to verify it exists and get the UUID
+    # First get the note to verify it exists and belongs to user
     note_result = await db.execute(
         select(Note).where(
-            and_(Note.uuid == note_uuid, Note.user_id == current_user.id)
+            and_(Note.uuid == note_uuid, Note.user_uuid == current_user.uuid)
         )
     )
     note = note_result.scalar_one_or_none()
@@ -604,101 +471,21 @@ async def commit_note_file_upload(
     db: AsyncSession = Depends(get_db)
 ):
     """Finalize a previously chunk-uploaded file and attach it to a note.
-    
-    Uses the core chunk upload service for efficient uploading.
+
+    Uses the centralized FileManagementService for atomic file operations.
     """
     try:
-        logger.info(f"📎 Committing note file upload for note {payload.note_uuid}")
-        
-        # Check assembled file status
-        status_obj = await chunk_manager.get_upload_status(payload.file_id)
-        if not status_obj or status_obj.get("status") != "completed":
-            raise HTTPException(status_code=400, detail="File not yet assembled")
-
-        # Locate assembled file path
-        temp_dir = Path(get_data_dir()) / "temp_uploads"
-        assembled = next(temp_dir.glob(f"complete_{payload.file_id}_*"), None)
-        if not assembled:
-            raise HTTPException(status_code=404, detail="Assembled file not found")
-
-        # Verify note exists and belongs to user
-        note_result = await db.execute(
-            select(Note).where(
-                and_(Note.uuid == payload.note_uuid, Note.user_id == current_user.id)
-            )
-        )
-        note = note_result.scalar_one_or_none()
-        if not note:
-            raise HTTPException(status_code=404, detail="Note not found")
-
-        # Prepare destination directory
-        files_dir = get_data_dir() / "assets" / "notes" / "files"
-        files_dir.mkdir(parents=True, exist_ok=True)
-
-        # Generate unique filename
-        file_uuid = str(uuid_lib.uuid4())
-        file_extension = assembled.suffix
-        stored_filename = f"{file_uuid}{file_extension}"
-        temp_dest_path = files_dir / f"temp_{stored_filename}"  # Temporary location
-        final_dest_path = files_dir / stored_filename  # Final location
-
-        # Move assembled file to TEMPORARY location first
-        assembled.rename(temp_dest_path)
-
-        # Get file info before database operations to avoid sync I/O in async context
-        file_size = temp_dest_path.stat().st_size
-        file_path_relative = str(final_dest_path.relative_to(get_data_dir()))
-        
-        # Detect file type
-        detection_result = await file_detector.detect_file_type(
-            file_path=temp_dest_path,
-            file_content=None
-        )
-
-        # Create NoteFile record
-        note_file = NoteFile(
+        # Use centralized FileManagementService for note file upload
+        note_file = await file_management_service.commit_note_file_upload(
+            db=db,
+            upload_id=payload.file_id,
             note_uuid=payload.note_uuid,
-            user_id=current_user.id,
-            filename=stored_filename,
-            original_name=assembled.name,
-            file_path=file_path_relative,
-            file_size=file_size,
-            mime_type=detection_result["mime_type"],
-            description=payload.description
+            original_name=payload.original_name,
+            description=payload.description,
+            user_id=current_user.id
         )
-        
-        db.add(note_file)
-        await db.flush()
 
-        # Update note file count
-        file_count_result = await db.execute(
-            select(func.count(NoteFile.uuid)).where(NoteFile.note_uuid == payload.note_uuid)
-        )
-        new_file_count = file_count_result.scalar() or 0
-        note.file_count = new_file_count
-
-        await db.commit()
-        await db.refresh(note_file)
-
-        # SECURITY: Move file to final location ONLY after successful DB commit
-        try:
-            temp_dest_path.rename(final_dest_path)
-            logger.info(f"✅ File moved to final location: {final_dest_path}")
-        except Exception as move_error:
-            logger.error(f"❌ Failed to move file to final location: {move_error}")
-            # Clean up temp file
-            try:
-                if temp_dest_path.exists():
-                    temp_dest_path.unlink()
-            except Exception:
-                pass
-            raise HTTPException(status_code=500, detail="Failed to finalize file storage")
-
-        # Clean up temporary file tracking
-        if payload.file_id in chunk_manager.uploads:
-            del chunk_manager.uploads[payload.file_id]
-
-        logger.info(f"✅ Note file committed successfully: {stored_filename}")
+        logger.info(f"Note file committed successfully: {note_file.filename}")
         
         return NoteFileResponse(
             uuid=note_file.uuid,
@@ -710,28 +497,14 @@ async def commit_note_file_upload(
             description=note_file.description,
             created_at=note_file.created_at
         )
-        
+
     except HTTPException:
-        await db.rollback()
-        # Clean up temp file on HTTP exception
-        try:
-            if 'temp_dest_path' in locals() and temp_dest_path.exists():
-                temp_dest_path.unlink()
-        except Exception:
-            pass
         raise
     except Exception as e:
-        await db.rollback()
-        # Clean up temp file on DB rollback
-        try:
-            if 'temp_dest_path' in locals() and temp_dest_path.exists():
-                temp_dest_path.unlink()
-        except Exception:
-            pass
         logger.error(f"❌ Error committing note file upload: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to commit file upload"
+            detail="Failed to commit note file upload"
         )
 
 @router.get("/files/{file_uuid}/download")
@@ -747,7 +520,7 @@ async def download_note_file(
         .where(
             and_(
                 NoteFile.uuid == file_uuid,
-                Note.user_id == current_user.id
+                Note.user_uuid == current_user.uuid
             )
         )
     )
@@ -782,7 +555,7 @@ async def delete_note_file(
         .where(
             and_(
                 NoteFile.uuid == file_uuid,
-                Note.user_id == current_user.id
+                Note.user_uuid == current_user.uuid
             )
         )
     )
@@ -829,7 +602,7 @@ async def get_note_links(
     # Verify note exists and belongs to user
     note_result = await db.execute(
         select(Note.content).where(
-            and_(Note.uuid == note_uuid, Note.user_id == current_user.id)
+            and_(Note.uuid == note_uuid, Note.user_uuid == current_user.uuid)
         )
     )
     note = note_result.scalar_one_or_none()
@@ -845,7 +618,7 @@ async def get_note_links(
     if urls:
         result = await db.execute(
             select(Link).where(
-                and_(Link.url.in_(urls), Link.user_id == current_user.id)
+                and_(Link.url.in_(urls), Link.user_uuid == current_user.uuid)
             )
         )
         existing_links = result.scalars().all()

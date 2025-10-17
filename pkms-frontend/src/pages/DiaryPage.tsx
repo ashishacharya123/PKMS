@@ -60,6 +60,7 @@ import { searchService } from '../services/searchService';
 import { format, parseISO } from 'date-fns';
 import { notifications } from '@mantine/notifications';
 import { WellnessAnalytics } from '../components/diary/WellnessAnalytics';
+import WeeklyHighlightsPanel from '../components/diary/WeeklyHighlightsPanel';
 import EncryptionStatus from '../components/diary/EncryptionStatus';
 import { AdvancedDiarySearch } from '../components/diary/AdvancedDiarySearch';
 import DiarySearch from '../components/diary/DiarySearch';
@@ -814,8 +815,18 @@ export function DiaryPage() {
             {store.isUnlocked && (
               <Button
                 leftSection={<IconPlus size={16} />}
-        onClick={() => {
+                onClick={async () => {
                   form.reset();
+                  // Use selected calendar date by default when creating a new entry
+                  form.setFieldValue('date', selectedDate);
+                  // Preload daily metadata (e.g., nepali_date)
+                  try {
+                    const iso = format(selectedDate, 'yyyy-MM-dd');
+                    const snapshot = await diaryService.getDailyMetadata(iso);
+                    if (snapshot?.nepali_date) {
+                      form.setFieldValue('nepali_date', snapshot.nepali_date);
+                    }
+                  } catch {}
                   setViewMode('edit');
                   setModalOpen(true);
                 }}
@@ -846,6 +857,14 @@ export function DiaryPage() {
           <>
             {/* Analytics & Tracking Sections - Only one can be open at a time */}
             <Accordion variant="contained" defaultValue="" multiple={false}>
+              <Accordion.Item value="weekly-highlights">
+                <Accordion.Control>
+                  <Text fw={600} size="md">🌟 Weekly Highlights (Weekends)</Text>
+                </Accordion.Control>
+                <Accordion.Panel>
+                  <WeeklyHighlightsPanel />
+                </Accordion.Panel>
+              </Accordion.Item>
               {/* Wellness Analytics */}
               <Accordion.Item value="wellness-analytics">
                 <Accordion.Control>
@@ -1266,7 +1285,7 @@ export function DiaryPage() {
             </Grid>
 
             {/* Historical Entries - Shows entries from past (yesterday, last week, last month, last year) */}
-            <HistoricalEntries onViewEntry={handleViewEntry} />
+            <HistoricalEntries onViewEntry={handleViewEntry} selectedDate={selectedDate} />
           </>
         ) : null}
       </Stack>
@@ -1361,7 +1380,14 @@ export function DiaryPage() {
       <Modal
         opened={modalOpen}
         onClose={() => setModalOpen(false)}
-        title={viewMode === 'view' ? 'View Entry' : 'Edit Entry'}
+        title={
+          <Group justify="space-between" wrap="nowrap">
+            <Text fw={600}>{viewMode === 'view' ? 'View Entry' : 'Edit Entry'}</Text>
+            <Text size="sm" c="dimmed">
+              Entry date: {format(form.values.date, 'yyyy-MM-dd')}
+            </Text>
+          </Group>
+        }
         size="90%"
         centered
         scrollAreaComponent={ScrollArea.Autosize}
@@ -1416,6 +1442,23 @@ export function DiaryPage() {
                 label="Title"
                 placeholder="Enter a title for your entry"
                 {...form.getInputProps('title')}
+              />
+              <Calendar
+                getDayProps={(date) => ({
+                  selected: format(date, 'yyyy-MM-dd') === format(form.values.date, 'yyyy-MM-dd'),
+                  onClick: async () => {
+                    const next = date;
+                    form.setFieldValue('date', next);
+                    setSelectedDate(next);
+                    try {
+                      const iso = format(next, 'yyyy-MM-dd');
+                      const metadata = await diaryService.getDailyMetadata(iso);
+                      if (metadata && metadata.nepali_date) {
+                        form.setFieldValue('nepali_date', metadata.nepali_date);
+                      }
+                    } catch {}
+                  }
+                })}
               />
               <Textarea
                 label="Content"

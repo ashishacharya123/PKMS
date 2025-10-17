@@ -16,15 +16,18 @@ class Link(Base):
     
     __tablename__ = "links"
     
-    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    uuid = Column(String(36), unique=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    id = Column(Integer, autoincrement=True, nullable=False, index=True)
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
     title = Column(String(255), nullable=False, index=True)
     url = Column(String(2000), nullable=False)
     description = Column(Text, nullable=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     is_favorite = Column(Boolean, default=False)
     is_archived = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now())
+    
+    # Soft Delete
+    is_deleted = Column(Boolean, default=False, index=True)
     
     # Relationships
     user = relationship("User")

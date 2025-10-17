@@ -1,0 +1,356 @@
+"""
+Unified Search Service for PKMS
+
+This service provides a simple, unified full-text search across all content types
+using a single FTS5 virtual table. It replaces the complex multi-table FTS system
+with a maintainable, fast, and powerful search experience.
+"""
+
+from typing import List, Dict, Optional, Any
+from datetime import datetime
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text, select
+from sqlalchemy.orm import selectinload
+
+from ..models.note import Note
+from ..models.document import Document
+from ..models.todo import Todo, Project
+from ..models.diary import DiaryEntry
+from ..models.link import Link
+from ..models.archive import ArchiveFolder, ArchiveItem
+
+
+class SearchService:
+    """Unified search service for all content types."""
+    
+    def __init__(self):
+        self.item_type_mapping = {
+            'note': Note,
+            'document': Document,
+            'todo': Todo,
+            'project': Project,
+            'diary': DiaryEntry,
+            'link': Link,
+            'archive_folder': ArchiveFolder,
+            'archive_item': ArchiveItem
+        }
+    
+    async def index_item(self, db: AsyncSession, item: Any, item_type: str) -> None:
+        """
+        Index a single item into the unified FTS table.
+        
+        Args:
+            db: Database session
+            item: The content item to index
+            item_type: Type of item ('note', 'todo', 'document', etc.)
+        """
+        try:
+            # Extract common fields
+            item_uuid = str(item.uuid)
+            user_uuid = getattr(item, 'user_uuid', None)
+            title = getattr(item, 'title', None) or getattr(item, 'name', None) or ''
+            description = getattr(item, 'description', None) or ''
+            
+            # Extract tags from tag_objs relationship
+            tags = ''
+            if hasattr(item, 'tag_objs') and item.tag_objs:
+                tags = ' '.join([tag.name for tag in item.tag_objs])
+            
+            # Extract attachments (filenames) for files
+            attachments = await self._extract_attachments(db, item, item_type)
+            
+            # Format date_text for temporal context
+            date_text = self._format_date_text(item.created_at)
+            
+            # INSERT OR REPLACE into FTS table (SQLite syntax)
+            await db.execute(text("""
+                INSERT OR REPLACE INTO fts_content(item_uuid, item_type, user_uuid, title, description, tags, attachments, date_text)
+                VALUES (:uuid, :type, :user_uuid, :title, :description, :tags, :attachments, :date_text)
+            """), {
+                "uuid": item_uuid,
+                "type": item_type,
+                "user_uuid": user_uuid,
+                "title": title,
+                "description": description,
+                "tags": tags,
+                "attachments": attachments,
+                "date_text": date_text
+            })
+            
+        except Exception as e:
+            # Log error but don't fail the main operation
+            print(f"Error indexing {item_type} {item_uuid}: {e}")
+    
+    async def remove_item(self, db: AsyncSession, item_uuid: str) -> None:
+        """
+        Remove an item from the FTS index.
+        
+        Args:
+            db: Database session
+            item_uuid: UUID of the item to remove
+        """
+        try:
+            await db.execute(
+                text("DELETE FROM fts_content WHERE item_uuid = :uuid"), 
+                {"uuid": item_uuid}
+            )
+        except Exception as e:
+            print(f"Error removing {item_uuid} from search index: {e}")
+    
+    async def search(self, db: AsyncSession, user_uuid: str, query: str, 
+                    item_types: Optional[List[str]] = None, 
+                    has_attachments: Optional[bool] = None,
+                    limit: int = 50) -> List[Dict]:
+        """
+        Search across all content types using the two-step process:
+        1. FTS search to get candidate UUIDs
+        2. Structured SQL filtering for additional criteria
+        
+        Args:
+            db: Database session
+            user_id: User ID to scope search
+            query: Search query string
+            item_types: Optional list of item types to search
+            has_attachments: Optional filter for items with attachments
+            limit: Maximum number of results
+            
+        Returns:
+            List of search results with item details
+        """
+        try:
+            # Step 1: FTS search to get candidate UUIDs
+            fts_query = self._build_fts_query(query)
+            
+            sql = """
+                SELECT item_uuid, item_type, rank
+                FROM fts_content
+                WHERE fts_content MATCH :query AND user_uuid = :user_uuid
+            """
+            params = {"query": fts_query, "user_uuid": user_uuid}
+            
+            if item_types:
+                sql += " AND item_type IN :types"
+                params["types"] = item_types
+            
+            sql += " ORDER BY rank LIMIT :limit"
+            params["limit"] = limit
+            
+            result = await db.execute(text(sql), params)
+            fts_results = result.fetchall()
+            
+            if not fts_results:
+                return []
+            
+            # Step 2: Structured SQL filtering for additional criteria
+            results = []
+            for row in fts_results:
+                item_uuid, item_type, rank = row
+                
+                # Get the actual item with relationships
+                item = await self._get_item_with_relationships(db, item_uuid, item_type)
+                if not item:
+                    continue
+                
+                # Apply additional filters
+                if has_attachments is not None:
+                    has_files = await self._item_has_attachments(db, item, item_type)
+                    if has_attachments != has_files:
+                        continue
+                
+                # Build result
+                result_item = {
+                    "uuid": item_uuid,
+                    "type": item_type,
+                    "title": getattr(item, 'title', None) or getattr(item, 'name', None),
+                    "description": getattr(item, 'description', None),
+                    "created_at": item.created_at.isoformat() if item.created_at else None,
+                    "score": rank
+                }
+                
+                # Add type-specific fields
+                if item_type == 'note':
+                    result_item["content_preview"] = getattr(item, 'content', '')[:200] + '...' if getattr(item, 'content', '') else ''
+                elif item_type == 'document':
+                    result_item["filename"] = getattr(item, 'filename', None)
+                elif item_type == 'archive_item':
+                    result_item["filename"] = getattr(item, 'original_filename', None) or getattr(item, 'stored_filename', None)
+                elif item_type == 'archive_folder':
+                    result_item["name"] = getattr(item, 'name', None)
+                elif item_type == 'todo':
+                    result_item["status"] = getattr(item, 'status', None)
+                elif item_type == 'project':
+                    result_item["status"] = getattr(item, 'status', None)
+                    result_item["progress_percentage"] = getattr(item, 'progress_percentage', None)
+                
+                results.append(result_item)
+            
+            return results
+            
+        except Exception as e:
+            print(f"Error during search: {e}")
+            return []
+    
+    async def _extract_attachments(self, db: AsyncSession, item: Any, item_type: str) -> str:
+        """Extract attachment filenames for the item."""
+        attachments = []
+        
+        try:
+            if item_type == 'note' and hasattr(item, 'files'):
+                # Load note files if not already loaded
+                if not hasattr(item, '_files_loaded'):
+                    note_with_files = await db.execute(
+                        select(Note).options(selectinload(Note.files)).where(Note.uuid == item.uuid)
+                    )
+                    note = note_with_files.scalar_one_or_none()
+                    if note and note.files:
+                        attachments.extend([f.filename for f in note.files if f.filename])
+                else:
+                    attachments.extend([f.filename for f in item.files if f.filename])
+            
+            elif item_type == 'document':
+                filename = getattr(item, 'filename', None)
+                if filename:
+                    attachments.append(filename)
+            elif item_type == 'archive_item':
+                filename = getattr(item, 'original_filename', None) or getattr(item, 'stored_filename', None)
+                if filename:
+                    attachments.append(filename)
+            
+            elif item_type == 'diary' and hasattr(item, 'media'):
+                # Load diary media if not already loaded
+                if not hasattr(item, '_media_loaded'):
+                    entry_with_media = await db.execute(
+                        select(DiaryEntry).options(selectinload(DiaryEntry.media)).where(DiaryEntry.uuid == item.uuid)
+                    )
+                    entry = entry_with_media.scalar_one_or_none()
+                    if entry and entry.media:
+                        attachments.extend([m.filename for m in entry.media if m.filename])
+                else:
+                    attachments.extend([m.filename for m in item.media if m.filename])
+        
+        except Exception as e:
+            print(f"Error extracting attachments for {item_type} {item.uuid}: {e}")
+        
+        return ' '.join(attachments)
+    
+    def _format_date_text(self, created_at: Optional[datetime]) -> str:
+        """Format date for temporal context in search."""
+        if not created_at:
+            return ''
+        
+        try:
+            # Format as "2025 January Friday" for natural language search
+            return created_at.strftime("%Y %B %A")
+        except:
+            return ''
+    
+    def _build_fts_query(self, query: str) -> str:
+        """Build FTS5 query string with proper escaping."""
+        # Simple escaping for FTS5 - remove special characters that could break the query
+        escaped = query.replace('"', '""').replace("'", "''")
+        return f'"{escaped}"'
+    
+    async def _get_item_with_relationships(self, db: AsyncSession, item_uuid: str, item_type: str) -> Optional[Any]:
+        """Get the actual item with its relationships loaded."""
+        try:
+            model_class = self.item_type_mapping.get(item_type)
+            if not model_class:
+                return None
+            
+            # Load with tag relationships for proper tag display
+            result = await db.execute(
+                select(model_class).options(selectinload(getattr(model_class, 'tag_objs', None))).where(model_class.uuid == item_uuid)
+            )
+            return result.scalar_one_or_none()
+        
+        except Exception as e:
+            print(f"Error loading {item_type} {item_uuid}: {e}")
+            return None
+    
+    async def _item_has_attachments(self, db: AsyncSession, item: Any, item_type: str) -> bool:
+        """Check if item has attachments."""
+        try:
+            if item_type == 'note':
+                return getattr(item, 'file_count', 0) > 0
+            elif item_type == 'document':
+                return bool(getattr(item, 'filename', None))
+            elif item_type == 'archive_item':
+                return bool(getattr(item, 'original_filename', None) or getattr(item, 'stored_filename', None))
+            elif item_type == 'diary':
+                return getattr(item, 'media_count', 0) > 0
+            else:
+                return False
+        except:
+            return False
+    
+    async def bulk_index_user_content(self, db: AsyncSession, user_uuid: str) -> None:
+        """
+        Bulk index all content for a user (useful for migration).
+
+        Args:
+            db: Database session
+            user_uuid: User UUID to index content for
+        """
+        print(f"Starting bulk index for user {user_uuid}")
+
+        # Index notes
+        notes_result = await db.execute(
+            select(Note).options(selectinload(Note.tag_objs)).where(Note.user_uuid == user_uuid)
+        )
+        for note in notes_result.scalars():
+            await self.index_item(db, note, 'note')
+
+        # Index documents
+        docs_result = await db.execute(
+            select(Document).options(selectinload(Document.tag_objs)).where(Document.user_uuid == user_uuid)
+        )
+        for doc in docs_result.scalars():
+            await self.index_item(db, doc, 'document')
+
+        # Index todos
+        todos_result = await db.execute(
+            select(Todo).options(selectinload(Todo.tag_objs)).where(Todo.user_uuid == user_uuid)
+        )
+        for todo in todos_result.scalars():
+            await self.index_item(db, todo, 'todo')
+
+        # Index projects
+        projects_result = await db.execute(
+            select(Project).options(selectinload(Project.tag_objs)).where(Project.user_uuid == user_uuid)
+        )
+        for project in projects_result.scalars():
+            await self.index_item(db, project, 'project')
+
+        # Index diary entries
+        diary_result = await db.execute(
+            select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.user_uuid == user_uuid)
+        )
+        for entry in diary_result.scalars():
+            await self.index_item(db, entry, 'diary')
+
+        # Index links
+        links_result = await db.execute(
+            select(Link).options(selectinload(Link.tag_objs)).where(Link.user_uuid == user_uuid)
+        )
+        for link in links_result.scalars():
+            await self.index_item(db, link, 'link')
+
+        # Index archive folders
+        folders_result = await db.execute(
+            select(ArchiveFolder).options(selectinload(ArchiveFolder.tag_objs)).where(ArchiveFolder.user_uuid == user_uuid)
+        )
+        for folder in folders_result.scalars():
+            await self.index_item(db, folder, 'archive_folder')
+
+        # Index archive items
+        items_result = await db.execute(
+            select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.user_uuid == user_uuid)
+        )
+        for item in items_result.scalars():
+            await self.index_item(db, item, 'archive_item')
+
+        print(f"Completed bulk index for user {user_uuid}")
+
+
+# Global instance
+search_service = SearchService()
