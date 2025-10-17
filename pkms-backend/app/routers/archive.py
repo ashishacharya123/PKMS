@@ -449,42 +449,42 @@ async def list_folders(
             item_counts = {
                 r[0]: r[1] for r in (await db.execute(
                     select(ArchiveItem.folder_uuid, func.count(ArchiveItem.uuid))
-                    .where(ArchiveItem.folder_uuid.in_(folder_uuids))
+                    .where(and_(ArchiveItem.folder_uuid.in_(folder_uuids), ArchiveItem.created_by == current_user.uuid))
                     .group_by(ArchiveItem.folder_uuid)
                 )).all()
             }
             sub_counts = {
                 r[0]: r[1] for r in (await db.execute(
                     select(ArchiveFolder.parent_uuid, func.count(ArchiveFolder.uuid))
-                    .where(ArchiveFolder.parent_uuid.in_(folder_uuids))
+                    .where(and_(ArchiveFolder.parent_uuid.in_(folder_uuids), ArchiveFolder.created_by == current_user.uuid))
                     .group_by(ArchiveFolder.parent_uuid)
                 )).all()
             }
             sizes = {
                 r[0]: r[1] or 0 for r in (await db.execute(
                     select(ArchiveItem.folder_uuid, func.sum(ArchiveItem.file_size))
-                    .where(ArchiveItem.folder_uuid.in_(folder_uuids))
+                    .where(and_(ArchiveItem.folder_uuid.in_(folder_uuids), ArchiveItem.created_by == current_user.uuid))
                     .group_by(ArchiveItem.folder_uuid)
                 )).all()
             }
 
             folder_responses = []
-            for f in folders:
-                display_path = await get_display_path(f.uuid, db, current_user.uuid)
-                filesystem_path = await get_filesystem_path(f.uuid, db, current_user.uuid)
+            for folder in folders:
+                display_path = await get_display_path(folder.uuid, db, current_user.uuid)
+                filesystem_path = await get_filesystem_path(folder.uuid, db, current_user.uuid)
                 folder_responses.append(FolderResponse(
-                    uuid=f.uuid,
-                    name=f.name,
-                    description=f.description,
-                    parent_uuid=f.parent_uuid,
+                    uuid=folder.uuid,
+                    name=folder.name,
+                    description=folder.description,
+                    parent_uuid=folder.parent_uuid,
                     path=display_path,
                     display_path=display_path,
                     filesystem_path=filesystem_path,
-                    created_at=f.created_at,
-                    updated_at=f.updated_at,
-                    item_count=item_counts.get(f.uuid, 0),
-                    subfolder_count=sub_counts.get(f.uuid, 0),
-                    total_size=sizes.get(f.uuid, 0),
+                    created_at=folder.created_at,
+                    updated_at=folder.updated_at,
+                    item_count=item_counts.get(folder.uuid, 0),
+                    subfolder_count=sub_counts.get(folder.uuid, 0),
+                    total_size=sizes.get(folder.uuid, 0),
                 ))
             return folder_responses
         else:
@@ -506,41 +506,41 @@ async def list_folders(
         item_counts = {
             r[0]: r[1] for r in (await db.execute(
                 select(ArchiveItem.folder_uuid, func.count(ArchiveItem.uuid))
-                .where(ArchiveItem.folder_uuid.in_(folder_uuids))
+                .where(and_(ArchiveItem.folder_uuid.in_(folder_uuids), ArchiveItem.created_by == current_user.uuid))
                 .group_by(ArchiveItem.folder_uuid)
             )).all()
         }
         sub_counts = {
             r[0]: r[1] for r in (await db.execute(
                 select(ArchiveFolder.parent_uuid, func.count(ArchiveFolder.uuid))
-                .where(ArchiveFolder.parent_uuid.in_(folder_uuids))
+                .where(and_(ArchiveFolder.parent_uuid.in_(folder_uuids), ArchiveFolder.created_by == current_user.uuid))
                 .group_by(ArchiveFolder.parent_uuid)
             )).all()
         }
         sizes = {
             r[0]: r[1] or 0 for r in (await db.execute(
                 select(ArchiveItem.folder_uuid, func.sum(ArchiveItem.file_size))
-                .where(ArchiveItem.folder_uuid.in_(folder_uuids))
+                .where(and_(ArchiveItem.folder_uuid.in_(folder_uuids), ArchiveItem.created_by == current_user.uuid))
                 .group_by(ArchiveItem.folder_uuid)
             )).all()
         }
         folder_responses = []
-        for f in folders:
-            display_path = await get_display_path(f.uuid, db, current_user.uuid)
-            filesystem_path = await get_filesystem_path(f.uuid, db, current_user.uuid)
+        for folder in folders:
+            display_path = await get_display_path(folder.uuid, db, current_user.uuid)
+            filesystem_path = await get_filesystem_path(folder.uuid, db, current_user.uuid)
             folder_responses.append(FolderResponse(
-                uuid=f.uuid,
-                name=f.name,
-                description=f.description,
-                parent_uuid=f.parent_uuid,
+                uuid=folder.uuid,
+                name=folder.name,
+                description=folder.description,
+                parent_uuid=folder.parent_uuid,
                 path=display_path,
                 display_path=display_path,
                 filesystem_path=filesystem_path,
-                created_at=f.created_at,
-                updated_at=f.updated_at,
-                item_count=item_counts.get(f.uuid, 0),
-                subfolder_count=sub_counts.get(f.uuid, 0),
-                total_size=sizes.get(f.uuid, 0),
+                created_at=folder.created_at,
+                updated_at=folder.updated_at,
+                item_count=item_counts.get(folder.uuid, 0),
+                subfolder_count=sub_counts.get(folder.uuid, 0),
+                total_size=sizes.get(folder.uuid, 0),
             ))
         return folder_responses
     except HTTPException:
@@ -605,48 +605,48 @@ async def get_folder_tree(
             item_counts = {
                 r[0]: r[1] for r in (await db.execute(
                     select(ArchiveItem.folder_uuid, func.count(ArchiveItem.uuid))
-                    .where(ArchiveItem.folder_uuid.in_(folder_uuids))
+                    .where(and_(ArchiveItem.folder_uuid.in_(folder_uuids), ArchiveItem.created_by == current_user.uuid))
                     .group_by(ArchiveItem.folder_uuid)
                 )).all()
             }
             sub_counts = {
                 r[0]: r[1] for r in (await db.execute(
                     select(ArchiveFolder.parent_uuid, func.count(ArchiveFolder.uuid))
-                    .where(ArchiveFolder.parent_uuid.in_(folder_uuids))
+                    .where(and_(ArchiveFolder.parent_uuid.in_(folder_uuids), ArchiveFolder.created_by == current_user.uuid))
                     .group_by(ArchiveFolder.parent_uuid)
                 )).all()
             }
             sizes = {
                 r[0]: r[1] or 0 for r in (await db.execute(
                     select(ArchiveItem.folder_uuid, func.sum(ArchiveItem.file_size))
-                    .where(ArchiveItem.folder_uuid.in_(folder_uuids))
+                    .where(and_(ArchiveItem.folder_uuid.in_(folder_uuids), ArchiveItem.created_by == current_user.uuid))
                     .group_by(ArchiveItem.folder_uuid)
                 )).all()
             }
 
             # Build item summaries per folder (still per-folder, but single query each ordered by name)
             tree: List[FolderTree] = []
-            for f in folders:
-                display_path = await get_display_path(f.uuid, db, current_user.uuid)
-                filesystem_path = await get_filesystem_path(f.uuid, db, current_user.uuid)
+            for folder in folders:
+                display_path = await get_display_path(folder.uuid, db, current_user.uuid)
+                filesystem_path = await get_filesystem_path(folder.uuid, db, current_user.uuid)
                 folder_response = FolderResponse(
-                    uuid=f.uuid,
-                    name=f.name,
-                    description=f.description,
-                    parent_uuid=f.parent_uuid,
+                    uuid=folder.uuid,
+                    name=folder.name,
+                    description=folder.description,
+                    parent_uuid=folder.parent_uuid,
                     path=display_path,
                     display_path=display_path,
                     filesystem_path=filesystem_path,
-                    created_at=f.created_at,
-                    updated_at=f.updated_at,
-                    item_count=item_counts.get(f.uuid, 0),
-                    subfolder_count=sub_counts.get(f.uuid, 0),
-                    total_size=sizes.get(f.uuid, 0),
+                    created_at=folder.created_at,
+                    updated_at=folder.updated_at,
+                    item_count=item_counts.get(folder.uuid, 0),
+                    subfolder_count=sub_counts.get(folder.uuid, 0),
+                    total_size=sizes.get(folder.uuid, 0),
                 )
 
                 items_query = select(ArchiveItem).where(
                     and_(
-                        ArchiveItem.folder_uuid == f.uuid,
+                        ArchiveItem.folder_uuid == folder.uuid,
                         ArchiveItem.created_by == current_user.uuid
                     )
                 )
@@ -766,6 +766,31 @@ async def update_folder(
             detail="Failed to update folder. Please try again."
         )
 
+async def _get_all_items_in_folder(db: AsyncSession, folder_uuid: str, user_uuid: str) -> List[ArchiveItem]:
+    items = []
+    
+    # Get items in the current folder
+    item_result = await db.execute(
+        select(ArchiveItem).where(
+            and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == user_uuid)
+        )
+    )
+    items.extend(item_result.scalars().all())
+    
+    # Get subfolders
+    subfolder_result = await db.execute(
+        select(ArchiveFolder).where(
+            and_(ArchiveFolder.parent_uuid == folder_uuid, ArchiveFolder.created_by == user_uuid)
+        )
+    )
+    subfolders = subfolder_result.scalars().all()
+    
+    # Recursively get items from subfolders
+    for subfolder in subfolders:
+        items.extend(await _get_all_items_in_folder(db, subfolder.uuid, user_uuid))
+        
+    return items
+
 @router.delete("/folders/{folder_uuid}")
 async def delete_folder(
     folder_uuid: str,
@@ -789,20 +814,37 @@ async def delete_folder(
         if not folder:
             raise HTTPException(status_code=404, detail="Folder not found")
         
-        # Check if folder has contents
-        if not force:
-            # Check for subfolders
+        if force:
+            # Get all items in the folder and its subfolders
+            items_to_delete = await _get_all_items_in_folder(db, folder_uuid, current_user.uuid)
+            
+            # Delete all files
+            for item in items_to_delete:
+                if item.file_path and Path(item.file_path).exists():
+                    try:
+                        Path(item.file_path).unlink()
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to delete file: {str(e)}")
+                
+                thumb_path = getattr(item, "thumbnail_path", None)
+                if thumb_path and Path(thumb_path).exists():
+                    try:
+                        Path(thumb_path).unlink()
+                    except Exception as e:
+                        logger.warning(f"⚠️ Failed to delete thumbnail: {str(e)}")
+
+        else:
+            # Check if folder has contents
             subfolder_result = await db.execute(
                 select(func.count(ArchiveFolder.uuid)).where(
-                    ArchiveFolder.parent_uuid == folder_uuid
+                    and_(ArchiveFolder.parent_uuid == folder_uuid, ArchiveFolder.created_by == current_user.uuid)
                 )
             )
             subfolder_count = subfolder_result.scalar()
             
-            # Check for items
             item_result = await db.execute(
                 select(func.count(ArchiveItem.uuid)).where(
-                    ArchiveItem.folder_uuid == folder_uuid
+                    and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == current_user.uuid)
                 )
             )
             item_count = item_result.scalar()
@@ -1167,7 +1209,7 @@ async def list_folder_items(
         # Join with correct association table for archive items and enforce user scoping
         query = (
             query.join(archive_item_tags, archive_item_tags.c.item_uuid == ArchiveItem.uuid)
-                 .join(Tag, and_(Tag.uuid == archive_item_tags.c.tag_uuid, Tag.user_uuid == current_user.uuid))
+                 .join(Tag, and_(Tag.uuid == archive_item_tags.c.tag_uuid, Tag.created_by == current_user.uuid))
                  .where(Tag.name == tag)
         )
     
@@ -1302,21 +1344,10 @@ async def delete_item(
         if not item:
             raise HTTPException(status_code=404, detail="Item not found or access denied")
         
-        # Delete file from storage
-        if item.file_path and Path(item.file_path).exists():
-            try:
-                Path(item.file_path).unlink()
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to delete file: {str(e)}")
-        
-        # Delete thumbnail if exists
-        thumb_path = getattr(item, "thumbnail_path", None)
-        if thumb_path and Path(thumb_path).exists():
-            try:
-                Path(thumb_path).unlink()
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to delete thumbnail: {str(e)}")
-        
+        # Store file paths before deleting the item
+        file_path_to_delete = item.file_path
+        thumb_path_to_delete = getattr(item, "thumbnail_path", None)
+
         # Decrement tag usage counts BEFORE deleting item
         await tag_service.decrement_tags_on_delete(db, item)
 
@@ -1327,6 +1358,19 @@ async def delete_item(
         await db.delete(item)
         await db.commit()
         
+        # Delete file from storage AFTER successful DB commit
+        if file_path_to_delete and Path(file_path_to_delete).exists():
+            try:
+                Path(file_path_to_delete).unlink()
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to delete file: {str(e)}")
+        
+        if thumb_path_to_delete and Path(thumb_path_to_delete).exists():
+            try:
+                Path(thumb_path_to_delete).unlink()
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to delete thumbnail: {str(e)}")
+
         logger.info(f"✅ Deleted item '{item.name}' for user {current_user.username}")
         
         return {"message": "Item deleted successfully"}
@@ -1488,7 +1532,7 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str, user_uuid: 
     # Get item count
     item_count_result = await db.execute(
         select(func.count(ArchiveItem.uuid)).where(
-            ArchiveItem.folder_uuid == folder_uuid
+            and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == user_uuid)
             # Archive items don't use is_archived flag - all are active by being in archive
         )
     )
@@ -1497,7 +1541,7 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str, user_uuid: 
     # Get subfolder count
     subfolder_count_result = await db.execute(
         select(func.count(ArchiveFolder.uuid)).where(
-            ArchiveFolder.parent_uuid == folder_uuid
+            and_(ArchiveFolder.parent_uuid == folder_uuid, ArchiveFolder.created_by == user_uuid)
             # Archive folders don't use is_archived flag - all are active by being in archive
         )
     )
@@ -1506,7 +1550,7 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str, user_uuid: 
     # Get total size
     size_result = await db.execute(
         select(func.sum(ArchiveItem.file_size)).where(
-            ArchiveItem.folder_uuid == folder_uuid
+            and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == user_uuid)
             # Archive items don't use is_archived flag - all are active by being in archive
         )
     )
@@ -1755,7 +1799,7 @@ async def _create_archive_item(
     stored_filename: str,
     mime_type: str,
     file_size: int,
-    user_uuid: str,
+    created_by: str,
     name: Optional[str] = None,
     description: Optional[str] = None,
     tags: Optional[List[str]] = None,
@@ -1796,7 +1840,7 @@ async def _create_archive_item(
             mime_type=mime_type,
             file_size=file_size,
             metadata_json=json.dumps(metadata),
-            user_uuid=user_uuid
+            created_by=created_by
         )
         
         db.add(item)

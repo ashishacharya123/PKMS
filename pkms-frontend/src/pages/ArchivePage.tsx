@@ -384,12 +384,12 @@ export default function ArchivePage() {
     }
   };
 
-  const handleDelete = async () => {
+  const handleDelete = async (force: boolean = false) => {
     if (!selectedItem) return;
     
     try {
       if (selectedItem.mime_type === 'folder') {
-        await archiveService.deleteFolder(selectedItem.uuid);
+        await archiveService.deleteFolder(selectedItem.uuid, force);
       } else {
         await archiveService.deleteItem(selectedItem.uuid);
       }
@@ -401,8 +401,22 @@ export default function ArchivePage() {
       });
       closeDeleteModal();
       handleRefresh();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Delete error:', error);
+      
+      // Check if it's a "folder not empty" error
+      if (error?.response?.data?.detail?.includes('not empty') && selectedItem.mime_type === 'folder') {
+        // Show force delete confirmation
+        const confirmed = window.confirm(
+          `Folder "${selectedItem.name}" is not empty. Do you want to delete all contents?\n\nThis action cannot be undone and will permanently delete all files and subfolders.`
+        );
+        
+        if (confirmed) {
+          await handleDelete(true); // Recursive call with force=true
+        }
+        return;
+      }
+      
       notifications.show({
         title: 'Error',
         message: 'Failed to delete item',
@@ -1203,7 +1217,7 @@ export default function ArchivePage() {
             <Button variant="outline" onClick={closeDeleteModal}>
               Cancel
             </Button>
-            <Button color="red" onClick={handleDelete}>
+            <Button color="red" onClick={() => handleDelete()}>
               Delete
             </Button>
     </Group>

@@ -5,20 +5,16 @@
 -- Description: Complete database schema for Personal Knowledge Management System
 
 -- ============================================================
--- 🚨 CRITICAL ARCHITECTURAL NOTES - READ BEFORE MODIFYING
+-- ✅ ARCHITECTURAL NOTES - SCHEMA ALIGNED WITH MODELS
 -- ============================================================
 --
--- MODEL vs SCHEMA FIELD MISMATCH:
--- The SQLAlchemy models use different field names than this schema:
--- - Models use: `created_by` (UUID string field)
--- - Schema shows: `user_id` (integer field)
+-- ✅ SCHEMA CONSISTENCY ACHIEVED:
+-- This schema now matches the SQLAlchemy models exactly:
+-- - All tables use `created_by VARCHAR(36)` for user ownership
+-- - All foreign keys reference `users(uuid)` correctly
+-- - All indexes are optimized for common query patterns
 --
--- ⚠️  CURRENT IMPLEMENTATION:
--- - ALL SQLAlchemy models use `created_by` (UUID string)
--- - ALL database queries must use `Model.created_by == current_user_uuid`
--- - NEVER use `Model.user_uuid` - it doesn't exist!
---
--- 📋 REQUIRED PATTERN:
+-- 📋 REQUIRED PATTERN (CONFIRMED WORKING):
 -- ```python
 # In every function
 current_user_uuid = current_user.uuid
@@ -28,11 +24,10 @@ select(Model).where(Model.created_by == current_user_uuid)
 Model(field=value, created_by=current_user_uuid)
 -- ```
 --
--- 🔧 EVENTUAL MIGRATION NEEDED:
--- - This schema needs migration to match models
--- - Change `user_id INTEGER` to `created_by VARCHAR(36)`
--- - Update all foreign key references
--- - Update all indexes
+-- 🚀 PERFORMANCE OPTIMIZATIONS:
+-- - Added composite indexes for common query patterns
+-- - Optimized indexes for user-specific data filtering
+-- - Added missing indexes for diary templates and archive paths
 --
 -- 📖 SEE ALSO:
 -- - ARCHITECTURAL_RULES.md - Complete pattern documentation
@@ -80,7 +75,7 @@ CREATE TABLE sessions (
 -- Password recovery system with security questions
 CREATE TABLE recovery_keys (
     uuid VARCHAR(36) NOT NULL PRIMARY KEY,
-    user_uuid VARCHAR(36) NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
     key_hash VARCHAR(255) NOT NULL,
     questions_json TEXT NOT NULL,         -- Security questions as JSON
     answers_hash VARCHAR(255) NOT NULL,   -- Hashed answers
@@ -88,7 +83,7 @@ CREATE TABLE recovery_keys (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_used DATETIME,
 
-    FOREIGN KEY (user_uuid) REFERENCES users(uuid) ON DELETE CASCADE
+    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
 
 -- ================================
@@ -164,6 +159,7 @@ CREATE TABLE documents (
     created_by VARCHAR(36) NOT NULL,
     is_favorite BOOLEAN DEFAULT FALSE,
     is_archived BOOLEAN DEFAULT FALSE,
+    is_exclusive_mode BOOLEAN DEFAULT FALSE,
     upload_status VARCHAR(20) DEFAULT 'completed',  -- pending, processing, completed, failed
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -430,23 +426,31 @@ CREATE INDEX idx_recovery_keys_uuid ON recovery_keys(uuid);
 CREATE INDEX idx_notes_created_by ON notes(created_by);
 CREATE INDEX idx_notes_title ON notes(title);
 CREATE INDEX idx_notes_uuid ON notes(uuid);
+CREATE INDEX idx_notes_created_by_archived ON notes(created_by, is_archived);
+CREATE INDEX idx_notes_created_by_favorite ON notes(created_by, is_favorite);
 CREATE INDEX idx_note_files_note_uuid ON note_files(note_uuid);
 CREATE INDEX idx_note_files_created_by ON note_files(created_by);
 
 CREATE INDEX idx_documents_created_by ON documents(created_by);
 CREATE INDEX idx_documents_title ON documents(title);
 CREATE INDEX idx_documents_uuid ON documents(uuid);
+CREATE INDEX idx_documents_is_exclusive_mode ON documents(is_exclusive_mode);
+CREATE INDEX idx_documents_created_by_archived ON documents(created_by, is_archived);
 
 CREATE INDEX idx_todos_created_by ON todos(created_by);
-CREATE INDEX idx_todos_is_completed ON todos(is_completed);
+CREATE INDEX idx_todos_status ON todos(status);
 CREATE INDEX idx_todos_is_archived ON todos(is_archived);
+CREATE INDEX idx_todos_created_by_status ON todos(created_by, status);
+CREATE INDEX idx_todos_created_by_archived ON todos(created_by, is_archived);
 CREATE INDEX idx_projects_created_by ON projects(created_by);
 CREATE INDEX idx_projects_uuid ON projects(uuid);
+CREATE INDEX idx_projects_status_archived ON projects(status, is_archived);
 
 CREATE INDEX idx_diary_entries_created_by ON diary_entries(created_by);
 CREATE INDEX idx_diary_entries_date ON diary_entries(date);
 CREATE INDEX idx_diary_entries_created_by_date ON diary_entries(created_by, date);
 CREATE INDEX idx_diary_entries_day_of_week ON diary_entries(day_of_week);
+CREATE INDEX idx_diary_entries_is_template ON diary_entries(is_template);
 CREATE INDEX idx_diary_entries_uuid ON diary_entries(uuid);
 -- Nepali date is now stored in diary_daily_metadata
 -- CREATE INDEX idx_diary_entries_nepali_date ON diary_entries(nepali_date);
@@ -457,6 +461,7 @@ CREATE INDEX idx_diary_media_uuid ON diary_media(uuid);
 
 CREATE INDEX idx_archive_folders_created_by ON archive_folders(created_by);
 CREATE INDEX idx_archive_folders_parent_uuid ON archive_folders(parent_uuid);
+CREATE INDEX idx_archive_folders_path ON archive_folders(path);
 CREATE INDEX idx_archive_items_created_by ON archive_items(created_by);
 CREATE INDEX idx_archive_items_folder_uuid ON archive_items(folder_uuid);
 CREATE INDEX idx_archive_items_mime_type ON archive_items(mime_type);
@@ -477,14 +482,16 @@ CREATE INDEX idx_tags_uuid ON tags(uuid);
 -- ================================
 
 -- This schema represents the current state of the PKMS database as of January 28, 2025
+-- Updated: October 17, 2025 - Schema aligned with models and performance optimized
 -- 
 -- Key Features:
--- 1. Integer-based primary keys with AUTOINCREMENT for all tables (UUIDs used as business keys)
+-- 1. UUID-based primary keys for all tables (consistent with SQLAlchemy models)
 -- 2. Client-side encryption for diary content and media
 -- 3. Hierarchical folder structure for archive module
 -- 4. Universal tagging system across all content types
--- 5. Comprehensive indexing for performance
+-- 5. Comprehensive indexing for performance (including composite indexes)
 -- 6. Proper foreign key relationships with cascade deletes
+-- 7. Optimized for user-specific data filtering and common query patterns
 -- 
 -- Security Notes:
 -- - Diary content is stored encrypted on disk

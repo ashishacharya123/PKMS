@@ -199,7 +199,6 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       
       // Convert Document to DocumentSummary for the list
       const documentSummary: DocumentSummary = {
-        id: document.id,
         uuid: document.uuid,
         title: document.original_name, // Use original_name as title
         filename: document.filename,
@@ -279,7 +278,6 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
 
       // Build full summary with proper type safety
       const documentSummary: DocumentSummary = {
-        id: updatedDocument.id,
         uuid: updatedDocument.uuid,
         title: updatedDocument.title,
         original_name: updatedDocument.original_name,
@@ -348,7 +346,6 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       const updatedDocument = await documentsService.toggleArchive(uuid, archived);
       // Build full summary
       const documentSummary: DocumentSummary = {
-        id: updatedDocument.id,
         uuid: updatedDocument.uuid,
         title: updatedDocument.title,
         original_name: updatedDocument.original_name,

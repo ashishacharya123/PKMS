@@ -360,21 +360,10 @@ async def delete_note(
 
     logger.info(f"Attempting to delete note with UUID: {note_uuid} for user: {current_user.uuid}")
 
-    try:
-        # Delete associated files from disk
-        if note.files:
-            logger.info(f"Deleting {len(note.files)} associated files for note UUID: {note_uuid}")
-            for note_file in note.files:
-                try:
-                    file_path = get_file_storage_dir() / note_file.file_path
-                    if file_path.exists():
-                        file_path.unlink()
-                        logger.info(f"Deleted note file: {file_path}")
-                    else:
-                        logger.warning(f"File not found, cannot delete: {file_path}")
-                except Exception as e:
-                    logger.error(f"Could not delete file {note_file.file_path}: {e}")
+    # Store file paths before deleting the note
+    files_to_delete = [get_file_storage_dir() / note_file.file_path for note_file in note.files]
 
+    try:
         # Decrement tag usage counts BEFORE deleting note (associations will cascade)
         await tag_service.decrement_tags_on_delete(db, note)
 
@@ -386,10 +375,23 @@ async def delete_note(
         await db.delete(note)
         await db.commit()
         logger.info(f"Successfully deleted note with UUID: {note_uuid}")
+
+        # Delete associated files from disk AFTER successful DB commit
+        if files_to_delete:
+            logger.info(f"Deleting {len(files_to_delete)} associated files for note UUID: {note_uuid}")
+            for file_path in files_to_delete:
+                try:
+                    if file_path.exists():
+                        file_path.unlink()
+                        logger.info(f"Deleted note file: {file_path}")
+                    else:
+                        logger.warning(f"File not found, cannot delete: {file_path}")
+                except Exception:
+                    logger.exception(f"Could not delete file {file_path}")
         
     except Exception as e:
         await db.rollback()
-        logger.error(f"Failed to delete note with UUID: {note_uuid}. Error: {str(e)}")
+        logger.exception(f"Failed to delete note with UUID: {note_uuid}")
         raise HTTPException(status_code=500, detail=f"Failed to delete note due to an internal error: {str(e)}")
 
 @router.patch("/{note_uuid}/archive", response_model=NoteResponse)
@@ -425,7 +427,7 @@ async def archive_note(
         raise
     except Exception as e:
         await db.rollback()
-        logger.error(f"Error archiving note: {str(e)}")
+        logger.exception("Error archiving note")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to archive note. Please try again."
@@ -585,8 +587,8 @@ async def delete_note_file(
         if file_path.exists():
             file_path.unlink()
             logger.info(f"Deleted note file: {file_path}")
-    except Exception as e:
-        logger.warning(f"Could not delete file {note_file.file_path}: {e}")
+    except Exception:
+        logger.exception(f"Could not delete file {note_file.file_path}")
     
     # Delete the database record
     await db.delete(note_file)

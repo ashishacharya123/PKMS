@@ -24,7 +24,7 @@ interface ArchiveState {
   loadFolderItems: (folderId: string) => Promise<void>; // Alias for loadItems
   createFolder: (name: string, parentUuid?: string) => Promise<void>;
   updateFolder: (uuid: string, data: Partial<ArchiveFolder>) => Promise<void>;
-  deleteFolder: (uuid: string) => Promise<void>;
+  deleteFolder: (uuid: string, force?: boolean) => Promise<void>;
   uploadFile: (file: File, folderId: string, tags?: string[]) => Promise<void>;
   setError: (error: string | null) => void;
 }
@@ -115,10 +115,10 @@ export const useArchiveStore = create<ArchiveState>((set, get) => ({
     }
   },
 
-  deleteFolder: async (uuid) => {
+  deleteFolder: async (uuid, force = false) => {
     set({ isLoading: true, error: null });
     try {
-      await archiveService.deleteFolder(uuid);
+      await archiveService.deleteFolder(uuid, force);
       await get().loadFolders();
       if(get().currentFolder?.uuid === uuid){
         set({ currentFolder: null, items: [] });

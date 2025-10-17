@@ -61,13 +61,13 @@ class DiaryEntryUpdate(CamelCaseModel):
             raise ValueError("Invalid weather_code")
         return v
 
-    @validator("daily_metrics", pre=True, always=True)
-    def default_daily_metrics(cls, v):
-        return v or {}
+    @validator("daily_metrics", pre=True, always=False)
+    def pass_through_daily_metrics(cls, v):
+        return v
 
-    @validator("tags", pre=True, always=True)
-    def default_tags(cls, v):
-        return v or []
+    @validator("tags", pre=True, always=False)
+    def pass_through_tags(cls, v):
+        return v
 
 
 class DiaryEntryCreate(CamelCaseModel):
@@ -116,7 +116,7 @@ class DiaryEntryResponse(CamelCaseModel):
     weather_code: Optional[int]
     weather_label: Optional[str] = None
     location: Optional[str]
-    daily_metrics: Dict[str, Any]
+    daily_metrics: Dict[str, Any] = Field(default_factory=dict)
     nepali_date: Optional[str]
     daily_income: Optional[int] = 0  # Income in NPR
     daily_expense: Optional[int] = 0  # Expense in NPR
@@ -126,7 +126,7 @@ class DiaryEntryResponse(CamelCaseModel):
     created_at: datetime
     updated_at: datetime
     media_count: int
-    tags: List[str] = []
+    tags: List[str] = Field(default_factory=list)
     content_length: int
 
     @validator("daily_metrics", pre=True, always=True)
@@ -153,7 +153,7 @@ class DiaryEntrySummary(CamelCaseModel):
     weather_code: Optional[int]
     weather_label: Optional[str] = None
     location: Optional[str]
-    daily_metrics: Dict[str, Any]
+    daily_metrics: Dict[str, Any] = Field(default_factory=dict)
     nepali_date: Optional[str]
     is_template: bool
     from_template_id: Optional[str]
@@ -161,7 +161,7 @@ class DiaryEntrySummary(CamelCaseModel):
     media_count: int
     encrypted_blob: str
     encryption_iv: str
-    tags: List[str] = []
+    tags: List[str] = Field(default_factory=list)
     content_length: int
     is_favorite: Optional[bool] = False
 
@@ -275,7 +275,7 @@ class WeeklyHighlights(CamelCaseModel):
 class DiaryDailyMetadata(CamelCaseModel):
     date: date
     nepali_date: Optional[str] = None
-    metrics: Dict[str, Any] = {}
+    metrics: Dict[str, Any] = Field(default_factory=dict)
     daily_income: Optional[int] = Field(None, ge=0)
     daily_expense: Optional[int] = Field(None, ge=0)
     is_office_day: Optional[bool] = False
@@ -304,14 +304,14 @@ class DiaryDailyMetadataResponse(CamelCaseModel):
 
 class DiaryDailyMetadataUpdate(CamelCaseModel):
     nepali_date: Optional[str] = None
-    metrics: Dict[str, Any] = {}
+    metrics: Optional[Dict[str, Any]] = None
     daily_income: Optional[int] = Field(None, ge=0)
     daily_expense: Optional[int] = Field(None, ge=0)
     is_office_day: Optional[bool] = None
 
-    @validator("metrics", pre=True, always=True)
-    def validate_metrics(cls, v):
-        return v or {}
+    @validator("metrics", pre=True, always=False)
+    def pass_through_metrics(cls, v):
+        return v
 
 
 class DiaryMediaResponse(CamelCaseModel):

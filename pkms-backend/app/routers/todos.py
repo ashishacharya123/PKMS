@@ -10,11 +10,14 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from sqlalchemy.orm import selectinload
 import logging
+from pathlib import Path
+
+from app.config import get_file_storage_dir
 
 logger = logging.getLogger(__name__)
 
 from app.database import get_db
-from app.models.todo import Todo
+from app.models.todo import Todo, TodoStatus
 from app.models.project import Project
 from app.models.tag import Tag
 from app.models.user import User
@@ -60,7 +63,8 @@ async def todos_stats_overview(
         'cancelled': 0
     }
     for status, count in status_counts:
-        status_stats[status] = count
+        key = getattr(status, "value", status)
+        status_stats[key] = int(count)
 
     archived_count = (await db.execute(
         select(func.count(Todo.uuid)).where(and_(
@@ -351,16 +355,16 @@ async def list_todos(
         
         # Build responses with project badges
         responses = []
-        for t in todos_with_subtasks:
-            project_badges = await project_service.build_badges(db, t.uuid, t.is_exclusive_mode, todo_projects, "todo_uuid")
-            responses.append(_convert_todo_to_response(t, project_badges))
+        for todo in todos_with_subtasks:
+            project_badges = await project_service.build_badges(db, todo.uuid, todo.is_exclusive_mode, todo_projects, "todo_uuid")
+            responses.append(_convert_todo_to_response(todo, project_badges))
         return responses
     else:
         # Build responses with project badges
         responses = []
-        for t in todos:
-            project_badges = await project_service.build_badges(db, t.uuid, t.is_exclusive_mode, todo_projects, "todo_uuid")
-            responses.append(_convert_todo_to_response(t, project_badges))
+        for todo in todos:
+            project_badges = await project_service.build_badges(db, todo.uuid, todo.is_exclusive_mode, todo_projects, "todo_uuid")
+            responses.append(_convert_todo_to_response(todo, project_badges))
         return responses
 
 # --- Project Endpoints (place before dynamic /{todo_id} routes to avoid conflicts) ---
@@ -469,6 +473,13 @@ async def update_project(
 
     update_payload = project_data.model_dump()
     tags = update_payload.pop("tags", None)
+    
+    # Validate color format if provided
+    if "color" in update_payload:
+        import re
+        if not re.match(r'^#[0-9a-fA-F]{6}$', update_payload["color"] or ""):
+            raise HTTPException(status_code=400, detail="Invalid color format. Must be a valid hex color (e.g., #3498db)")
+    
     for key, value in update_payload.items():
         setattr(project, key, value)
     
@@ -496,81 +507,7 @@ async def delete_project(
     - Hard deletes exclusive items (items with is_exclusive_mode=True)
     - Removes project (SET NULL in junction tables preserves linked items)
     """
-    from app.models.associations import note_projects, document_projects, todo_projects
-    from app.models.note import Note
-    from app.models.document import Document
-    from sqlalchemy import update, delete as sql_delete
-    
-    result = await db.execute(
-        select(Project).where(and_(Project.uuid == project_uuid, Project.created_by == current_user.uuid))
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    
-    # Step 1: Snapshot project name in all junction records BEFORE deletion
-    # This preserves the project name for linked (non-exclusive) items
-    await db.execute(
-        update(note_projects)
-        .where(note_projects.c.project_uuid == project.uuid)
-        .values(project_name_snapshot=project.name)
-    )
-
-    await db.execute(
-        update(document_projects)
-        .where(document_projects.c.project_uuid == project.uuid)
-        .values(project_name_snapshot=project.name)
-    )
-
-    await db.execute(
-        update(todo_projects)
-        .where(todo_projects.c.project_uuid == project.uuid)
-        .values(project_name_snapshot=project.name)
-    )
-    
-    # Step 2: Hard delete exclusive items
-    # Get exclusive notes linked to this project
-    exclusive_note_uuids = await db.execute(
-        select(Note.uuid)
-        .join(note_projects, Note.uuid == note_projects.c.note_uuid)
-        .where(
-            note_projects.c.project_uuid == project.uuid,
-            Note.is_exclusive_mode.is_(True)
-        )
-    )
-    for note_uuid in exclusive_note_uuids.scalars():
-        await db.execute(sql_delete(Note).where(Note.uuid == note_uuid))
-    
-    # Get exclusive documents linked to this project
-    exclusive_doc_uuids = await db.execute(
-        select(Document.uuid)
-        .join(document_projects, Document.uuid == document_projects.c.document_uuid)
-        .where(
-            document_projects.c.project_uuid == project.uuid,
-            Document.is_exclusive_mode.is_(True)
-        )
-    )
-    for doc_uuid in exclusive_doc_uuids.scalars():
-        await db.execute(sql_delete(Document).where(Document.uuid == doc_uuid))
-    
-    # Get exclusive todos linked to this project
-    exclusive_todo_uuids = await db.execute(
-        select(Todo.uuid)
-        .join(todo_projects, Todo.uuid == todo_projects.c.todo_uuid)
-        .where(
-            todo_projects.c.project_uuid == project.uuid,
-            Todo.is_exclusive_mode.is_(True)
-        )
-    )
-    for todo_uuid in exclusive_todo_uuids.scalars():
-        await db.execute(sql_delete(Todo).where(Todo.uuid == todo_uuid))
-    
-    # Remove from search index BEFORE deleting project
-    await search_service.remove_item(db, project_uuid)
-    
-    # Step 3: Delete project (SET NULL will set project_uuid=NULL in junction tables)
-    # Linked items (is_exclusive_mode=False) survive with project_name_snapshot
-    await db.delete(project)
+    await project_service.delete_project(db, project_uuid, current_user.uuid)
     await db.commit()
 
 @router.get("/{todo_uuid}", response_model=TodoResponse)

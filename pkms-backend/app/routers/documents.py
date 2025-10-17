@@ -2,12 +2,9 @@
 Document Router with Core Upload Service Integration
 """
 
-import os
-import shutil
 from pathlib import Path
 import asyncio
 from typing import List, Optional, Dict, Any
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, UploadFile, Form, HTTPException, Query, status
 from fastapi.responses import FileResponse
@@ -15,9 +12,7 @@ from sqlalchemy import select, and_, or_, func, desc
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
-import json
 import logging
-import uuid as uuid_lib
 
 from app.database import get_db
 from app.config import NEPAL_TZ, get_data_dir, get_file_storage_dir
@@ -120,6 +115,10 @@ async def commit_document_upload(
         raise
     except Exception as e:
         logger.exception("Error committing document upload")
+        try:
+            await db.rollback()
+        except Exception:
+            logger.debug("Rollback after commit_document_upload failure failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to commit document upload: {str(e)}"
@@ -159,9 +158,9 @@ async def list_documents(
 
             # Collect document UUIDs in FTS order (bm25 ASC = better first)
             doc_uuids: List[str] = []
-            for r in fts_results:
-                if r["type"] == "document":
-                    doc_uuids.append(r["uuid"])
+            for result in fts_results:
+                if result["type"] == "document":
+                    doc_uuids.append(result["uuid"])
 
             # Offset applied at search_service; keep order as returned
             
@@ -272,32 +271,33 @@ async def list_documents(
                 junctions_by_doc[doc_uuid].append(junction)
         
             # Build project badges for each document
-            for d in ordered_docs:
-                doc_junctions = junctions_by_doc.get(d.uuid, [])
+            for document in ordered_docs:
+                doc_junctions = junctions_by_doc.get(document.uuid, [])
                 project_badges: List[ProjectBadge] = []
                 
                 for junction in doc_junctions:
-                    if junction.project_uuid and junction.project_uuid in project_map:
+                    pj = junction._mapping["project_uuid"]
+                    if pj and pj in project_map:
                         # Live project
-                        project = project_map[junction.project_uuid]
+                        project = project_map[pj]
                         project_badges.append(ProjectBadge(
                             uuid=project.uuid,
                             name=project.name,
                             color=project.color,
-                            is_exclusive=junction.is_exclusive,
+                            is_exclusive=junction._mapping["is_exclusive"],
                             is_deleted=False
                         ))
-                    elif junction.project_name_snapshot:
+                    elif junction._mapping["project_name_snapshot"]:
                         # Deleted project (snapshot)
                         project_badges.append(ProjectBadge(
                             uuid=None,
-                            name=junction.project_name_snapshot,
+                            name=junction._mapping["project_name_snapshot"],
                             color="#6c757d",  # Gray for deleted
-                            is_exclusive=junction.is_exclusive,
+                            is_exclusive=junction._mapping["is_exclusive"],
                             is_deleted=True
                         ))
                 
-                response.append(_convert_doc_to_response(d, project_badges))
+                response.append(_convert_doc_to_response(document, project_badges))
     
         logger.info(f"Returning {len(response)} documents in response")
         return response
@@ -432,20 +432,14 @@ async def delete_document(
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     
+    # Store file path before deleting the document
+    file_path_to_delete = get_file_storage_dir() / doc.file_path
+
     # Log archive status for clarity
     if doc.is_archived:
         logger.info(f"Deleting archived document {document_uuid}")
     else:
         logger.info(f"Deleting document {document_uuid} (not archived)")
-    
-    # Delete the physical file
-    try:
-        file_to_delete = get_file_storage_dir() / doc.file_path
-        await asyncio.to_thread(file_to_delete.unlink, missing_ok=True)
-        logger.info(f"Deleted document file: {file_to_delete}")
-    except Exception as e:
-        logger.warning(f"Could not delete file {doc.file_path}: {e}")
-        # Continue with database deletion even if file deletion fails
     
     # Decrement tag usage counts BEFORE deleting document
     await tag_service.decrement_tags_on_delete(db, doc)
@@ -456,4 +450,11 @@ async def delete_document(
     await db.delete(doc)
     await db.commit()
     
+    # Delete the physical file AFTER successful DB commit
+    try:
+        await asyncio.to_thread(file_path_to_delete.unlink, missing_ok=True)
+        logger.info(f"Deleted document file: {file_path_to_delete}")
+    except Exception as e:
+        logger.warning(f"Could not delete file {file_path_to_delete}: {e}")
+
     logger.info(f"Document {document_uuid} deleted successfully")

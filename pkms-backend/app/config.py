@@ -95,6 +95,7 @@ class Settings(BaseSettings):
         "http://localhost",
         "http://127.0.0.1"
     ]
+    trusted_hosts: list = ["localhost", "127.0.0.1", "0.0.0.0", "localhost:8000", "127.0.0.1:8000"]
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

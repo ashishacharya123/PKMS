@@ -1,6 +1,24 @@
 """
 Chunk Upload Service
 Handles chunked file uploads with progress tracking and error handling
+
+⚠️  ARCHITECTURAL LIMITATION WARNING ⚠️
+=====================================
+
+This ChunkUploadManager uses in-memory state management (self.uploads dictionary)
+and is designed for SINGLE-PROCESS deployments only.
+
+🚨 CRITICAL: NOT SAFE FOR MULTI-WORKER DEPLOYMENTS 🚨
+- If deployed with multiple workers (e.g., gunicorn -w 4), chunks will be
+  distributed across different processes, causing data loss and assembly failures
+- File-based state persistence will be corrupted by concurrent writes
+- Race conditions will occur during chunk assembly
+
+✅ CURRENT DEPLOYMENT: Single-process uvicorn (safe)
+❌ FUTURE SCALING: Multi-worker deployment requires Redis refactoring
+
+For multi-worker deployments, refactor to use Redis for shared state management.
+See: https://redis.io/docs/data-types/hashes/ for implementation guidance.
 """
 
 import asyncio

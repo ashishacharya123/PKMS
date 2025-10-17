@@ -64,28 +64,28 @@ async def upload_chunk(
         total_size=int(meta.get("total_size", 0)),
     )
 
-    # If all chunks received, start assembly in background
+    # If all chunks received, await assembly before returning
     if status["status"] == "assembling":
-        # Start assembly as a background task
         logger = logging.getLogger(__name__)
-        
-        async def assembly_task():
+        try:
+            logger.info(f"All chunks received. Starting assembly for file_id: {meta['file_id']}")
+            await chunk_manager.assemble_file(meta["file_id"])
+            logger.info(f"Assembly completed for file_id: {meta['file_id']}")
+            # Re-fetch status to confirm it's 'completed'
+            status = await chunk_manager.get_upload_status(meta["file_id"])
+        except Exception as e:
+            logger.error(f"Assembly failed for file_id: {meta['file_id']}: {str(e)}")
+            # Update status to reflect failure
             try:
-                logger.info(f"Starting assembly for file_id: {meta['file_id']}")
-                await chunk_manager.assemble_file(meta["file_id"])
-                logger.info(f"Assembly completed for file_id: {meta['file_id']}")
-            except Exception as e:
-                logger.error(f"Assembly failed for file_id: {meta['file_id']}: {str(e)}")
-                # Set failure status so commit endpoint knows assembly failed
-                try:
-                    status = await chunk_manager.get_upload_status(meta["file_id"])
-                    if status:
-                        status["status"] = "failed"
-                        status["error"] = str(e)
-                except Exception as status_error:
-                    logger.error(f"Failed to update status for failed assembly: {status_error}")
-        
-        asyncio.create_task(assembly_task())
+                current_status = await chunk_manager.get_upload_status(meta["file_id"])
+                if current_status:
+                    current_status["status"] = "failed"
+                    current_status["error"] = str(e)
+                    status = current_status
+            except Exception as status_error:
+                logger.error(f"Failed to update status for failed assembly: {status_error}")
+            # Re-raise the exception to the client
+            raise HTTPException(status_code=500, detail=f"File assembly failed: {str(e)}")
 
     return JSONResponse(status)
 

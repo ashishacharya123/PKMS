@@ -133,17 +133,13 @@ class Project(Base):
         # Update search vector (simple implementation - could be enhanced with proper FTS5 functions)
         self.search_vector = search_content.strip()
 
-    def get_project_summary(self, session):
+    def get_project_summary(self):
         """
         Get a summary of project statistics.
-
-        Args:
-            session: SQLAlchemy session
 
         Returns:
             dict: Project summary with counts and stats
         """
-        from sqlalchemy import select, func
 
         # Count associated items
         todo_count = len(self.todos_multi) if self.todos_multi else 0

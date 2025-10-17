@@ -125,8 +125,9 @@ export const archiveService = {
     return resp.data;
   },
 
-  async deleteFolder(uuid: string): Promise<void> {
-    await apiService.delete(folderPath(uuid));
+  async deleteFolder(uuid: string, force: boolean = false): Promise<void> {
+    const url = force ? `${folderPath(uuid)}?force=true` : folderPath(uuid);
+    await apiService.delete(url);
   },
 
   async getFolderItems(folderUuid: string): Promise<ArchiveItem[]> {

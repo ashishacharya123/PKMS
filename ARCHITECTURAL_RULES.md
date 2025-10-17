@@ -1,5 +1,19 @@
 # PKMS Architectural Rules
 
+## 🏗️ SYSTEM ARCHITECTURE
+
+### Single-Process Design
+- **Current Deployment**: Single-process uvicorn server
+- **Database**: SQLite (single-writer design)
+- **Chunk Uploads**: In-memory state management (single-process only)
+- **Scaling Limitation**: Multi-worker deployment requires refactoring
+
+⚠️ **IMPORTANT**: This system is designed for single-process deployment. 
+Scaling to multiple workers will require:
+- Redis refactoring for chunk upload state management
+- Database migration from SQLite to PostgreSQL/MySQL
+- Shared state management for all in-memory components
+
 ## 🔥 CRITICAL RULES - NEVER VIOLATE
 
 ### 1. User Reference Pattern
@@ -20,6 +34,13 @@
 ### 4. Character Encoding
 - **ONLY**: ASCII characters in code
 - **NEVER**: Unicode characters in strings/logs
+
+### 5. Variable Naming & Code Readability
+- **ALWAYS**: Use descriptive, intuitive variable names
+- **PREFER**: `status, count` over `s, count` for clarity
+- **AVOID**: Single-letter abbreviations unless in appropriate contexts
+- **APPROPRIATE**: Simple loop counters (`for i in range(n)`), mathematical variables (`m, s, n`), dictionary comprehensions (`k, v`)
+- **EXAMPLE**: `for status, count in status_counts:` not `for s, count in status_counts:`
 
 ## 📋 MODEL FIELD VERIFICATION
 
@@ -72,6 +93,7 @@
 - [ ] No `user_uuid` or `user_id` field references
 - [ ] Imports are from correct model files
 - [ ] No Unicode characters in code
+- [ ] Variable names are descriptive and intuitive
 - [ ] Input sanitization applied
 - [ ] Ownership verification present
 - [ ] File path validation implemented

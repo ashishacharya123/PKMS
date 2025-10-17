@@ -38,16 +38,17 @@ logger.setLevel(logging.INFO)
 # Create async engine
 db_url = get_database_url()
 sqlite_aiosqlite = db_url.startswith("sqlite+aiosqlite")
-engine = create_async_engine(
-    db_url,
-    echo=settings.debug,  # Log SQL queries in debug mode
-    # Note: StaticPool is best for in-memory DB/tests; for file-backed SQLite prefer default pool
-    poolclass=StaticPool if db_url.endswith(":memory:") else None,
-    connect_args=(
+engine_kwargs = {
+    "echo": settings.debug,  # Log SQL queries in debug mode
+    "connect_args": (
         {"timeout": 20} if sqlite_aiosqlite
         else {"check_same_thread": False, "timeout": 20} if db_url.startswith("sqlite") else {}
     ),
-)
+}
+if db_url.endswith(":memory:"):
+    # StaticPool ensures the same in-memory DB across connections
+    engine_kwargs["poolclass"] = StaticPool
+engine = create_async_engine(db_url, **engine_kwargs)
 
 # SQLite Foreign Key Event Listener
 # Ensures PRAGMA foreign_keys = ON for every new connection
@@ -201,7 +202,7 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);",
                 "CREATE INDEX IF NOT EXISTS idx_sessions_user_uuid ON sessions(user_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);",
-                "CREATE INDEX IF NOT EXISTS idx_recovery_keys_user_uuid ON recovery_keys(user_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_recovery_keys_created_by ON recovery_keys(created_by);",
                 
                 # Notes indexes
                 "CREATE INDEX IF NOT EXISTS idx_notes_created_by ON notes(created_by);",

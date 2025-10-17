@@ -13,10 +13,17 @@ from sqlalchemy import select, delete, and_, func
 from sqlalchemy.orm import selectinload
 from typing import List, Optional, Type
 from fastapi import HTTPException
+from pathlib import Path
 
 from app.models.project import Project
 from app.models.associations import note_projects, document_projects, todo_projects
+from app.models.note import Note
+from app.models.document import Document
+from app.models.todo import Todo
 from app.schemas.document import ProjectBadge
+from app.services.tag_service import tag_service
+from app.services.search_service import search_service
+from app.config import get_file_storage_dir
 
 
 class ProjectService:
@@ -256,23 +263,86 @@ class ProjectService:
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        # Update all associated items to use snapshots
-        # This preserves the project information even after deletion
-        for table, _item_uuid_field in [
-            (note_projects, "note_uuid"),
-            (document_projects, "document_uuid"),
-            (todo_projects, "todo_uuid")
-        ]:
+        # Step 1: Snapshot project name in all junction records BEFORE deletion
+        # This preserves the project name for linked (non-exclusive) items
+        for table in [note_projects, document_projects, todo_projects]:
             await db.execute(
-                table.update().where(
-                    table.c.project_uuid == project_uuid
-                ).values(
+                table.update()
+                .where(table.c.project_uuid == project_uuid)
+                .values(
                     project_uuid=None,
                     project_name_snapshot=project.name
                 )
             )
 
-        # Delete the project
+        # Step 2: Hard delete exclusive items and their associated files
+        # Get exclusive notes linked to this project
+        exclusive_notes_result = await db.execute(
+            select(Note)
+            .options(selectinload(Note.files))
+            .join(note_projects, Note.uuid == note_projects.c.note_uuid)
+            .where(
+                and_(
+                    note_projects.c.project_uuid == project.uuid,
+                    Note.is_exclusive_mode.is_(True)
+                )
+            )
+        )
+        exclusive_notes = exclusive_notes_result.scalars().all()
+        for note in exclusive_notes:
+            if note.files:
+                for note_file in note.files:
+                    try:
+                        file_path = get_file_storage_dir() / note_file.file_path
+                        if file_path.exists():
+                            file_path.unlink()
+                    except Exception as e:
+                        print(f"⚠️ Failed to delete file for note {note.uuid}: {str(e)}") # Using print for now
+            await tag_service.decrement_tags_on_delete(db, note)
+            await db.delete(note)
+        
+        # Get exclusive documents linked to this project
+        exclusive_docs_result = await db.execute(
+            select(Document)
+            .join(document_projects, Document.uuid == document_projects.c.document_uuid)
+            .where(
+                and_(
+                    document_projects.c.project_uuid == project.uuid,
+                    Document.is_exclusive_mode.is_(True)
+                )
+            )
+        )
+        exclusive_docs = exclusive_docs_result.scalars().all()
+        for doc in exclusive_docs:
+            if doc.file_path and Path(doc.file_path).exists():
+                try:
+                    Path(doc.file_path).unlink()
+                except Exception as e:
+                    print(f"⚠️ Failed to delete file for document {doc.uuid}: {str(e)}") # Using print for now
+            await tag_service.decrement_tags_on_delete(db, doc)
+            await db.delete(doc)
+        
+        # Get exclusive todos linked to this project
+        exclusive_todos_result = await db.execute(
+            select(Todo)
+            .join(todo_projects, Todo.uuid == todo_projects.c.todo_uuid)
+            .where(
+                and_(
+                    todo_projects.c.project_uuid == project.uuid,
+                    Todo.is_exclusive_mode.is_(True)
+                )
+            )
+        )
+        exclusive_todos = exclusive_todos_result.scalars().all()
+        for todo in exclusive_todos:
+            await tag_service.decrement_tags_on_delete(db, todo)
+            await db.delete(todo)
+        
+        # Remove from search index BEFORE deleting project
+        await search_service.remove_item(db, project_uuid)
+        
+        # Step 3: Delete project (SET NULL will set project_uuid=NULL in junction tables)
+        # Linked items (is_exclusive_mode=False) survive with project_name_snapshot
         await db.delete(project)
 
 

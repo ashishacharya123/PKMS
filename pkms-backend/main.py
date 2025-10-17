@@ -158,7 +158,7 @@ app.state.limiter = limiter
 # CORS middleware for frontend communication - MUST BE FIRST
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173", "http://127.0.0.1:5173"],  # Specific origins for security
+    allow_origins=settings.cors_origins,  # Use origins from settings
     allow_credentials=True,  # Enable credentials for proper authentication
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # Specific methods
     allow_headers=["*"],  # Allow all headers
@@ -187,8 +187,7 @@ app.include_router(advanced_fuzzy.router, prefix="/api/v1")  # Re-enabled for hy
 
 # Add SlowAPI middleware for rate limiting
 
-# Add SlowAPI middleware for rate limiting
-app.add_middleware(SlowAPIMiddleware)
+
 
 # Rate limit exceeded error handler
 @app.exception_handler(RateLimitExceeded)
@@ -291,7 +290,7 @@ async def add_security_headers(request: Request, call_next):
 if settings.environment == "production":
     app.add_middleware(
         TrustedHostMiddleware, 
-        allowed_hosts=["localhost", "127.0.0.1", "0.0.0.0", "localhost:8000", "127.0.0.1:8000"]
+        allowed_hosts=settings.trusted_hosts
     )
 # In development, skip TrustedHostMiddleware to avoid CORS conflicts
 
@@ -322,32 +321,7 @@ async def test_cors():
         "cors_headers": "Should include Access-Control-Allow-Origin"
     }
 
-# Test todos endpoint (without authentication for debugging)
-@app.get("/test-todos")
-async def test_todos():
-    try:
-        from app.database import get_db_session
-        from app.models.todo import Todo
-        from sqlalchemy import select
-        
-        async with get_db_session() as db:
-            # Just test if we can query todos without errors
-            result = await db.execute(select(Todo).limit(1))
-            todo_count = result.scalars().all()
-            
-            return {
-                "message": "Todos endpoint test successful",
-                "timestamp": datetime.now(NEPAL_TZ).isoformat(),
-                "todo_count": len(todo_count),
-                "database_accessible": True
-            }
-    except Exception as e:
-        return {
-            "message": "Todos endpoint test failed",
-            "timestamp": datetime.now(NEPAL_TZ).isoformat(),
-            "error": str(e),
-            "database_accessible": False
-        }
+
 
 if __name__ == "__main__":
     print(f"Starting server on {settings.host}:{settings.port}")

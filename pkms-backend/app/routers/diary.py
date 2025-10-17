@@ -166,8 +166,8 @@ async def _cleanup_expired_sessions():
             for user_id in expired_users:
                 try:
                     await _clear_diary_session(user_id)
-                except Exception as e:
-                    logger.exception(f"Error clearing session for user {user_id}: {e}")
+                except Exception:
+                    logger.exception("Error clearing session for user %s", user_id)
 
                 if expired_users:
                     logger.info(f"Cleaned up {len(expired_users)} expired diary sessions")
@@ -198,7 +198,7 @@ try:
     if not hasattr(_cleanup_expired_sessions, '_task_started'):
         asyncio.create_task(_cleanup_expired_sessions())
         _cleanup_expired_sessions._task_started = True
-        logger.info("Started diary session cleanup task (runs every 5 minutes)")
+        logger.info("Diary cleanup running every 60s")
 except RuntimeError:
     # Handle case where no event loop is running (e.g., during testing)
     logger.info("Diary session cleanup task will start when event loop is available")
@@ -307,7 +307,7 @@ async def _get_or_create_daily_metadata(
 ) -> DiaryDailyMetadata:
     result = await db.execute(
         select(DiaryDailyMetadata).where(
-            and_(DiaryDailyMetadata.user_uuid == user_uuid, DiaryDailyMetadata.date == entry_date.date())
+            and_(DiaryDailyMetadata.created_by == user_uuid, DiaryDailyMetadata.date == entry_date.date())
         )
     )
     snapshot = result.scalar_one_or_none()
@@ -334,7 +334,7 @@ async def _get_or_create_daily_metadata(
 
     # Create new snapshot
     snapshot = DiaryDailyMetadata(
-        user_uuid=user_uuid,
+        created_by=user_uuid,
         date=entry_date.date(),
         nepali_date=nepali_date,
         metrics_json=json.dumps(metrics or {}),
@@ -581,7 +581,7 @@ async def create_diary_entry(
             location=entry_data.location,
             is_template=entry_data.is_template,
             from_template_id=entry_data.from_template_id,
-            user_uuid=current_user.uuid,
+            created_by=current_user.uuid,
             encryption_iv=entry_data.encryption_iv,
             encryption_tag=None,
             daily_metadata_id=daily_metadata.uuid if daily_metadata else None,
@@ -1392,7 +1392,7 @@ async def commit_diary_media_upload(
         diary_media = DiaryMedia(
             uuid=str(uuid_lib.uuid4()),
             diary_entry_uuid=entry.uuid,
-            user_uuid=current_user.uuid,
+            created_by=current_user.uuid,
             filename="temp",  # Will be updated with proper name
             original_name="",
             file_path="temp",  # Will be updated

@@ -51,7 +51,7 @@ async def test_engine():
             CREATE VIRTUAL TABLE IF NOT EXISTS fts_content USING fts5(
                 item_uuid UNINDEXED,
                 item_type,
-                user_uuid UNINDEXED,
+                created_by UNINDEXED,
                 title,
                 description,
                 tags,

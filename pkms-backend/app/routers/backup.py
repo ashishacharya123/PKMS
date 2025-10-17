@@ -40,6 +40,7 @@ import os
 import subprocess
 from pathlib import Path
 import shutil
+import asyncio
 
 # Nepal Standard Time offset
 NEPAL_TZ = timezone(timedelta(hours=5, minutes=45))
@@ -79,11 +80,10 @@ async def create_database_backup(
             for source_path, backup_filename in files_to_backup:
                 if os.path.exists(source_path):
                     dest_path = f"/app/PKMS_Data/backups/{backup_filename}"
-                    result = subprocess.run(["cp", source_path, dest_path], capture_output=True, text=True, timeout=30)
-                    if result.returncode == 0:
-                        backup_files.append(backup_filename)
-                        file_size = Path(dest_path).stat().st_size
-                        total_size += file_size
+                    await asyncio.to_thread(shutil.copy, source_path, dest_path)
+                    backup_files.append(backup_filename)
+                    file_size = Path(dest_path).stat().st_size
+                    total_size += file_size
             
             return {
                 "status": "success",
@@ -143,29 +143,26 @@ async def create_database_backup(
                 source_path = "/app/data/pkm_metadata.db"
                 backup_path = f"/app/PKMS_Data/backups/{backup_filename}"
                 
-                result = subprocess.run(["cp", source_path, backup_path], capture_output=True, text=True, timeout=30)
+                await asyncio.to_thread(shutil.copy, source_path, backup_path)
                 
-                if result.returncode == 0:
-                    file_size = Path(backup_path).stat().st_size
-                    
-                    return {
-                        "status": "success",
-                        "method": "checkpoint_backup", 
-                        "message": "Industry-standard backup completed: WAL checkpointed + main DB backed up",
-                        "backup_filename": backup_filename,
-                        "file_size_bytes": file_size,
-                        "file_size_mb": round(file_size / (1024 * 1024), 4),
-                        "checkpoint_info": {
-                            "wal_pages_moved": checkpoint_info[1] if checkpoint_info else "unknown",
-                            "wal_checkpoints": checkpoint_info[2] if checkpoint_info else "unknown"
-                        },
-                        "timestamp": nepal_time.isoformat(),
-                        "created_by": current_user.username,
-                        "data_guarantee": "All recent changes included via WAL checkpoint",
-                        "industry_practice": "✅ RECOMMENDED - Checkpoint first, then backup main DB"
-                    }
-                else:
-                    raise Exception(f"File copy failed: {result.stderr}")
+                file_size = Path(backup_path).stat().st_size
+                
+                return {
+                    "status": "success",
+                    "method": "checkpoint_backup", 
+                    "message": "Industry-standard backup completed: WAL checkpointed + main DB backed up",
+                    "backup_filename": backup_filename,
+                    "file_size_bytes": file_size,
+                    "file_size_mb": round(file_size / (1024 * 1024), 4),
+                    "checkpoint_info": {
+                        "wal_pages_moved": checkpoint_info[1] if checkpoint_info else "unknown",
+                        "wal_checkpoints": checkpoint_info[2] if checkpoint_info else "unknown"
+                    },
+                    "timestamp": nepal_time.isoformat(),
+                    "created_by": current_user.username,
+                    "data_guarantee": "All recent changes included via WAL checkpoint",
+                    "industry_practice": "✅ RECOMMENDED - Checkpoint first, then backup main DB"
+                }
                     
             except Exception as checkpoint_error:
                 # Fallback: If checkpoint fails, try VACUUM INTO
@@ -295,30 +292,17 @@ async def restore_database_backup(
         
         # Restore database from backup using direct filesystem operations
         # Copy the backup file to the Docker volume location
-        restore_cmd = [
-            "cp", f"/app/PKMS_Data/backups/{backup_filename}", "/app/data/pkm_metadata.db"
-        ]
+        await asyncio.to_thread(shutil.copy, backup_path, "/app/data/pkm_metadata.db")
         
-        result = subprocess.run(restore_cmd, capture_output=True, text=True, timeout=10)
-        
-        if result.returncode == 0:
-            return {
-                "status": "success",
-                "message": "Database restored successfully from backup",
-                "backup_info": backup_info,
-                "warning": "Application restart recommended to ensure clean state",
-                "restored_by": current_user.username,
-                "timestamp": datetime.now(NEPAL_TZ).isoformat(),
-                "note": "All active sessions may need to be refreshed"
-            }
-        else:
-            return {
-                "status": "error",
-                "message": "Failed to restore database from backup",
-                "backup_filename": backup_filename,
-                "error": result.stderr or "Docker command failed",
-                "timestamp": datetime.now(NEPAL_TZ).isoformat()
-            }
+        return {
+            "status": "success",
+            "message": "Database restored successfully from backup",
+            "backup_info": backup_info,
+            "warning": "Application restart recommended to ensure clean state",
+            "restored_by": current_user.username,
+            "timestamp": datetime.now(NEPAL_TZ).isoformat(),
+            "note": "All active sessions may need to be refreshed"
+        }
             
     except Exception as e:
         return {

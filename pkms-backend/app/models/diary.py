@@ -44,7 +44,7 @@ class DiaryEntry(Base):
     is_deleted = Column(Boolean, default=False, index=True)
     
     # Relationships
-    user = relationship("User", back_populates="diary_entries")
+    user = relationship("User", back_populates="diary_entries", foreign_keys=[created_by])
     tag_objs = relationship("Tag", secondary=diary_entry_tags, back_populates="diary_entries")
     media = relationship("DiaryMedia", back_populates="entry", cascade="all, delete-orphan")
     daily_metadata = relationship("DiaryDailyMetadata", back_populates="entries")
@@ -82,7 +82,7 @@ class DiaryDailyMetadata(Base):
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
 
     # Relationships
-    user = relationship("User", back_populates="diary_daily_metadata")
+    user = relationship("User", back_populates="diary_daily_metadata", foreign_keys=[created_by])
     entries = relationship("DiaryEntry", back_populates="daily_metadata")
 
     def __repr__(self):
@@ -115,7 +115,7 @@ class DiaryMedia(Base):
     
     # Relationships
     entry = relationship("DiaryEntry", back_populates="media")
-    user = relationship("User", back_populates="diary_media")
+    user = relationship("User", back_populates="diary_media", foreign_keys=[created_by])
     
     def __repr__(self):
         return f"<DiaryMedia(uuid={self.uuid}, filename='{self.filename}', media_type='{self.media_type}')>"

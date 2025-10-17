@@ -117,15 +117,15 @@ class FileManagementService:
         except Exception as e:
             # Cleanup on failure
             try:
-                if 'temp_path' in locals() and await asyncio.to_thread(temp_path.exists):
-                    await asyncio.to_thread(temp_path.unlink)
+                if 'temp_path' in locals() and await asyncio.to_thread(Path.exists, temp_path):
+                    await asyncio.to_thread(Path.unlink, temp_path)
                     logger.info(f"🧹 Cleaned up temporary file: {temp_path}")
             except Exception as cleanup_error:
                 logger.error(f"❌ Failed to cleanup temp file: {cleanup_error}")
 
             try:
-                if 'assembled_path' in locals() and await asyncio.to_thread(assembled_path.exists):
-                    await asyncio.to_thread(assembled_path.unlink)
+                if 'assembled_path' in locals() and await asyncio.to_thread(Path.exists, assembled_path):
+                    await asyncio.to_thread(Path.unlink, assembled_path)
                     logger.info(f"🧹 Cleaned up assembled file: {assembled_path}")
             except Exception as cleanup_error:
                 logger.error(f"❌ Failed to cleanup assembled file: {cleanup_error}")
@@ -179,16 +179,16 @@ class FileManagementService:
             # Locate assembled file path
             temp_dir = Path(get_data_dir()) / "temp_uploads"
             logger.info(f"Looking for assembled file in: {temp_dir}")
-            assembled = next(temp_dir.glob(f"complete_{upload_id}_*"), None)
+            assembled = await asyncio.to_thread(lambda: next(temp_dir.glob(f"complete_{upload_id}_*"), None))
             if not assembled:
                 # List what files are actually in temp_dir for debugging
-                available_files = list(temp_dir.glob("*"))
+                available_files = await asyncio.to_thread(lambda: list(temp_dir.glob("*")))
                 logger.error(f"Assembled file not found. Available files: {available_files}")
                 raise HTTPException(status_code=404, detail=f"Assembled file not found in {temp_dir}")
 
             # Prepare destination directory
             docs_dir = get_file_storage_dir() / "assets" / "documents"
-            docs_dir.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(lambda: docs_dir.mkdir(parents=True, exist_ok=True))
 
             # Generate human-readable filename: originalname_UUID.ext
             file_uuid = str(uuid_lib.uuid4())
@@ -211,17 +211,17 @@ class FileManagementService:
 
             # Move assembled file to TEMPORARY location first; handle cross-device moves (EXDEV)
             try:
-                assembled.rename(temp_dest_path)
+                await asyncio.to_thread(lambda: assembled.rename(temp_dest_path))
             except OSError as move_err:
                 import errno as _errno
                 if getattr(move_err, 'errno', None) == _errno.EXDEV:
                     # Fallback to shutil.move which copies across devices, then unlinks
-                    shutil.move(str(assembled), str(temp_dest_path))
+                    await asyncio.to_thread(lambda: shutil.move(str(assembled), str(temp_dest_path)))
                 else:
                     raise
 
             # Get file size before database operations
-            file_size = temp_dest_path.stat().st_size
+            file_size = await asyncio.to_thread(lambda: temp_dest_path.stat().st_size)
             
             # SECURITY: Validate file size to prevent DoS attacks
             validate_file_size(file_size, settings.max_file_size)
@@ -275,14 +275,14 @@ class FileManagementService:
             
             # SECURITY: Move file to final location ONLY after successful DB commit
             try:
-                temp_dest_path.rename(final_dest_path)
+                await asyncio.to_thread(lambda: temp_dest_path.rename(final_dest_path))
                 logger.info(f"✅ File moved to final location: {final_dest_path}")
             except Exception as move_error:
                 logger.exception("❌ Failed to move file to final location")
                 # Clean up temp file
                 try:
-                    if temp_dest_path.exists():
-                        temp_dest_path.unlink()
+                    if await asyncio.to_thread(lambda: temp_dest_path.exists()):
+                        await asyncio.to_thread(lambda: temp_dest_path.unlink())
                 except Exception:
                     pass
                 raise HTTPException(status_code=500, detail="Failed to finalize file storage")
@@ -309,8 +309,8 @@ class FileManagementService:
             await db.rollback()
             # Clean up temp file on DB rollback
             try:
-                if 'temp_dest_path' in locals() and temp_dest_path.exists():
-                    temp_dest_path.unlink()
+                if 'temp_dest_path' in locals() and await asyncio.to_thread(lambda: temp_dest_path.exists()):
+                    await asyncio.to_thread(lambda: temp_dest_path.unlink())
             except Exception:
                 pass
             raise
@@ -318,8 +318,8 @@ class FileManagementService:
             await db.rollback()
             # Clean up temp file on DB rollback
             try:
-                if 'temp_dest_path' in locals() and temp_dest_path.exists():
-                    temp_dest_path.unlink()
+                if 'temp_dest_path' in locals() and await asyncio.to_thread(lambda: temp_dest_path.exists()):
+                    await asyncio.to_thread(lambda: temp_dest_path.unlink())
             except Exception:
                 pass
             logger.exception("Error committing document upload")
@@ -357,7 +357,7 @@ class FileManagementService:
             from app.models.note import Note
             note_result = await db.execute(
                 select(Note).where(
-                    and_(Note.uuid == note_uuid, Note.user_uuid == user_uuid)
+                    and_(Note.uuid == note_uuid, Note.created_by == user_uuid)
                 )
             )
             note = note_result.scalar_one_or_none()
@@ -371,13 +371,13 @@ class FileManagementService:
 
             # Locate assembled file
             temp_dir = Path(get_data_dir()) / "temp_uploads"
-            assembled = next(temp_dir.glob(f"complete_{upload_id}_*"), None)
+            assembled = await asyncio.to_thread(lambda: next(temp_dir.glob(f"complete_{upload_id}_*"), None))
             if not assembled:
                 raise HTTPException(status_code=404, detail="Assembled file not found")
 
             # Prepare destination directory
             files_dir = get_file_storage_dir() / "assets" / "notes" / "files"
-            files_dir.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(lambda: files_dir.mkdir(parents=True, exist_ok=True))
 
             # Generate unique filename
             file_uuid = str(uuid_lib.uuid4())
@@ -387,10 +387,10 @@ class FileManagementService:
             final_dest_path = files_dir / stored_filename  # Final location
 
             # Move assembled file to TEMPORARY location first
-            assembled.rename(temp_dest_path)
+            await asyncio.to_thread(lambda: assembled.rename(temp_dest_path))
 
             # Get file info before database operations
-            file_size = temp_dest_path.stat().st_size
+            file_size = await asyncio.to_thread(lambda: temp_dest_path.stat().st_size)
             file_path_relative = str(final_dest_path.relative_to(get_file_storage_dir()))
 
             # Create NoteFile record
@@ -421,14 +421,14 @@ class FileManagementService:
 
             # SECURITY: Move file to final location ONLY after successful DB commit
             try:
-                temp_dest_path.rename(final_dest_path)
+                await asyncio.to_thread(lambda: temp_dest_path.rename(final_dest_path))
                 logger.info(f"✅ File moved to final location: {final_dest_path}")
             except Exception as move_error:
                 logger.exception("❌ Failed to move file to final location")
                 # Clean up temp file
                 try:
-                    if temp_dest_path.exists():
-                        temp_dest_path.unlink()
+                    if await asyncio.to_thread(lambda: temp_dest_path.exists()):
+                        await asyncio.to_thread(lambda: temp_dest_path.unlink())
                 except Exception:
                     pass
                 raise HTTPException(status_code=500, detail="Failed to finalize file storage")
@@ -445,8 +445,8 @@ class FileManagementService:
             await db.rollback()
             # Clean up temp file on HTTP exception
             try:
-                if 'temp_dest_path' in locals() and temp_dest_path.exists():
-                    temp_dest_path.unlink()
+                if 'temp_dest_path' in locals() and await asyncio.to_thread(lambda: temp_dest_path.exists()):
+                    await asyncio.to_thread(lambda: temp_dest_path.unlink())
             except Exception:
                 pass
             raise
@@ -454,8 +454,8 @@ class FileManagementService:
             await db.rollback()
             # Clean up temp file on DB rollback
             try:
-                if 'temp_dest_path' in locals() and temp_dest_path.exists():
-                    temp_dest_path.unlink()
+                if 'temp_dest_path' in locals() and await asyncio.to_thread(lambda: temp_dest_path.exists()):
+                    await asyncio.to_thread(lambda: temp_dest_path.unlink())
             except Exception:
                 pass
             logger.exception("❌ Error committing note file upload")
