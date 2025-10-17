@@ -216,7 +216,7 @@ class SearchService:
             logger.exception("Error during search")
             return []
     
-    async def _extract_attachments(self, db: AsyncSession, item: Any, item_type: str) -> str:
+    async def _extract_attachments(self, db: AsyncSession, item: Any, item_type: str) -> List[str]:
         """Extract attachment filenames for the item."""
         attachments = []
         
@@ -252,7 +252,7 @@ class SearchService:
         except Exception:
             logger.exception("Error extracting attachments for %s %s", item_type, getattr(item, "uuid", "<unknown>"))
         
-        return ' '.join(attachments)
+        return attachments
     
     def _format_date_text(self, created_at: Optional[datetime]) -> str:
         """Format date for temporal context in search."""

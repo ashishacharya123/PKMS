@@ -34,7 +34,6 @@ from app.models.tag import Tag
 from app.models.tag_associations import diary_tags
 from app.services.chunk_service import chunk_manager
 from app.services.tag_service import tag_service
-from app.services.file_management_service import file_management_service
 from app.services.search_service import search_service
 from app.schemas.diary import (
     DiaryEntryCreate,
@@ -431,8 +430,8 @@ async def setup_encryption(
         if request.hint is not None:
             current_user.diary_password_hint = request.hint
         
-        # Save password hash (simulated; actual hashing omitted for brevity)
-        current_user.diary_password_hash = "bcrypt$hashed"  # placeholder
+        # Hash the diary password using bcrypt
+        current_user.diary_password_hash = hash_password(request.password)
         
         await db.commit()
         
@@ -636,6 +635,7 @@ async def create_diary_entry(
         
         # Index in search
         await search_service.index_item(db, entry, 'diary')
+        await db.commit()
         
         tags = await _get_entry_tags(db, entry.uuid)
         daily_metrics = json.loads(daily_metadata.metrics_json) if daily_metadata and daily_metadata.metrics_json else {}
@@ -1208,6 +1208,7 @@ async def update_diary_entry(
 
     # Index in search
     await search_service.index_item(db, entry, 'diary')
+    await db.commit()
 
     daily_metrics = json.loads(entry.daily_metadata.metrics_json) if entry.daily_metadata and entry.daily_metadata.metrics_json else {}
     nepali_date = entry.daily_metadata.nepali_date if entry.daily_metadata else None
@@ -1250,7 +1251,7 @@ async def update_diary_entry(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while updating the diary entry"
-    )
+        )
 
 @router.delete("/entries/{entry_ref}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_diary_entry(
@@ -1473,15 +1474,18 @@ async def commit_diary_media_upload(
         # No need to scan database for uniqueness
         
         # SECURITY: Atomic check and retrieval to prevent race conditions
-        session = _diary_sessions.get(current_user.uuid)
-        if not session or time.time() > session["expires_at"]:
-            await _clear_diary_session(current_user.uuid)
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Diary session expired. Please unlock diary again."
-            )
+        async with _get_session_lock():
+            session = _diary_sessions.get(current_user.uuid)
+            if not session or time.time() > session["expires_at"]:
+                await _clear_diary_session(current_user.uuid)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Diary session expired. Please unlock diary again."
+                )
+            # Make a copy of the key while holding the lock
+            encryption_key = session["key"]
         
-        encryption_key = session["key"]
+        # Use the copied key outside the lock
         aesgcm = AESGCM(encryption_key)
         
         # Encrypt the file content using user's unique key
@@ -1635,24 +1639,28 @@ async def download_diary_media(
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
             
             # Get the encryption key from the current diary session (same key used for encryption)
-            diary_session = _diary_sessions.get(current_user.uuid)
-            if not diary_session:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Diary session expired. Please unlock diary again."
-                )
+            async with _get_session_lock():
+                diary_session = _diary_sessions.get(current_user.uuid)
+                if not diary_session:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Diary session expired. Please unlock diary again."
+                    )
+                
+                # SECURITY: Check if session has expired
+                current_time = time.time()
+                if current_time > diary_session["expires_at"]:
+                    logger.info(f"Diary session expired for user {current_user.uuid}")
+                    await _clear_diary_session(current_user.uuid)
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Diary session expired. Please unlock diary again."
+                    )
+                
+                # Copy the key while holding the lock
+                encryption_key = diary_session["key"]
             
-            # SECURITY: Check if session has expired
-            current_time = time.time()
-            if current_time > diary_session["expires_at"]:
-                logger.info(f"Diary session expired for user {current_user.uuid}")
-                await _clear_diary_session(current_user.uuid)
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Diary session expired. Please unlock diary again."
-                )
-            
-            encryption_key = diary_session["key"]  # Use the same key from session
+            # Use the copied key outside the lock
             aesgcm = AESGCM(encryption_key)
             
             # SECURITY: Decrypt the content with proper error handling

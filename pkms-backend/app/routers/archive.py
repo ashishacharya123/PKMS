@@ -384,7 +384,7 @@ async def create_folder(
         list_folders.cache_clear()
         get_folder_tree.cache_clear()
         
-        return await _get_folder_with_stats(db, folder.uuid)
+        return await _get_folder_with_stats(db, folder.uuid, current_user.uuid)
         
     except HTTPException:
         # Re-raise HTTP exceptions as-is
@@ -462,7 +462,7 @@ async def list_folders(
             folders = result.scalars().all()
             folder_responses = []
             for folder in folders:
-                folder_response = await _get_folder_with_stats(db, folder.uuid)
+                folder_response = await _get_folder_with_stats(db, folder.uuid, current_user.uuid)
                 folder_responses.append(folder_response)
             return folder_responses
     except HTTPException:
@@ -522,7 +522,7 @@ async def get_folder_tree(
             tree = []
             for folder in folders:
                 # Get folder stats
-                folder_response = await _get_folder_with_stats(db, folder.uuid)
+                folder_response = await _get_folder_with_stats(db, folder.uuid, current_user.uuid)
                 # Get items in this folder
                 items_query = select(ArchiveItem).where(
                     and_(
@@ -571,7 +571,7 @@ async def get_folder_breadcrumb(
             break
         
         # This uses an internal helper, but it's efficient
-        folder_response = await _get_folder_with_stats(db, folder.uuid)
+        folder_response = await _get_folder_with_stats(db, folder.uuid, current_user.uuid)
         breadcrumb.append(folder_response)
         
         current_folder_uuid = folder.parent_uuid
@@ -635,7 +635,7 @@ async def update_folder(
         list_folders.cache_clear()
         get_folder_tree.cache_clear()
         
-        return await _get_folder_with_stats(db, folder.uuid)
+        return await _get_folder_with_stats(db, folder.uuid, current_user.uuid)
         
     except HTTPException:
         raise
@@ -1354,7 +1354,7 @@ async def search_items(
 
 # Helper functions
 
-async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str) -> FolderResponse:
+async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str, user_uuid: str) -> FolderResponse:
     """Get folder with statistics (simplified for single user)"""
     
     # Get folder
@@ -1394,8 +1394,8 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str) -> FolderRe
     total_size = size_result.scalar() or 0
     
     # Generate both path types dynamically
-    display_path = await get_display_path(folder.uuid, db, current_user.uuid)
-    filesystem_path = await get_filesystem_path(folder.uuid, db, current_user.uuid)
+    display_path = await get_display_path(folder.uuid, db, user_uuid)
+    filesystem_path = await get_filesystem_path(folder.uuid, db, user_uuid)
     
     return FolderResponse(
         uuid=folder.uuid,
