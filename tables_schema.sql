@@ -253,8 +253,7 @@ CREATE TABLE diary_media (
 
 -- Hierarchical folder structure for organizing files
 CREATE TABLE archive_folders (
-    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    uuid VARCHAR(36) NOT NULL UNIQUE,
+    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     path VARCHAR(1000) NOT NULL,         -- Full path for hierarchy
@@ -262,7 +261,7 @@ CREATE TABLE archive_folders (
     user_id INTEGER NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    
+
     FOREIGN KEY (parent_uuid) REFERENCES archive_folders(uuid) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
