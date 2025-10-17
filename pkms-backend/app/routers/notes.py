@@ -12,6 +12,7 @@ from app.schemas.link import LinkResponse
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from pathlib import Path
+import asyncio
 import json
 import logging
 import uuid as uuid_lib
@@ -126,14 +127,13 @@ async def list_notes(
     """
     
     if search:
-        # Use unified FTS5 search
+        # Use unified FTS5 search with native offset
         from app.utils.security import sanitize_search_query
         search_query = sanitize_search_query(search)
         fts_results = await search_service.search(
-            db, current_user.uuid, search_query, item_types=["note"], limit=offset + limit
+            db, current_user.uuid, search_query, item_types=["note"], limit=limit, offset=offset
         )
         note_results = [r for r in fts_results if r["type"] == "note"]
-        note_results = note_results[offset:offset + limit]
         note_uuids = [r["uuid"] for r in note_results]
         if not note_uuids:
             return []
@@ -543,7 +543,8 @@ async def download_note_file(
             raise HTTPException(status_code=403, detail="Access denied: Invalid file path")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid file path: {e}")
-    if not file_path.exists():
+    exists = await asyncio.to_thread(file_path.exists)
+    if not exists:
         raise HTTPException(status_code=404, detail="File not found on disk")
     
     return FileResponse(

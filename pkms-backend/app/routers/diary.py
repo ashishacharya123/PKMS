@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload, aliased
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date, timedelta
 from pathlib import Path
+import asyncio
 import json
 import logging
 import base64
@@ -622,8 +623,8 @@ async def create_diary_entry(
             logger.error(f"❌ Failed to move diary entry file to final location: {move_error}")
             # Clean up temp file
             try:
-                if temp_file_path.exists():
-                    temp_file_path.unlink()
+                if await asyncio.to_thread(temp_file_path.exists):
+                    await asyncio.to_thread(temp_file_path.unlink)
             except Exception:
                 pass
             raise HTTPException(status_code=500, detail="Failed to finalize diary entry file storage")
@@ -669,8 +670,8 @@ async def create_diary_entry(
         await db.rollback()
         # Clean up temp file on DB rollback
         try:
-            if 'temp_file_path' in locals() and temp_file_path.exists():
-                temp_file_path.unlink()
+            if 'temp_file_path' in locals() and await asyncio.to_thread(temp_file_path.exists):
+                await asyncio.to_thread(temp_file_path.unlink)
         except Exception:
             pass
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid data provided")
@@ -680,8 +681,8 @@ async def create_diary_entry(
         await db.rollback()
         # Clean up temp file on DB rollback
         try:
-            if 'temp_file_path' in locals() and temp_file_path.exists():
-                temp_file_path.unlink()
+            if 'temp_file_path' in locals() and await asyncio.to_thread(temp_file_path.exists):
+                await asyncio.to_thread(temp_file_path.unlink)
         except Exception:
             pass
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create diary entry")
@@ -915,11 +916,13 @@ async def get_diary_entries_by_date(
         # Read encrypted blob from file if available
         encrypted_blob = ""
         try:
-            if entry.content_file_path and Path(entry.content_file_path).exists():
+            if entry.content_file_path and await asyncio.to_thread(Path(entry.content_file_path).exists):
                 extension, iv, tag, header_size = read_encrypted_header(Path(entry.content_file_path))
-                with open(entry.content_file_path, "rb") as f:
-                    f.seek(header_size)
-                    ciphertext = f.read()
+                def _read_after_header_path(p: str, offset: int) -> bytes:
+                    with open(p, "rb") as f:
+                        f.seek(offset)
+                        return f.read()
+                ciphertext = await asyncio.to_thread(_read_after_header_path, entry.content_file_path, header_size)
                 encrypted_blob = base64.b64encode(ciphertext + tag).decode()
         except Exception:
             encrypted_blob = ""
@@ -984,16 +987,18 @@ async def get_diary_entry_by_id(
         
         # Read encrypted_blob from file for API compatibility
         encrypted_blob = ""
-        if entry.content_file_path and Path(entry.content_file_path).exists():
+        if entry.content_file_path and await asyncio.to_thread(Path(entry.content_file_path).exists):
             try:
                 # Read the file and extract ciphertext + tag
                 file_path = Path(entry.content_file_path)
                 extension, iv, tag, header_size = read_encrypted_header(file_path)
                 
                 # Read ciphertext from after header
-                with open(file_path, "rb") as f:
-                    f.seek(header_size)
-                    ciphertext = f.read()
+                def _read_after_header(p: Path, offset: int) -> bytes:
+                    with open(p, "rb") as f:
+                        f.seek(offset)
+                        return f.read()
+                ciphertext = await asyncio.to_thread(_read_after_header, file_path, header_size)
                 
                 # Combine ciphertext + tag and encode as base64 (matching frontend expectation)
                 # Note: read_encrypted_header properly separates tag from ciphertext
@@ -1155,8 +1160,8 @@ async def update_diary_entry(
     except Exception as e:
         # Clean up temp file on write failure
         try:
-            if temp_file_path.exists():
-                temp_file_path.unlink()
+            if await asyncio.to_thread(temp_file_path.exists):
+                await asyncio.to_thread(temp_file_path.unlink)
         except Exception:
             pass
         logger.error(f"Failed to write diary file during update for entry {entry_ref}: {e}")
@@ -1182,8 +1187,8 @@ async def update_diary_entry(
 
         # Clean up temp file
         try:
-            if temp_file_path.exists():
-                temp_file_path.unlink()
+            if await asyncio.to_thread(temp_file_path.exists):
+                await asyncio.to_thread(temp_file_path.unlink)
         except Exception:
             pass
 
@@ -1244,8 +1249,8 @@ async def update_diary_entry(
         await db.rollback()
         # Clean up temp file on DB rollback
         try:
-            if 'temp_file_path' in locals() and temp_file_path.exists():
-                temp_file_path.unlink()
+            if 'temp_file_path' in locals() and await asyncio.to_thread(temp_file_path.exists):
+                await asyncio.to_thread(temp_file_path.unlink)
         except Exception:
             pass
         raise HTTPException(
@@ -1292,7 +1297,7 @@ async def delete_diary_entry(
             try:
                 file_path = Path(entry.content_file_path)
                 if file_path.exists():
-                    file_path.unlink()
+                    await asyncio.to_thread(file_path.unlink)
                     logger.info(f"Deleted diary file: {file_path.name}")
             except Exception as e:
                 logger.error(f"Failed to delete diary file {entry.content_file_path}: {str(e)}")
@@ -1532,15 +1537,15 @@ async def commit_diary_media_upload(
             logger.error(f"❌ Failed to move encrypted file to final location: {move_error}")
             # Clean up temp file
             try:
-                if temp_encrypted_file_path.exists():
-                    temp_encrypted_file_path.unlink()
+                if await asyncio.to_thread(temp_encrypted_file_path.exists):
+                    await asyncio.to_thread(temp_encrypted_file_path.unlink)
             except Exception:
                 pass
             raise HTTPException(status_code=500, detail="Failed to finalize encrypted file storage")
 
         # Clean up temporary assembled file
         try:
-            assembled.unlink()
+            await asyncio.to_thread(assembled.unlink)
             logger.debug(f"Cleaned up temporary file: {assembled}")
         except Exception as e:
             logger.warning(f"Failed to cleanup temporary file: {e}")
@@ -1566,8 +1571,8 @@ async def commit_diary_media_upload(
         await db.rollback()
         # Clean up temp encrypted file on DB rollback
         try:
-            if 'temp_encrypted_file_path' in locals() and temp_encrypted_file_path.exists():
-                temp_encrypted_file_path.unlink()
+            if 'temp_encrypted_file_path' in locals() and await asyncio.to_thread(temp_encrypted_file_path.exists):
+                await asyncio.to_thread(temp_encrypted_file_path.unlink)
         except Exception:
             pass
         raise
@@ -1575,8 +1580,8 @@ async def commit_diary_media_upload(
         await db.rollback()
         # Clean up temp encrypted file on DB rollback
         try:
-            if 'temp_encrypted_file_path' in locals() and temp_encrypted_file_path.exists():
-                temp_encrypted_file_path.unlink()
+            if 'temp_encrypted_file_path' in locals() and await asyncio.to_thread(temp_encrypted_file_path.exists):
+                await asyncio.to_thread(temp_encrypted_file_path.unlink)
         except Exception:
             pass
         logger.error(f"Error committing diary media upload: {str(e)}")
@@ -1620,7 +1625,7 @@ async def download_diary_media(
         
         # Check if encrypted file exists
         file_path = Path(media.file_path)
-        if not file_path.exists():
+        if not await asyncio.to_thread(file_path.exists):
             raise HTTPException(status_code=404, detail="Media file not found on disk")
         
         # Decrypt the file and return decrypted content
@@ -1631,9 +1636,11 @@ async def download_diary_media(
             extension, iv, tag, header_size = read_encrypted_header(file_path)
             
             # Read ciphertext after header
-            with open(file_path, "rb") as f:
-                f.seek(header_size)
-                ciphertext = f.read()
+            def _read_after_header(p: Path, offset: int) -> bytes:
+                with open(p, "rb") as f:
+                    f.seek(offset)
+                    return f.read()
+            ciphertext = await asyncio.to_thread(_read_after_header, file_path, header_size)
             
             # Decrypt using the same encryption key from diary session
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM

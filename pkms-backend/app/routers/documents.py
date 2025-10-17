@@ -5,6 +5,7 @@ Document Router with Core Upload Service Integration
 import os
 import shutil
 from pathlib import Path
+import asyncio
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
 
@@ -149,12 +150,11 @@ async def list_documents(
         logger.info(f"Listing documents for user {current_user.uuid} - archived: {archived}, search: {search}, tag: {tag}")
         
         if search:
-            # Use unified FTS5 search
-            # Fetch enough to apply offset locally (search_service has no offset)
+            # Use unified FTS5 search with native offset
             from app.utils.security import sanitize_search_query
             q = sanitize_search_query(search)
             fts_results = await search_service.search(
-                db, current_user.uuid, q, item_types=["document"], limit=offset + limit
+                db, current_user.uuid, q, item_types=["document"], limit=limit, offset=offset
             )
 
             # Create mapping of document UUID to FTS score for proper ordering
@@ -166,8 +166,7 @@ async def list_documents(
                     # Use search service score directly (normalized between 0 and 1)
                     fts_scores[r["uuid"]] = r.get("score", 0.1)
 
-            # Apply offset window
-            doc_uuids = doc_uuids[offset:offset + limit]
+            # Offset applied at search_service; keep order as returned
             
             logger.info(f"FTS5 search returned {len(doc_uuids)} document UUIDs with scores")
             
@@ -443,8 +442,8 @@ async def delete_document(
     # Delete the physical file
     try:
         file_to_delete = get_file_storage_dir() / doc.file_path
-        if file_to_delete.exists():
-            file_to_delete.unlink()
+        if await asyncio.to_thread(file_to_delete.exists):
+            await asyncio.to_thread(file_to_delete.unlink)
             logger.info(f"Deleted document file: {file_to_delete}")
     except Exception as e:
         logger.warning(f"Could not delete file {doc.file_path}: {e}")

@@ -20,6 +20,7 @@ from app.schemas.archive import (
     CommitUploadRequest,
 )
 from typing import List, Optional, Dict, Any
+import asyncio
 from datetime import datetime
 from pathlib import Path
 import uuid as uuid_lib
@@ -247,7 +248,7 @@ def folder_cache(maxsize: int = 128):
                 wrapper._cache = {}
                 wrapper._cache_times = {}
             
-            cache_timeout = 30  # 30 seconds cache
+            cache_timeout = 120  # 120 seconds cache (invalidated on writes)
             now = time.time()
             
             # Check if we have a valid cached result
@@ -460,11 +461,49 @@ async def list_folders(
             query = query.order_by(ArchiveFolder.name)
             result = await db.execute(query)
             folders = result.scalars().all()
-            folder_responses = []
-            for folder in folders:
-                folder_response = await _get_folder_with_stats(db, folder.uuid, current_user.uuid)
-                folder_responses.append(folder_response)
-            return folder_responses
+        # Batch-load folder stats to avoid N+1
+        folder_uuids = [f.uuid for f in folders]
+        # Pre-compute counts with grouped queries
+        item_counts = {
+            r[0]: r[1] for r in (await db.execute(
+                select(ArchiveItem.folder_uuid, func.count(ArchiveItem.uuid))
+                .where(ArchiveItem.folder_uuid.in_(folder_uuids))
+                .group_by(ArchiveItem.folder_uuid)
+            )).all()
+        }
+        sub_counts = {
+            r[0]: r[1] for r in (await db.execute(
+                select(ArchiveFolder.parent_uuid, func.count(ArchiveFolder.uuid))
+                .where(ArchiveFolder.parent_uuid.in_(folder_uuids))
+                .group_by(ArchiveFolder.parent_uuid)
+            )).all()
+        }
+        sizes = {
+            r[0]: r[1] or 0 for r in (await db.execute(
+                select(ArchiveItem.folder_uuid, func.sum(ArchiveItem.file_size))
+                .where(ArchiveItem.folder_uuid.in_(folder_uuids))
+                .group_by(ArchiveItem.folder_uuid)
+            )).all()
+        }
+        folder_responses = []
+        for f in folders:
+            display_path = await get_display_path(f.uuid, db, current_user.uuid)
+            filesystem_path = await get_filesystem_path(f.uuid, db, current_user.uuid)
+            folder_responses.append(FolderResponse(
+                uuid=f.uuid,
+                name=f.name,
+                description=f.description,
+                parent_uuid=f.parent_uuid,
+                path=display_path,
+                display_path=display_path,
+                filesystem_path=filesystem_path,
+                created_at=f.created_at,
+                updated_at=f.updated_at,
+                item_count=item_counts.get(f.uuid, 0),
+                subfolder_count=sub_counts.get(f.uuid, 0),
+                total_size=sizes.get(f.uuid, 0),
+            ))
+        return folder_responses
     except HTTPException:
         raise
     except Exception as e:
@@ -509,41 +548,82 @@ async def get_folder_tree(
         return folder_trees
     else:
         async def build_tree(parent_uuid: Optional[str]) -> List[FolderTree]:
-            # Get folders
+            # Get folders for this parent
             folder_query = select(ArchiveFolder).where(
                 and_(
                     ArchiveFolder.user_uuid == current_user.uuid,
                     ArchiveFolder.parent_uuid == parent_uuid
                 )
             )
-            # Archive folders don't use is_archived flag - all are active by being in archive
             folder_result = await db.execute(folder_query.order_by(ArchiveFolder.name))
             folders = folder_result.scalars().all()
-            tree = []
-            for folder in folders:
-                # Get folder stats
-                folder_response = await _get_folder_with_stats(db, folder.uuid, current_user.uuid)
-                # Get items in this folder
+            if not folders:
+                return []
+
+            folder_uuids = [f.uuid for f in folders]
+
+            # Batch counts and sizes for these folders
+            item_counts = {
+                r[0]: r[1] for r in (await db.execute(
+                    select(ArchiveItem.folder_uuid, func.count(ArchiveItem.uuid))
+                    .where(ArchiveItem.folder_uuid.in_(folder_uuids))
+                    .group_by(ArchiveItem.folder_uuid)
+                )).all()
+            }
+            sub_counts = {
+                r[0]: r[1] for r in (await db.execute(
+                    select(ArchiveFolder.parent_uuid, func.count(ArchiveFolder.uuid))
+                    .where(ArchiveFolder.parent_uuid.in_(folder_uuids))
+                    .group_by(ArchiveFolder.parent_uuid)
+                )).all()
+            }
+            sizes = {
+                r[0]: r[1] or 0 for r in (await db.execute(
+                    select(ArchiveItem.folder_uuid, func.sum(ArchiveItem.file_size))
+                    .where(ArchiveItem.folder_uuid.in_(folder_uuids))
+                    .group_by(ArchiveItem.folder_uuid)
+                )).all()
+            }
+
+            # Build item summaries per folder (still per-folder, but single query each ordered by name)
+            tree: List[FolderTree] = []
+            for f in folders:
+                display_path = await get_display_path(f.uuid, db, current_user.uuid)
+                filesystem_path = await get_filesystem_path(f.uuid, db, current_user.uuid)
+                folder_response = FolderResponse(
+                    uuid=f.uuid,
+                    name=f.name,
+                    description=f.description,
+                    parent_uuid=f.parent_uuid,
+                    path=display_path,
+                    display_path=display_path,
+                    filesystem_path=filesystem_path,
+                    created_at=f.created_at,
+                    updated_at=f.updated_at,
+                    item_count=item_counts.get(f.uuid, 0),
+                    subfolder_count=sub_counts.get(f.uuid, 0),
+                    total_size=sizes.get(f.uuid, 0),
+                )
+
                 items_query = select(ArchiveItem).where(
                     and_(
-                        ArchiveItem.folder_uuid == folder.uuid,
+                        ArchiveItem.folder_uuid == f.uuid,
                         ArchiveItem.user_uuid == current_user.uuid
                     )
                 )
-                # Archive items don't need archived filtering - they're all active in archive
                 items_result = await db.execute(items_query.order_by(ArchiveItem.name))
                 items = items_result.scalars().all()
-                item_summaries = []
-                for item in items:
-                    item_summary = await _get_item_summary(db, item.uuid)
-                    item_summaries.append(item_summary)
+                item_summaries = [await _get_item_summary(db, it.uuid) for it in items]
+
                 # Recursively build children
-                children = await build_tree(folder.uuid)
+                children = await build_tree(f.uuid)
+
                 tree.append(FolderTree(
                     folder=folder_response,
                     children=children,
                     items=item_summaries
                 ))
+
             return tree
         return await build_tree(root_uuid)
 
@@ -1848,8 +1928,9 @@ async def upload_files(
         # Move all temp files to final locations BEFORE DB commit
         for temp_path, final_path in temp_file_paths:
             try:
-                if temp_path.exists():
-                    temp_path.rename(final_path)
+                exists = await asyncio.to_thread(temp_path.exists)
+                if exists:
+                    await asyncio.to_thread(temp_path.rename, final_path)
                     logger.info(f"✅ File moved to final location: {final_path}")
                     # Update DB record to point to final path
                     try:
@@ -1870,8 +1951,8 @@ async def upload_files(
                 await db.rollback()
                 for tp, fp in temp_file_paths:
                     try:
-                        if tp.exists():
-                            tp.unlink()
+                        if await asyncio.to_thread(tp.exists):
+                            await asyncio.to_thread(tp.unlink)
                     except Exception:
                         pass
                 raise HTTPException(status_code=500, detail="Failed to finalize file storage")

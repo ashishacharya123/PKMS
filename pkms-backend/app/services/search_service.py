@@ -119,7 +119,8 @@ class SearchService:
     async def search(self, db: AsyncSession, user_uuid: str, query: str, 
                     item_types: Optional[List[str]] = None, 
                     has_attachments: Optional[bool] = None,
-                    limit: int = 50) -> List[Dict]:
+                    limit: int = 50,
+                    offset: int = 0) -> List[Dict]:
         """
         Search across all content types using the two-step process:
         1. FTS search to get candidate UUIDs
@@ -150,9 +151,10 @@ class SearchService:
             if item_types:
                 sql += " AND item_type IN :types"
                 params["types"] = item_types
-            # Append ORDER BY/LIMIT after all mutations
-            sql += " ORDER BY score LIMIT :limit"
+            # Append ORDER BY/LIMIT/OFFSET after all mutations
+            sql += " ORDER BY score LIMIT :limit OFFSET :offset"
             params["limit"] = limit
+            params["offset"] = offset
 
             from sqlalchemy import bindparam
             stmt = text(sql)

@@ -4,7 +4,7 @@ Todo and Project Management Router for PKMS
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, delete, func
+from sqlalchemy import select, and_, or_, delete, func, case
 from app.schemas.todo import TodoCreate, TodoUpdate, TodoResponse, ProjectCreate, ProjectResponse, ProjectBadge
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
@@ -412,13 +412,31 @@ async def list_projects(
         query = query.join(Project.tag_objs).where(Tag.name == tag)
     result = await db.execute(query)
     rows = result.scalars().unique().all()
-    
-    # Calculate counts for each project
+
+    # Batch calculate counts for all projects in one query
+    if not rows:
+        return []
+    project_uuids = [p.uuid for p in rows]
+
+    counts_stmt = (
+        select(
+            todo_projects.c.project_uuid,
+            func.count(Todo.uuid).label("total"),
+            func.sum(case((Todo.status == TodoStatus.DONE, 1), else_=0)).label("completed")
+        )
+        .join(Todo, Todo.uuid == todo_projects.c.todo_uuid)
+        .where(and_(todo_projects.c.project_uuid.in_(project_uuids), Todo.user_uuid == current_user.uuid))
+        .group_by(todo_projects.c.project_uuid)
+    )
+    counts_result = await db.execute(counts_stmt)
+    counts_map = {r.project_uuid: (r.total or 0, r.completed or 0) for r in counts_result}
+
+    # Build responses from batch counts
     projects_with_counts = []
     for project in rows:
-        todo_count, completed_count = await _get_project_counts(db, project.uuid)
-        projects_with_counts.append(_convert_project_to_response(project, todo_count, completed_count))
-    
+        total, completed = counts_map.get(project.uuid, (0, 0))
+        projects_with_counts.append(_convert_project_to_response(project, total, completed))
+
     return projects_with_counts
 
 @router.get("/projects/{project_uuid}", response_model=ProjectResponse)

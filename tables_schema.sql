@@ -402,7 +402,9 @@ CREATE INDEX idx_projects_user_id ON projects(user_id);
 CREATE INDEX idx_diary_entries_user_id ON diary_entries(user_id);
 CREATE INDEX idx_diary_entries_date ON diary_entries(date);
 CREATE INDEX idx_diary_entries_day_of_week ON diary_entries(day_of_week);
-CREATE INDEX idx_diary_entries_nepali_date ON diary_entries(nepali_date);
+-- Nepali date is now stored in diary_daily_metadata
+-- CREATE INDEX idx_diary_entries_nepali_date ON diary_entries(nepali_date);
+CREATE INDEX idx_diary_daily_metadata_nepali_date ON diary_daily_metadata(nepali_date);
 CREATE INDEX idx_diary_media_diary_entry_uuid ON diary_media(diary_entry_uuid);
 
 CREATE INDEX idx_archive_folders_user_id ON archive_folders(user_id);

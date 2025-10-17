@@ -42,6 +42,22 @@ async def test_engine():
     # Create all tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Ensure FTS5 table exists for search tests
+        await conn.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS fts_content USING fts5(
+                item_uuid UNINDEXED,
+                item_type,
+                user_uuid UNINDEXED,
+                title,
+                description,
+                tags,
+                attachments,
+                date_text,
+                content=''
+            );
+            """
+        )
     
     yield engine
     

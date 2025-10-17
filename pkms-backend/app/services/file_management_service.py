@@ -92,7 +92,7 @@ class FileManagementService:
             temp_path = final_dir / f"temp_{final_filename}"
 
             # Move to temporary location first
-            shutil.move(str(assembled_path), str(temp_path))
+            await asyncio.to_thread(shutil.move, str(assembled_path), str(temp_path))
             logger.info(f"✅ File moved to temporary location: {temp_path}")
 
             # Update parent item with final path
@@ -105,7 +105,7 @@ class FileManagementService:
             logger.info(f"✅ Database transaction committed for {parent_item.uuid}")
 
             # Move to final location after successful DB commit
-            temp_path.rename(final_path)
+            await asyncio.to_thread(temp_path.rename, final_path)
             logger.info(f"✅ File moved to final location: {final_path}")
 
             # Clean up upload from chunk manager
@@ -116,15 +116,15 @@ class FileManagementService:
         except Exception as e:
             # Cleanup on failure
             try:
-                if 'temp_path' in locals() and temp_path.exists():
-                    temp_path.unlink()
+                if 'temp_path' in locals() and await asyncio.to_thread(temp_path.exists):
+                    await asyncio.to_thread(temp_path.unlink)
                     logger.info(f"🧹 Cleaned up temporary file: {temp_path}")
             except Exception as cleanup_error:
                 logger.error(f"❌ Failed to cleanup temp file: {cleanup_error}")
 
             try:
-                if 'assembled_path' in locals() and assembled_path.exists():
-                    assembled_path.unlink()
+                if 'assembled_path' in locals() and await asyncio.to_thread(assembled_path.exists):
+                    await asyncio.to_thread(assembled_path.unlink)
                     logger.info(f"🧹 Cleaned up assembled file: {assembled_path}")
             except Exception as cleanup_error:
                 logger.error(f"❌ Failed to cleanup assembled file: {cleanup_error}")
