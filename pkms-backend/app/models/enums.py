@@ -35,6 +35,13 @@ class TodoType(str, enum.Enum):
     CHECKLIST = "checklist"
     SUBTASK = "subtask"
 
+class TaskPriority(str, enum.Enum):
+    """Priority levels for tasks, todos, and projects"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    URGENT = "urgent"
+
 class UploadStatus(str, enum.Enum):
     """Document upload status enum"""
     PENDING = "pending"
@@ -49,3 +56,23 @@ class ChunkUploadStatus(str, enum.Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     ERROR = "error"
+
+class TodoStatsKey(str, enum.Enum):
+    """Todo statistics keys for dashboard"""
+    # Status-based counts (from TodoStatus enum)
+    TOTAL = "total"
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    BLOCKED = "blocked"
+    DONE = "done"
+    
+    # Time-based computed counts (calculated on the fly - active todos only)
+    OVERDUE = "overdue"           # due_date < today AND status not DONE/CANCELLED
+    DUE_TODAY = "due_today"       # due_date == today AND status not DONE/CANCELLED  
+    COMPLETED_TODAY = "completed_today"  # completed_at == today (DONE status only)
+    WITHIN_TIME = "within_time"   # due_date >= today AND status not DONE/CANCELLED
+
+class ModuleStatsKey(str, enum.Enum):
+    """Module statistics keys for dashboard"""
+    TOTAL = "total"
+    RECENT = "recent"

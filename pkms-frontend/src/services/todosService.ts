@@ -51,7 +51,7 @@ export interface Todo {
   isExclusiveMode: boolean;
   start_date?: string;
   due_date?: string;
-  priority: number;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
   status: string;  // Now matches backend
   todo_type?: 'task' | 'checklist' | 'subtask';
   order_index: number;  // New field for Kanban ordering
@@ -122,7 +122,7 @@ export interface TodoSummary {
   isExclusiveMode: boolean;
   start_date?: string;
   due_date?: string;
-  priority: number;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
   status: string;
   order_index: number;  // New field for ordering
   parent_id?: number;  // For subtasks

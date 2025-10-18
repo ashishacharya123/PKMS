@@ -24,10 +24,10 @@ from app.models.associations import note_projects, document_projects, todo_proje
 from app.models.note import Note
 from app.models.document import Document
 from app.models.todo import Todo
-from app.schemas.document import ProjectBadge
+from app.schemas.project import ProjectBadge
 from app.services.tag_service import tag_service
 from app.services.search_service import search_service
-from app.config import get_file_storage_dir
+from app.config import get_file_storage_dir, get_data_dir
 
 
 class ProjectService:
@@ -152,7 +152,7 @@ class ProjectService:
                 badge = ProjectBadge(
                     uuid=project.uuid,
                     name=project.name,
-                    color=project.color,
+                    # color removed - project color field deleted
                     is_deleted=False,
                     is_exclusive=is_exclusive
                 )
@@ -267,19 +267,8 @@ class ProjectService:
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
 
-        # Step 1: Snapshot project name in all junction records BEFORE deletion
+        # Step 1: Get exclusive items BEFORE nulling project_uuid
         # This preserves the project name for linked (non-exclusive) items
-        for table in [note_projects, document_projects, todo_projects]:
-            await db.execute(
-                table.update()
-                .where(table.c.project_uuid == project_uuid)
-                .values(
-                    project_uuid=None,
-                    project_name_snapshot=project.name
-                )
-            )
-
-        # Step 2: Hard delete exclusive items and their associated files
         # Get exclusive notes linked to this project
         exclusive_notes_result = await db.execute(
             select(Note)
@@ -319,9 +308,11 @@ class ProjectService:
         )
         exclusive_docs = exclusive_docs_result.scalars().all()
         for doc in exclusive_docs:
-            if doc.file_path and Path(doc.file_path).exists():
+            if doc.file_path:
                 try:
-                    Path(doc.file_path).unlink()
+                    resolved_path = self._resolve_path(doc.file_path)
+                    if resolved_path.exists():
+                        resolved_path.unlink()
                 except Exception as e:
                     logger.warning(f"Failed to delete file for document {doc.uuid}: {str(e)}")
             await search_service.remove_item(db, doc.uuid)
@@ -345,6 +336,18 @@ class ProjectService:
             await tag_service.decrement_tags_on_delete(db, todo)
             await db.delete(todo)
         
+        # Step 2: Snapshot project name in all junction records AFTER deleting exclusives
+        # This preserves the project name for linked (non-exclusive) items
+        for table in [note_projects, document_projects, todo_projects]:
+            await db.execute(
+                table.update()
+                .where(table.c.project_uuid == project_uuid)
+                .values(
+                    project_uuid=None,
+                    project_name_snapshot=project.name
+                )
+            )
+        
         # Remove from search index BEFORE deleting project
         await search_service.remove_item(db, project_uuid)
         
@@ -353,6 +356,14 @@ class ProjectService:
         project.is_deleted = True
         db.add(project)
         await db.commit()
+
+    def _resolve_path(self, p: str) -> Path:
+        """Resolve DB-stored file path to an absolute path under data_dir when appropriate."""
+        path = Path(p)
+        if path.is_absolute():
+            return path
+        # allow leading "/" as virtual root under data_dir
+        return (get_data_dir() / p.lstrip("/")).resolve()
 
 
 # Create singleton instance

@@ -1,7 +1,9 @@
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from httpx import AsyncClient
-from app.models.todo import Project, Todo, TodoStatus
+from app.models.todo import Todo
+from app.models.project import Project
+from app.models.enums import TodoStatus, TaskPriority
 
 
 @pytest.mark.asyncio
@@ -30,7 +32,7 @@ async def test_list_projects_grouped_counts(async_client: AsyncClient, db_sessio
     ]))
     await db_session.commit()
 
-    r = await async_client.get("/api/v1/todos/projects")
+    r = await async_client.get("/api/v1/projects")
     assert r.status_code == 200
     rows = r.json()
     by_uuid = {row["uuid"]: row for row in rows}

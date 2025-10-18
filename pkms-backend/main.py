@@ -27,18 +27,18 @@ from app.routers import (
     notes,
     documents,
     todos,
+    projects,
     diary,
     archive,
     dashboard,
     backup,
     tags,
-    uploads,
     testing_router,
     advanced_fuzzy,
 )
+from app.routers import unified_uploads, unified_downloads
 from app.routers.search import router as search_endpoints_router
 from app.services.chunk_service import chunk_manager
-from app.services.search_cache_service import search_cache_service
 
 # Import database initialization
 from app.database import init_db, close_db, get_db_session
@@ -116,11 +116,7 @@ async def lifespan(app: FastAPI):
         # Start chunk upload cleanup loop
         await chunk_manager.start()
 
-        # Initialize search cache service
-        logger.info("Initializing search cache service...")
-        await search_cache_service.initialize()
-        logger.info("Search cache service initialized")
-
+  
         logger.info("Background tasks started")
 
         yield
@@ -137,8 +133,7 @@ async def lifespan(app: FastAPI):
                 await cleanup_task
             except asyncio.CancelledError:
                 pass
-        await chunk_manager.stop()
-        await search_cache_service.close()
+          await chunk_manager.stop()
         await close_db()
 
 # Create FastAPI app
@@ -174,6 +169,7 @@ app.include_router(auth.router, prefix="/api/v1/auth")
 app.include_router(notes.router, prefix="/api/v1/notes")
 app.include_router(documents.router, prefix="/api/v1/documents")
 app.include_router(todos.router, prefix="/api/v1/todos")
+app.include_router(projects.router, prefix="/api/v1/projects")
 app.include_router(diary.router, prefix="/api/v1/diary")
 app.include_router(archive.router, prefix="/api/v1/archive")
 # Removed archive_improvements disabled include (module deprecated)
@@ -181,7 +177,8 @@ app.include_router(dashboard.router, prefix="/api/v1/dashboard")
 app.include_router(search_endpoints_router, prefix="/api/v1")  # Unified search endpoints
 app.include_router(backup.router, prefix="/api/v1/backup")
 app.include_router(tags.router, prefix="/api/v1/tags")
-app.include_router(uploads.router, prefix="/api/v1")
+app.include_router(unified_uploads.router, prefix="/api/v1")
+app.include_router(unified_downloads.router, prefix="/api/v1")
 app.include_router(testing_router, prefix="/api/v1/testing")
 app.include_router(advanced_fuzzy.router, prefix="/api/v1")  # Re-enabled for hybrid search
 
@@ -264,7 +261,7 @@ async def add_security_headers(request: Request, call_next):
         # Prevent MIME type sniffing
         response.headers["X-Content-Type-Options"] = "nosniff"
         
-        # XSS Protection (legacy but still useful)
+        # XSS Protection
         response.headers["X-XSS-Protection"] = "1; mode=block"
         
         # Referrer Policy

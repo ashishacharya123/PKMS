@@ -79,6 +79,9 @@ class ChunkUploadManager:
                 # Convert datetime to string
                 if 'last_update' in serializable_upload and serializable_upload['last_update']:
                     serializable_upload['last_update'] = serializable_upload['last_update'].isoformat()
+                # Convert Enum to primitive
+                if isinstance(serializable_upload.get('status'), ChunkUploadStatus):
+                    serializable_upload['status'] = serializable_upload['status'].value
                 serializable_uploads[file_id] = serializable_upload
             
             async with aiofiles.open(self.state_file, 'w') as f:
@@ -109,6 +112,12 @@ class ChunkUploadManager:
                     # Convert string back to datetime
                     if 'last_update' in upload and upload['last_update']:
                         upload['last_update'] = datetime.fromisoformat(upload['last_update'])
+                    # Convert status string back to Enum
+                    if isinstance(upload.get('status'), str):
+                        try:
+                            upload['status'] = ChunkUploadStatus(upload['status'])
+                        except Exception:
+                            upload['status'] = ChunkUploadStatus.ERROR
                     self.uploads[file_id] = upload
                 
                 logger.info(f"Loaded {len(self.uploads)} upload states from {self.state_file}")

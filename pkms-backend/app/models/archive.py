@@ -2,7 +2,7 @@
 Archive Models for File Organization
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Enum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
@@ -10,6 +10,7 @@ from uuid import uuid4
 from app.models.base import Base
 from app.config import nepal_now
 from app.models.tag_associations import archive_folder_tags, archive_item_tags
+from app.models.enums import UploadStatus
 
 
 class ArchiveFolder(Base):
@@ -21,8 +22,13 @@ class ArchiveFolder(Base):
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
     parent_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
-    is_archived = Column(Boolean, default=False, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
+    # Soft Delete
+    is_deleted = Column(Boolean, default=False, index=True)
+    # Derived counts and metadata
+    depth = Column(Integer, default=0, nullable=False)
+    item_count = Column(Integer, default=0, nullable=False)
+    total_size = Column(BigInteger, default=0, nullable=False)
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
@@ -51,9 +57,11 @@ class ArchiveItem(Base):
     file_path = Column(String(500), nullable=False)
     file_size = Column(BigInteger, nullable=False)
     mime_type = Column(String(100), nullable=False)
+    # upload_status removed - only needed during upload process, handled by upload services
     folder_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
-    is_archived = Column(Boolean, default=False, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
+    # Soft Delete
+    is_deleted = Column(Boolean, default=False, index=True)
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)

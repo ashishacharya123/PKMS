@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from pydantic.alias_generators import to_camel
 from typing import Dict
 from datetime import datetime
+from app.models.enums import TodoStatsKey, ModuleStatsKey
 
 class CamelCaseModel(BaseModel):
     model_config = ConfigDict(
@@ -12,12 +13,12 @@ class CamelCaseModel(BaseModel):
 
 class DashboardStats(CamelCaseModel):
     """Dashboard statistics model"""
-    notes: Dict[str, int]
-    documents: Dict[str, int] 
-    todos: Dict[str, int]
-    diary: Dict[str, int]
-    archive: Dict[str, int]
-    projects: Dict[str, int] = Field(default_factory=dict)  # Added: active projects count
+    notes: Dict[ModuleStatsKey, int]
+    documents: Dict[ModuleStatsKey, int] 
+    todos: Dict[str, int]  # Mixed: status enums + computed string keys
+    diary: Dict[ModuleStatsKey, int]
+    archive: Dict[ModuleStatsKey, int]
+    projects: Dict[ModuleStatsKey, int] = Field(default_factory=dict)  # Added: active projects count
     last_updated: datetime
 
 class ModuleActivity(CamelCaseModel):

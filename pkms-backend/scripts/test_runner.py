@@ -30,7 +30,7 @@ import requests
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 
-from app.config import get_settings
+from app.config import settings
 from app.database import Base
 from app.auth.security import create_access_token, verify_token
 
@@ -77,10 +77,8 @@ def print_info(message: str):
 
 
 class HealthChecker:
-    """Health check utilities."""
-    
     def __init__(self):
-        self.settings = get_settings()
+        self.settings = settings
         self.base_url = f"http://localhost:{self.settings.PORT}"
     
     def check_server_running(self) -> bool:
@@ -150,10 +148,8 @@ class HealthChecker:
 
 
 class AuthTester:
-    """Authentication system testing utilities."""
-    
     def __init__(self):
-        self.settings = get_settings()
+        self.settings = settings
         self.base_url = f"http://localhost:{self.settings.PORT}"
     
     def test_token_creation(self) -> bool:
@@ -220,7 +216,7 @@ class APITester:
     """API endpoint testing utilities."""
     
     def __init__(self):
-        self.settings = get_settings()
+        self.settings = settings
         self.base_url = f"http://localhost:{self.settings.PORT}"
     
     def test_health_endpoint(self) -> bool:

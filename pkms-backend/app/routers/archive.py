@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_, desc, delete, text, update
 from sqlalchemy.orm import selectinload
+import uuid as uuid_lib
 from app.schemas.archive import (
     FolderCreate,
     FolderUpdate,
@@ -35,7 +36,9 @@ from io import BytesIO
 from functools import lru_cache, wraps
 import time
 
-from app.services.chunk_service import chunk_manager, ChunkUploadStatus
+from app.services.chunk_service import chunk_manager
+from app.services.unified_upload_service import unified_upload_service
+from app.services.chunk_service import ChunkUploadStatus
 
 # Path generation utilities for hybrid UUID/name-based system
 async def get_filesystem_path(folder_uuid: str, db: AsyncSession, created_by: Optional[str] = None) -> str:
@@ -168,7 +171,7 @@ try:
 except ImportError:
     TinyTag = None
 
-# Legacy heavy packages (fallback if lightweight unavailable)
+# Heavy packages (fallback if lightweight unavailable)
 try:
     import fitz  # PyMuPDF for PDF processing
 except ImportError:
@@ -819,20 +822,16 @@ async def delete_folder(
             # Get all items in the folder and its subfolders
             items_to_delete = await _get_all_items_in_folder(db, folder_uuid, current_user.uuid)
             
-            # Delete all files
+            # Collect all file paths for deletion AFTER successful DB commit
+            file_paths_to_delete = []
+            thumbnail_paths_to_delete = []
+            
             for item in items_to_delete:
-                if item.file_path and Path(item.file_path).exists():
-                    try:
-                        Path(item.file_path).unlink()
-                    except Exception as e:
-                        logger.warning(f"WARNING: Failed to delete file: {str(e)}")
-                
+                if item.file_path:
+                    file_paths_to_delete.append(item.file_path)
                 thumb_path = getattr(item, "thumbnail_path", None)
-                if thumb_path and Path(thumb_path).exists():
-                    try:
-                        Path(thumb_path).unlink()
-                    except Exception as e:
-                        logger.warning(f"WARNING: Failed to delete thumbnail: {str(e)}")
+                if thumb_path:
+                    thumbnail_paths_to_delete.append(thumb_path)
 
         else:
             # Check if folder has contents
@@ -862,6 +861,24 @@ async def delete_folder(
         # Delete folder and all contents (CASCADE handles this atomically)
         await db.delete(folder)
         await db.commit()
+        
+        # Only delete files AFTER successful DB commit to maintain consistency
+        if force and 'file_paths_to_delete' in locals():
+            for file_path in file_paths_to_delete:
+                try:
+                    if Path(file_path).exists():
+                        Path(file_path).unlink()
+                        logger.info(f"Deleted file: {file_path}")
+                except Exception as e:
+                    logger.warning(f"WARNING: Failed to delete file {file_path}: {str(e)}")
+            
+            for thumb_path in thumbnail_paths_to_delete:
+                try:
+                    if Path(thumb_path).exists():
+                        Path(thumb_path).unlink()
+                        logger.info(f"Deleted thumbnail: {thumb_path}")
+                except Exception as e:
+                    logger.warning(f"WARNING: Failed to delete thumbnail {thumb_path}: {str(e)}")
         
         logger.info(f"DELETED: Deleted folder '{folder.name}' for user {current_user.username}")
         
@@ -1386,68 +1403,6 @@ async def delete_item(
             detail="Failed to delete item. Please try again."
         )
 
-@router.get("/items/{item_uuid}/download")
-async def download_item(
-    item_uuid: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Download item file"""
-    
-    # Get item
-    result = await db.execute(
-        select(ArchiveItem).where(
-            and_(
-                ArchiveItem.uuid == item_uuid,
-                ArchiveItem.created_by == current_user.uuid
-            )
-        )
-    )
-    item = result.scalar_one_or_none()
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
-    
-    file_path = Path(item.file_path)
-    
-    # SECURITY: Resolve symlinks and validate path is within allowed directory
-    try:
-        resolved_path = file_path.resolve()
-        # Ensure the resolved path is within the archive directory
-        archive_base = Path(get_file_storage_dir()) / "archive"
-        archive_base = archive_base.resolve()
-        
-        # Windows-safe path validation - avoid relative_to() which fails on different drives
-        try:
-            # Try relative_to first (works on same drive)
-            relative_path = resolved_path.relative_to(archive_base)
-            # SECURITY: Comprehensive path traversal check
-            relative_str = str(relative_path)
-            # Check for various path traversal patterns
-            if (".." in relative_str or 
-                "../" in relative_str or 
-                "..\\" in relative_str or
-                relative_str.startswith("..") or
-                "\\.." in relative_str or
-                "/.." in relative_str):
-                raise HTTPException(status_code=403, detail="Access denied: Path traversal detected")
-        except ValueError:
-            # relative_to failed - likely different drives on Windows
-            # Use string comparison as fallback
-            resolved_str = str(resolved_path)
-            archive_str = str(archive_base)
-            if not resolved_str.startswith(archive_str):
-                raise HTTPException(status_code=403, detail="Access denied: Invalid file path")
-    except (OSError, ValueError) as e:
-        raise HTTPException(status_code=400, detail=f"Invalid file path: {str(e)}")
-    
-    if not resolved_path.exists():
-        raise HTTPException(status_code=404, detail="File not found on disk")
-    
-    return FileResponse(
-        path=str(resolved_path),
-        filename=item.original_filename,
-        media_type=item.mime_type
-    )
 
 # Search Endpoints
 
@@ -1568,7 +1523,7 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str, created_by:
         name=folder.name,
         description=folder.description,
         parent_uuid=folder.parent_uuid,
-        path=display_path,  # Use display path for backward compatibility
+        path=display_path,  # Use display path for consistency
         display_path=display_path,  # Human-readable path
         filesystem_path=filesystem_path,  # UUID-based path for debugging
         created_at=folder.created_at,
@@ -1657,7 +1612,7 @@ async def _get_item_summary(db: AsyncSession, item_uuid: str) -> ItemSummary:
         preview=preview
     )
 
-    # Removed legacy _handle_item_tags in favor of centralized tag_service
+    # Using centralized tag_service for tag handling
 
 # --- START: COPIED FROM documents.py router ---
 
@@ -2095,7 +2050,10 @@ async def commit_uploaded_file(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Finalize a previously chunk-uploaded file: move it to the archive folder and create DB record."""
+    """Finalize a previously chunk-uploaded file: move it to the archive folder and create DB record.
+
+    Uses the file commit consistency service for atomic operations and orphan prevention.
+    """
     try:
         # Validate payload
         if not payload.file_id:
@@ -2103,141 +2061,35 @@ async def commit_uploaded_file(
         if not payload.folder_uuid:
             raise HTTPException(status_code=400, detail="folder_uuid is required")
         
-        # Check assembled file status and wait for completion if needed
-        status = await chunk_manager.get_upload_status(payload.file_id)
-        if not status:
-            raise HTTPException(status_code=404, detail="Upload not found")
-        
-        # If still assembling, wait for completion with timeout
-        if status.get("status") == ChunkUploadStatus.ASSEMBLING:
-            logger.info(f"File {payload.file_id} still assembling, waiting for completion...")
-            max_wait = 30  # seconds
-            for i in range(max_wait):
-                await asyncio.sleep(1)
-                status = await chunk_manager.get_upload_status(payload.file_id)
-                if status.get("status") == ChunkUploadStatus.COMPLETED:
-                    break
-                elif status.get("status") == ChunkUploadStatus.FAILED:
-                    raise HTTPException(status_code=400, detail="File assembly failed")
-            else:
-                raise HTTPException(status_code=408, detail="Assembly timeout - file took too long to assemble")
-        
-        if status.get("status") != ChunkUploadStatus.COMPLETED:
-            raise HTTPException(status_code=400, detail="File not yet assembled or assembly failed")
-
-        # Locate assembled file path
-        temp_dir = Path(get_data_dir()) / "temp_uploads"
-        assembled = next(temp_dir.glob(f"complete_{payload.file_id}_*"), None)
-        if not assembled or not assembled.exists():
-            raise HTTPException(status_code=404, detail="Assembled file not found on disk")
-
-        # Validate destination folder exists and user has access
-        folder_res = await db.execute(
-            select(ArchiveFolder).where(
-                and_(
-                    ArchiveFolder.uuid == payload.folder_uuid,
-                    ArchiveFolder.created_by == current_user.uuid
-                )
-            )
-        )
-        folder = folder_res.scalar_one_or_none()
-        if not folder:
-            raise HTTPException(status_code=404, detail="Target folder not found or access denied")
-
-        # Validate file size
-        assembled_file_size = assembled.stat().st_size
-        try:
-            validate_file_size(assembled_file_size, MAX_FILE_SIZE)
-        except Exception as e:
-            # Clean up assembled file
-            try:
-                assembled.unlink()
-            except Exception:
-                pass
-            raise HTTPException(status_code=413, detail=str(e))
-
-        # Prepare destination directory using UUID-based path hierarchy
-        filesystem_path = await get_filesystem_path(folder.uuid, db, current_user.uuid)
-        dest_dir = Path(get_file_storage_dir()) / "archive" / filesystem_path.strip("/")
-        dest_dir.mkdir(parents=True, exist_ok=True)
-
-        stored_filename = f"{uuid_lib.uuid4()}{assembled.suffix}"
-        dest_path = dest_dir / stored_filename
-        
-        # Move file with robust error handling for Windows file locking
-        original_size = assembled.stat().st_size
-        try:
-            # On Windows, rename can fail if destination exists and is locked
-            if dest_path.exists():
-                # Try to remove existing file first (Windows-specific issue)
-                try:
-                    dest_path.unlink()
-                except PermissionError:
-                    # File is locked, try alternative approach
-                    import shutil
-                    shutil.move(str(assembled), str(dest_path))
-                else:
-                    # File removed successfully, now rename
-                    assembled.rename(dest_path)
-            else:
-                # Destination doesn't exist, safe to rename
-                assembled.rename(dest_path)
-            
-            # SECURITY: Verify file integrity after move
-            if not dest_path.exists():
-                raise Exception("Destination file does not exist after move")
-            
-            moved_size = dest_path.stat().st_size
-            if moved_size != original_size:
-                # File size mismatch - move may have corrupted the file
-                logger.error(f"ERROR: File size mismatch after move: original={original_size}, moved={moved_size}")
-                # Clean up corrupted file
-                try:
-                    dest_path.unlink()
-                except Exception:
-                    pass
-                raise Exception(f"File integrity check failed: size mismatch ({original_size} vs {moved_size})")
-            
-            logger.info(f"SUCCESS: File moved successfully with integrity verified: {original_size} bytes")
-            
-        except Exception as e:
-            logger.error(f"ERROR: Failed to move assembled file: {str(e)}")
-            # Clean up assembled file on failure
-            try:
-                if assembled.exists():
-                    assembled.unlink()
-            except Exception:
-                pass
-            raise HTTPException(status_code=500, detail="Failed to move file to archive location")
-
-        # Get final file size for database operations  
-        final_file_size = dest_path.stat().st_size
-        
-        # Create archive item using shared helper
-        item = await _create_archive_item(
+        # Commit upload through unified upload service
+        archive_item = await unified_upload_service.commit_upload(
             db=db,
-            file_path=dest_path,
-            folder_uuid=payload.folder_uuid,
-            original_filename=assembled.name,
-            stored_filename=stored_filename,
-            mime_type=status.get("mime_type", "application/octet-stream"),
-            file_size=final_file_size,
+            upload_id=payload.file_id,
+            module="archive",
             created_by=current_user.uuid,
-            name=payload.name,
-            description=payload.description,
-            tags=payload.tags
+            metadata={
+                "name": payload.name,
+                "description": payload.description,
+                "folder_uuid": payload.folder_uuid
+            }
         )
-        
-        await db.commit()
-        await db.refresh(item)
 
-        # Remove tracking from chunk manager
-        if payload.file_id in chunk_manager.uploads:
-            del chunk_manager.uploads[payload.file_id]
+        # Index in search (DB already committed by service)
+        await search_service.index_item(db, archive_item, 'archive_item')
 
-        logger.info(f"SUCCESS: Committed chunked upload '{item.original_filename}' to folder '{folder.name}' for user {current_user.username}")
-        
-        return await _get_item_with_relations(db, item.uuid)
+        logger.info(f"Archive file committed successfully: {archive_item.uuid}")
+        return ItemResponse(
+            uuid=archive_item.uuid,
+            name=archive_item.name,
+            description=archive_item.description,
+            original_filename=archive_item.original_filename,
+            stored_filename=archive_item.stored_filename,
+            file_size=archive_item.file_size,
+            mime_type=archive_item.mime_type,
+            folder_uuid=archive_item.folder_uuid,
+            created_at=archive_item.created_at,
+            updated_at=archive_item.updated_at
+        )
         
     except HTTPException:
         # Re-raise HTTP exceptions as-is
@@ -2246,13 +2098,6 @@ async def commit_uploaded_file(
     except Exception as e:
         logger.error(f"ERROR: Error committing chunked upload: {str(e)}")
         await db.rollback()
-        
-        # Clean up destination file if it was created
-        try:
-            if 'dest_path' in locals() and dest_path.exists():
-                dest_path.unlink()
-        except Exception as cleanup_error:
-            logger.error(f"ERROR: Failed to cleanup destination file: {str(cleanup_error)}")
         
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

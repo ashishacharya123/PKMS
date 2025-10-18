@@ -21,6 +21,7 @@ export interface Note {
   uuid: string;
   title: string;
   content: string;
+  description?: string;  // Brief description for FTS5 search
   file_count: number;
   is_favorite: boolean;
   is_archived: boolean;
@@ -31,8 +32,6 @@ export interface Note {
   projects: ProjectBadge[];
   
   // Additional metadata fields
-  /** Type/category of the note (e.g., 'meeting', 'idea', 'task') */
-  note_type?: string;
   /** Version number for note content tracking */
   version?: number;
 }
@@ -52,7 +51,6 @@ export interface NoteSummary {
   projects: ProjectBadge[];
   
   // NEW: Additional fields
-  note_type?: string;
   version?: number;
 }
 
@@ -64,6 +62,7 @@ export interface NoteFile {
   file_size: number;
   mime_type: string;
   description?: string;
+  is_deleted: boolean;  // Consistent soft delete
   created_at: string;
 }
 

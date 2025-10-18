@@ -7,6 +7,8 @@ import re
 # UUID4 regex pattern - hoisted to module scope for performance
 UUID4_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
 
+from app.schemas.project import ProjectBadge
+
 class CamelCaseModel(BaseModel):
     model_config = ConfigDict(
         alias_generator=to_camel,
@@ -14,16 +16,10 @@ class CamelCaseModel(BaseModel):
         from_attributes=True
     )
 
-class ProjectBadge(CamelCaseModel):
-    """Project badge for displaying project associations on items"""
-    uuid: Optional[str] = None  # None if project is deleted (snapshot)
-    name: str
-    color: str
-    is_exclusive: bool
-    is_deleted: bool  # True if project was deleted (using snapshot name)
 
 class NoteCreate(CamelCaseModel):
     title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=500)  # Brief description for FTS5 search
     content: str = Field(..., min_length=0, max_length=50000)
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
     project_ids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this note to")
@@ -46,6 +42,7 @@ class NoteCreate(CamelCaseModel):
 
 class NoteUpdate(CamelCaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=500)  # Brief description for FTS5 search
     content: Optional[str] = Field(None, min_length=0, max_length=50000)
     tags: Optional[List[str]] = Field(None, max_items=20)
     is_archived: Optional[bool] = None
@@ -110,3 +107,4 @@ class CommitNoteFileRequest(CamelCaseModel):
     file_id: str
     note_uuid: str
     description: Optional[str] = Field(None, max_length=500)
+    display_order: Optional[int] = Field(0, ge=0, description="Order of display (0 = first)")

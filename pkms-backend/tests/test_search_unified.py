@@ -65,7 +65,7 @@ async def test_unified_search_item_types_and_offset(async_client: AsyncClient, d
 async def test_unified_search_has_attachments_for_documents(async_client: AsyncClient, db_session: AsyncSession, test_user):
     # Seed: doc with filename (attachment) and one without (edge)
     doc_with = Document(uuid="doc-a", created_by=test_user.uuid, title="Doc A", filename="a.pdf", file_path="assets/documents/a.pdf", file_size=10, mime_type="application/pdf")
-    doc_without = Document(uuid="doc-b", created_by=test_user.uuid, title="Doc B", filename=None, file_path="", file_size=0, mime_type="application/pdf")
+    doc_without = Document(uuid="doc-b", created_by=test_user.uuid, title="Doc B", filename="", file_path="", file_size=0, mime_type="application/pdf")
     db_session.add_all([doc_with, doc_without])
     await db_session.commit()
 

@@ -3,9 +3,9 @@ from pydantic.alias_generators import to_camel
 from typing import Optional, List
 from datetime import datetime, date
 
-from app.models.enums import TodoStatus
+from app.models.enums import TodoStatus, TaskPriority
+from app.schemas.project import ProjectBadge
 
-VALID_PRIORITIES = [1, 2, 3, 4]  # 1=low, 2=medium, 3=high, 4=urgent
 
 class CamelCaseModel(BaseModel):
     model_config = ConfigDict(
@@ -14,13 +14,6 @@ class CamelCaseModel(BaseModel):
         from_attributes=True
     )
 
-class ProjectBadge(CamelCaseModel):
-    """Project badge for displaying project associations on items"""
-    uuid: Optional[str] = None  # None if project is deleted (snapshot)
-    name: str
-    color: str
-    is_exclusive: bool
-    is_deleted: bool  # True if project was deleted (using snapshot name)
 
 class TodoCreate(CamelCaseModel):
     title: str = Field(..., min_length=1)
@@ -40,22 +33,25 @@ class TodoCreate(CamelCaseModel):
         return v
     start_date: Optional[date] = None
     due_date: Optional[date] = None
-    priority: int = 2
+    priority: TaskPriority = TaskPriority.MEDIUM
 
 class TodoBase(BaseModel):
     title: str
     description: Optional[str] = None
     status: TodoStatus = TodoStatus.PENDING
     order_index: int = 0
-    priority: int = 2
+    priority: TaskPriority = TaskPriority.MEDIUM
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
     is_archived: Optional[bool] = False
 
     @field_validator('priority')
-    def validate_priority(cls, v: int):
-        if v not in VALID_PRIORITIES:
-            raise ValueError('Priority must be 1 (low), 2 (medium), 3 (high), or 4 (urgent)')
-        return v
+    def validate_priority(cls, v):
+        if isinstance(v, str):
+            return TaskPriority(v)
+        elif isinstance(v, TaskPriority):
+            return v
+        else:
+            raise ValueError('Priority must be a TaskPriority enum or string (low, medium, high, urgent)')
 
 class TodoUpdate(CamelCaseModel):
     title: Optional[str] = Field(None, min_length=1)
@@ -77,16 +73,21 @@ class TodoUpdate(CamelCaseModel):
         return v
     start_date: Optional[date] = None
     due_date: Optional[date] = None
-    priority: Optional[int] = None
+    priority: Optional[TaskPriority] = None
     tags: Optional[List[str]] = Field(None, max_items=20)
     is_archived: Optional[bool] = None
     is_favorite: Optional[bool] = None
 
     @field_validator('priority')
-    def validate_priority(cls, v: Optional[int]):
-        if v is not None and v not in VALID_PRIORITIES:
-            raise ValueError('Priority must be 1 (low), 2 (medium), 3 (high), or 4 (urgent)')
-        return v
+    def validate_priority(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, str):
+            return TaskPriority(v)
+        elif isinstance(v, TaskPriority):
+            return v
+        else:
+            raise ValueError('Priority must be a TaskPriority enum or string (low, medium, high, urgent)')
 
 class TodoResponse(CamelCaseModel):
     uuid: str
@@ -96,9 +97,9 @@ class TodoResponse(CamelCaseModel):
     is_archived: bool
     is_favorite: bool
     is_exclusive_mode: bool
-    priority: int
-    project_uuid: Optional[str]  # Legacy single project
-    project_name: Optional[str]  # Legacy single project name
+    priority: TaskPriority
+    project_uuid: Optional[str]  # Single project reference
+    project_name: Optional[str]  # Single project name
     order_index: int = 0
     parent_uuid: Optional[str] = None
     subtasks: List['TodoResponse'] = Field(default_factory=list)
@@ -115,18 +116,3 @@ class TodoResponse(CamelCaseModel):
         """Computed property: todo is completed if status is 'done'"""
         return self.status == TodoStatus.DONE
 
-class ProjectCreate(CamelCaseModel):
-    name: str
-    description: Optional[str] = None
-    color: Optional[str] = None
-    tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
-
-class ProjectResponse(CamelCaseModel):
-    uuid: str
-    name: str
-    description: Optional[str]
-    color: Optional[str]
-    is_archived: bool
-    todo_count: int = 0
-    completed_count: int = 0
-    tags: List[str] = Field(default_factory=list)

@@ -21,19 +21,20 @@ class Note(Base):
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
     
     title = Column(String(255), nullable=False, index=True)
+    description = Column(Text, nullable=True)  # Brief description for FTS5 search
     content = Column(Text, nullable=False)
-    size_bytes = Column(BigInteger, default=0, nullable=False)  # Size of content in bytes
+    size_bytes = Column(BigInteger, default=0, nullable=False)  # Calculated on the fly and stored for analytics
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
-    is_exclusive_mode = Column(Boolean, default=False, index=True)  # If True, note is deleted when any of its projects are deleted
+    is_exclusive_mode = Column(Boolean, default=False, index=True)  # If True, note is deleted when any of its projects are deleted (project-exclusive)
+    # Ownership
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
 
     # Audit trail
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
-    
-    
-    # Classification
-    note_type = Column(String(50), default='general', index=True)  # general, meeting, idea, reference
+
+    # note_type removed - use tags for classification instead
     
     # Lightweight Versioning (diff-based)
     version = Column(Integer, default=1)
@@ -42,27 +43,33 @@ class Note(Base):
     
     # Soft Delete
     is_deleted = Column(Boolean, default=False, index=True)
+    # Derived counts
+    file_count = Column(Integer, default=0, nullable=False)
     
     # Search optimization removed - word_count and reading_time_minutes not needed
     
     
     # Relationships
-    user = relationship("User", back_populates="notes")
+    user = relationship("User", back_populates="notes", foreign_keys=[created_by])
     tag_objs = relationship("Tag", secondary=note_tags, back_populates="notes")
     files = relationship("NoteFile", back_populates="note", cascade="all, delete-orphan")
     projects = relationship("Project", secondary=note_projects, back_populates="notes")
     
+    def get_size_bytes(self):
+        """Calculate content size in bytes on the fly"""
+        return len(self.content.encode('utf-8')) if self.content else 0
+
     def __repr__(self):
         return f"<Note(uuid={self.uuid}, title='{self.title}')>"
 
 
 class NoteFile(Base):
     """Note file attachments"""
-    
+
     __tablename__ = "note_files"
-    
+
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
-    
+
     note_uuid = Column(String(36), ForeignKey("notes.uuid", ondelete="CASCADE"), nullable=False, index=True)
     filename = Column(String(255), nullable=False)
     original_name = Column(String(255), nullable=False)
@@ -70,14 +77,16 @@ class NoteFile(Base):
     file_size = Column(BigInteger, nullable=False)
     mime_type = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)  # Optional description/caption
-    is_archived = Column(Boolean, default=False, index=True)
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)  # Who uploaded this file
+    display_order = Column(Integer, default=0, nullable=False)  # Order of display within note (0 = first)
+    is_deleted = Column(Boolean, default=False, index=True)  # Consistent soft delete
+    # created_by removed - redundant, already in parent note
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
 
     # Relationships
     note = relationship("Note", back_populates="files")
-    user = relationship("User", back_populates="note_files")
+    # user relationship removed - created_by field removed
+    # is_exclusive_mode removed - always exclusive to parent note (cascade handles this)
     
     def __repr__(self):
         return f"<NoteFile(uuid={self.uuid}, filename='{self.filename}')>" 

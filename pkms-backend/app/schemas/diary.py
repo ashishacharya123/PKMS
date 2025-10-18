@@ -266,8 +266,8 @@ class WeeklyHighlights(CamelCaseModel):
     # Period info (calculated on the fly)
     period_start: str
     period_end: str
-    total_days: int
-    days_with_data: int
+    total_days: int = 7
+    days_with_data: int = 0
 
     # Summary metrics (for top cards)
     notes_created: int
@@ -275,59 +275,59 @@ class WeeklyHighlights(CamelCaseModel):
     todos_completed: int
     diary_entries: int
     archive_items_added: int
-    projects_created: int  # TODO: Remove when project model is separated
-    projects_completed: int  # TODO: Remove when project model is separated
+    projects_created: int = 0  # TODO: Remove when project model is separated
+    projects_completed: int = 0  # TODO: Remove when project model is separated
     total_income: float
     total_expense: float
     net_savings: float
 
     # Wellness metrics (calculated from diary entries)
-    wellness_score: Optional[float]  # 0-100 composite score
-    average_mood: Optional[float]
-    average_sleep: Optional[float]
+    wellness_score: Optional[float] = None  # 0-100 composite score
+    average_mood: Optional[float] = None
+    average_sleep: Optional[float] = None
     
     # Mood data
-    mood_trend: List[WellnessTrendPoint]
-    mood_distribution: Dict[int, int]
+    mood_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    mood_distribution: Dict[int, int] = Field(default_factory=dict)
     
     # Sleep data
-    sleep_trend: List[WellnessTrendPoint]
-    sleep_quality_days: int  # Days with 7+ hours
+    sleep_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    sleep_quality_days: int = 0  # Days with 7+ hours
     
     # Exercise data
-    exercise_trend: List[WellnessTrendPoint]
-    days_exercised: int
-    exercise_frequency_per_week: float
-    average_exercise_minutes: Optional[float]
+    exercise_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    days_exercised: int = 0
+    exercise_frequency_per_week: float = 0.0
+    average_exercise_minutes: Optional[float] = None
     
     # Screen time
-    screen_time_trend: List[WellnessTrendPoint]
-    average_screen_time: Optional[float]
+    screen_time_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    average_screen_time: Optional[float] = None
     
     # Energy & Stress
-    energy_trend: List[WellnessTrendPoint]
-    stress_trend: List[WellnessTrendPoint]
-    average_energy: Optional[float]
-    average_stress: Optional[float]
+    energy_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    stress_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    average_energy: Optional[float] = None
+    average_stress: Optional[float] = None
     
     # Hydration
-    hydration_trend: List[WellnessTrendPoint]
-    average_water_intake: Optional[float]
+    hydration_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    average_water_intake: Optional[float] = None
     
     # Mental wellness habits
-    meditation_days: int
-    gratitude_days: int
-    social_interaction_days: int
+    meditation_days: int = 0
+    gratitude_days: int = 0
+    social_interaction_days: int = 0
     
     # Correlations (for scatter plots)
-    mood_sleep_correlation: List[Dict[str, Optional[float]]]  # [{mood, sleep}, ...]
-    correlation_coefficient: Optional[float]  # Pearson r for mood vs sleep
+    mood_sleep_correlation: List[Dict[str, Optional[float]]] = Field(default_factory=list)  # [{mood, sleep}, ...]
+    correlation_coefficient: Optional[float] = None  # Pearson r for mood vs sleep
     
     # Wellness score breakdown (for radar chart)
-    wellness_components: Dict[str, float]  # {sleep: 85, exercise: 60, mental: 75, ...}
+    wellness_components: Dict[str, float] = Field(default_factory=dict)  # {sleep: 85, exercise: 60, mental: 75, ...}
     
     # Insights
-    insights: List[Dict[str, str]]  # [{type: 'positive', message: '...', metric: 'sleep'}, ...]
+    insights: List[Dict[str, str]] = Field(default_factory=list)  # [{type: 'positive', message: '...', metric: 'sleep'}, ...]
 
 
 class DiaryDailyMetadata(CamelCaseModel):
@@ -379,6 +379,7 @@ class DiaryMediaResponse(CamelCaseModel):
     mime_type: str
     size_bytes: int
     media_type: str
+    display_order: int
     duration_seconds: Optional[int]
     created_at: datetime
 
@@ -401,7 +402,7 @@ class CommitDiaryMediaRequest(CamelCaseModel):
     entry_id: str
     caption: Optional[str] = None
     media_type: str = Field(..., description="Type: photo, video, voice")
-
+    display_order: Optional[int] = Field(0, ge=0, description="Order of display (0 = first)")
 
     @validator('media_type')
     def validate_media_type(cls, v):

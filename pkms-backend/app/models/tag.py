@@ -12,10 +12,11 @@ from uuid import uuid4
 
 from app.models.base import Base
 from app.config import nepal_now
-from app.models.enums import ModuleType
+# ModuleType removed - tags are now universal across all modules
 from app.models.tag_associations import (
-    note_tags, document_tags, todo_tags, project_tags, 
-    archive_item_tags, archive_folder_tags, diary_entry_tags, link_tags
+    note_tags, document_tags, todo_tags, project_tags,
+    archive_item_tags, archive_folder_tags, diary_entry_tags
+    # link_tags removed - links module deleted
 )
 
 
@@ -33,18 +34,16 @@ class Tag(Base):
     # CRITICAL: Tracks usage for cleanup and UI sorting.
     usage_count = Column(Integer, default=0, nullable=False)
     
-    # CRITICAL: Differentiates tags for different modules (e.g., 'notes', 'todos').
-    module_type = Column(Enum(ModuleType), nullable=False, index=True)
-    
+    # Simplified: Universal tags work across all modules - no module_type separation needed
     is_system = Column(Boolean, default=False, index=True)  # System tags can't be deleted
     is_archived = Column(Boolean, default=False, index=True)
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     
-    # CRITICAL: Ensures a user can't have the same tag name within the same module.
+    # CRITICAL: Ensures a user can't have duplicate tag names (universal across all modules).
     __table_args__ = (
-        UniqueConstraint('name', 'created_by', 'module_type', name='_user_module_tag_uc'),
+        UniqueConstraint('name', 'created_by', name='_user_tag_uc'),
     )
     
     # Relationships
@@ -58,7 +57,7 @@ class Tag(Base):
     archive_items = relationship("ArchiveItem", secondary=archive_item_tags, back_populates="tag_objs")
     archive_folders = relationship("ArchiveFolder", secondary=archive_folder_tags, back_populates="tag_objs")
     diary_entries = relationship("DiaryEntry", secondary=diary_entry_tags, back_populates="tag_objs")
-    links = relationship("Link", secondary=link_tags, back_populates="tag_objs")
-    
+    # links relationship removed - links module deleted
+
     def __repr__(self):
-        return f"<Tag(uuid={self.uuid}, name='{self.name}', module='{self.module_type}')>" 
+        return f"<Tag(uuid={self.uuid}, name='{self.name}')>" 

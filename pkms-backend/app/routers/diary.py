@@ -2,8 +2,9 @@
 Diary Router for Personal Journal and Diary Entries
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile, Request
+from fastapi.responses import FileResponse, Response
+import hashlib
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, extract, or_, text
 from sqlalchemy.orm import selectinload, aliased
@@ -37,6 +38,8 @@ from app.models.tag_associations import diary_entry_tags
 from app.services.chunk_service import chunk_manager, ChunkUploadStatus
 from app.services.tag_service import tag_service
 from app.services.search_service import search_service
+from app.services.diary_crypto_service import DiaryCryptoService
+from app.services.unified_upload_service import unified_upload_service
 from app.models.enums import ModuleType
 from app.schemas.diary import (
     DiaryEntryCreate,
@@ -62,6 +65,9 @@ from app.schemas.diary import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["diary"])
+
+# Initialize diary crypto service
+diary_crypto_service = DiaryCryptoService(_diary_sessions, _diary_sessions_lock)
 
 WEATHER_CODE_DEFAULT = None
 
@@ -586,7 +592,7 @@ async def create_diary_entry(
             created_by=current_user.uuid,
             encryption_iv=entry_data.encryption_iv,
             encryption_tag=None,
-            daily_metadata_id=daily_metadata.uuid if daily_metadata else None,
+            # daily_metadata_id removed - now uses natural date relationship
         )
         
         db.add(entry)
@@ -751,7 +757,10 @@ async def list_diary_entries(
                 DiaryEntry.content_length,
             )
             .outerjoin(media_count_subquery, DiaryEntry.uuid == media_count_subquery.c.diary_entry_uuid)
-            .outerjoin(daily_metadata_alias, DiaryEntry.daily_metadata_id == daily_metadata_alias.uuid)
+            .outerjoin(daily_metadata_alias, and_(
+                DiaryEntry.created_by == daily_metadata_alias.created_by,
+                func.date(DiaryEntry.date) == func.date(daily_metadata_alias.date)
+            ))  # Natural date+user matching instead of FK relationship
             .where(and_(DiaryEntry.uuid.in_(uuid_list), DiaryEntry.created_by == current_user.uuid))
         )
         # Apply other filters
@@ -824,7 +833,10 @@ async def list_diary_entries(
                 DiaryEntry.content_length,
             )
             .outerjoin(media_count_subquery, DiaryEntry.uuid == media_count_subquery.c.diary_entry_uuid)
-            .outerjoin(daily_metadata_alias, DiaryEntry.daily_metadata_id == daily_metadata_alias.uuid)
+            .outerjoin(daily_metadata_alias, and_(
+                DiaryEntry.created_by == daily_metadata_alias.created_by,
+                func.date(DiaryEntry.date) == func.date(daily_metadata_alias.date)
+            ))  # Natural date+user matching instead of FK relationship
             .where(DiaryEntry.created_by == current_user.uuid)
         )
         # Apply year/month via date-range for index usage
@@ -965,7 +977,7 @@ async def get_diary_entry_by_id(
         raise HTTPException(status_code=401, detail="Diary is locked. Please unlock first.")
     
     try:
-        # Allow lookup by uuid only (legacy id support removed)
+        # Lookup by uuid
         condition = DiaryEntry.uuid == entry_ref
 
         result = await db.execute(
@@ -1100,7 +1112,7 @@ async def update_diary_entry(
     db: AsyncSession = Depends(get_db)
 ):
     """Update an existing diary entry."""
-    # Allow lookup by uuid only (legacy id support removed)
+    # Lookup by uuid
     condition = DiaryEntry.uuid == entry_ref
 
     result = await db.execute(
@@ -1135,7 +1147,7 @@ async def update_diary_entry(
             daily_expense=entry_data.daily_expense,
             is_office_day=entry_data.is_office_day,
         )
-        entry.daily_metadata_id = daily_metadata.uuid
+        # daily_metadata_id assignment removed - now uses natural date relationship
     if entry_data.is_template is not None:
         entry.is_template = entry_data.is_template
     if entry_data.from_template_id is not None:
@@ -1267,7 +1279,7 @@ async def delete_diary_entry(
                 detail="Diary is locked. Please unlock diary first."
             )
 
-        # Allow lookup by uuid only (legacy id support removed)
+        # Lookup by uuid
         condition = DiaryEntry.uuid == entry_ref
 
         result = await db.execute(
@@ -1373,18 +1385,9 @@ async def commit_diary_media_upload(
 ):
     """Finalize a previously chunk-uploaded diary media file: encrypt it and create DB record.
     
-    Uses the core chunk upload service for efficient uploading, then applies diary-specific
-    encryption with the naming scheme: {date}_{diary_id}_{media_id}.dat
+    Uses the file commit consistency service with encryption callback for atomic operations and orphan prevention.
     """
     try:
-        # Check if diary is unlocked first
-        diary_password = await _get_diary_password_from_session(current_user.uuid)
-        if not diary_password:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Diary is locked. Please unlock diary first."
-            )
-            
         # Verify diary entry exists and belongs to user
         entry_result = await db.execute(
             select(DiaryEntry).where(
@@ -1401,150 +1404,34 @@ async def commit_diary_media_upload(
                 detail="Diary entry not found"
             )
 
-        # Create DiaryMedia record first to get the ID for filename
-        diary_media = DiaryMedia(
-            uuid=str(uuid_lib.uuid4()),
-            diary_entry_uuid=entry.uuid,
+        # Commit upload through unified upload service with encryption callback
+        diary_media = await unified_upload_service.commit_upload(
+            db=db,
+            upload_id=payload.file_id,
+            module="diary",
             created_by=current_user.uuid,
-            filename="temp",  # Will be updated with proper name
-            original_name="",
-            file_path="temp",  # Will be updated
-            file_size=0,  # Placeholder, will be updated after encryption
-            mime_type="application/octet-stream",  # Default, will be updated
-            media_type=payload.media_type,
-            caption=payload.caption,
-            is_encrypted=True
-        )
-        
-        db.add(diary_media)
-        await db.flush()  # Get the ID without committing
-
-        # Generate proper filename using the naming scheme: {date}_{diary_id}_{media_id}.dat
-        entry_date = entry.date.strftime("%Y-%m-%d")
-        encrypted_filename = f"{entry_date}_{entry.uuid}_{diary_media.uuid}.dat"
-
-        # Check assembled file status
-        status_obj = await chunk_manager.get_upload_status(payload.file_id)
-        if not status_obj or status_obj.get("status") != ChunkUploadStatus.COMPLETED:
-            raise HTTPException(status_code=400, detail="File not yet assembled")
-
-        # SECURITY: Locate assembled file path with validation
-        temp_dir = Path(get_data_dir()) / "temp_uploads"
-        
-        # Validate file_id to prevent path traversal
-        if not payload.file_id or not payload.file_id.replace('-', '').replace('_', '').isalnum():
-            raise HTTPException(status_code=400, detail="Invalid file ID format")
-        
-        # Use safe glob pattern
-        assembled = next(temp_dir.glob(f"complete_{payload.file_id}_*"), None)
-        if not assembled:
-            raise HTTPException(status_code=404, detail="Assembled file not found")
-        
-        # Additional security: ensure file is within temp directory
-        try:
-            assembled.resolve().relative_to(temp_dir.resolve())
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid file path")
-
-        # Prepare destination directory
-        media_dir = get_file_storage_dir() / "secure" / "entries" / "media"
-        media_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Use temporary path first, move to final after DB commit
-        temp_encrypted_file_path = media_dir / f"temp_{encrypted_filename}"
-        final_encrypted_file_path = media_dir / encrypted_filename
-
-        # Read the assembled file content for encryption
-        with open(assembled, "rb") as f:
-            file_content = f.read()
-
-        # SECURITY: Use proper diary password-based encryption
-        import os
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        
-        # SECURITY: Generate cryptographically secure IV
-        import secrets
-        iv = secrets.token_bytes(12)  # 96-bit IV for AES-GCM
-        # Note: 96-bit random IVs have astronomically low collision probability
-        # No need to scan database for uniqueness
-        
-        # SECURITY: Atomic check and retrieval to prevent race conditions
-        async with _get_session_lock():
-            session = _diary_sessions.get(current_user.uuid)
-            if not session or time.time() > session["expires_at"]:
-                await _clear_diary_session(current_user.uuid)
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Diary session expired. Please unlock diary again."
-                )
-            # Make a copy of the key while holding the lock
-            encryption_key = session["key"]
-        
-        # Use the copied key outside the lock
-        aesgcm = AESGCM(encryption_key)
-        
-        # Encrypt the file content using user's unique key
-        encrypted_content = aesgcm.encrypt(iv, file_content, None)
-        
-        logger.info(f"Media encrypted using user-specific diary password for user {current_user.uuid}")
-        
-        # Extract file extension (strip leading dot)
-        file_extension = assembled.suffix.lstrip('.').lower() if assembled.suffix else ""
-        
-        # Use diary_encryption utility to write the encrypted file to TEMPORARY location
-        # write_encrypted_file expects ciphertext+tag (full encrypted_content)
-        write_encrypted_file(
-            dest_path=temp_encrypted_file_path,
-            iv_b64=base64.b64encode(iv).decode(),
-            encrypted_blob_b64=base64.b64encode(encrypted_content).decode(),  # Full output (ciphertext+tag)
-            original_extension=file_extension
+            metadata={
+                "entry_id": payload.entry_id,
+                "media_type": payload.media_type,
+                "caption": payload.caption,
+                "display_order": payload.display_order,
+                "entry_date": entry.date,
+                "entry_uuid": entry.uuid
+            },
+            # Special: encryption callback for diary
+            pre_commit_callback=lambda src: diary_crypto_service.encrypt_media_file(
+                source_file_path=src,
+                entry_date=entry.date,
+                entry_uuid=entry.uuid,
+                media_uuid=str(uuid_lib.uuid4()),
+                user_uuid=current_user.uuid
+            )
         )
 
-        # Get file size before database operations
-        assembled_file_size = assembled.stat().st_size
-        
-        # Update the DiaryMedia record with proper values
-        diary_media.filename = encrypted_filename
-        diary_media.file_path = str(final_encrypted_file_path)  # Use final path for DB record
-        diary_media.file_size = assembled_file_size
-        diary_media.mime_type = status_obj.get("mime_type", "application/octet-stream")
-
-        # Calculate and update entry media count
-        media_count_result = await db.execute(
-            select(func.count(DiaryMedia.uuid)).where(DiaryMedia.diary_entry_uuid == entry.uuid)
-        )
-        new_media_count = media_count_result.scalar() or 0
-        entry.media_count = new_media_count
-
-        await db.commit()
+        # All file operations, media count updates, and cleanup are handled by the unified upload service
         await db.refresh(diary_media)
 
-        # SECURITY: Move encrypted file to final location ONLY after successful DB commit
-        try:
-            temp_encrypted_file_path.rename(final_encrypted_file_path)
-            logger.info(f"SUCCESS: Encrypted file moved to final location: {final_encrypted_file_path}")
-        except Exception as move_error:
-            logger.error(f"ERROR: Failed to move encrypted file to final location: {move_error}")
-            # Clean up temp file
-            try:
-                if await asyncio.to_thread(temp_encrypted_file_path.exists):
-                    await asyncio.to_thread(temp_encrypted_file_path.unlink)
-            except Exception:
-                pass
-            raise HTTPException(status_code=500, detail="Failed to finalize encrypted file storage")
-
-        # Clean up temporary assembled file
-        try:
-            await asyncio.to_thread(assembled.unlink)
-            logger.debug(f"Cleaned up temporary file: {assembled}")
-        except Exception as e:
-            logger.warning(f"Failed to cleanup temporary file: {e}")
-
-        # Remove tracking from chunk manager
-        if payload.file_id in chunk_manager.uploads:
-            del chunk_manager.uploads[payload.file_id]
-
-        logger.info(f"Diary media committed successfully: {encrypted_filename}")
+        logger.info(f"Diary media committed successfully: {diary_media.filename}")
         
         return DiaryMediaResponse(
             uuid=diary_media.uuid,
@@ -1553,6 +1440,7 @@ async def commit_diary_media_upload(
             mime_type=diary_media.mime_type,
             size_bytes=diary_media.file_size,
             media_type=diary_media.media_type,
+            display_order=diary_media.display_order,
             duration_seconds=None,  # Could be extracted for audio/video files
             created_at=diary_media.created_at
         )
@@ -1583,172 +1471,42 @@ async def commit_diary_media_upload(
 @router.get("/media/{media_uuid}/download")
 async def download_diary_media(
     media_uuid: str,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Download and decrypt diary media file.
-    
-    Returns the original decrypted file with proper content headers.
-    Requires diary to be unlocked.
+    """
+    Download encrypted diary media file.
+
+    Downloads the encrypted .dat file directly using the unified download service.
+    Client handles decryption. Consistent with all other file downloads.
     """
     try:
-        # SECURITY: Check diary is unlocked and get password from session  
-        diary_password = await _get_diary_password_from_session(current_user.uuid)
-        if not diary_password:
-            logger.warning(f"Diary not unlocked for download attempt by user {current_user.uuid}")
-            raise HTTPException(status_code=401, detail="Diary is locked. Please unlock first.")
-        
-        # Get media record
-        result = await db.execute(
-            select(DiaryMedia)
-            .join(DiaryEntry)
-            .where(
-                and_(
-                    DiaryMedia.uuid == media_uuid,
-                    DiaryEntry.created_by == current_user.uuid
-                )
-            )
+        # Use unified download service for consistent caching and behavior
+        from app.services.unified_download_service import unified_download_service
+
+        response = await unified_download_service.download_file(
+            db=db,
+            file_uuid=media_uuid,
+            module="diary",
+            user_uuid=current_user.uuid,
+            request=request
         )
-        media = result.scalar_one_or_none()
-        if not media:
-            raise HTTPException(status_code=404, detail="Media file not found")
-        
-        # Check if encrypted file exists
-        file_path = Path(media.file_path)
-        if not await asyncio.to_thread(file_path.exists):
-            raise HTTPException(status_code=404, detail="Media file not found on disk")
-        
-        # Decrypt the file and return decrypted content
-        try:
-            from app.utils.diary_encryption import read_encrypted_header
-            
-            # Read encrypted file header
-            extension, iv, tag, header_size = read_encrypted_header(file_path)
-            
-            # Read ciphertext after header
-            def _read_after_header(p: Path, offset: int) -> bytes:
-                with open(p, "rb") as f:
-                    f.seek(offset)
-                    return f.read()
-            ciphertext = await asyncio.to_thread(_read_after_header, file_path, header_size)
-            
-            # Decrypt using the same encryption key from diary session
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-            
-            # Get the encryption key from the current diary session (same key used for encryption)
-            async with _get_session_lock():
-                diary_session = _diary_sessions.get(current_user.uuid)
-                if not diary_session:
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Diary session expired. Please unlock diary again."
-                    )
-                
-                # SECURITY: Check if session has expired
-                current_time = time.time()
-                if current_time > diary_session["expires_at"]:
-                    logger.info(f"Diary session expired for user {current_user.uuid}")
-                    await _clear_diary_session(current_user.uuid)
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Diary session expired. Please unlock diary again."
-                    )
-                
-                # Copy the key while holding the lock
-                encryption_key = diary_session["key"]
-            
-            # Use the copied key outside the lock
-            aesgcm = AESGCM(encryption_key)
-            
-            # SECURITY: Decrypt the content with proper error handling
-            try:
-                decrypted_content = aesgcm.decrypt(iv, ciphertext + tag, None)
-            except Exception as decrypt_error:
-                logger.error(f"Decryption failed for media {media_uuid}: {str(decrypt_error)}")
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Failed to decrypt media file. The file may be corrupted or the encryption key may be invalid."
-                )
-            
-            # SECURITY: Use secure temporary file with proper lifecycle
-            import tempfile
-            import os
-            
-            # Create temporary file that will be cleaned up after streaming
-            temp_file = tempfile.NamedTemporaryFile(
-                delete=False,  # Let FileResponse handle cleanup
-                suffix=f".{extension}" if extension else "",
-                mode='wb'
-            )
-            
-            temp_file.write(decrypted_content)
-            temp_file.flush()
-            temp_file.close()  # Close but don't delete
-            
-            logger.info(f"Successfully decrypted media {media_uuid} for user {current_user.uuid}")
-            
-            # FileResponse will clean up after streaming
-            from starlette.background import BackgroundTask
-            return FileResponse(
-                path=temp_file.name,
-                filename=f"{media.original_name}",
-                media_type=media.mime_type,
-                headers={
-                    "X-Media-Type": media.media_type,
-                    "X-File-Size": str(len(decrypted_content)),
-                    "X-Is-Encrypted": "false"
-                },
-                background=BackgroundTask(os.unlink, temp_file.name)  # Cleanup after streaming
-            )
-            
-        except InvalidPKMSFile as e:
-            logger.error(f"Corrupt media file for media {media_uuid}: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Media file is corrupted or has invalid format: {str(e)}"
-            )
-        except FileNotFoundError:
-            logger.error(f"Media file not found for media {media_uuid}: {file_path}")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Media file not found on disk"
-            )
-        except PermissionError:
-            logger.error(f"Permission denied accessing media file {media_uuid}: {file_path}")
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Permission denied accessing media file"
-            )
-        except ValueError as e:
-            # Decryption failed (wrong password, corrupted data, etc.)
-            logger.error(f"Decryption failed for media {media_uuid}: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Failed to decrypt media file - invalid password or corrupted data"
-            )
-        except OSError as e:
-            logger.error(f"File system error for media {media_uuid}: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"File system error: {str(e)}"
-            )
-        except Exception as e:
-            # Catch any other unexpected errors during decryption/file handling
-            logger.error(f"Unexpected error during media decryption {media_uuid}: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An unexpected error occurred during media decryption"
-            )
-        
+
+        # Add diary-specific headers to indicate this is an encrypted file
+        if hasattr(response, 'headers'):
+            response.headers["X-Is-Encrypted"] = "true"
+            response.headers["X-Diary-Media"] = "true"
+
+        return response
+
     except HTTPException:
-        # Re-raise specific HTTP exceptions (from above)
         raise
     except Exception as e:
-        # Catch remaining unexpected errors (like database connection issues)
-        logger.error(f"Unexpected error downloading diary media {media_uuid}: {str(e)}")
+        logger.exception(f"Error downloading diary media {media_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred while downloading media"
+            detail=f"Failed to download media file: {str(e)}"
         )
 
 @router.get("/calendar/{year}/{month}", response_model=Dict[str, List[DiaryCalendarData]])

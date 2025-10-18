@@ -1,0 +1,61 @@
+# Documentation: Merging `feature/major-refactor` into `main`
+
+## 1. Introduction
+
+This document details the process and outcome of merging the `feature/major-refactor` branch into the `main` branch locally.
+
+### The Initial Situation
+We were faced with two parallel development histories:
+- **`main`**: This branch was up-to-date with the remote repository and contained the work from the `feature/system-recovery-oct14` branch.
+- **`feature/major-refactor`**: This branch contained approximately 21 commits of significant work that had not been merged, including major architectural changes.
+
+### The Goal
+To combine both sets of features into the `main` branch to create a single, unified, and up-to-date version of the application.
+
+### The Strategy
+Instead of the recommended Pull Request workflow on GitHub, the decision was made to attempt a direct local merge and document the outcome.
+
+---
+
+## 2. The Merge Process and Outcome
+
+A local merge was initiated from the `main` branch with the command:
+```
+git merge feature/major-refactor
+```
+
+**Outcome: Successful Automatic Merge**
+
+Surprisingly, despite the extensive and parallel changes, Git's "ort" merge strategy was able to automatically merge the branches **without any conflicts**.
+
+This indicates that the changes in `main` (from `feature/system-recovery-oct14`) and the changes in `feature/major-refactor` did not overlap on the same lines of code. The merge commit was created successfully, unifying the two histories.
+
+---
+
+## 3. Summary of Merged Features
+
+The `main` branch is now significantly more advanced. The key features and architectural changes that were integrated from the `feature/major-refactor` branch include:
+
+- **Major Service-Layer Refactoring:**
+  A complete overhaul of the backend service layer, introducing new services like `FileManagementService`, `ProjectService`, and a new `SearchService`.
+
+- **Advanced Search Implementation:**
+  A more advanced search system, including components for hybrid search, was integrated.
+
+- **True UUID Primary Keys:**
+  The database schema and models were updated to use UUIDs as the actual primary keys, rather than integer IDs. This is a more robust and modern approach to data architecture.
+
+- **Note Versioning System:**
+  A lightweight versioning system for notes was added, allowing for tracking changes to notes over time.
+
+- **Soft Delete Functionality:**
+  The models were updated to support "soft deletes", which will allow for the recovery of deleted items.
+
+- **New Frontend Features:**
+  Several new frontend components were added, including a `FavoritesCard` and `StorageBreakdownCard` for the dashboard, and a `WeeklyHighlightsPanel` for the diary.
+
+---
+
+## 4. Conclusion
+
+The merge was successful. The `main` branch now contains the complete and unified feature set from both development histories. The `feature/major-refactor` branch can now be safely deleted.

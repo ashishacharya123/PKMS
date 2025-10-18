@@ -2,12 +2,12 @@
 Service for handling tag-related business logic.
 """
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func
-from sqlalchemy.orm import joinedload
-from typing import List, Type
+from sqlalchemy import select, delete, func, Table
+from typing import List, Type, Optional
 
 from app.models.tag import Tag
 from app.models.base import Base
+from app.models.enums import ModuleType
 
 class TagService:
     async def handle_tags(
@@ -16,8 +16,8 @@ class TagService:
         item: Base,
         new_tag_names: List[str],
         created_by: str,
-        module_type: str,
-        association_table: Type[Base]
+        module_type: Optional[ModuleType],  # Now optional - tags are universal
+        association_table: Table
     ):
         """
         Handles the association and usage count of tags for a given item.
@@ -61,11 +61,11 @@ class TagService:
 
         # 5. Handle the new set of tags
         for tag_name in normalized_new_tags:
-            # Get or create the tag (case-insensitive lookup)
+            # Get or create the tag (case-insensitive lookup) - universal tags now
             tag_query = select(Tag).where(
                 func.lower(Tag.name) == tag_name,
-                Tag.created_by == created_by,
-                Tag.module_type == module_type
+                Tag.created_by == created_by
+                # module_type removed - tags are now universal
             )
             tag_result = await db.execute(tag_query)
             tag = tag_result.scalar_one_or_none()
@@ -74,7 +74,7 @@ class TagService:
                 tag = Tag(
                     name=tag_name,  # Store in lowercase
                     created_by=created_by,
-                    module_type=module_type,
+                    # module_type removed - tags are now universal
                     usage_count=1
                 )
                 db.add(tag)

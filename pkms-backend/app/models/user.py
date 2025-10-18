@@ -52,7 +52,7 @@ class User(Base):
     diary_daily_metadata = relationship("DiaryDailyMetadata", back_populates="user", cascade="all, delete-orphan", foreign_keys="DiaryDailyMetadata.created_by")
     archive_folders = relationship("ArchiveFolder", back_populates="user", cascade="all, delete-orphan", foreign_keys="ArchiveFolder.created_by")
     archive_items = relationship("ArchiveItem", back_populates="user", cascade="all, delete-orphan", foreign_keys="ArchiveItem.created_by")
-    links = relationship("Link", back_populates="user", cascade="all, delete-orphan", foreign_keys="Link.created_by")
+    # links relationship removed - links module deleted
     tags = relationship("Tag", back_populates="user", cascade="all, delete-orphan", foreign_keys="Tag.created_by")
     
     def __repr__(self):

@@ -191,7 +191,7 @@ async def init_db():
             await conn.run_sync(Base.metadata.create_all)
             logger.info("SUCCESS: All tables created successfully")
         
-        # Note: We intentionally do NOT run implicit migrations here.
+        # Note: We intentionally do NOT run implicit database changes here.
         
         # Phase 3: Create performance indexes
         logger.info("Phase 3: Creating performance indexes...")

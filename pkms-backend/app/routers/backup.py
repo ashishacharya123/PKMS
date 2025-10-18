@@ -340,21 +340,21 @@ async def delete_database_backup(
                 "timestamp": datetime.now(NEPAL_TZ).isoformat()
             }
         
+        # Security check: only allow .db files in backups directory
+        if not backup_filename.endswith('.db') or '/' in backup_filename or '\\' in backup_filename:
+            return {
+                "status": "error",
+                "message": "Invalid backup filename. Only .db files in backups directory are allowed.",
+                "backup_filename": backup_filename,
+                "timestamp": datetime.now(NEPAL_TZ).isoformat()
+            }
+        
         # Validate backup file exists
         backup_path = Path(f"/app/PKMS_Data/backups/{backup_filename}")
         if not backup_path.exists():
             return {
                 "status": "error",
                 "message": "Backup file not found",
-                "backup_filename": backup_filename,
-                "timestamp": datetime.now(NEPAL_TZ).isoformat()
-            }
-        
-        # Security check: only allow .db files in backups directory
-        if not backup_filename.endswith('.db') or '/' in backup_filename or '\\' in backup_filename:
-            return {
-                "status": "error",
-                "message": "Invalid backup filename. Only .db files in backups directory are allowed.",
                 "backup_filename": backup_filename,
                 "timestamp": datetime.now(NEPAL_TZ).isoformat()
             }

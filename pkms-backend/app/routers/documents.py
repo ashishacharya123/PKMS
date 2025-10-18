@@ -4,6 +4,7 @@ Document Router with Core Upload Service Integration
 
 from pathlib import Path
 import asyncio
+import uuid as uuid_lib
 from typing import List, Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, File, UploadFile, Form, HTTPException, Query, status
@@ -28,7 +29,7 @@ from app.utils.security import sanitize_text_input, sanitize_tags
 from app.services.chunk_service import chunk_manager
 from app.services.file_detection import FileTypeDetectionService
 from app.services.project_service import project_service
-from app.services.file_management_service import file_management_service
+from app.services.unified_upload_service import unified_upload_service
 from app.services.search_service import search_service
 from app.models.enums import ModuleType
 from app.schemas.document import (
@@ -48,7 +49,7 @@ file_detector = FileTypeDetectionService()
 # Pydantic Models
 # Models are now in app/schemas/document.py
 
-# Helper Functions (legacy helpers removed in favor of services)
+# Helper Functions
 
 def _convert_doc_to_response(doc: Document, project_badges: Optional[List[ProjectBadge]] = None) -> DocumentResponse:
     """Convert Document model to DocumentResponse with relational tags."""
@@ -79,39 +80,45 @@ async def commit_document_upload(
     db: AsyncSession = Depends(get_db)
 ):
     """Finalize a previously chunk-uploaded document file and create DB record.
-    
-    Uses the centralized FileManagementService for atomic file operations.
+
+    Uses the file commit consistency service for atomic operations and orphan prevention.
     """
     try:
         logger.info(f"Committing document upload: {payload.title}")
-        
-        # Use centralized FileManagementService for document upload
-        document_with_tags = await file_management_service.commit_document_upload(
+
+        # Commit upload through unified upload service
+        document = await unified_upload_service.commit_upload(
             db=db,
             upload_id=payload.file_id,
-            title=payload.title,
-            description=payload.description,
-            tags=payload.tags,
-            project_ids=payload.project_ids,
-            is_exclusive_mode=payload.is_exclusive_mode,
+            module="documents",
             created_by=current_user.uuid,
-            document_model=Document,
-            tag_service=tag_service,
-            project_service=project_service,
-            document_tags=document_tags,
-            document_projects=document_projects
+            metadata={
+                "title": payload.title,
+                "description": payload.description,
+                "tags": payload.tags,
+                "project_ids": payload.project_ids,
+                "is_exclusive_mode": payload.is_exclusive_mode,
+                "original_name": payload.original_name if hasattr(payload, 'original_name') else ""
+            }
         )
 
-        # Index in search and persist
+        # Load document with tags for response
+        result = await db.execute(
+            select(Document).options(selectinload(Document.tag_objs)).where(
+                Document.uuid == document.uuid
+            )
+        )
+        document_with_tags = result.scalar_one()
+
+        # Index in search (DB already committed by service)
         await search_service.index_item(db, document_with_tags, 'document')
-        await db.commit()
 
         # Build project badges
         project_badges = await project_service.build_badges(db, document_with_tags.uuid, document_with_tags.is_exclusive_mode, document_projects, "document_uuid")
 
         logger.info(f"Document committed successfully: {document_with_tags.filename}")
         return _convert_doc_to_response(document_with_tags, project_badges)
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -284,7 +291,7 @@ async def list_documents(
                         project_badges.append(ProjectBadge(
                             uuid=project.uuid,
                             name=project.name,
-                            color=project.color,
+                            # color removed - project color field deleted
                             is_exclusive=junction._mapping["is_exclusive"],
                             is_deleted=False
                         ))
@@ -330,35 +337,6 @@ async def get_document(
     
     return _convert_doc_to_response(doc, project_badges)
 
-@router.get("/{document_uuid}/download")
-async def download_document(
-    document_uuid: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Download a document file."""
-    result = await db.execute(
-        select(Document).where(
-            and_(Document.uuid == document_uuid, Document.created_by == current_user.uuid)
-        )
-    )
-    doc = result.scalar_one_or_none()
-    if not doc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    
-    file_path = get_file_storage_dir() / doc.file_path
-    if not file_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found on disk")
-    
-    return FileResponse(
-        path=str(file_path),
-        filename=doc.original_name,
-        media_type=doc.mime_type,
-        headers={
-            "Content-Disposition": f"attachment; filename=\"{doc.original_name}\"",
-            "X-File-Size": str(doc.file_size)
-        }
-    )
 
 @router.put("/{document_uuid}", response_model=DocumentResponse)
 async def update_document(

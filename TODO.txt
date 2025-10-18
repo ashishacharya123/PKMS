@@ -1,0 +1,143 @@
+# PKMS TODO List
+
+## 🔧 Backend Fixes Needed
+
+### 1. Archive Folder Deletion - Force Parameter Support
+**Status**: Backend ✅ | Frontend ✅ | UI ✅
+**Issue**: Frontend doesn't support `force` parameter for deleting non-empty folders
+**Files Updated**:
+- ✅ `pkms-frontend/src/services/archiveService.ts` - Added force parameter to deleteFolder()
+- ✅ `pkms-frontend/src/stores/archiveStore.ts` - Updated store methods
+- ✅ `pkms-frontend/src/pages/ArchivePage.tsx` - Added confirmation dialog for force deletion
+
+**Implementation Completed**:
+```typescript
+// archiveService.ts
+async deleteFolder(uuid: string, force: boolean = false): Promise<void> {
+  const url = force ? `${folderPath(uuid)}?force=true` : folderPath(uuid);
+  await apiService.delete(url);
+}
+
+// UI: Shows confirmation dialog for non-empty folders
+if (error?.response?.data?.detail?.includes('not empty')) {
+  const confirmed = window.confirm(
+    `Folder "${selectedItem.name}" is not empty. Do you want to delete all contents?\n\nThis action cannot be undone and will permanently delete all files and subfolders.`
+  );
+  if (confirmed) {
+    await handleDelete(true); // Recursive call with force=true
+  }
+}
+```
+
+### 2. Project Deletion - ORM Hook Bypass Fix
+**Status**: Completed ✅
+**Issue**: `delete_project` function bypasses ORM hooks, skipping `tag_service.decrement_tags_on_delete`
+**Files Updated**:
+- ✅ `pkms-backend/app/routers/todos.py` - Fixed Todo deletion
+- ✅ `pkms-backend/app/routers/notes.py` - Fixed Note deletion (already correct)
+- ✅ `pkms-backend/app/routers/documents.py` - Fixed Document deletion (already correct)
+
+**Fix Applied**:
+```python
+# Before (WRONG - bypasses ORM hooks):
+for todo_uuid in exclusive_todo_uuids.scalars():
+    await db.execute(sql_delete(Todo).where(Todo.uuid == todo_uuid))
+
+# After (CORRECT - uses ORM hooks):
+exclusive_todos = exclusive_todos_result.scalars().all()
+for todo in exclusive_todos:
+    await tag_service.decrement_tags_on_delete(db, todo)
+    await db.delete(todo)
+```
+
+**Status**: All ORM hook bypasses have been identified and fixed. The codebase now properly uses ORM deletion methods that trigger all necessary hooks for tag cleanup, search index updates, and audit trails.
+
+### 3. Chunk Upload System Documentation
+**Status**: Completed ✅
+**Issue**: Multi-worker deployment limitations not documented
+**Files Updated**:
+- `pkms-backend/app/services/chunk_service.py` - Added warning comments
+- `ARCHITECTURAL_RULES.md` - Added single-process design documentation
+
+## 🎨 Frontend Enhancements Needed
+
+### 1. Archive Folder Management UI
+**Status**: Missing ❌
+**Features Needed**:
+- [ ] Force deletion confirmation dialog
+- [ ] Folder contents preview before deletion
+- [ ] Bulk operations (delete multiple folders)
+- [ ] Folder size display
+- [ ] Empty folder detection
+
+### 2. Error Handling Improvements
+**Status**: Basic ✅ | Enhanced ❌
+**Features Needed**:
+- [ ] Better error messages for folder deletion
+- [ ] Retry mechanisms for failed operations
+- [ ] Progress indicators for bulk operations
+- [ ] User-friendly error dialogs
+
+## 🧪 Testing Needed
+
+### 1. Archive System Testing
+**Status**: Not Tested ❌
+**Tests Needed**:
+- [ ] Force deletion of non-empty folders
+- [ ] Tag decrementing on project deletion
+- [ ] File cleanup on folder deletion
+- [ ] Error handling for locked files
+
+### 2. Integration Testing
+**Status**: Not Tested ❌
+**Tests Needed**:
+- [ ] End-to-end folder deletion workflow
+- [ ] Tag count consistency after deletions
+- [ ] Search index updates after deletions
+
+## 📋 Priority Order
+
+1. **HIGH**: Complete ORM hook fixes (todos.py ✅, notes.py ✅, documents.py ✅)
+2. **HIGH**: Add force parameter support to frontend archive service ✅
+3. **MEDIUM**: Add confirmation dialogs for destructive operations ✅
+4. **MEDIUM**: Fix remaining critical issues (subprocess, blocking I/O, N+1 queries)
+5. **LOW**: Enhanced error handling and user feedback ✅
+6. **LOW**: Comprehensive testing suite
+
+## ✅ **RECENTLY COMPLETED FIXES**
+
+### **Code Quality Improvements** ✅
+- **✅ Removed unused imports**: subprocess, asyncio, Path, get_file_storage_dir
+- **✅ Fixed trusted_hosts configuration**: Removed invalid bind addresses, added Field support
+- **✅ Improved archive error handling**: Prevented recursive loops, better error detection
+- **✅ Added search index cleanup**: Exclusive items now properly removed from FTS
+- **✅ Clarified ASCII rule**: Documentation can use Unicode, production code must be ASCII
+
+### **Frontend Enhancements** ✅
+- **✅ Robust error handling**: Better detection of "folder not empty" errors
+- **✅ Prevent infinite loops**: Force deletion won't loop if already forced
+- **✅ Async button handling**: Delete button properly awaits operations
+- **✅ Error propagation**: Store errors bubble up for UI handling
+
+### **Type Safety Improvements** ✅
+- **✅ Enum usage rule**: Added to ARCHITECTURAL_RULES.md for future reference
+- **✅ Replaced string literals**: All TodoStatus comparisons now use enum values
+- **✅ Type safety**: Prevents typos and provides IDE autocomplete
+- **✅ Refactoring safety**: Changes to enum values automatically update all references
+- **✅ Files updated**: project.py, todo.py schemas, test_models.py
+
+## 🔍 Code Review Notes
+
+### ORM Hook Bypass Pattern
+**Problem**: Using `sql_delete()` bypasses SQLAlchemy ORM hooks
+**Solution**: Fetch objects first, then use `db.delete(object)`
+**Why Important**: Ensures tag counts, search indexes, and other side effects are properly handled
+
+### Force Deletion Pattern
+**Problem**: No way to delete non-empty folders
+**Solution**: Add `force` parameter with confirmation UI
+**Why Important**: Prevents accidental data loss while allowing intentional cleanup
+
+---
+**Last Updated**: $(date)
+**AI Assistant**: Claude Sonnet 4

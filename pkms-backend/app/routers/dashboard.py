@@ -6,6 +6,7 @@ Provides aggregated statistics and overview data for the dashboard
 from datetime import datetime, timedelta
 from typing import Dict, Any, Tuple
 import time
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, and_
@@ -18,6 +19,7 @@ from app.models.note import Note
 from app.models.document import Document
 from app.models.todo import Todo, TodoStatus
 from app.models.project import Project, ProjectStatus
+from app.models.enums import TodoStatsKey, ModuleStatsKey
 from app.models.diary import DiaryEntry
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.schemas.dashboard import DashboardStats, ModuleActivity, QuickStats
@@ -25,18 +27,95 @@ from app.schemas.dashboard import DashboardStats, ModuleActivity, QuickStats
 router = APIRouter()
 
 # ============================================================
-# TTL In-Memory Cache (30 seconds)
-# Reduces database load for repeated dashboard refreshes
+# Enhanced TTL In-Memory Cache (2 minutes with invalidation)
+# Reduces database load from 15+ queries to cache lookup
 # Cache key: created_by (and days for activity endpoint)
 # Cache value: (timestamp, response_object)
 # ============================================================
-_DASH_TTL_SECONDS = 30
+_DASH_TTL_SECONDS = 120  # 2 minutes as requested
 _STATS_CACHE_MAX = 1024
 _ACTIVITY_CACHE_MAX = 4096
 _QUICK_CACHE_MAX = 1024
 _STATS_CACHE: Dict[str, Tuple[float, DashboardStats]] = {}
 _ACTIVITY_CACHE: Dict[Tuple[str, int], Tuple[float, ModuleActivity]] = {}
 _QUICK_CACHE: Dict[str, Tuple[float, QuickStats]] = {}
+
+# Cache statistics for monitoring
+_CACHE_STATS = {
+    "stats_hits": 0,
+    "stats_misses": 0,
+    "activity_hits": 0,
+    "activity_misses": 0,
+    "invalidations": 0
+}
+
+
+def invalidate_user_dashboard_cache(user_uuid: str, reason: str = "data_update"):
+    """
+    Invalidate dashboard cache for specific user when their data changes.
+
+    Call this function whenever:
+    - Note/Todo/Project is created, updated, or deleted
+    - Status changes occur
+    - Any dashboard-affecting data modification
+    """
+    global _CACHE_STATS
+
+    removed_count = 0
+
+    # Invalidate stats cache
+    if user_uuid in _STATS_CACHE:
+        del _STATS_CACHE[user_uuid]
+        removed_count += 1
+
+    # Invalidate activity cache (multiple possible day combinations)
+    keys_to_remove = [key for key in _ACTIVITY_CACHE.keys() if key[0] == user_uuid]
+    for key in keys_to_remove:
+        del _ACTIVITY_CACHE[key]
+        removed_count += 1
+
+    # Invalidate quick cache
+    if user_uuid in _QUICK_CACHE:
+        del _QUICK_CACHE[user_uuid]
+        removed_count += 1
+
+    _CACHE_STATS["invalidations"] += removed_count
+
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Invalidated {removed_count} cache entries for user {user_uuid} - reason: {reason}")
+
+
+def get_cache_stats() -> Dict[str, Any]:
+    """Get cache performance statistics"""
+    total_stats_requests = _CACHE_STATS["stats_hits"] + _CACHE_STATS["stats_misses"]
+    total_activity_requests = _CACHE_STATS["activity_hits"] + _CACHE_STATS["activity_misses"]
+
+    stats_hit_rate = (_CACHE_STATS["stats_hits"] / total_stats_requests * 100) if total_stats_requests > 0 else 0
+    activity_hit_rate = (_CACHE_STATS["activity_hits"] / total_activity_requests * 100) if total_activity_requests > 0 else 0
+
+    return {
+        "stats_cache": {
+            "hit_rate_percent": round(stats_hit_rate, 2),
+            "hits": _CACHE_STATS["stats_hits"],
+            "misses": _CACHE_STATS["stats_misses"],
+            "cached_users": len(_STATS_CACHE),
+            "ttl_seconds": _DASH_TTL_SECONDS
+        },
+        "activity_cache": {
+            "hit_rate_percent": round(activity_hit_rate, 2),
+            "hits": _CACHE_STATS["activity_hits"],
+            "misses": _CACHE_STATS["activity_misses"],
+            "cached_entries": len(_ACTIVITY_CACHE),
+            "ttl_seconds": _DASH_TTL_SECONDS
+        },
+        "invalidations": _CACHE_STATS["invalidations"],
+        "cache_memory_usage": {
+            "stats_cache_size": len(_STATS_CACHE),
+            "activity_cache_size": len(_ACTIVITY_CACHE),
+            "quick_cache_size": len(_QUICK_CACHE)
+        }
+    }
 
 @router.get("/stats", response_model=DashboardStats)
 async def get_dashboard_stats(
@@ -54,181 +133,35 @@ async def get_dashboard_stats(
         now_ts = time.time()
         cached = _STATS_CACHE.get(created_by)
         if cached and (now_ts - cached[0] < _DASH_TTL_SECONDS):
+            _CACHE_STATS["stats_hits"] += 1
+            logger.debug(f"Dashboard stats cache hit for user {created_by}")
             return cached[1]
+
+        _CACHE_STATS["stats_misses"] += 1
+        logger.debug(f"Dashboard stats cache miss for user {created_by}")
         
         # Define time range for "recent" items (last 7 days)
         recent_cutoff = datetime.now(NEPAL_TZ) - timedelta(days=7)
         
-        # Notes Statistics
-        notes_total = await db.scalar(
-            select(func.count(Note.uuid)).where(
-                and_(Note.created_by == created_by, Note.is_archived.is_(False))
-            )
-        )
-        notes_recent = await db.scalar(
-            select(func.count(Note.uuid)).where(
-                and_(
-                    Note.created_by == created_by,
-                    Note.is_archived.is_(False),
-                    Note.created_at >= recent_cutoff
-                )
-            )
-        )
+        # Use shared dashboard stats service to avoid duplication
+        from app.services.dashboard_stats_service import dashboard_stats_service
         
-        # Documents Statistics  
-        docs_total = await db.scalar(
-            select(func.count(Document.uuid)).where(
-                and_(Document.created_by == created_by, Document.is_archived.is_(False))
-            )
-        )
-        docs_recent = await db.scalar(
-            select(func.count(Document.uuid)).where(
-                and_(
-                    Document.created_by == created_by,
-                    Document.is_archived.is_(False),
-                    Document.created_at >= recent_cutoff
-                )
-            )
-        )
+        # Get module statistics using shared service
+        notes_stats = await dashboard_stats_service.get_notes_stats(db, created_by, 7)
+        docs_stats = await dashboard_stats_service.get_documents_stats(db, created_by, 7)
+        todos_stats = await dashboard_stats_service.get_todo_stats(db, created_by)
+        projects_stats = await dashboard_stats_service.get_projects_stats(db, created_by)
+        diary_stats = await dashboard_stats_service.get_diary_stats(db, created_by)
+        archive_stats = await dashboard_stats_service.get_archive_stats(db, created_by)
         
-        # Todos Statistics with Status Breakdown
-        todos_total = await db.scalar(
-            select(func.count(Todo.uuid)).where(Todo.created_by == created_by)
-        )
-        
-        # Status breakdown
-        todos_pending = await db.scalar(
-            select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == created_by, Todo.status == TodoStatus.PENDING)
-            )
-        )
-        todos_in_progress = await db.scalar(
-            select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == created_by, Todo.status == TodoStatus.IN_PROGRESS)
-            )
-        )
-        todos_blocked = await db.scalar(
-            select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == created_by, Todo.status == TodoStatus.BLOCKED)
-            )
-        )
-        todos_done = await db.scalar(
-            select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == created_by, Todo.status == TodoStatus.DONE)
-            )
-        )
-        todos_cancelled = await db.scalar(
-            select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == created_by, Todo.status == TodoStatus.CANCELLED)
-            )
-        )
-        
-        # Legacy completed count (for backward compatibility)
-        todos_completed = await db.scalar(
-            select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == created_by, Todo.status == TodoStatus.DONE)
-            )
-        )
-        
-        # Overdue todos (not done/cancelled and past due date)
-        todos_overdue = await db.scalar(
-            select(func.count(Todo.uuid)).where(
-                and_(
-                    Todo.created_by == created_by,
-                    Todo.status.notin_([TodoStatus.DONE, TodoStatus.CANCELLED]),
-                    Todo.due_date.is_not(None),
-                    Todo.due_date < datetime.now(NEPAL_TZ).date()
-                )
-            )
-        )
-
-        # Due today (not completed): date match in Nepal TZ
-        now_np = datetime.now(NEPAL_TZ)
-        start_today = now_np.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_today = start_today + timedelta(days=1)
-        today_date = now_np.date()
-        todos_due_today = await db.scalar(
-            select(func.count(Todo.uuid)).where(
-                and_(
-                    Todo.created_by == created_by,
-                    Todo.status.notin_([TodoStatus.DONE, TodoStatus.CANCELLED]),
-                    Todo.due_date == today_date,
-                )
-            )
-        )
-
-        # Completed today: completed_at within today's window
-        todos_completed_today = await db.scalar(
-            select(func.count(Todo.uuid)).where(
-                and_(
-                    Todo.created_by == created_by,
-                    Todo.status == TodoStatus.DONE,
-                    Todo.completed_at >= start_today,
-                    Todo.completed_at < end_today,
-                )
-            )
-        )
-        
-        # Diary Statistics
-        diary_total = await db.scalar(
-            select(func.count(DiaryEntry.uuid)).where(DiaryEntry.created_by == created_by)
-        )
-        
-        # Calculate diary streak (consecutive days with entries)
-        diary_streak = await _calculate_diary_streak(db, created_by)
-        
-        # Archive Statistics
-        archive_folders = await db.scalar(
-            select(func.count(ArchiveFolder.uuid)).where(ArchiveFolder.created_by == created_by)
-        )
-        archive_items = await db.scalar(
-            select(func.count(ArchiveItem.uuid)).where(ArchiveItem.created_by == created_by)
-        )
-        
-        # Active Projects Count
-        active_projects = await db.scalar(
-            select(func.count(Project.uuid)).where(
-                and_(
-                    Project.created_by == created_by,
-                    Project.status == ProjectStatus.IS_RUNNING,
-                    Project.is_archived.is_(False),
-                    Project.is_deleted.is_(False)
-                )
-            )
-        )
         
         stats = DashboardStats(
-            notes={
-                "total": notes_total or 0,
-                "recent": notes_recent or 0
-            },
-            documents={
-                "total": docs_total or 0, 
-                "recent": docs_recent or 0
-            },
-            todos={
-                "total": todos_total or 0,
-                "pending": todos_pending or 0,
-                "in_progress": todos_in_progress or 0,
-                "blocked": todos_blocked or 0,
-                "done": todos_done or 0,
-                "cancelled": todos_cancelled or 0,
-                "completed": todos_completed or 0,  # Legacy field
-                "overdue": todos_overdue or 0,
-                "due_today": todos_due_today or 0,
-                "completed_today": todos_completed_today or 0,
-            },
-            diary={
-                "entries": diary_total or 0,
-                "streak": diary_streak
-            },
-            archive={
-                "folders": archive_folders or 0,
-                "items": archive_items or 0
-            },
-            projects={
-                "active": active_projects or 0
-            },
+            notes=notes_stats,
+            documents=docs_stats,
+            todos=todos_stats,
+            diary=diary_stats,
+            archive=archive_stats,
+            projects=projects_stats,
             last_updated=datetime.now(NEPAL_TZ)
         )
         
@@ -260,43 +193,23 @@ async def get_recent_activity(
         cache_key = (created_by, days)
         cached = _ACTIVITY_CACHE.get(cache_key)
         if cached and (now_ts - cached[0] < _DASH_TTL_SECONDS):
+            _CACHE_STATS["activity_hits"] += 1
+            logger.debug(f"Activity cache hit for user {created_by}, days={days}")
             return cached[1]
+
+        _CACHE_STATS["activity_misses"] += 1
+        logger.debug(f"Activity cache miss for user {created_by}, days={days}")
         
-        cutoff = datetime.now(NEPAL_TZ) - timedelta(days=days)
-        
-        # Get recent activity counts
-        recent_notes = await db.scalar(
-            select(func.count(Note.uuid)).where(
-                and_(Note.created_by == created_by, Note.created_at >= cutoff)
-            )
-        )
-        recent_documents = await db.scalar(
-            select(func.count(Document.uuid)).where(
-                and_(Document.created_by == created_by, Document.created_at >= cutoff)
-            )
-        )
-        recent_todos = await db.scalar(
-            select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == created_by, Todo.created_at >= cutoff)
-            )
-        )
-        recent_diary = await db.scalar(
-            select(func.count(DiaryEntry.uuid)).where(
-                and_(DiaryEntry.created_by == created_by, DiaryEntry.created_at >= cutoff)
-            )
-        )
-        recent_archive = await db.scalar(
-            select(func.count(ArchiveItem.uuid)).where(
-                and_(ArchiveItem.created_by == created_by, ArchiveItem.created_at >= cutoff)
-            )
-        )
+        # Use shared service to get recent activity stats
+        from app.services.dashboard_stats_service import dashboard_stats_service
+        activity_stats = await dashboard_stats_service.get_recent_activity_stats(db, created_by, days)
         
         activity = ModuleActivity(
-            recent_notes=recent_notes or 0,
-            recent_documents=recent_documents or 0,
-            recent_todos=recent_todos or 0,
-            recent_diary_entries=recent_diary or 0,
-            recent_archive_items=recent_archive or 0
+            recent_notes=activity_stats.get("recent_notes", 0),
+            recent_documents=activity_stats.get("recent_documents", 0),
+            recent_todos=activity_stats.get("recent_todos", 0),
+            recent_diary_entries=activity_stats.get("recent_diary_entries", 0),
+            recent_archive_items=activity_stats.get("recent_archive_items", 0)
         )
         
         # Store in cache with bounded size (evict oldest)
@@ -327,46 +240,28 @@ async def get_quick_stats(
         if cached and (now_ts - cached[0] < _DASH_TTL_SECONDS):
             return cached[1]
         
-        # Batch total counts for all modules in a single query (avoiding 5 round trips)
-        from sqlalchemy import union_all
-        counts_query = union_all(
-            select(func.count(Note.uuid).label("count")).where(Note.created_by == created_by),
-            select(func.count(Document.uuid)).where(Document.created_by == created_by),
-            select(func.count(Todo.uuid)).where(Todo.created_by == created_by),
-            select(func.count(DiaryEntry.uuid)).where(DiaryEntry.created_by == created_by),
-            select(func.count(ArchiveItem.uuid)).where(ArchiveItem.created_by == created_by)
-        )
-        counts_result = await db.execute(counts_query)
-        count_values = [r[0] or 0 for r in counts_result.fetchall()]
-        notes_count, docs_count, todos_count, diary_count, archive_count = count_values
+        # Use shared service to get all statistics
+        from app.services.dashboard_stats_service import dashboard_stats_service
         
-        total_items = (notes_count or 0) + (docs_count or 0) + (todos_count or 0) + (diary_count or 0) + (archive_count or 0)
+        # Get all module statistics using shared service
+        notes_stats = await dashboard_stats_service.get_notes_stats(db, created_by, 7)
+        docs_stats = await dashboard_stats_service.get_documents_stats(db, created_by, 7)
+        todos_stats = await dashboard_stats_service.get_todo_stats(db, created_by)
+        projects_stats = await dashboard_stats_service.get_projects_stats(db, created_by)
+        diary_stats = await dashboard_stats_service.get_diary_stats(db, created_by)
+        archive_stats = await dashboard_stats_service.get_archive_stats(db, created_by)
         
-        # Active projects
-        active_projects = await db.scalar(
-            select(func.count(Project.uuid)).where(
-                and_(
-                    Project.created_by == created_by,
-                    Project.status == ProjectStatus.IS_RUNNING,
-                    Project.is_archived.is_(False),
-                    Project.is_deleted.is_(False)
-                )
-            )
-        )
+        # Calculate totals from shared service data
+        notes_count = notes_stats.get("total", 0)
+        docs_count = docs_stats.get("total", 0)
+        todos_count = todos_stats.get("total", 0)
+        diary_count = diary_stats.get("entries", 0)
+        archive_count = archive_stats.get("items", 0)
         
-        # Overdue todos
-        overdue_todos = await db.scalar(
-            select(func.count(Todo.uuid)).where(
-                and_(
-                    Todo.created_by == created_by,
-                    Todo.is_completed.is_(False),
-                    Todo.due_date < datetime.now(NEPAL_TZ)
-                )
-            )
-        )
-        
-        # Diary streak
-        diary_streak = await _calculate_diary_streak(db, created_by)
+        total_items = notes_count + docs_count + todos_count + diary_count + archive_count
+        active_projects = projects_stats.get("active", 0)
+        overdue_todos = todos_stats.get("overdue", 0)
+        diary_streak = diary_stats.get("streak", 0)
         
         # Storage used (approximate from file sizes)
         docs_bytes = await db.scalar(
@@ -423,47 +318,73 @@ async def get_quick_stats(
             detail=f"Failed to load quick statistics: {str(e)}"
         )
 
-async def _calculate_diary_streak(db: AsyncSession, created_by: str) -> int:
-    """Calculate the current consecutive diary writing streak"""
+
+@router.get("/cache/stats")
+async def get_cache_statistics(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get cache performance statistics for monitoring and debugging.
+
+    Returns cache hit rates, memory usage, and invalidation counts.
+    Only accessible by authenticated users for their own monitoring.
+    """
     try:
-        # Get the most recent diary entries ordered by date descending
-        result = await db.execute(
-            select(DiaryEntry.date)
-            .where(DiaryEntry.created_by == created_by)
-            .order_by(DiaryEntry.date.desc())
-            .limit(365)
+        cache_stats = get_cache_stats()
+
+        return {
+            "cache_performance": cache_stats,
+            "configuration": {
+                "ttl_seconds": _DASH_TTL_SECONDS,
+                "max_stats_cache": _STATS_CACHE_MAX,
+                "max_activity_cache": _ACTIVITY_CACHE_MAX,
+                "max_quick_cache": _QUICK_CACHE_MAX
+            },
+            "current_user_cache_status": {
+                "stats_cached": current_user.uuid in _STATS_CACHE,
+                "activity_cached": any(key[0] == current_user.uuid for key in _ACTIVITY_CACHE.keys()),
+                "quick_cached": current_user.uuid in _QUICK_CACHE
+            },
+            "retrieved_at": datetime.now(NEPAL_TZ).isoformat()
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve cache statistics: {str(e)}"
         )
-        dates_dt = [row[0] for row in result.fetchall()]
-        dates = [d.date() for d in dates_dt]
-        
-        if not dates:
-            return 0
-        
-        # Check if there's an entry for today or yesterday
-        today = datetime.now(NEPAL_TZ).date()
-        yesterday = today - timedelta(days=1)
-        
-        # Start counting from today or yesterday
-        if dates[0] == today:
-            streak_start = today
-        elif dates[0] == yesterday:
-            streak_start = yesterday
-        else:
-            return 0  # No recent entries
-        
-        # Count consecutive days
-        streak = 0
-        current_date = streak_start
-        
-        for date in dates:
-            if date == current_date:
-                streak += 1
-                current_date -= timedelta(days=1)
-            elif date < current_date:
-                # Gap found, streak ends
-                break
-        
-        return streak
-        
-    except Exception:
-        return 0 
+
+
+@router.post("/cache/invalidate")
+async def invalidate_my_cache(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Manually invalidate current user's dashboard cache.
+
+    Useful for:
+    - Force refresh after suspicious data
+    - Testing cache invalidation
+    - Troubleshooting stale data issues
+    """
+    try:
+        invalidate_user_dashboard_cache(current_user.uuid, "manual_invalidation")
+
+        return {
+            "success": True,
+            "message": "Dashboard cache invalidated successfully",
+            "user_uuid": current_user.uuid,
+            "invalidated_at": datetime.now(NEPAL_TZ).isoformat()
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to invalidate cache: {str(e)}"
+        )
+
+
+# Initialize logger
+logger = logging.getLogger(__name__)
+
+# Diary streak calculation moved to shared dashboard stats service 

@@ -152,7 +152,7 @@ async def setup_user(
     )
     
     return TokenResponse(
-        access_token=access_token,  # Still return in body for backward compatibility during transition
+        access_token=access_token,  # Return in body for API consistency
         expires_in=settings.access_token_expire_minutes * 60,
         created_by=user.uuid,
         username=user.username
@@ -250,7 +250,7 @@ async def login(
     )
     
     return TokenResponse(
-        access_token=access_token,  # Still return in body for backward compatibility during transition
+        access_token=access_token,  # Return in body for API consistency
         token_type="bearer",
         expires_in=settings.access_token_expire_minutes * 60,
         created_by=user.uuid,
@@ -476,7 +476,7 @@ async def refresh_access_token(
         if not session:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
-        # Handle potential naive datetimes from legacy records
+        # Handle potential naive datetimes
         now = datetime.now(NEPAL_TZ)
         expires_at = session.expires_at
         if expires_at is None:

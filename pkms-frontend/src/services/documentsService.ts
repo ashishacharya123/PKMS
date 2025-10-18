@@ -31,7 +31,6 @@ export interface Document {
   is_favorite: boolean;
   is_archived: boolean;
   isExclusiveMode: boolean;
-  upload_status: string;
   created_at: string;
   updated_at: string;
   tags: string[];
@@ -50,7 +49,6 @@ export interface DocumentSummary {
   is_favorite: boolean;
   is_archived: boolean;
   isExclusiveMode: boolean;
-  upload_status: string;
   created_at: string;
   updated_at: string;
   tags: string[];

@@ -17,7 +17,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Security scheme (kept for backward compatibility)
+# Security scheme
 security = HTTPBearer(auto_error=False)
 
 
@@ -34,7 +34,7 @@ async def get_current_user(
         request: FastAPI request
         db: Database session
         token_cookie: JWT token from HttpOnly cookie (primary method)
-        credentials: HTTP Bearer token (fallback for backward compatibility)
+        credentials: HTTP Bearer token (fallback method)
     
     Returns:
         Current user object
@@ -45,7 +45,7 @@ async def get_current_user(
     # Try cookie first (preferred, XSS-safe)
     token = token_cookie
     
-    # Fallback to Authorization header for backward compatibility
+    # Fallback to Authorization header
     if not token and credentials:
         token = credentials.credentials
     

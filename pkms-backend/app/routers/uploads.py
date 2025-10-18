@@ -61,7 +61,7 @@ async def upload_chunk(
         filename=meta["filename"],
         total_chunks=int(meta["total_chunks"]),
         total_size=int(meta.get("total_size", 0)),
-        created_by=str(current_user.id),
+        created_by=current_user.uuid,
     )
 
     # If all chunks received, await assembly before returning
@@ -87,7 +87,7 @@ async def upload_chunk(
             # Re-raise the exception to the client
             raise HTTPException(status_code=500, detail=f"File assembly failed: {str(e)}")
 
-    return JSONResponse(status)
+    return {"status": status}
 
 @router.get("/upload/{file_id}/status")
 async def get_upload_status(file_id: str, current_user: User = Depends(get_current_user)):
@@ -96,7 +96,7 @@ async def get_upload_status(file_id: str, current_user: User = Depends(get_curre
         raise HTTPException(status_code=404, detail="Upload not found")
 
     # Ownership check: users can only view their own uploads
-    if status.get('created_by') != str(current_user.id):
+    if status.get('created_by') != current_user.uuid:
         raise HTTPException(status_code=403, detail="Access denied: you can only view your own uploads")
 
     return status
@@ -108,7 +108,7 @@ async def cancel_upload(file_id: str, current_user: User = Depends(get_current_u
         raise HTTPException(status_code=404, detail="Upload not found")
 
     # Ownership check: users can only cancel their own uploads
-    if status.get('created_by') != str(current_user.id):
+    if status.get('created_by') != current_user.uuid:
         raise HTTPException(status_code=403, detail="Access denied: you can only cancel your own uploads")
 
     # Currently just drop tracking & temp files via internal cleanup

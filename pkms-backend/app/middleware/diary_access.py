@@ -116,4 +116,4 @@ class DiaryAccessMiddleware:
         # This filtering should be handled at the service layer, not in middleware
 
 
-# Legacy middleware function removed - functionality consolidated into DiaryAccessMiddleware class
+# Middleware functionality consolidated into DiaryAccessMiddleware class

@@ -11,7 +11,8 @@ from sqlalchemy.orm import selectinload
 
 from ..models.note import Note
 from ..models.document import Document
-from ..models.todo import Todo, Project
+from ..models.todo import Todo
+from ..models.project import Project
 from ..models.archive import ArchiveItem, ArchiveFolder
 from ..models.diary import DiaryEntry
 from ..models.tag import Tag

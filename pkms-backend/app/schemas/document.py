@@ -10,13 +10,6 @@ class CamelCaseModel(BaseModel):
         from_attributes=True
     )
 
-class ProjectBadge(CamelCaseModel):
-    """Project badge for displaying project associations on items"""
-    uuid: Optional[str] = None  # None if project is deleted (snapshot)
-    name: str
-    color: str
-    is_exclusive: bool
-    is_deleted: bool  # True if project was deleted (using snapshot name)
 
 class DocumentCreate(CamelCaseModel):
     title: str = Field(..., min_length=1, max_length=255)
@@ -51,16 +44,17 @@ class DocumentUpdate(CamelCaseModel):
         return out
     is_exclusive_mode: Optional[bool] = Field(None, description="If True, document is exclusive to projects and deleted when any project is deleted")
 
-from app.models.enums import UploadStatus
+# UploadStatus import removed - documents no longer store upload status
+from app.schemas.project import ProjectBadge
 
-class DocumentResponse(BaseModel):
+class DocumentResponse(CamelCaseModel):
     uuid: str
     title: str
     description: Optional[str] = None
     original_name: str
     mime_type: str
     file_size: int
-    upload_status: UploadStatus
+    # upload_status removed - only needed during upload process
     created_at: datetime
     updated_at: datetime
     tags: List[str]
@@ -94,6 +88,6 @@ class CommitDocumentUploadRequest(CamelCaseModel):
         return out
 
 class ArchiveDocumentRequest(CamelCaseModel):
-    """Deprecated: Cross-module archiving removed. Kept for backward compatibility of imports."""
+    """Cross-module archiving functionality."""
     folder_uuid: str = Field(default="", description="Deprecated")
     copy_tags: bool = Field(default=False, description="Deprecated")

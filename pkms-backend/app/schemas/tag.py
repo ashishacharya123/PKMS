@@ -13,7 +13,7 @@ class CamelCaseModel(BaseModel):
 class TagResponse(CamelCaseModel):
     name: str
     color: Optional[str]
-    module_type: Optional[str]
+    # module_type removed - tags are now universal across all modules
 
 class TagAutocompleteResponse(CamelCaseModel):
     tags: List[TagResponse]

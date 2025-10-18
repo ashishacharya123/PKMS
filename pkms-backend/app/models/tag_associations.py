@@ -57,16 +57,10 @@ diary_entry_tags = Table(
     Column("tag_uuid", String(36), ForeignKey("tags.uuid", ondelete="CASCADE"), primary_key=True),
 )
 
-# Links using UUID primary key
-link_tags = Table(
-    "link_tags",
-    Base.metadata,
-    Column("link_uuid", String(36), ForeignKey("links.uuid", ondelete="CASCADE"), primary_key=True),
-    Column("tag_uuid", String(36), ForeignKey("tags.uuid", ondelete="CASCADE"), primary_key=True),
-)
+# Links module removed - users can create bookmark notes instead
 
-# Alias for backward compatibility - most code expects archive_tags to refer to archive_item_tags
+# Alias for archive_tags to refer to archive_item_tags
 archive_tags = archive_item_tags
 
-# Alias for backward compatibility - most code expects diary_tags to refer to diary_entry_tags
+# Alias for diary_tags to refer to diary_entry_tags
 diary_tags = diary_entry_tags 

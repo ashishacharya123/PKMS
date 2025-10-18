@@ -10,7 +10,7 @@ from app.models.base import Base
 from app.config import nepal_now
 from app.models.tag_associations import document_tags
 from app.models.associations import document_projects
-from app.models.enums import UploadStatus
+# UploadStatus import removed - documents no longer store upload status
 
 
 class Document(Base):
@@ -29,10 +29,9 @@ class Document(Base):
     description = Column(Text, nullable=True)
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
-    is_exclusive_mode = Column(Boolean, default=False, index=True)  # If True, document is deleted when any of its projects are deleted
+    is_exclusive_mode = Column(Boolean, default=False, index=True)  # If True, document is deleted when any of its projects are deleted (project-exclusive)
 
-    # Upload status
-    upload_status = Column(Enum(UploadStatus), nullable=False, default=UploadStatus.COMPLETED)
+    # Upload status removed - only needed during upload process, handled by upload services
 
     # Audit trail
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)

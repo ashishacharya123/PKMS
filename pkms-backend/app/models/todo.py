@@ -12,7 +12,7 @@ from app.models.base import Base
 from app.config import nepal_now
 from app.models.tag_associations import todo_tags, project_tags
 from app.models.associations import todo_projects, todo_dependencies
-from app.models.enums import TodoStatus, TodoType
+from app.models.enums import TodoStatus, TodoType, TaskPriority
 
 
 class Todo(Base):
@@ -36,14 +36,14 @@ class Todo(Base):
     # blocked_by removed - replaced with todo_dependencies junction table
     
     # Phase 2: Time Tracking
-    estimate_minutes = Column(Integer, nullable=True)  # Estimated time in minutes
-    actual_minutes = Column(Integer, nullable=True)  # Actual time spent in minutes
+    estimate_days = Column(Integer, nullable=True)  # Estimated time in days (more intuitive)
+    actual_minutes = Column(Integer, nullable=True)  # Actual time spent in minutes (precise tracking)
     
     # Existing fields
     is_archived = Column(Boolean, default=False, nullable=False)
     is_favorite = Column(Boolean, default=False, nullable=False)
-    is_exclusive_mode = Column(Boolean, default=False, nullable=False)  # If True, todo is deleted when any of its projects are deleted
-    priority = Column(Integer, default=2, nullable=False)  # 1=low, 2=medium, 3=high, 4=urgent
+    is_exclusive_mode = Column(Boolean, default=False, nullable=False)  # If True, todo is deleted when any of its projects are deleted (project-exclusive)
+    priority = Column(Enum(TaskPriority), default=TaskPriority.MEDIUM, nullable=False)
     start_date = Column(Date, nullable=True)
     due_date = Column(Date, nullable=True)
     completed_at = Column(DateTime, nullable=True)
@@ -57,7 +57,7 @@ class Todo(Base):
     is_deleted = Column(Boolean, default=False, index=True)
     
     # Progress Tracking
-    completion_percentage = Column(Integer, default=0)  # 0-100 percentage complete
+    completion_percentage = Column(Integer, default=0)  # Auto-calculated from subtasks or manual override
     
     
     

@@ -7,7 +7,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, text, delete
 from sqlalchemy.orm import selectinload
-from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFileResponse, CommitNoteFileRequest, ProjectBadge
+import uuid as uuid_lib
+from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFileResponse, CommitNoteFileRequest
+from app.schemas.project import ProjectBadge
 from app.schemas.link import LinkResponse
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -32,9 +34,10 @@ from app.services.chunk_service import chunk_manager
 from app.services.file_detection import FileTypeDetectionService
 from app.services.tag_service import tag_service
 from app.services.project_service import project_service
-from app.services.file_management_service import file_management_service
+from app.services.unified_upload_service import unified_upload_service
 from app.services.search_service import search_service
 from app.models.enums import ModuleType
+from app.routers.dashboard import invalidate_user_dashboard_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["notes"])
@@ -250,10 +253,13 @@ async def create_note(
         # Index in search and persist
         await search_service.index_item(db, note_with_tags, 'note')
         await db.commit()
-        
+
+        # Invalidate dashboard cache for this user
+        invalidate_user_dashboard_cache(current_user.uuid, "note_created")
+
         # Build project badges
         project_badges = await project_service.build_badges(db, note_with_tags.uuid, note_with_tags.is_exclusive_mode, note_projects, "note_uuid")
-        
+
         return _convert_note_to_response(note_with_tags, project_badges)
     except Exception as e:
         await db.rollback()
@@ -324,7 +330,10 @@ async def update_note(
         await _process_note_links(db, note, note.content, current_user.uuid)
 
     await db.commit()
-    
+
+    # Invalidate dashboard cache for this user
+    invalidate_user_dashboard_cache(current_user.uuid, "note_updated")
+
     # Reload note with tags to avoid lazy loading issues in response conversion
     result = await db.execute(
         select(Note).options(selectinload(Note.tag_objs)).where(
@@ -387,6 +396,9 @@ async def delete_note(
         await db.delete(note)
         await db.commit()
         logger.info(f"Successfully deleted note with UUID: {note_uuid}")
+
+        # Invalidate dashboard cache for this user
+        invalidate_user_dashboard_cache(current_user.uuid, "note_deleted")
 
         # Delete associated files from disk AFTER successful DB commit
         if files_to_delete:
@@ -493,21 +505,25 @@ async def commit_note_file_upload(
 ):
     """Finalize a previously chunk-uploaded file and attach it to a note.
 
-    Uses the centralized FileManagementService for atomic file operations.
+    Uses the file commit consistency service for atomic operations and orphan prevention.
     """
     try:
-        # Use centralized FileManagementService for note file upload
-        note_file = await file_management_service.commit_note_file_upload(
+        # Commit upload through unified upload service
+        note_file = await unified_upload_service.commit_upload(
             db=db,
             upload_id=payload.file_id,
-            note_uuid=payload.note_uuid,
-            original_name=payload.original_name,
-            description=payload.description,
-            created_by=current_user.uuid
+            module="notes",
+            created_by=current_user.uuid,
+            metadata={
+                "note_uuid": payload.note_uuid,
+                "original_name": payload.original_name,
+                "description": payload.description,
+                "display_order": payload.display_order if hasattr(payload, 'display_order') else 0
+            }
         )
 
         logger.info(f"Note file committed successfully: {note_file.filename}")
-        
+
         return NoteFileResponse(
             uuid=note_file.uuid,
             note_uuid=note_file.note_uuid,
@@ -528,48 +544,6 @@ async def commit_note_file_upload(
             detail="Failed to commit note file upload"
         )
 
-@router.get("/files/{file_uuid}/download")
-async def download_note_file(
-    file_uuid: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Download a note file attachment."""
-    result = await db.execute(
-        select(NoteFile)
-        .join(Note)
-        .where(
-            and_(
-                NoteFile.uuid == file_uuid,
-                Note.created_by == current_user.uuid
-            )
-        )
-    )
-    note_file = result.scalar_one_or_none()
-    if not note_file:
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    base = get_file_storage_dir()
-    file_path = (base / note_file.file_path).resolve()
-    try:
-        base_resolved = base.resolve()
-        if not str(file_path).startswith(str(base_resolved)):
-            raise HTTPException(status_code=403, detail="Access denied: Invalid file path")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid file path: {e}")
-    exists = await asyncio.to_thread(file_path.exists)
-    if not exists:
-        raise HTTPException(status_code=404, detail="File not found on disk")
-    
-    return FileResponse(
-        path=str(file_path),
-        filename=note_file.original_name,
-        media_type=note_file.mime_type,
-        headers={
-            "Content-Disposition": f"attachment; filename=\"{note_file.original_name}\"",
-            "X-File-Size": str(note_file.file_size)
-        }
-    )
 
 @router.delete("/files/{file_uuid}")
 async def delete_note_file(

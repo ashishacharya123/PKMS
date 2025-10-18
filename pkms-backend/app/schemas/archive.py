@@ -92,7 +92,7 @@ class FolderResponse(CamelCaseModel):
     name: str
     description: Optional[str]
     parent_uuid: Optional[str]
-    path: str  # Display path for backward compatibility
+    path: str  # Display path
     display_path: Optional[str] = None  # Human-readable path
     filesystem_path: Optional[str] = None  # UUID-based path for debugging
     created_at: datetime

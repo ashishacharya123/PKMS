@@ -21,6 +21,7 @@ from ..models.project import Project
 from ..models.diary import DiaryEntry
 from ..models.link import Link
 from ..models.archive import ArchiveFolder, ArchiveItem
+from .simple_search_cache import simple_search_cache_service
 
 
 class SearchService:
@@ -96,7 +97,10 @@ class SearchService:
                 "attachments": attachments,
                 "date_text": date_text
             })
-            
+
+            # Invalidate user's search cache since content changed
+            simple_search_cache_service.invalidate_user_cache(created_by, "content_index_update")
+
         except Exception:
             # Log error but don't fail the main operation
             logger.exception("Error indexing %s %s", item_type, getattr(item, "uuid", "<unknown>"))
@@ -104,29 +108,43 @@ class SearchService:
     async def remove_item(self, db: AsyncSession, item_uuid: str) -> None:
         """
         Remove an item from the FTS index.
-        
+
         Args:
             db: Database session
             item_uuid: UUID of the item to remove
         """
         try:
-            await db.execute(
-                text("DELETE FROM fts_content WHERE item_uuid = :uuid"), 
+            # Get the item's created_by before deletion for cache invalidation
+            result = await db.execute(
+                text("SELECT created_by FROM fts_content WHERE item_uuid = :uuid"),
                 {"uuid": item_uuid}
             )
+            item_row = result.fetchone()
+            created_by = item_row[0] if item_row else None
+
+            await db.execute(
+                text("DELETE FROM fts_content WHERE item_uuid = :uuid"),
+                {"uuid": item_uuid}
+            )
+
+            # Invalidate user's search cache since content was removed
+            if created_by:
+                simple_search_cache_service.invalidate_user_cache(created_by, "content_deletion")
+
         except Exception:
             logger.exception("Error removing %s from search index", item_uuid)
     
-    async def search(self, db: AsyncSession, created_by: str, query: str, 
-                    item_types: Optional[List[str]] = None, 
+    async def search(self, db: AsyncSession, created_by: str, query: str,
+                    item_types: Optional[List[str]] = None,
                     has_attachments: Optional[bool] = None,
                     limit: int = 50,
                     offset: int = 0) -> List[Dict]:
         """
-        Search across all content types using the two-step process:
-        1. FTS search to get candidate UUIDs
-        2. Structured SQL filtering for additional criteria
-        
+        Search across all content types with caching:
+        1. Check simple cache first (UUIDs + scores only)
+        2. If miss, perform FTS search + structured filtering
+        3. Cache results for future fast access
+
         Args:
             db: Database session
             created_by: User UUID to scope search
@@ -134,12 +152,76 @@ class SearchService:
             item_types: Optional list of item types to search
             has_attachments: Optional filter for items with attachments
             limit: Maximum number of results
-            
+            offset: Offset for pagination
+
         Returns:
             List of search results with item details
         """
         try:
-            # Step 1: FTS search to get candidate UUIDs
+            # Step 1: Check simple cache first (UUIDs + scores only)
+            cached_results = simple_search_cache_service.get_search_results(
+                query=query,
+                user_uuid=created_by,
+                item_types=item_types,
+                limit=limit,
+                offset=offset,
+                has_attachments=has_attachments
+            )
+
+            if cached_results:
+                logger.debug(f"Cache HIT for search query: '{query[:30]}...' - returning {len(cached_results)} cached results")
+
+                # Load full item data for cached UUIDs
+                results = []
+                for cached_item in cached_results:
+                    item_uuid = cached_item["uuid"]
+                    item_type = cached_item["item_type"]
+
+                    # Get the actual item with relationships
+                    item = await self._get_item_with_relationships(db, item_uuid, item_type)
+                    if not item:
+                        continue
+
+                    # Apply additional filters that weren't cached
+                    if has_attachments is not None:
+                        has_files = await self._item_has_attachments(db, item, item_type)
+                        if has_files != has_attachments:
+                            continue
+
+                    # Build full result from cached data + loaded item
+                    result_item = {
+                        "uuid": item_uuid,
+                        "type": item_type,
+                        "title": getattr(item, 'title', None) or getattr(item, 'name', None),
+                        "description": getattr(item, 'description', None),
+                        "created_at": getattr(item, 'created_at', None).isoformat() if getattr(item, 'created_at', None) else None,
+                        "score": cached_item["score"],
+                        "tags": [t.name for t in getattr(item, 'tag_objs', [])] if hasattr(item, 'tag_objs') else [],
+                        "attachments": await self._extract_attachments(db, item, item_type)
+                    }
+
+                    # Add type-specific fields
+                    if item_type == 'note':
+                        result_item["content_preview"] = getattr(item, 'content', '')[:200] + '...' if getattr(item, 'content', '') else ''
+                    elif item_type == 'document':
+                        result_item["filename"] = getattr(item, 'filename', None)
+                    elif item_type == 'archive_item':
+                        result_item["filename"] = getattr(item, 'original_filename', None) or getattr(item, 'stored_filename', None)
+                    elif item_type == 'archive_folder':
+                        result_item["name"] = getattr(item, 'name', None)
+                    elif item_type == 'todo':
+                        result_item["status"] = getattr(item, 'status', None)
+                    elif item_type == 'project':
+                        result_item["status"] = getattr(item, 'status', None)
+                        result_item["progress_percentage"] = getattr(item, 'progress_percentage', None)
+
+                    results.append(result_item)
+
+                return results
+
+            logger.debug(f"Cache MISS for search query: '{query[:30]}...' - performing FTS search")
+
+            # Step 2: FTS search to get candidate UUIDs
             fts_query = self._build_fts_query(query)
             
             sql = """
@@ -212,9 +294,22 @@ class SearchService:
                     result_item["progress_percentage"] = getattr(item, 'progress_percentage', None)
                 
                 results.append(result_item)
-            
+
+            # Step 3: Cache the results for future fast access
+            if results:
+                simple_search_cache_service.store_search_results(
+                    query=query,
+                    user_uuid=created_by,
+                    results=results,
+                    item_types=item_types,
+                    limit=limit,
+                    offset=offset,
+                    has_attachments=has_attachments
+                )
+                logger.debug(f"Cached {len(results)} search results for query: '{query[:30]}...'")
+
             return results
-            
+
         except Exception:
             logger.exception("Error during search")
             return []

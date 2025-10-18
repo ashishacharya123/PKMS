@@ -30,4 +30,4 @@ pkms-backend/data/
 pkms-backend/PKMS_Data/ 
 
 # Ignore all text files
-*.txt
+*.txtPKMS_Data/ 

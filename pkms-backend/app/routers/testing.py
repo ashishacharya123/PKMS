@@ -35,7 +35,7 @@ from ..models.archive import ArchiveFolder, ArchiveItem
 from ..models.tag import Tag
 from ..models.link import Link
 from ..auth.security import verify_password
-from ..config import NEPAL_TZ
+from ..config import NEPAL_TZ, get_data_dir
 
 router = APIRouter(tags=["testing"])
 
@@ -1222,7 +1222,6 @@ async def _test_notes_crud(db: AsyncSession, user: User, cleanup_list: list, ver
         note_data = {
             "title": f"TEST_NOTE_{test_id}",
             "content": f"Test content for CRUD testing - ID: {test_id} - Password: {generate_random_password()}",
-            "area": "TEST_AREA",  # Clear test identifier
             "year": current_year,
             "is_archived": False,
             "created_by": user.uuid
@@ -1269,14 +1268,12 @@ async def _test_notes_crud(db: AsyncSession, user: User, cleanup_list: list, ver
             
             note.title = updated_title
             note.content = updated_content
-            note.area = "UPDATED_TEST_AREA"
             await db.flush()
             await db.refresh(note)
             
             if note.title == updated_title and new_test_password in note.content:
                 add_operation("update", True, {
                     "new_title": updated_title,
-                    "updated_area": note.area,
                     "content_length": len(updated_content),
                     "contains_new_password": new_test_password in note.content
                 })
@@ -1538,7 +1535,7 @@ async def _test_todos_crud(db: AsyncSession, user: User, cleanup_list: list, ver
             todo.title = updated_title
             todo.description = updated_description
             todo.status = TodoStatus.DONE
-            todo.priority = 3  # High priority
+            todo.priority = TaskPriority.HIGH
             todo.completed_at = datetime.now()
             await db.flush()
             await db.refresh(todo)
@@ -2450,13 +2447,7 @@ done"""
 # These routes keep older frontend TestingService working after path refactor.
 # ---------------------------------------------------------------------------
 
-@router.get("/health")
-async def basic_health_check():
-    """Simple health check used by TestingService.testAPIConnectivity()."""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now(NEPAL_TZ).isoformat()
-    }
+# (Removed duplicate; use the single public unauthenticated /health defined below)
 
 
 @router.get("/health/detailed")
@@ -2552,18 +2543,19 @@ async def test_documents_create(
 async def test_todos_create(
     title: str = Form("Test Todo"),
     description: str = Form("Test description"),
-    priority: str = Form("medium"),
+    priority: str = Form("medium"),  # low, medium, high, urgent
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Test creating a new todo."""
     try:
         from ..models.todo import Todo
+        from ..models.enums import TodoStatus, TaskPriority
         todo = Todo(
             title=f"{title} - {datetime.now().strftime('%H:%M:%S')}",
             description=description,
-            completed=False,
-            priority=priority,
+            priority=TaskPriority(priority),
+            status=TodoStatus.PENDING,
             created_by=current_user.uuid
         )
         db.add(todo)
@@ -2587,7 +2579,7 @@ async def test_todos_create(
 @router.delete("/crud/cleanup/{item_type}/{item_id}")
 async def cleanup_test_item(
     item_type: str,
-    item_id: int,
+    item_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -2814,7 +2806,11 @@ async def get_diary_table_details(
                    COUNT(CASE WHEN location IS NOT NULL AND location != '' THEN 1 END) as entries_with_location,
                    COUNT(CASE WHEN is_template = 1 THEN 1 END) as template_entries,
                    COUNT(CASE WHEN from_template_id IS NOT NULL THEN 1 END) as entries_from_templates,
-                   COUNT(CASE WHEN daily_metadata_id IS NOT NULL THEN 1 END) as entries_with_daily_metadata,
+                   COUNT(CASE WHEN EXISTS (
+                        SELECT 1 FROM diary_daily_metadata dm
+                        WHERE dm.created_by = diary_entries.created_by
+                        AND DATE(dm.date) = DATE(diary_entries.date)
+                    ) THEN 1 END) as entries_with_daily_metadata,  -- Updated to use natural date relationship
                    MIN(date) as earliest_entry,
                    MAX(date) as latest_entry,
                    COUNT(DISTINCT strftime('%Y-%m', date)) as months_with_entries,
@@ -2860,8 +2856,8 @@ async def get_diary_table_details(
         
         # Get sample entries (structure only, no decryption)
         sample_query = text("""
-            SELECT id, uuid, date, title, mood, weather_code, location, is_template, 
-                   from_template_id, daily_metadata_id, content_length, created_at,
+            SELECT id, uuid, date, title, mood, weather_code, location, is_template,
+                   from_template_id, content_length, created_at,  -- daily_metadata_id removed
                    LENGTH(content_file_path) as content_file_path_length,
                    encryption_iv, file_hash
             FROM diary_entries 
@@ -2886,9 +2882,9 @@ async def get_diary_table_details(
                 "location": row[6],
                 "is_template": bool(row[7]),
                 "from_template_id": row[8],
-                "daily_metadata_id": row[9],
-                "content_length": row[10],
-                "created_at": str(row[11]),
+                # daily_metadata_id removed - now uses natural date relationship
+                "content_length": row[9],
+                "created_at": str(row[10]),
                 "content_file_info": {
                     "has_file_path": row[12] is not None and row[12] > 0,
                     "path_length": row[12]
@@ -2989,7 +2985,7 @@ async def get_diary_table_details(
                 "privacy_preserved": "This ensures your diary remains private even during system testing"
             },
             "table_structure": {
-                "diary_entries_columns": ["id", "uuid", "title", "date", "mood", "weather_code", "location", "day_of_week", "media_count", "content_length", "content_file_path", "file_hash", "encryption_iv", "is_favorite", "is_archived", "is_template", "from_template_id", "created_by", "created_at", "updated_at", "daily_metadata_id", "tags_text"],
+                "diary_entries_columns": ["id", "uuid", "title", "date", "mood", "weather_code", "location", "day_of_week", "media_count", "content_length", "content_file_path", "file_hash", "encryption_iv", "is_favorite", "is_template", "from_template_id", "created_by", "created_at", "updated_at", "is_deleted", "tags_text"],  # Removed is_archived and daily_metadata_id
                 "diary_media_columns": ["uuid", "diary_entry_uuid", "filename_encrypted", "filepath_encrypted", "encryption_iv", "mime_type", "size_bytes", "media_type", "duration_seconds", "created_by", "created_at"],
                 "diary_daily_metadata_columns": ["id", "created_by", "date", "nepali_date", "metrics_json", "created_at", "updated_at"]
             },

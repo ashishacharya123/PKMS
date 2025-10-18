@@ -184,6 +184,8 @@ Scaling to multiple workers will require:
 - **CONCURRENCY**: Use `asyncio.gather()` for executing multiple async operations simultaneously
 - **BACKGROUND TASKS**: Use `asyncio.create_task()` for non-blocking background operations
 - **NON-BLOCKING DELAYS**: Use `asyncio.sleep()` instead of `time.sleep()` to avoid blocking
+- **BLOCKING I/O**: Use `asyncio.to_thread()` for blocking filesystem operations in async functions
+- **REDIS CONNECTIONS**: Use `aclose()` instead of deprecated `close()` for Redis connections
 - **RATIONALE**: Proper async patterns prevent blocking, ensure thread safety, and improve application performance
 - **EXAMPLES**:
   ```python
@@ -211,6 +213,139 @@ Scaling to multiple workers will require:
   # Non-blocking delay
   async def delayed_operation():
       await asyncio.sleep(60)  # Non-blocking wait
+  
+  # Blocking I/O in async function
+  def sync_file_operation(file_path):
+      # Synchronous file operations
+      return file_path.exists()
+  
+  async def async_file_operation(file_path):
+      return await asyncio.to_thread(sync_file_operation, file_path)
+  ```
+
+### 17. Atomic Operations Pattern
+- **ALWAYS**: Perform database operations before filesystem operations
+- **CONSISTENCY**: Delete files only AFTER successful database commit
+- **ROLLBACK**: If database operation fails, filesystem operations should not occur
+- **ORDER**: Query exclusive items BEFORE nulling foreign keys in junction tables
+- **RATIONALE**: Prevents orphaned files and database records, ensures data consistency
+- **EXAMPLES**:
+  ```python
+  # CORRECT: DB first, then filesystem
+  await db.delete(item)
+  await db.commit()
+  # Only delete files after successful commit
+  if file_path.exists():
+      file_path.unlink()
+  
+  # WRONG: Filesystem first, then DB
+  file_path.unlink()  # File deleted
+  await db.delete(item)  # DB operation fails - orphaned file!
+  ```
+
+### 18. Enum Type Safety Pattern
+- **ALWAYS**: Convert string inputs to enum instances before comparison
+- **VALIDATION**: Use try/except with ValueError for enum conversion
+- **COMPARISONS**: Compare enum instances, not strings against enums
+- **ASSIGNMENT**: Assign enum instances to model fields, not string values
+- **RATIONALE**: Prevents logic errors, ensures type safety, enables IDE support
+- **EXAMPLES**:
+  ```python
+  # CORRECT: Convert string to enum first
+  try:
+      status_enum = TodoStatus(status_string)
+  except ValueError:
+      raise HTTPException(status_code=400, detail="Invalid status")
+  
+  if status_enum == TodoStatus.DONE:
+      # Logic executes correctly
+      pass
+  
+  # WRONG: String vs enum comparison
+  if status_string == TodoStatus.DONE:  # Never true!
+      # Logic never executes
+      pass
+  ```
+
+### 19. Date/DateTime Comparison Pattern
+- **ALWAYS**: Compare Date columns with date objects, DateTime columns with datetime objects
+- **TIMEZONE**: Use timezone-aware datetime objects for comparisons
+- **CONVERSION**: Use `.date()` to convert datetime to date for Date column comparisons
+- **RATIONALE**: Prevents SQLAlchemy compilation errors and incorrect query results
+- **EXAMPLES**:
+  ```python
+  # CORRECT: Date column vs date object
+  where(Todo.due_date < datetime.now(NEPAL_TZ).date())
+  
+  # CORRECT: DateTime column vs datetime object
+  where(Todo.created_at < datetime.now(NEPAL_TZ))
+  
+  # WRONG: Date column vs datetime object
+  where(Todo.due_date < datetime.now(NEPAL_TZ))  # Type mismatch!
+  ```
+
+### 20. JSON Response Pattern
+- **ALWAYS**: Return JSON-serializable objects from API endpoints
+- **ENUMS**: Convert enums to primitive values before JSON serialization
+- **RESPONSES**: Use dict objects instead of raw enum instances
+- **RATIONALE**: Prevents JSON serialization errors and ensures consistent API responses
+- **EXAMPLES**:
+  ```python
+  # CORRECT: Return dict with enum value
+  return {"status": status_enum.value}
+  
+  # CORRECT: Use JSONResponse with dict
+  return JSONResponse({"status": status_enum.value})
+  
+  # WRONG: Return raw enum
+  return JSONResponse(status_enum)  # Serialization error!
+  ```
+
+### 21. Priority Enum Pattern
+- **ALWAYS**: Use `TaskPriority` enum instead of integer priorities
+- **CONSISTENCY**: Apply to all modules that use priority (Todos, Projects, Subtasks)
+- **NO BACKWARD COMPATIBILITY**: This is a new application - no legacy data to migrate
+- **VALIDATION**: Use enum validation in Pydantic schemas with string conversion
+- **RATIONALE**: Type safety, consistency across modules, prevents magic numbers
+- **EXAMPLES**:
+  ```python
+  # CORRECT: Use TaskPriority enum
+  priority = TaskPriority.HIGH
+  todo.priority = TaskPriority.MEDIUM
+  project.priority = TaskPriority.URGENT
+  
+  # CORRECT: String conversion
+  priority = TaskPriority("high")  # Converts string to enum
+  
+  # WRONG: Magic numbers or unclear values
+  priority = 3  # What does 3 mean?
+  todo.priority = "medium"  # Should use enum
+  ```
+
+### 22. New Application Development Pattern
+- **NO LEGACY CODE**: This is a greenfield application - no backward compatibility needed
+- **CLEAN IMPLEMENTATION**: Implement features correctly from the start
+- **NO MIGRATION SCRIPTS**: No need for data migration scripts
+- **MODERN PATTERNS**: Use current best practices without legacy constraints
+- **RATIONALE**: Building from scratch allows for optimal architecture without technical debt
+
+### 23. File Creation and Modification Pattern
+- **ALWAYS CHECK FIRST**: Before creating any new file, check if it already exists
+- **NEVER OVERRIDE**: Never overwrite existing files without explicit user permission
+- **READ BEFORE WRITE**: Always read existing file content before making changes
+- **BACKUP STRATEGY**: Create backups before major modifications
+- **RATIONALE**: Prevents data loss and maintains existing functionality
+- **EXAMPLES**:
+  ```python
+  # CORRECT: Check first
+  if not os.path.exists("file.py"):
+      create_new_file()
+  else:
+      read_existing_file()
+      modify_existing_file()
+  
+  # WRONG: Blind creation
+  create_file()  # May overwrite existing!
   ```
 
 ## 📋 MODEL FIELD VERIFICATION
@@ -301,5 +436,36 @@ Violating these rules will cause:
 
 ---
 
-**Last Updated**: 2025-10-17
+## 🚀 RECENT ARCHITECTURAL IMPROVEMENTS
+
+### FileCommitConsistencyService
+- **Renamed**: `FileManagementService` → `FileCommitConsistencyService` for clarity
+- **Purpose**: Ensures atomic file operations and database consistency across all modules
+- **Coverage**: Now used by Documents, Notes, Diary, and Archive modules
+- **Benefits**: Prevents orphaned files, ensures data consistency, reduces code duplication
+
+### Atomic Operations Enforcement
+- **Archive**: Fixed force-delete to delete files AFTER successful DB commit
+- **Project Service**: Fixed exclusive item deletion order to query BEFORE nulling foreign keys
+- **Pattern**: All file operations now follow DB-first, filesystem-second pattern
+
+### Enum Type Safety
+- **Todos**: Fixed string vs enum comparisons in status handling
+- **Dashboard**: Fixed date vs datetime comparisons in overdue todo queries
+- **Validation**: Added proper enum conversion with error handling
+
+### Import Organization
+- **Centralized**: All enums imported from `app.models.enums`
+- **Fixed**: Circular dependencies and incorrect import paths
+- **Type Safety**: Proper type annotations for SQLAlchemy Table and ModuleType
+
+### Async Programming
+- **File Operations**: Moved blocking I/O to thread pool using `asyncio.to_thread()`
+- **Redis**: Updated to use `aclose()` instead of deprecated `close()`
+- **Performance**: Eliminated event loop blocking in file operations
+
+---
+
+**Last Updated**: 2025-01-27
 **Status**: PRODUCTION READY (with clean database reinitialization required)
+**Architectural Health**: SIGNIFICANTLY IMPROVED ✅

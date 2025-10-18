@@ -13,7 +13,7 @@ from datetime import datetime, date
 
 from app.models.base import Base
 from app.config import nepal_now
-from app.models.enums import ProjectStatus, TodoStatus
+from app.models.enums import ProjectStatus, TodoStatus, TaskPriority
 from app.models.tag_associations import project_tags
 from app.models.associations import note_projects, document_projects, todo_projects
 
@@ -30,21 +30,22 @@ class Project(Base):
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
 
-    # Visual customization
-    color = Column(String(7), default="#3498db")  # Hex color code
-    icon = Column(String(50), nullable=True)
+    # Visual customization removed - color and icon deemed unnecessary
     sort_order = Column(Integer, default=0)
 
     # Status and lifecycle
     status = Column(Enum(ProjectStatus), default=ProjectStatus.IS_RUNNING, nullable=False, index=True)
+    priority = Column(Enum(TaskPriority), default=TaskPriority.MEDIUM, nullable=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
     is_deleted = Column(Boolean, default=False, index=True)
-    progress_percentage = Column(Integer, default=0)  # 0-100 percentage complete
+    progress_percentage = Column(Integer, default=0)  # Auto-calculated from todos or manual override
 
     # Timeline
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
+    due_date = Column(Date, nullable=True)  # Professional project management feature
+    completion_date = Column(DateTime(timezone=True), nullable=True)  # When project was actually completed
 
     # Audit trail
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
@@ -78,17 +79,17 @@ class Project(Base):
         new_project = Project(
             name=f"{self.name} - {name_suffix}",
             description=self.description,
-            color=self.color,
-            icon=self.icon,
             status=self.status,
             sort_order=self.sort_order + 1,  # Place it after original
             start_date=self.start_date,
             end_date=self.end_date,
+            due_date=self.due_date,  # Include due date in duplication
             created_by=self.created_by,
             # Reset completion-related fields
             progress_percentage=0,
             is_archived=False,
-            is_favorite=False
+            is_favorite=False,
+            completion_date=None  # Reset completion date
         )
 
         session.add(new_project)
@@ -181,7 +182,7 @@ class Project(Base):
 def create_project_fts_trigger():
     """
     SQL for creating FTS5 trigger for projects.
-    This should be added to database migrations.
+    This should be added to database setup.
     """
     return """
     -- Create FTS5 virtual table for projects

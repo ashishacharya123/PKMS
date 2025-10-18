@@ -18,7 +18,9 @@ from sqlalchemy import select
 from app.models.user import User, Session, RecoveryKey
 from app.models.note import Note, NoteFile
 from app.models.document import Document
-from app.models.todo import Todo, Project, TodoStatus
+from app.models.todo import Todo
+from app.models.project import Project
+from app.models.enums import TodoStatus, TaskPriority
 from app.models.diary import DiaryEntry, DiaryMedia
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import Tag
@@ -137,8 +139,7 @@ class TestNoteModel:
         note = Note(
             title="Test Note",
             content="This is test content for the note.",
-            created_by=test_user.uuid,
-            area="Personal"
+            created_by=test_user.uuid
         )
         
         db_session.add(note)
@@ -149,7 +150,7 @@ class TestNoteModel:
         assert note.title == "Test Note"
         assert note.content == "This is test content for the note."
         assert note.created_by == test_user.uuid
-        assert note.area == "Personal"
+        # Note: area field removed from Note model
         assert note.is_favorite is False  # Default value
         assert note.created_at is not None
     
@@ -183,9 +184,9 @@ class TestNoteModel:
     async def test_note_search_functionality(self, db_session: AsyncSession, test_user: User):
         """Test note search and filtering."""
         notes = [
-            Note(title="Python Tutorial", content="Learn Python programming", created_by=test_user.uuid, area="Tech"),
-            Note(title="Recipe Book", content="Delicious pasta recipes", created_by=test_user.uuid, area="Cooking"),
-            Note(title="Travel Plans", content="Visit Python Island", created_by=test_user.uuid, area="Travel")
+            Note(title="Python Tutorial", content="Learn Python programming", created_by=test_user.uuid),
+            Note(title="Recipe Book", content="Delicious pasta recipes", created_by=test_user.uuid),
+            Note(title="Travel Plans", content="Visit Python Island", created_by=test_user.uuid)
         ]
         
         db_session.add_all(notes)
@@ -199,9 +200,9 @@ class TestNoteModel:
         assert len(python_notes) == 1
         assert python_notes[0].title == "Python Tutorial"
         
-        # Search by area
+        # Example: filter by title instead (area not present)
         result = await db_session.execute(
-            select(Note).where(Note.area == "Tech").where(Note.created_by == test_user.uuid)
+            select(Note).where(Note.title == "Python Tutorial").where(Note.created_by == test_user.uuid)
         )
         tech_notes = result.scalars().all()
         assert len(tech_notes) == 1
@@ -331,8 +332,8 @@ class TestTodoModel:
             title="Complete Testing",
             description="Write comprehensive tests for the application",
             created_by=test_user.uuid,
-            priority="high",
-            status="pending"
+            priority=TaskPriority.HIGH,
+            status=TodoStatus.PENDING
         )
         
         db_session.add(todo)
@@ -364,15 +365,21 @@ class TestTodoModel:
             title="Project Task",
             description="Task for the project",
             created_by=test_user.uuid,
-            project_uuid=project.uuid
+            priority=TaskPriority.MEDIUM,
+            status=TodoStatus.PENDING
         )
         
         db_session.add(todo)
         await db_session.commit()
+        await db_session.refresh(todo)
+        
+        # Associate todo with project using many-to-many relationship
+        project.todos.append(todo)
+        await db_session.commit()
         
         # Verify relationship
         result = await db_session.execute(
-            select(Todo).where(Todo.project_uuid == project.uuid)
+            select(Todo).join(Todo.projects).where(Project.uuid == project.uuid)
         )
         project_todos = result.scalars().all()
         assert len(project_todos) == 1
@@ -386,6 +393,8 @@ class TestTodoModel:
             title="Overdue Task",
             description="This task is overdue",
             created_by=test_user.uuid,
+            priority=TaskPriority.MEDIUM,
+            status=TodoStatus.PENDING,
             due_date=datetime.now() - timedelta(days=1)
         )
         
@@ -394,6 +403,8 @@ class TestTodoModel:
             title="Future Task",
             description="This task is due in the future",
             created_by=test_user.uuid,
+            priority=TaskPriority.LOW,
+            status=TodoStatus.PENDING,
             due_date=datetime.now() + timedelta(days=7)
         )
         
