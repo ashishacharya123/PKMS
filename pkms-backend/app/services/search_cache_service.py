@@ -27,7 +27,7 @@ class SearchCacheService:
             
             # If Redis URL is empty, skip Redis initialization and use in-memory cache
             if not redis_url or redis_url.strip() == "":
-                logger.info("🔄 No Redis URL provided. Using in-memory cache fallback.")
+                logger.info("FALLBACK: No Redis URL provided. Using in-memory cache fallback.")
                 self.is_available = False
                 return False
             
@@ -36,11 +36,11 @@ class SearchCacheService:
             # Test connection
             await self.redis_client.ping()
             self.is_available = True
-            logger.info("✅ Search cache service initialized with Redis")
+            logger.info("SUCCESS: Search cache service initialized with Redis")
             return True
 
         except Exception as e:
-            logger.warning(f"⚠️ Redis cache not available: {e}. Using in-memory fallback.")
+            logger.warning(f"WARNING: Redis cache not available: {e}. Using in-memory fallback.")
             self.is_available = False
             return False
 
@@ -48,9 +48,9 @@ class SearchCacheService:
         """Close Redis connection"""
         if self.redis_client:
             await self.redis_client.close()
-            logger.info("🔌 Search cache service connection closed")
+            logger.info("CLOSED: Search cache service connection closed")
 
-    def _generate_cache_key(self, query: str, user_id: int,
+    def _generate_cache_key(self, query: str, created_by: int,
                            modules: Optional[List[str]] = None,
                            search_type: str = "fts5",
                            **additional_params) -> str:
@@ -58,7 +58,7 @@ class SearchCacheService:
         key_parts = [
             "search",
             search_type,
-            str(user_id),
+            str(created_by),
             query.lower().strip(),
         ]
 
@@ -72,7 +72,7 @@ class SearchCacheService:
 
         return "|".join(key_parts)
 
-    async def get_search_results(self, query: str, user_id: int,
+    async def get_search_results(self, query: str, created_by: int,
                               modules: Optional[List[str]] = None,
                               search_type: str = "fts5",
                               **additional_params) -> Optional[Dict[str, Any]]:
@@ -81,11 +81,11 @@ class SearchCacheService:
             return None
 
         try:
-            cache_key = self._generate_cache_key(query, user_id, modules, search_type, **additional_params)
+            cache_key = self._generate_cache_key(query, created_by, modules, search_type, **additional_params)
             cached_data = await self.redis_client.get(cache_key)
 
             if cached_data:
-                logger.debug(f"🎯 Cache hit for search: '{query[:50]}...'")
+                logger.debug(f"HIT: Cache hit for search: '{query[:50]}...'")
                 # SECURITY: Validate JSON structure before deserialization
                 try:
                     parsed_data = json.loads(cached_data)
@@ -98,14 +98,14 @@ class SearchCacheService:
                     logger.warning(f"Failed to parse cached JSON for query {query[:50]}: {e}")
                     return None
 
-            logger.debug(f"🔍 Cache miss for search: '{query[:50]}...'")
+            logger.debug(f"MISS: Cache miss for search: '{query[:50]}...'")
             return None
 
         except Exception as e:
-            logger.error(f"❌ Error getting search cache: {e}")
+            logger.error(f"ERROR: Error getting search cache: {e}")
             return None
 
-    async def set_search_results(self, query: str, user_id: int,
+    async def set_search_results(self, query: str, created_by: int,
                               results: Dict[str, Any],
                               modules: Optional[List[str]] = None,
                               search_type: str = "fts5",
@@ -116,7 +116,7 @@ class SearchCacheService:
             return False
 
         try:
-            cache_key = self._generate_cache_key(query, user_id, modules, search_type, **additional_params)
+            cache_key = self._generate_cache_key(query, created_by, modules, search_type, **additional_params)
             cache_ttl = ttl or self.default_ttl
 
             # Serialize results
@@ -124,14 +124,14 @@ class SearchCacheService:
 
             # Set in cache with TTL
             await self.redis_client.setex(cache_key, cache_ttl, serialized_data)
-            logger.debug(f"💾 Cached search results: '{query[:50]}...' (TTL: {cache_ttl}s)")
+            logger.debug(f"CACHED: Cached search results: '{query[:50]}...' (TTL: {cache_ttl}s)")
             return True
 
         except Exception as e:
-            logger.error(f"❌ Error setting search cache: {e}")
+            logger.error(f"ERROR: Error setting search cache: {e}")
             return False
 
-    async def invalidate_search_cache(self, user_id: int = None,
+    async def invalidate_search_cache(self, created_by: int = None,
                                     modules: Optional[List[str]] = None,
                                     query_pattern: Optional[str] = None) -> int:
         """Invalidate cached search results"""
@@ -141,11 +141,11 @@ class SearchCacheService:
         try:
             keys_to_delete = []
 
-            if user_id is not None:
+            if created_by is not None:
                 # Invalidate all searches for a specific user
-                pattern = f"search:*:{user_id}:*"
+                pattern = f"search:*:{created_by}:*"
                 if modules:
-                    pattern = f"search:*:{user_id}:{':'.join(sorted(modules))}*"
+                    pattern = f"search:*:{created_by}:{':'.join(sorted(modules))}*"
 
                 keys = await self.redis_client.keys(pattern)
                 keys_to_delete.extend(keys)
@@ -165,13 +165,13 @@ class SearchCacheService:
 
             if keys_to_delete:
                 deleted_count = await self.redis_client.delete(*keys_to_delete)
-                logger.info(f"🗑️ Invalidated {deleted_count} cached search results")
+                logger.info(f"DELETED: Invalidated {deleted_count} cached search results")
                 return deleted_count
 
             return 0
 
         except Exception as e:
-            logger.error(f"❌ Error invalidating search cache: {e}")
+            logger.error(f"ERROR: Error invalidating search cache: {e}")
             return 0
 
     async def get_cache_stats(self) -> Dict[str, Any]:
@@ -194,7 +194,7 @@ class SearchCacheService:
             }
 
         except Exception as e:
-            logger.error(f"❌ Error getting cache stats: {e}")
+            logger.error(f"ERROR: Error getting cache stats: {e}")
             return {"status": "error", "message": str(e)}
 
     def _calculate_hit_rate(self, redis_info: Dict[str, Any]) -> float:
@@ -219,13 +219,13 @@ class SearchCacheService:
 
             if keys:
                 deleted_count = await self.redis_client.delete(*keys)
-                logger.info(f"🧹 Cleared {deleted_count} cached search results")
+                logger.info(f"CLEARED: Cleared {deleted_count} cached search results")
                 return True
 
             return True
 
         except Exception as e:
-            logger.error(f"❌ Error clearing search cache: {e}")
+            logger.error(f"ERROR: Error clearing search cache: {e}")
             return False
 
 # In-memory fallback cache when Redis is not available
@@ -238,7 +238,7 @@ class InMemorySearchCache:
         self.default_ttl = 300  # 5 minutes
         self.max_size = 1000  # Maximum number of cached items
 
-    def _generate_cache_key(self, query: str, user_id: int,
+    def _generate_cache_key(self, query: str, created_by: int,
                            modules: Optional[List[str]] = None,
                            search_type: str = "fts5",
                            **additional_params) -> str:
@@ -246,7 +246,7 @@ class InMemorySearchCache:
         key_parts = [
             "search",
             search_type,
-            str(user_id),
+            str(created_by),
             query.lower().strip(),
         ]
 
@@ -259,12 +259,12 @@ class InMemorySearchCache:
 
         return "|".join(key_parts)
 
-    def get(self, query: str, user_id: int,
+    def get(self, query: str, created_by: int,
             modules: Optional[List[str]] = None,
             search_type: str = "fts5",
             **additional_params) -> Optional[Dict[str, Any]]:
         """Get cached results from memory"""
-        cache_key = self._generate_cache_key(query, user_id, modules, search_type, **additional_params)
+        cache_key = self._generate_cache_key(query, created_by, modules, search_type, **additional_params)
 
         if cache_key in self.cache:
             timestamp = self.timestamps.get(cache_key, 0)
@@ -293,14 +293,14 @@ class InMemorySearchCache:
 
         return None
 
-    def set(self, query: str, user_id: int,
+    def set(self, query: str, created_by: int,
             results: Dict[str, Any],
             modules: Optional[List[str]] = None,
             search_type: str = "fts5",
             ttl: Optional[int] = None,
             **additional_params) -> bool:
         """Cache results in memory"""
-        cache_key = self._generate_cache_key(query, user_id, modules, search_type, **additional_params)
+        cache_key = self._generate_cache_key(query, created_by, modules, search_type, **additional_params)
 
         # Clean up old entries if cache is full
         if len(self.cache) >= self.max_size:
@@ -342,7 +342,7 @@ class InMemorySearchCache:
 search_cache_service = SearchCacheService()
 in_memory_cache = InMemorySearchCache()
 
-async def get_cached_search_results(query: str, user_id: int,
+async def get_cached_search_results(query: str, created_by: int,
                                    modules: Optional[List[str]] = None,
                                    search_type: str = "fts5",
                                    **additional_params) -> Optional[Dict[str, Any]]:
@@ -350,15 +350,15 @@ async def get_cached_search_results(query: str, user_id: int,
     # Try Redis first
     if search_cache_service.is_available:
         result = await search_cache_service.get_search_results(
-            query, user_id, modules, search_type, **additional_params
+            query, created_by, modules, search_type, **additional_params
         )
         if result:
             return result
 
     # Fall back to in-memory cache
-    return in_memory_cache.get(query, user_id, modules, search_type, **additional_params)
+    return in_memory_cache.get(query, created_by, modules, search_type, **additional_params)
 
-async def cache_search_results(query: str, user_id: int,
+async def cache_search_results(query: str, created_by: int,
                              results: Dict[str, Any],
                              modules: Optional[List[str]] = None,
                              search_type: str = "fts5",
@@ -368,15 +368,15 @@ async def cache_search_results(query: str, user_id: int,
     # Try Redis first
     if search_cache_service.is_available:
         redis_success = await search_cache_service.set_search_results(
-            query, user_id, results, modules, search_type, ttl, **additional_params
+            query, created_by, results, modules, search_type, ttl, **additional_params
         )
         if redis_success:
             return True
 
     # Fall back to in-memory cache
-    return in_memory_cache.set(query, user_id, results, modules, search_type, ttl, **additional_params)
+    return in_memory_cache.set(query, created_by, results, modules, search_type, ttl, **additional_params)
 
-async def invalidate_search_cache(user_id: int = None,
+async def invalidate_search_cache(created_by: int = None,
                                 modules: Optional[List[str]] = None,
                                 query_pattern: Optional[str] = None) -> int:
     """Invalidate cached search results"""
@@ -384,7 +384,7 @@ async def invalidate_search_cache(user_id: int = None,
     redis_count = 0
     if search_cache_service.is_available:
         redis_count = await search_cache_service.invalidate_search_cache(
-            user_id, modules, query_pattern
+            created_by, modules, query_pattern
         )
 
     # Clear in-memory cache

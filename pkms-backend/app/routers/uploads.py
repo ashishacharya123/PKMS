@@ -3,7 +3,7 @@ Client sends multipart/form-data with file and a JSON `chunk_data` field that
 MUST include:
     file_id, chunk_number, total_chunks, filename, module
 Optionally any extra metadata (tags, folder_uuid, etc.) can be included and
-will be passed through unchanged – the respective module can query the final
+will be passed through unchanged - the respective module can query the final
 assembled file later.
 """
 
@@ -12,10 +12,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any
 import json
-import asyncio
 import logging
 
-from app.services.chunk_service import chunk_manager
+from app.services.chunk_service import chunk_manager, ChunkUploadStatus
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
@@ -34,7 +33,7 @@ async def upload_chunk(
     file: UploadFile = File(...),
     chunk_data: str = Form(...),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)  # placeholder – modules may need DB later
+    db: AsyncSession = Depends(get_db)  # placeholder - modules may need DB later
 ):
     """Receive a single chunk and store it via ChunkUploadManager."""
     try:
@@ -62,10 +61,11 @@ async def upload_chunk(
         filename=meta["filename"],
         total_chunks=int(meta["total_chunks"]),
         total_size=int(meta.get("total_size", 0)),
+        created_by=str(current_user.id),
     )
 
     # If all chunks received, await assembly before returning
-    if status["status"] == "assembling":
+    if status["status"] == ChunkUploadStatus.ASSEMBLING:
         logger = logging.getLogger(__name__)
         try:
             logger.info(f"All chunks received. Starting assembly for file_id: {meta['file_id']}")
@@ -79,7 +79,7 @@ async def upload_chunk(
             try:
                 current_status = await chunk_manager.get_upload_status(meta["file_id"])
                 if current_status:
-                    current_status["status"] = "failed"
+                    current_status["status"] = ChunkUploadStatus.FAILED
                     current_status["error"] = str(e)
                     status = current_status
             except Exception as status_error:
@@ -90,14 +90,27 @@ async def upload_chunk(
     return JSONResponse(status)
 
 @router.get("/upload/{file_id}/status")
-async def get_upload_status(file_id: str):
+async def get_upload_status(file_id: str, current_user: User = Depends(get_current_user)):
     status = await chunk_manager.get_upload_status(file_id)
     if not status:
         raise HTTPException(status_code=404, detail="Upload not found")
+
+    # Ownership check: users can only view their own uploads
+    if status.get('created_by') != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Access denied: you can only view your own uploads")
+
     return status
 
 @router.delete("/upload/{file_id}")
-async def cancel_upload(file_id: str):
+async def cancel_upload(file_id: str, current_user: User = Depends(get_current_user)):
+    status = await chunk_manager.get_upload_status(file_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Upload not found")
+
+    # Ownership check: users can only cancel their own uploads
+    if status.get('created_by') != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Access denied: you can only cancel your own uploads")
+
     # Currently just drop tracking & temp files via internal cleanup
     # TODO: immediate cleanup logic if required
     if file_id in chunk_manager.uploads:

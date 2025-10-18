@@ -4,7 +4,7 @@ Tag Model for Content Organization
 
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Boolean, ForeignKey,
-    UniqueConstraint
+    UniqueConstraint, Enum
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from app.models.base import Base
 from app.config import nepal_now
+from app.models.enums import ModuleType
 from app.models.tag_associations import (
     note_tags, document_tags, todo_tags, project_tags, 
     archive_item_tags, archive_folder_tags, diary_entry_tags, link_tags
@@ -33,13 +34,13 @@ class Tag(Base):
     usage_count = Column(Integer, default=0, nullable=False)
     
     # CRITICAL: Differentiates tags for different modules (e.g., 'notes', 'todos').
-    module_type = Column(String(50), nullable=False, index=True)
+    module_type = Column(Enum(ModuleType), nullable=False, index=True)
     
     is_system = Column(Boolean, default=False, index=True)  # System tags can't be deleted
     is_archived = Column(Boolean, default=False, index=True)
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     
     # CRITICAL: Ensures a user can't have the same tag name within the same module.
     __table_args__ = (

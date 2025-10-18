@@ -18,7 +18,7 @@ from sqlalchemy import select
 from app.models.user import User, Session, RecoveryKey
 from app.models.note import Note, NoteFile
 from app.models.document import Document
-from app.models.todo import Todo, Project
+from app.models.todo import Todo, Project, TodoStatus
 from app.models.diary import DiaryEntry, DiaryMedia
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import Tag
@@ -44,7 +44,7 @@ class TestUserModel:
         await db_session.commit()
         await db_session.refresh(user)
         
-        assert user.id is not None
+        assert user.uuid is not None
         assert user.username == "testuser"
         assert user.email == "test@example.com"
         assert user.is_active is True
@@ -104,7 +104,7 @@ class TestUserModel:
         await db_session.refresh(user)
         
         # Create related objects
-        note = Note(title="Test Note", content="Test content", user_id=user.id)
+        note = Note(title="Test Note", content="Test content", created_by=user.uuid)
         document = Document(
             title="Test Document",
             filename="test.pdf",
@@ -112,7 +112,7 @@ class TestUserModel:
             file_path="/docs/test.pdf",
             file_size=1024,
             mime_type="application/pdf",
-            user_id=user.id
+            created_by=user.uuid
         )
         
         db_session.add_all([note, document])
@@ -120,7 +120,7 @@ class TestUserModel:
         
         # Test relationships
         result = await db_session.execute(
-            select(User).where(User.id == user.id)
+            select(User).where(User.uuid == user.uuid)
         )
         loaded_user = result.scalar_one()
         
@@ -137,7 +137,7 @@ class TestNoteModel:
         note = Note(
             title="Test Note",
             content="This is test content for the note.",
-            user_id=test_user.id,
+            created_by=test_user.uuid,
             area="Personal"
         )
         
@@ -145,10 +145,10 @@ class TestNoteModel:
         await db_session.commit()
         await db_session.refresh(note)
         
-        assert note.id is not None
+        assert note.uuid is not None
         assert note.title == "Test Note"
         assert note.content == "This is test content for the note."
-        assert note.user_id == test_user.id
+        assert note.created_by == test_user.uuid
         assert note.area == "Personal"
         assert note.is_favorite is False  # Default value
         assert note.created_at is not None
@@ -159,11 +159,11 @@ class TestNoteModel:
         note = Note(
             title="Tagged Note",
             content="Note with tags",
-            user_id=test_user.id
+            created_by=test_user.uuid
         )
         
-        tag1 = Tag(name="python", user_id=test_user.id)
-        tag2 = Tag(name="programming", user_id=test_user.id)
+        tag1 = Tag(name="python", created_by=test_user.uuid)
+        tag2 = Tag(name="programming", created_by=test_user.uuid)
         
         db_session.add_all([note, tag1, tag2])
         await db_session.commit()
@@ -183,9 +183,9 @@ class TestNoteModel:
     async def test_note_search_functionality(self, db_session: AsyncSession, test_user: User):
         """Test note search and filtering."""
         notes = [
-            Note(title="Python Tutorial", content="Learn Python programming", user_id=test_user.id, area="Tech"),
-            Note(title="Recipe Book", content="Delicious pasta recipes", user_id=test_user.id, area="Cooking"),
-            Note(title="Travel Plans", content="Visit Python Island", user_id=test_user.id, area="Travel")
+            Note(title="Python Tutorial", content="Learn Python programming", created_by=test_user.uuid, area="Tech"),
+            Note(title="Recipe Book", content="Delicious pasta recipes", created_by=test_user.uuid, area="Cooking"),
+            Note(title="Travel Plans", content="Visit Python Island", created_by=test_user.uuid, area="Travel")
         ]
         
         db_session.add_all(notes)
@@ -193,7 +193,7 @@ class TestNoteModel:
         
         # Search by title
         result = await db_session.execute(
-            select(Note).where(Note.title.contains("Python")).where(Note.user_id == test_user.id)
+            select(Note).where(Note.title.contains("Python")).where(Note.created_by == test_user.uuid)
         )
         python_notes = result.scalars().all()
         assert len(python_notes) == 1
@@ -201,7 +201,7 @@ class TestNoteModel:
         
         # Search by area
         result = await db_session.execute(
-            select(Note).where(Note.area == "Tech").where(Note.user_id == test_user.id)
+            select(Note).where(Note.area == "Tech").where(Note.created_by == test_user.uuid)
         )
         tech_notes = result.scalars().all()
         assert len(tech_notes) == 1
@@ -212,7 +212,7 @@ class TestNoteModel:
         note = Note(
             title="Note with Attachments",
             content="This note has files attached",
-            user_id=test_user.id
+            created_by=test_user.uuid
         )
         
         db_session.add(note)
@@ -221,7 +221,7 @@ class TestNoteModel:
         
         # Create note file attachment
         note_file = NoteFile(
-            note_id=note.id,
+            note_uuid=note.uuid,
             filename="attachment.pdf",
             original_name="document.pdf",
             file_path="/attachments/attachment.pdf",
@@ -234,7 +234,7 @@ class TestNoteModel:
         
         # Verify attachment
         result = await db_session.execute(
-            select(NoteFile).where(NoteFile.note_id == note.id)
+            select(NoteFile).where(NoteFile.note_uuid == note.uuid)
         )
         attachments = result.scalars().all()
         assert len(attachments) == 1
@@ -255,7 +255,7 @@ class TestDocumentModel:
             file_size=1024000,
             mime_type="application/pdf",
             description="This is an important document",
-            user_id=test_user.id,
+            created_by=test_user.uuid,
             is_favorite=True
         )
         
@@ -263,7 +263,6 @@ class TestDocumentModel:
         await db_session.commit()
         await db_session.refresh(document)
         
-        assert document.id is not None
         assert document.uuid is not None
         assert UUID(document.uuid)  # Valid UUID
         assert document.title == "Important Document"
@@ -282,7 +281,7 @@ class TestDocumentModel:
             file_path="/documents/archive_me.pdf",
             file_size=512000,
             mime_type="application/pdf",
-            user_id=test_user.id
+            created_by=test_user.uuid
         )
         
         db_session.add(document)
@@ -304,11 +303,11 @@ class TestDocumentModel:
             file_path="/documents/tagged.pdf",
             file_size=256000,
             mime_type="application/pdf",
-            user_id=test_user.id
+            created_by=test_user.uuid
         )
         
-        tag1 = Tag(name="important", user_id=test_user.id)
-        tag2 = Tag(name="work", user_id=test_user.id)
+        tag1 = Tag(name="important", created_by=test_user.uuid)
+        tag2 = Tag(name="work", created_by=test_user.uuid)
         
         db_session.add_all([document, tag1, tag2])
         await db_session.commit()
@@ -331,7 +330,7 @@ class TestTodoModel:
         todo = Todo(
             title="Complete Testing",
             description="Write comprehensive tests for the application",
-            user_id=test_user.id,
+            created_by=test_user.uuid,
             priority="high",
             status="pending"
         )
@@ -340,10 +339,10 @@ class TestTodoModel:
         await db_session.commit()
         await db_session.refresh(todo)
         
-        assert todo.id is not None
+        assert todo.uuid is not None
         assert todo.title == "Complete Testing"
         assert todo.priority == "high"
-        assert todo.status == "pending"
+        assert todo.status == TodoStatus.PENDING
         assert todo.is_favorite is False
         assert todo.created_at is not None
     
@@ -353,7 +352,7 @@ class TestTodoModel:
         project = Project(
             name="Test Project",
             description="Project for testing",
-            user_id=test_user.id,
+            created_by=test_user.uuid,
             status="active"
         )
         
@@ -364,8 +363,8 @@ class TestTodoModel:
         todo = Todo(
             title="Project Task",
             description="Task for the project",
-            user_id=test_user.id,
-            project_id=project.id
+            created_by=test_user.uuid,
+            project_uuid=project.uuid
         )
         
         db_session.add(todo)
@@ -373,7 +372,7 @@ class TestTodoModel:
         
         # Verify relationship
         result = await db_session.execute(
-            select(Todo).where(Todo.project_id == project.id)
+            select(Todo).where(Todo.project_uuid == project.uuid)
         )
         project_todos = result.scalars().all()
         assert len(project_todos) == 1
@@ -386,7 +385,7 @@ class TestTodoModel:
         overdue_todo = Todo(
             title="Overdue Task",
             description="This task is overdue",
-            user_id=test_user.id,
+            created_by=test_user.uuid,
             due_date=datetime.now() - timedelta(days=1)
         )
         
@@ -394,7 +393,7 @@ class TestTodoModel:
         future_todo = Todo(
             title="Future Task",
             description="This task is due in the future",
-            user_id=test_user.id,
+            created_by=test_user.uuid,
             due_date=datetime.now() + timedelta(days=7)
         )
         
@@ -405,8 +404,8 @@ class TestTodoModel:
         result = await db_session.execute(
             select(Todo).where(
                 Todo.due_date < datetime.now(),
-                Todo.user_id == test_user.id,
-                Todo.status != "completed"
+                Todo.created_by == test_user.uuid,
+                Todo.status != TodoStatus.DONE
             )
         )
         overdue_todos = result.scalars().all()
@@ -424,7 +423,7 @@ class TestArchiveModel:
             name="Documents",
             description="Important documents folder",
             path="/archive/documents",
-            user_id=test_user.id
+            created_by=test_user.uuid
         )
         
         db_session.add(folder)
@@ -444,7 +443,7 @@ class TestArchiveModel:
             name="Main",
             description="Main folder",
             path="/archive/main",
-            user_id=test_user.id
+            created_by=test_user.uuid
         )
         
         db_session.add(parent_folder)
@@ -456,7 +455,7 @@ class TestArchiveModel:
             description="Child folder",
             path="/archive/main/subfolder",
             parent_uuid=parent_folder.uuid,
-            user_id=test_user.id
+            created_by=test_user.uuid
         )
         
         db_session.add(child_folder)
@@ -477,7 +476,7 @@ class TestArchiveModel:
             name="Files",
             description="Files folder",
             path="/archive/files",
-            user_id=test_user.id
+            created_by=test_user.uuid
         )
         
         db_session.add(folder)
@@ -493,7 +492,7 @@ class TestArchiveModel:
             mime_type="application/pdf",
             file_size=1024000,
             folder_uuid=folder.uuid,
-            user_id=test_user.id
+            created_by=test_user.uuid
         )
         
         db_session.add(item)
@@ -516,7 +515,7 @@ class TestDiaryModel:
             title="My Day",
             date=datetime.now().date(),
             mood="happy",
-            user_id=test_user.id,
+            created_by=test_user.uuid,
             encrypted_content=b"encrypted_content_here",
             encrypted_metadata=b"encrypted_metadata_here"
         )
@@ -525,7 +524,7 @@ class TestDiaryModel:
         await db_session.commit()
         await db_session.refresh(entry)
         
-        assert entry.id is not None
+        assert entry.uuid is not None
         assert entry.title == "My Day"
         assert entry.mood == "happy"
         assert entry.encrypted_content is not None
@@ -539,14 +538,14 @@ class TestDiaryModel:
         entry1 = DiaryEntry(
             title="First Entry",
             date=today,
-            user_id=test_user.id,
+            created_by=test_user.uuid,
             encrypted_content=b"content1"
         )
         
         entry2 = DiaryEntry(
             title="Second Entry",
             date=today,  # Same date
-            user_id=test_user.id,
+            created_by=test_user.uuid,
             encrypted_content=b"content2"
         )
         
@@ -563,7 +562,7 @@ class TestDiaryModel:
         entry = DiaryEntry(
             title="Entry with Media",
             date=datetime.now().date(),
-            user_id=test_user.id,
+            created_by=test_user.uuid,
             encrypted_content=b"encrypted_content"
         )
         
@@ -572,14 +571,14 @@ class TestDiaryModel:
         await db_session.refresh(entry)
         
         media = DiaryMedia(
-            entry_id=entry.id,
+            entry_uuid=entry.uuid,
             filename="photo.jpg",
             original_name="vacation_photo.jpg",
             file_path="/diary/media/photo.jpg",
             file_size=512000,
             mime_type="image/jpeg",
             media_type="photo",
-            user_id=test_user.id,
+            created_by=test_user.uuid,
             encrypted_file_data=b"encrypted_image_data"
         )
         
@@ -588,7 +587,7 @@ class TestDiaryModel:
         
         # Verify relationship
         result = await db_session.execute(
-            select(DiaryMedia).where(DiaryMedia.entry_id == entry.id)
+            select(DiaryMedia).where(DiaryMedia.entry_uuid == entry.uuid)
         )
         media_files = result.scalars().all()
         assert len(media_files) == 1
@@ -603,7 +602,7 @@ class TestTagModel:
         """Test tag creation and uniqueness."""
         tag = Tag(
             name="python",
-            user_id=test_user.id,
+            created_by=test_user.uuid,
             color="#3776ab",
             description="Python programming language"
         )
@@ -612,7 +611,7 @@ class TestTagModel:
         await db_session.commit()
         await db_session.refresh(tag)
         
-        assert tag.id is not None
+        assert tag.uuid is not None
         assert tag.name == "python"
         assert tag.color == "#3776ab"
         assert tag.created_at is not None
@@ -626,14 +625,14 @@ class TestTagModel:
         await db_session.commit()
         
         # Same tag name for different users should be allowed
-        tag1 = Tag(name="work", user_id=user1.id)
-        tag2 = Tag(name="work", user_id=user2.id)
+        tag1 = Tag(name="work", created_by=user1.uuid)
+        tag2 = Tag(name="work", created_by=user2.uuid)
         
         db_session.add_all([tag1, tag2])
         await db_session.commit()  # Should not raise an error
         
         # Duplicate tag for same user should fail
-        tag3 = Tag(name="work", user_id=user1.id)
+        tag3 = Tag(name="work", created_by=user1.uuid)
         db_session.add(tag3)
         
         with pytest.raises(IntegrityError):
@@ -642,8 +641,8 @@ class TestTagModel:
     @pytest.mark.asyncio
     async def test_tag_relationships(self, db_session: AsyncSession, test_user: User):
         """Test tag relationships with content items."""
-        tag = Tag(name="important", user_id=test_user.id)
-        note = Note(title="Important Note", content="Content", user_id=test_user.id)
+        tag = Tag(name="important", created_by=test_user.uuid)
+        note = Note(title="Important Note", content="Content", created_by=test_user.uuid)
         document = Document(
             title="Important Doc",
             filename="doc.pdf",
@@ -651,7 +650,7 @@ class TestTagModel:
             file_path="/docs/doc.pdf",
             file_size=1024,
             mime_type="application/pdf",
-            user_id=test_user.id
+            created_by=test_user.uuid
         )
         
         db_session.add_all([tag, note, document])
@@ -675,8 +674,8 @@ class TestLinkModel:
     async def test_link_creation(self, db_session: AsyncSession, test_user: User):
         """Test link creation between content items."""
         # Create source and target notes
-        source_note = Note(title="Source Note", content="Links to target", user_id=test_user.id)
-        target_note = Note(title="Target Note", content="Referenced note", user_id=test_user.id)
+        source_note = Note(title="Source Note", content="Links to target", created_by=test_user.uuid)
+        target_note = Note(title="Target Note", content="Referenced note", created_by=test_user.uuid)
         
         db_session.add_all([source_note, target_note])
         await db_session.commit()
@@ -686,10 +685,10 @@ class TestLinkModel:
         # Create link
         link = Link(
             source_type="note",
-            source_id=source_note.id,
+            source_uuid=source_note.uuid,
             target_type="note",
-            target_id=target_note.id,
-            user_id=test_user.id,
+            target_uuid=target_note.uuid,
+            created_by=test_user.uuid,
             link_type="reference",
             description="Reference link between notes"
         )
@@ -698,7 +697,7 @@ class TestLinkModel:
         await db_session.commit()
         await db_session.refresh(link)
         
-        assert link.id is not None
+        assert link.uuid is not None
         assert link.source_type == "note"
         assert link.target_type == "note"
         assert link.link_type == "reference"
@@ -706,7 +705,7 @@ class TestLinkModel:
     @pytest.mark.asyncio
     async def test_cross_module_links(self, db_session: AsyncSession, test_user: User):
         """Test links between different content types."""
-        note = Note(title="Research Note", content="Research content", user_id=test_user.id)
+        note = Note(title="Research Note", content="Research content", created_by=test_user.uuid)
         document = Document(
             title="Research Paper",
             filename="research.pdf",
@@ -714,7 +713,7 @@ class TestLinkModel:
             file_path="/docs/research.pdf",
             file_size=2048000,
             mime_type="application/pdf",
-            user_id=test_user.id
+            created_by=test_user.uuid
         )
         
         db_session.add_all([note, document])
@@ -725,10 +724,10 @@ class TestLinkModel:
         # Link note to document
         link = Link(
             source_type="note",
-            source_id=note.id,
+            source_uuid=note.uuid,
             target_type="document",
-            target_id=document.id,
-            user_id=test_user.id,
+            target_uuid=document.uuid,
+            created_by=test_user.uuid,
             link_type="attachment",
             description="Note references this document"
         )
@@ -741,7 +740,7 @@ class TestLinkModel:
             select(Link).where(
                 Link.source_type == "note",
                 Link.target_type == "document",
-                Link.user_id == test_user.id
+                Link.created_by == test_user.uuid
             )
         )
         links = result.scalars().all()
@@ -756,7 +755,7 @@ class TestModelValidation:
     async def test_required_fields_validation(self, db_session: AsyncSession, test_user: User):
         """Test that required fields are enforced."""
         # Note without title should fail
-        invalid_note = Note(content="Content without title", user_id=test_user.id)
+        invalid_note = Note(content="Content without title", created_by=test_user.uuid)
         
         db_session.add(invalid_note)
         with pytest.raises((IntegrityError, ValueError)):
@@ -765,7 +764,7 @@ class TestModelValidation:
         await db_session.rollback()
         
         # Document without required fields should fail
-        invalid_doc = Document(title="Title Only", user_id=test_user.id)
+        invalid_doc = Document(title="Title Only", created_by=test_user.uuid)
         
         db_session.add(invalid_doc)
         with pytest.raises((IntegrityError, ValueError)):
@@ -774,11 +773,11 @@ class TestModelValidation:
     @pytest.mark.asyncio
     async def test_foreign_key_constraints(self, db_session: AsyncSession):
         """Test foreign key constraints."""
-        # Note with invalid user_id should fail
+        # Note with invalid created_by should fail
         invalid_note = Note(
             title="Invalid Note",
             content="Content",
-            user_id=99999  # Non-existent user
+            created_by="non-existent-uuid"  # Non-existent user
         )
         
         db_session.add(invalid_note)
@@ -799,7 +798,7 @@ class TestModelValidation:
         await db_session.refresh(user)
         
         # Create user's content
-        note = Note(title="User Note", content="Content", user_id=user.id)
+        note = Note(title="User Note", content="Content", created_by=user.uuid)
         document = Document(
             title="User Document",
             filename="doc.pdf",
@@ -807,7 +806,7 @@ class TestModelValidation:
             file_path="/docs/doc.pdf",
             file_size=1024,
             mime_type="application/pdf",
-            user_id=user.id
+            created_by=user.uuid
         )
         
         db_session.add_all([note, document])
@@ -818,10 +817,10 @@ class TestModelValidation:
         await db_session.commit()
         
         # User's content should be cascade deleted
-        result = await db_session.execute(select(Note).where(Note.user_id == user.id))
+        result = await db_session.execute(select(Note).where(Note.created_by == user.uuid))
         remaining_notes = result.scalars().all()
         assert len(remaining_notes) == 0
         
-        result = await db_session.execute(select(Document).where(Document.user_id == user.id))
+        result = await db_session.execute(select(Document).where(Document.created_by == user.uuid))
         remaining_docs = result.scalars().all()
         assert len(remaining_docs) == 0

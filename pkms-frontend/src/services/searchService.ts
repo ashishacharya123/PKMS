@@ -87,7 +87,7 @@ class SearchService {
 
   private normaliseResults(results: any[]): SearchResult[] {
     return results.map((item) => ({
-      id: item.id ?? item.uuid ?? '',
+      uuid: item.uuid ?? '',
       module: item.module ?? item.type ?? 'notes',
       title: item.title ?? item.name ?? 'Untitled',
       preview: item.preview ?? item.preview_text ?? '',

@@ -81,7 +81,7 @@ class DiaryAccessMiddleware:
             # SECURITY: Check session token/cookie instead of fakeable headers
             session_token = request.cookies.get('pkms_refresh')
             if not session_token:
-                logger.warning("🚫 Diary search attempt without valid session")
+                logger.warning("DENIED: Diary search attempt without valid session")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Authentication required for diary search"
@@ -97,15 +97,15 @@ class DiaryAccessMiddleware:
                 )
                 session = result.scalar_one_or_none()
                 if not session:
-                    logger.warning("🚫 Diary search attempt with expired session")
+                    logger.warning("DENIED: Diary search attempt with expired session")
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Session expired"
                     )
 
                 # Check if user has unlocked diary
-                if not await _get_diary_password_from_session(session.user_uuid):
-                    logger.warning(f"🚫 Diary search attempt without unlocked diary for user {session.user_uuid}")
+                if not await _get_diary_password_from_session(session.created_by):
+                    logger.warning(f"DENIED: Diary search attempt without unlocked diary for user {session.created_by}")
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="Diary must be unlocked to search"

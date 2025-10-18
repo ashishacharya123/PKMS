@@ -51,20 +51,16 @@ class DocumentUpdate(CamelCaseModel):
         return out
     is_exclusive_mode: Optional[bool] = Field(None, description="If True, document is exclusive to projects and deleted when any project is deleted")
 
-class DocumentResponse(CamelCaseModel):
+from app.models.enums import UploadStatus
+
+class DocumentResponse(BaseModel):
     uuid: str
     title: str
+    description: Optional[str] = None
     original_name: str
-    filename: str
-    file_path: str
-    file_size: int
     mime_type: str
-    description: Optional[str]
-    is_favorite: bool
-    is_archived: bool
-    is_exclusive_mode: bool
-    
-    upload_status: str
+    file_size: int
+    upload_status: UploadStatus
     created_at: datetime
     updated_at: datetime
     tags: List[str]

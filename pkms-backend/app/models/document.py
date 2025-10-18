@@ -1,8 +1,8 @@
 """
 Document Model for File Management
 """
-
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger
+import enum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Enum
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 
@@ -10,6 +10,7 @@ from app.models.base import Base
 from app.config import nepal_now
 from app.models.tag_associations import document_tags
 from app.models.associations import document_projects
+from app.models.enums import UploadStatus
 
 
 class Document(Base):
@@ -31,13 +32,13 @@ class Document(Base):
     is_exclusive_mode = Column(Boolean, default=False, index=True)  # If True, document is deleted when any of its projects are deleted
 
     # Upload status
-    upload_status = Column(String(32), nullable=False, default="completed")
+    upload_status = Column(Enum(UploadStatus), nullable=False, default=UploadStatus.COMPLETED)
 
     # Audit trail
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     
     
     # Removed heavy columns: extracted_text, versioning, page_count, word_count, language

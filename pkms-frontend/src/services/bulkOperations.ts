@@ -46,7 +46,7 @@ class BulkOperationsService {
   // Create selection state from items
   createSelectionState(items: any[], itemType: string): BulkSelectionState {
     const bulkItems: BulkOperationItem[] = items.map(item => ({
-      id: item.id || item.uuid,
+      uuid: item.uuid,
       type: this.getTypeFromModule(itemType),
       title: item.title || item.name || 'Untitled',
       module: itemType,
@@ -64,7 +64,7 @@ class BulkOperationsService {
 
   // Toggle item selection
   toggleSelection(state: BulkSelectionState, itemId: string): BulkSelectionState {
-    const item = state.items.find(item => item.id === itemId);
+    const item = state.items.find(item => item.uuid === itemId);
     if (item) {
       item.selected = !item.selected;
       return this.updateSelectionState(state);
@@ -156,7 +156,7 @@ class BulkOperationsService {
         failed: selectedItems.length,
         errors: [error instanceof Error ? error.message : 'Unknown error'],
         details: selectedItems.map(item => ({
-          id: item.id,
+          uuid: item.uuid,
           success: false,
           error: 'Operation failed'
         }))
@@ -174,11 +174,11 @@ class BulkOperationsService {
     for (const item of items) {
       try {
         await this.addTagsToItem(item, tags);
-        results.push({ id: item.id, success: true });
+        results.push({ uuid: item.uuid, success: true });
         processed++;
       } catch (error) {
         results.push({
-          id: item.id,
+          uuid: item.uuid,
           success: false,
           error: error instanceof Error ? error.message : 'Failed to add tags'
         });
@@ -210,11 +210,11 @@ class BulkOperationsService {
     for (const item of items) {
       try {
         await this.removeTagsFromItem(item, tags);
-        results.push({ id: item.id, success: true });
+        results.push({ uuid: item.uuid, success: true });
         processed++;
       } catch (error) {
         results.push({
-          id: item.id,
+          uuid: item.uuid,
           success: false,
           error: error instanceof Error ? error.message : 'Failed to remove tags'
         });
@@ -257,11 +257,11 @@ class BulkOperationsService {
     for (const item of items) {
       try {
         await this.deleteItem(item);
-        results.push({ id: item.id, success: true });
+        results.push({ uuid: item.uuid, success: true });
         processed++;
       } catch (error) {
         results.push({
-          id: item.id,
+          uuid: item.uuid,
           success: false,
           error: error instanceof Error ? error.message : 'Failed to delete'
         });
@@ -293,11 +293,11 @@ class BulkOperationsService {
     for (const item of items) {
       try {
         await this.moveItem(item, targetFolder, targetModule);
-        results.push({ id: item.id, success: true });
+        results.push({ uuid: item.uuid, success: true });
         processed++;
       } catch (error) {
         results.push({
-          id: item.id,
+          uuid: item.uuid,
           success: false,
           error: error instanceof Error ? error.message : 'Failed to move'
         });
@@ -329,11 +329,11 @@ class BulkOperationsService {
     for (const item of items) {
       try {
         await this.archiveItem(item);
-        results.push({ id: item.id, success: true });
+        results.push({ uuid: item.uuid, success: true });
         processed++;
       } catch (error) {
         results.push({
-          id: item.id,
+          uuid: item.uuid,
           success: false,
           error: error instanceof Error ? error.message : 'Failed to archive'
         });
@@ -366,11 +366,11 @@ class BulkOperationsService {
     for (const item of items) {
       try {
         await this.setFavoriteStatus(item, favorite);
-        results.push({ id: item.id, success: true });
+        results.push({ uuid: item.uuid, success: true });
         processed++;
       } catch (error) {
         results.push({
-          id: item.id,
+          uuid: item.uuid,
           success: false,
           error: error instanceof Error ? error.message : `Failed to ${action.toLowerCase()}`
         });
@@ -398,7 +398,7 @@ class BulkOperationsService {
       exported_at: new Date().toISOString(),
       total_items: items.length,
       items: items.map(item => ({
-        id: item.id,
+        uuid: item.uuid,
         type: item.type,
         module: item.module,
         title: item.title,
@@ -424,7 +424,7 @@ class BulkOperationsService {
         processed: items.length,
         failed: 0,
         errors: [],
-        details: items.map(item => ({ id: item.id, success: true }))
+        details: items.map(item => ({ uuid: item.uuid, success: true }))
       };
     } catch (error) {
       return {
@@ -432,7 +432,7 @@ class BulkOperationsService {
         processed: 0,
         failed: items.length,
         errors: [error instanceof Error ? error.message : 'Export failed'],
-        details: items.map(item => ({ id: item.id, success: false, error: 'Export failed' }))
+        details: items.map(item => ({ uuid: item.uuid, success: false, error: 'Export failed' }))
       };
     }
   }
@@ -440,37 +440,37 @@ class BulkOperationsService {
   // API integration methods (to be implemented with actual API calls)
   private async addTagsToItem(item: BulkOperationItem, tags: string[]): Promise<void> {
     // This would integrate with the actual API for each module
-    console.log(`Adding tags ${tags.join(', ')} to ${item.type} ${item.id}`);
+    console.log(`Adding tags ${tags.join(', ')} to ${item.type} ${item.uuid}`);
 
     // Simulate API call delay
     await new Promise(resolve => setTimeout(resolve, 100));
 
     // In real implementation, this would call the appropriate API endpoint
-    // Example: await apiService.post(`/${item.module}/${item.id}/tags`, { tags });
+    // Example: await apiService.post(`/${item.module}/${item.uuid}/tags`, { tags });
   }
 
   private async removeTagsFromItem(item: BulkOperationItem, tags: string[]): Promise<void> {
-    console.log(`Removing tags ${tags.join(', ')} from ${item.type} ${item.id}`);
+    console.log(`Removing tags ${tags.join(', ')} from ${item.type} ${item.uuid}`);
     await new Promise(resolve => setTimeout(resolve, 100));
   }
 
   private async deleteItem(item: BulkOperationItem): Promise<void> {
-    console.log(`Deleting ${item.type} ${item.id}`);
+    console.log(`Deleting ${item.type} ${item.uuid}`);
     await new Promise(resolve => setTimeout(resolve, 150));
   }
 
   private async moveItem(item: BulkOperationItem, targetFolder?: string, targetModule?: string): Promise<void> {
-    console.log(`Moving ${item.type} ${item.id} to ${targetFolder || targetModule}`);
+    console.log(`Moving ${item.type} ${item.uuid} to ${targetFolder || targetModule}`);
     await new Promise(resolve => setTimeout(resolve, 120));
   }
 
   private async archiveItem(item: BulkOperationItem): Promise<void> {
-    console.log(`Archiving ${item.type} ${item.id}`);
+    console.log(`Archiving ${item.type} ${item.uuid}`);
     await new Promise(resolve => setTimeout(resolve, 100));
   }
 
   private async setFavoriteStatus(item: BulkOperationItem, favorite: boolean): Promise<void> {
-    console.log(`Setting ${item.type} ${item.id} favorite status to ${favorite}`);
+    console.log(`Setting ${item.type} ${item.uuid} favorite status to ${favorite}`);
     await new Promise(resolve => setTimeout(resolve, 80));
   }
 

@@ -58,22 +58,22 @@ def print_header(title: str):
 
 def print_success(message: str):
     """Print a success message."""
-    print(f"{Colors.GREEN}✓{Colors.END} {message}")
+    print(f"{Colors.GREEN}[+]{Colors.END} {message}")
 
 
 def print_error(message: str):
     """Print an error message."""
-    print(f"{Colors.RED}✗{Colors.END} {message}")
+    print(f"{Colors.RED}[-]{Colors.END} {message}")
 
 
 def print_warning(message: str):
     """Print a warning message."""
-    print(f"{Colors.YELLOW}⚠{Colors.END} {message}")
+    print(f"{Colors.YELLOW}[!]{Colors.END} {message}")
 
 
 def print_info(message: str):
     """Print an info message."""
-    print(f"{Colors.CYAN}ℹ{Colors.END} {message}")
+    print(f"{Colors.CYAN}[i]{Colors.END} {message}")
 
 
 class HealthChecker:
@@ -323,9 +323,9 @@ class TestRunner:
         print(f"{Colors.BOLD}DURATION:{Colors.END} {duration:.2f} seconds")
         
         if passed_tests == total_tests:
-            print(f"\n{Colors.GREEN}{Colors.BOLD}✓ All tests passed!{Colors.END}")
+            print(f"\n{Colors.GREEN}{Colors.BOLD}[+] All tests passed!{Colors.END}")
         else:
-            print(f"\n{Colors.YELLOW}{Colors.BOLD}⚠ Some tests failed. Check output above.{Colors.END}")
+            print(f"\n{Colors.YELLOW}{Colors.BOLD}[!] Some tests failed. Check output above.{Colors.END}")
     
     def run_pytest_with_coverage(self):
         """Run pytest with coverage reporting."""

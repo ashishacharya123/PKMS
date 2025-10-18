@@ -34,6 +34,7 @@ from app.services.tag_service import tag_service
 from app.services.project_service import project_service
 from app.services.file_management_service import file_management_service
 from app.services.search_service import search_service
+from app.models.enums import ModuleType
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["notes"])
@@ -45,7 +46,7 @@ file_detector = FileTypeDetectionService()
 # --- Helper Functions ---
 
 
-async def _process_note_links(db: AsyncSession, note: Note, content: str, user_uuid: str):
+async def _process_note_links(db: AsyncSession, note: Note, content: str, created_by: str):
     """Extract and process links from note content."""
     import re
     
@@ -56,7 +57,7 @@ async def _process_note_links(db: AsyncSession, note: Note, content: str, user_u
     
     for url in urls:
         existing_link = await db.execute(
-            select(Link).where(and_(Link.url == url, Link.created_by == user_uuid))
+            select(Link).where(and_(Link.url == url, Link.created_by == created_by))
         )
         
         if not existing_link.scalar_one_or_none():
@@ -64,16 +65,16 @@ async def _process_note_links(db: AsyncSession, note: Note, content: str, user_u
                 title=f"Link from note: {note.title}",
                 url=url,
                 description=f"Found in note '{note.title}'",
-                created_by=user_uuid
+                created_by=created_by
             )
             db.add(link)
 
-async def _get_note_with_relations(db: AsyncSession, note_uuid: str, user_uuid: str) -> NoteResponse:
+async def _get_note_with_relations(db: AsyncSession, note_uuid: str, created_by: str) -> NoteResponse:
     """Get note with all related data."""
     result = await db.execute(
         select(Note)
         .options(selectinload(Note.tag_objs), selectinload(Note.files))
-        .where(and_(Note.uuid == note_uuid, Note.created_by == user_uuid))
+        .where(and_(Note.uuid == note_uuid, Note.created_by == created_by))
     )
     note = result.scalar_one_or_none()
     
@@ -227,7 +228,7 @@ async def create_note(
         if note_data.tags:
             # SECURITY: Sanitize tags to prevent XSS injection
             sanitized_tags = sanitize_tags(note_data.tags)
-            await tag_service.handle_tags(db, note, sanitized_tags, current_user.uuid, "notes", note_tags)
+            await tag_service.handle_tags(db, note, sanitized_tags, current_user.uuid, ModuleType.NOTES, note_tags)
         
         # Handle projects
         if note_data.project_ids:
@@ -295,7 +296,7 @@ async def update_note(
         # SECURITY: Sanitize tags to prevent XSS injection
         raw_tags = update_data.pop("tags")
         sanitized_tags = sanitize_tags(raw_tags)
-        await tag_service.handle_tags(db, note, sanitized_tags, current_user.uuid, "notes", note_tags)
+        await tag_service.handle_tags(db, note, sanitized_tags, current_user.uuid, ModuleType.NOTES, note_tags)
 
     # Handle projects if provided
     if "project_ids" in update_data:
@@ -360,8 +361,19 @@ async def delete_note(
 
     logger.info(f"Attempting to delete note with UUID: {note_uuid} for user: {current_user.uuid}")
 
-    # Store file paths before deleting the note
-    files_to_delete = [get_file_storage_dir() / note_file.file_path for note_file in note.files]
+    # Store file paths before deleting the note with path validation
+    base_dir = get_file_storage_dir()
+    base_resolved = base_dir.resolve()
+    files_to_delete: list[Path] = []
+    for nf in note.files:
+        try:
+            p = (base_dir / nf.file_path).resolve()
+            if str(p).startswith(str(base_resolved)):
+                files_to_delete.append(p)
+            else:
+                logger.warning("Skipping file outside storage dir: %s", p)
+        except Exception:
+            logger.exception("Invalid file path for note file: %s", nf.file_path)
 
     try:
         # Decrement tag usage counts BEFORE deleting note (associations will cascade)
@@ -378,16 +390,17 @@ async def delete_note(
 
         # Delete associated files from disk AFTER successful DB commit
         if files_to_delete:
-            logger.info(f"Deleting {len(files_to_delete)} associated files for note UUID: {note_uuid}")
+            logger.info("Deleting %d associated files for note UUID: %s", len(files_to_delete), note_uuid)
             for file_path in files_to_delete:
                 try:
-                    if file_path.exists():
-                        file_path.unlink()
-                        logger.info(f"Deleted note file: {file_path}")
+                    exists = await asyncio.to_thread(file_path.exists)
+                    if exists:
+                        await asyncio.to_thread(file_path.unlink)
+                        logger.info("Deleted note file: %s", file_path)
                     else:
-                        logger.warning(f"File not found, cannot delete: {file_path}")
+                        logger.warning("File not found, cannot delete: %s", file_path)
                 except Exception:
-                    logger.exception(f"Could not delete file {file_path}")
+                    logger.exception("Could not delete file %s", file_path)
         
     except Exception as e:
         await db.rollback()
@@ -490,7 +503,7 @@ async def commit_note_file_upload(
             note_uuid=payload.note_uuid,
             original_name=payload.original_name,
             description=payload.description,
-            user_uuid=current_user.uuid
+            created_by=current_user.uuid
         )
 
         logger.info(f"Note file committed successfully: {note_file.filename}")
@@ -583,12 +596,17 @@ async def delete_note_file(
     
     # Delete the physical file
     try:
-        file_path = get_file_storage_dir() / note_file.file_path
-        if file_path.exists():
-            file_path.unlink()
-            logger.info(f"Deleted note file: {file_path}")
+        base_storage_dir = get_file_storage_dir()
+        base_storage_resolved = base_storage_dir.resolve()
+        file_path = (base_storage_dir / note_file.file_path).resolve()
+        if not str(file_path).startswith(str(base_storage_resolved)):
+            logger.warning("Refusing to delete file outside storage dir: %s", file_path)
+        else:
+            if await asyncio.to_thread(file_path.exists):
+                await asyncio.to_thread(file_path.unlink)
+                logger.info("Deleted note file: %s", file_path)
     except Exception:
-        logger.exception(f"Could not delete file {note_file.file_path}")
+        logger.exception("Could not delete file %s", note_file.file_path)
     
     # Delete the database record
     await db.delete(note_file)

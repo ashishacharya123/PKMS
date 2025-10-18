@@ -28,14 +28,16 @@ from app.config import NEPAL_TZ, get_data_dir, get_file_storage_dir
 from app.models.diary import DiaryEntry, DiaryMedia, DiaryDailyMetadata
 from app.models.user import User, RecoveryKey
 from app.models.project import Project
+from app.models.enums import ProjectStatus
 from app.auth.dependencies import get_current_user
 from app.auth.security import verify_password, hash_password
 from app.utils.diary_encryption import write_encrypted_file, read_encrypted_header, InvalidPKMSFile
 from app.models.tag import Tag
-from app.models.tag_associations import diary_tags
-from app.services.chunk_service import chunk_manager
+from app.models.tag_associations import diary_entry_tags
+from app.services.chunk_service import chunk_manager, ChunkUploadStatus
 from app.services.tag_service import tag_service
 from app.services.search_service import search_service
+from app.models.enums import ModuleType
 from app.schemas.diary import (
     DiaryEntryCreate,
     DiaryEntryUpdate,
@@ -64,7 +66,7 @@ router = APIRouter(tags=["diary"])
 WEATHER_CODE_DEFAULT = None
 
 # Secure in-memory session store for diary encryption material with async safety
-# Format: {user_uuid: {"key": bytes, "timestamp": float, "expires_at": float}}
+# Format: {created_by: {"key": bytes, "timestamp": float, "expires_at": float}}
 _diary_sessions: Dict[str, Dict[str, any]] = {}
 _diary_sessions_lock = asyncio.Lock()
 DIARY_SESSION_TIMEOUT = 1800  # 30 minutes in seconds (aligned with app session)
@@ -75,16 +77,16 @@ async def _get_session_lock():
     async with _diary_sessions_lock:
         yield
 
-async def _get_diary_password_from_session(user_uuid: str) -> Optional[bytes]:
+async def _get_diary_password_from_session(created_by: str) -> Optional[bytes]:
     """Get diary derived key from session if valid and not expired."""
     expired_user = None
     key: Optional[bytes] = None
     async with _get_session_lock():
-        session = _diary_sessions.get(user_uuid)
+        session = _diary_sessions.get(created_by)
         if not session:
             return None
         if time.time() > session["expires_at"]:
-            expired_user = user_uuid
+            expired_user = created_by
         else:
             key = session["key"]
     if expired_user:
@@ -92,7 +94,7 @@ async def _get_diary_password_from_session(user_uuid: str) -> Optional[bytes]:
         return None
     return key
 
-async def _store_diary_password_in_session(user_uuid: str, password: str):
+async def _store_diary_password_in_session(created_by: str, password: str):
     """Store derived diary key in secure session with expiry.
     
     Also derives a salt for better security and rotates after timeout.
@@ -101,22 +103,22 @@ async def _store_diary_password_in_session(user_uuid: str, password: str):
         current_time = time.time()
         key, salt = _derive_diary_encryption_key(password)
         
-        _diary_sessions[user_uuid] = {
+        _diary_sessions[created_by] = {
             "key": key,
             "salt": salt,
             "timestamp": current_time,
             "expires_at": current_time + DIARY_SESSION_TIMEOUT
         }
-        logger.info(f"Diary session created for user {user_uuid}, expires in {DIARY_SESSION_TIMEOUT}s")
+        logger.info(f"Diary session created for user {created_by}, expires in {DIARY_SESSION_TIMEOUT}s")
 
-async def _clear_diary_session(user_uuid: str):
+async def _clear_diary_session(created_by: str):
     """Clear diary session and password from memory.
     
     Overwrite memory buffers where possible before deletion for added security.
     """
     async with _get_session_lock():
-        if user_uuid in _diary_sessions:
-            session = _diary_sessions[user_uuid]
+        if created_by in _diary_sessions:
+            session = _diary_sessions[created_by]
             
             # Securely overwrite all sensitive data
             try:
@@ -135,18 +137,18 @@ async def _clear_diary_session(user_uuid: str):
                 session["expires_at"] = 0.0
                 
             except Exception as e:
-                logger.warning(f"Error securely clearing session data for user {user_uuid}: {e}")
+                logger.warning(f"Error securely clearing session data for user {created_by}: {e}")
             
             # Remove from dictionary and force garbage collection
-            del _diary_sessions[user_uuid]
-            logger.info(f"Diary session cleared for user {user_uuid}")
+            del _diary_sessions[created_by]
+            logger.info(f"Diary session cleared for user {created_by}")
             
             # Force cleanup
             gc.collect()
 
-async def _is_diary_unlocked(user_uuid: str) -> bool:
+async def _is_diary_unlocked(created_by: str) -> bool:
     """Check if diary is currently unlocked for user."""
-    return await _get_diary_password_from_session(user_uuid) is not None
+    return await _get_diary_password_from_session(created_by) is not None
 
 async def _cleanup_expired_sessions():
     """Background task to cleanup expired diary sessions and weekly highlights cache."""
@@ -158,16 +160,16 @@ async def _cleanup_expired_sessions():
             async with _get_session_lock():
                 current_time = time.time()
                 expired_users = [
-                    user_id for user_id, session in _diary_sessions.items()
+                    created_by for created_by, session in _diary_sessions.items()
                     if current_time > session["expires_at"]
                 ]
 
             # Clear sessions outside of lock
-            for user_id in expired_users:
+            for created_by in expired_users:
                 try:
-                    await _clear_diary_session(user_id)
+                    await _clear_diary_session(created_by)
                 except Exception:
-                    logger.exception("Error clearing session for user %s", user_id)
+                    logger.exception("Error clearing session for user %s", created_by)
 
                 if expired_users:
                     logger.info(f"Cleaned up {len(expired_users)} expired diary sessions")
@@ -256,12 +258,12 @@ def _generate_diary_file_path(entry_uuid: str) -> Path:
 async def _get_entry_tags(db: AsyncSession, entry_uuid: str) -> List[str]:
     """Get tag names for a diary entry."""
     from app.models.tag import Tag
-    from app.models.tag_associations import diary_tags
+    from app.models.tag_associations import diary_entry_tags
     
     result = await db.execute(
         select(Tag.name)
-        .select_from(diary_tags.join(Tag))
-        .where(diary_tags.c.diary_entry_uuid == entry_uuid)
+        .select_from(diary_entry_tags.join(Tag))
+        .where(diary_entry_tags.c.diary_entry_uuid == entry_uuid)
     )
     return [row[0] for row in result.fetchall()]
 
@@ -272,12 +274,12 @@ async def _get_tags_for_entries(db: AsyncSession, entry_uuids: List[str]) -> Dic
         return {}
 
     from app.models.tag import Tag
-    from app.models.tag_associations import diary_tags
+    from app.models.tag_associations import diary_entry_tags
 
     result = await db.execute(
-        select(diary_tags.c.diary_entry_uuid, Tag.name)
-        .select_from(diary_tags.join(Tag))
-        .where(diary_tags.c.diary_entry_uuid.in_(entry_uuids))
+        select(diary_entry_tags.c.diary_entry_uuid, Tag.name)
+        .select_from(diary_entry_tags.join(Tag))
+        .where(diary_entry_tags.c.diary_entry_uuid.in_(entry_uuids))
     )
 
     tag_map: Dict[str, List[str]] = {}
@@ -292,12 +294,12 @@ def _calculate_day_of_week(entry_date: date) -> int:
     Returns 0=Sunday, 1=Monday, ..., 6=Saturday to align with SQLite strftime('%w')
     and UI expectations.
     """
-    # Python weekday(): Monday=0..Sunday=6 → convert to Sunday=0..Saturday=6
+    # Python weekday(): Monday=0..Sunday=6 - convert to Sunday=0..Saturday=6
     return (entry_date.weekday() + 1) % 7
 
 async def _get_or_create_daily_metadata(
     db: AsyncSession,
-    user_uuid: str,
+    created_by: str,
     entry_date: datetime,
     nepali_date: Optional[str],
     metrics: Dict[str, Any],
@@ -307,7 +309,7 @@ async def _get_or_create_daily_metadata(
 ) -> DiaryDailyMetadata:
     result = await db.execute(
         select(DiaryDailyMetadata).where(
-            and_(DiaryDailyMetadata.created_by == user_uuid, DiaryDailyMetadata.date == entry_date.date())
+            and_(DiaryDailyMetadata.created_by == created_by, DiaryDailyMetadata.date == entry_date.date())
         )
     )
     snapshot = result.scalar_one_or_none()
@@ -334,7 +336,7 @@ async def _get_or_create_daily_metadata(
 
     # Create new snapshot
     snapshot = DiaryDailyMetadata(
-        created_by=user_uuid,
+        created_by=created_by,
         date=entry_date.date(),
         nepali_date=nepali_date,
         metrics_json=json.dumps(metrics or {}),
@@ -558,7 +560,7 @@ async def create_diary_entry(
         # Upsert daily metadata snapshot for this day
         daily_metadata = await _get_or_create_daily_metadata(
             db=db,
-            user_uuid=current_user.uuid,
+            created_by=current_user.uuid,
             entry_date=entry_date,
             nepali_date=entry_data.nepali_date,
             metrics=entry_data.daily_metrics or {},
@@ -613,9 +615,9 @@ async def create_diary_entry(
         # SECURITY: Move encrypted file to final location ONLY after successful DB commit
         try:
             temp_file_path.rename(final_file_path)
-            logger.info(f"✅ Diary entry file moved to final location: {final_file_path}")
+            logger.info(f"SUCCESS: Diary entry file moved to final location: {final_file_path}")
         except Exception as move_error:
-            logger.error(f"❌ Failed to move diary entry file to final location: {move_error}")
+            logger.error(f"ERROR: Failed to move diary entry file to final location: {move_error}")
             # Clean up temp file
             try:
                 if await asyncio.to_thread(temp_file_path.exists):
@@ -626,7 +628,7 @@ async def create_diary_entry(
         await db.refresh(entry)
         
         if entry_data.tags:
-            await tag_service.handle_tags(db, entry, entry_data.tags, current_user.uuid, "diary", diary_tags)
+            await tag_service.handle_tags(db, entry, entry_data.tags, current_user.uuid, ModuleType.DIARY, diary_entry_tags)
             await db.commit()
         
         # Index in search
@@ -1110,16 +1112,22 @@ async def update_diary_entry(
     if not entry:
         raise HTTPException(status_code=404, detail="Diary entry not found")
 
-    entry.date = datetime.combine(entry_data.date, datetime.min.time())
-    entry.title = entry_data.title
-    entry.mood = entry_data.mood
-    entry.weather_code = entry_data.weather_code
-    entry.location = entry_data.location
+    if entry_data.date is not None:
+        entry.date = datetime.combine(entry_data.date, datetime.min.time())
+        entry.day_of_week = _calculate_day_of_week(entry_data.date)
+    if entry_data.title is not None:
+        entry.title = entry_data.title
+    if entry_data.mood is not None:
+        entry.mood = entry_data.mood
+    if entry_data.weather_code is not None:
+        entry.weather_code = entry_data.weather_code
+    if entry_data.location is not None:
+        entry.location = entry_data.location
     if entry_data.daily_metrics is not None or entry_data.nepali_date is not None or entry_data.daily_income is not None or entry_data.daily_expense is not None or entry_data.is_office_day is not None:
         entry_date = entry.date
         daily_metadata = await _get_or_create_daily_metadata(
             db=db,
-            user_uuid=current_user.uuid,
+            created_by=current_user.uuid,
             entry_date=entry_date,
             nepali_date=entry_data.nepali_date,
             metrics=entry_data.daily_metrics or {},
@@ -1128,30 +1136,36 @@ async def update_diary_entry(
             is_office_day=entry_data.is_office_day,
         )
         entry.daily_metadata_id = daily_metadata.uuid
-    entry.is_template = entry_data.is_template
-    entry.from_template_id = entry_data.from_template_id
-    entry.day_of_week = _calculate_day_of_week(entry_data.date)
-    entry.encryption_iv = entry_data.encryption_iv
+    if entry_data.is_template is not None:
+        entry.is_template = entry_data.is_template
+    if entry_data.from_template_id is not None:
+        entry.from_template_id = entry_data.from_template_id
+    if entry_data.encryption_iv is not None:
+        entry.encryption_iv = entry_data.encryption_iv
     entry.updated_at = datetime.now(NEPAL_TZ)
     
     # Store original file path for rollback in case of failure
     original_file_path = entry.content_file_path
     
-    # Write updated encrypted content to TEMPORARY location first
-    final_file_path = _generate_diary_file_path(entry.uuid)
-    temp_file_path = final_file_path.parent / f"temp_{final_file_path.name}"
+    # Rewrite encrypted content only if new blob/iv provided
+    should_rewrite_blob = bool(entry_data.encrypted_blob and entry_data.encryption_iv)
+    if should_rewrite_blob:
+        final_file_path = _generate_diary_file_path(entry.uuid)
+        temp_file_path = final_file_path.parent / f"temp_{final_file_path.name}"
 
     try:
-        file_result = write_encrypted_file(
-            dest_path=temp_file_path,
-            iv_b64=entry_data.encryption_iv,
-            encrypted_blob_b64=entry_data.encrypted_blob,
-            original_extension=""
-        )
-        entry.content_file_path = str(final_file_path)  # Use final path for DB record
-        entry.file_hash = file_result["file_hash"]
-        entry.encryption_tag = file_result.get("tag_b64")
-        entry.content_length = entry_data.content_length if entry_data.content_length is not None else entry.content_length
+        if should_rewrite_blob:
+            file_result = write_encrypted_file(
+                dest_path=temp_file_path,
+                iv_b64=entry_data.encryption_iv,
+                encrypted_blob_b64=entry_data.encrypted_blob,
+                original_extension=""
+            )
+            entry.content_file_path = str(final_file_path)
+            entry.file_hash = file_result["file_hash"]
+            entry.encryption_tag = file_result.get("tag_b64")
+        if entry_data.content_length is not None:
+            entry.content_length = entry_data.content_length
     except Exception as e:
         # Clean up temp file on write failure
         try:
@@ -1164,21 +1178,20 @@ async def update_diary_entry(
 
     # Update tags if provided
     if entry_data.tags is not None:
-        await tag_service.handle_tags(db, entry, entry_data.tags, current_user.uuid, "diary", diary_tags)
+        await tag_service.handle_tags(db, entry, entry_data.tags, current_user.uuid, ModuleType.DIARY, diary_entry_tags)
 
     # CRITICAL FIX: Use transaction to ensure atomicity of DB commit + file move
     try:
         await db.commit()
-        
-        # SECURITY: Move encrypted file to final location ONLY after successful DB commit
-        temp_file_path.rename(final_file_path)
-        logger.info(f"✅ Diary entry file moved to final location: {final_file_path}")
+        if should_rewrite_blob:
+            temp_file_path.rename(final_file_path)
+            logger.info(f"SUCCESS: Diary entry file moved to final location: {final_file_path}")
         
     except Exception as move_error:
         # CRITICAL: If file move fails after DB commit, we have a serious inconsistency
         # The DB points to a file that doesn't exist. We must rollback.
-        logger.error(f"❌ Failed to move diary entry file to final location: {move_error}")
-        logger.error(f"❌ CRITICAL: Database inconsistency detected - attempting to fix")
+        logger.error(f"ERROR: Failed to move diary entry file to final location: {move_error}")
+        logger.error(f"ERROR: CRITICAL: Database inconsistency detected - attempting to fix")
 
         # Clean up temp file
         try:
@@ -1193,15 +1206,15 @@ async def update_diary_entry(
             if original_file_path:
                 entry.content_file_path = original_file_path
                 await db.commit()
-                logger.info(f"✅ Restored original file path: {original_file_path}")
+                logger.info(f"RESTORED: Restored original file path: {original_file_path}")
             else:
                 # No original file path - this is a critical data loss situation
-                logger.error(f"❌ CRITICAL DATA LOSS: No original file for diary entry {entry_ref}")
+                logger.error(f"ERROR: CRITICAL DATA LOSS: No original file for diary entry {entry_ref}")
                 entry.content_file_path = None
                 await db.commit()
-                logger.error(f"❌ Set content_file_path to NULL for entry {entry_ref}")
+                logger.error(f"ERROR: Set content_file_path to NULL for entry {entry_ref}")
         except Exception as fix_error:
-            logger.error(f"❌ Failed to fix DB record: {fix_error}")
+            logger.error(f"ERROR: Failed to fix DB record: {fix_error}")
 
         raise HTTPException(status_code=500, detail="Failed to finalize diary entry file storage")
     await db.refresh(entry)
@@ -1412,7 +1425,7 @@ async def commit_diary_media_upload(
 
         # Check assembled file status
         status_obj = await chunk_manager.get_upload_status(payload.file_id)
-        if not status_obj or status_obj.get("status") != "completed":
+        if not status_obj or status_obj.get("status") != ChunkUploadStatus.COMPLETED:
             raise HTTPException(status_code=400, detail="File not yet assembled")
 
         # SECURITY: Locate assembled file path with validation
@@ -1509,9 +1522,9 @@ async def commit_diary_media_upload(
         # SECURITY: Move encrypted file to final location ONLY after successful DB commit
         try:
             temp_encrypted_file_path.rename(final_encrypted_file_path)
-            logger.info(f"✅ Encrypted file moved to final location: {final_encrypted_file_path}")
+            logger.info(f"SUCCESS: Encrypted file moved to final location: {final_encrypted_file_path}")
         except Exception as move_error:
-            logger.error(f"❌ Failed to move encrypted file to final location: {move_error}")
+            logger.error(f"ERROR: Failed to move encrypted file to final location: {move_error}")
             # Clean up temp file
             try:
                 if await asyncio.to_thread(temp_encrypted_file_path.exists):
@@ -2202,13 +2215,13 @@ async def get_wellness_stats(
     if net_savings > 0:
         insights.append({
             "type": "positive",
-            "message": f"Great financial management! Net savings of ₹{net_savings:,.0f} over {days} days.",
+            "message": f"Great financial management! Net savings of NPR {net_savings:,.0f} over {days} days.",
             "metric": "financial"
         })
     elif net_savings < 0:
         insights.append({
             "type": "negative",
-            "message": f"Spending exceeded income by ₹{abs(net_savings):,.0f}. Consider reviewing expenses.",
+            "message": f"Spending exceeded income by NPR {abs(net_savings):,.0f}. Consider reviewing expenses.",
             "metric": "financial"
         })
     
@@ -2280,7 +2293,7 @@ async def get_weekly_highlights(
     """Return a simple weekly highlights summary across modules and diary finances."""
     try:
         import time as _t
-        # Cache per user_uuid
+        # Cache per created_by
         now_ts = _t.time()
         cached = _WEEKLY_HIGHLIGHTS_CACHE.get(current_user.uuid)
         if cached and (now_ts - cached[0] < _WEEKLY_TTL_SECONDS):
@@ -2344,6 +2357,7 @@ async def get_weekly_highlights(
             )
         )
 
+        
         projects_created = await db.scalar(
             select(func.count(Project.uuid)).where(
                 and_(
@@ -2358,13 +2372,14 @@ async def get_weekly_highlights(
             select(func.count(Project.uuid)).where(
                 and_(
                     Project.created_by == current_user.uuid,
-                    Project.status == 'completed',
+                    Project.status == ProjectStatus.COMPLETED,
                     func.date(Project.updated_at) >= start_date,
                     func.date(Project.updated_at) <= end_date,
                 )
             )
         )
 
+        
         # Finance sums from daily metadata
         md_rows = await db.execute(
             select(DiaryDailyMetadata.daily_income, DiaryDailyMetadata.daily_expense)
@@ -2442,7 +2457,7 @@ async def update_daily_metadata(
 
     snapshot = await _get_or_create_daily_metadata(
         db=db,
-        user_uuid=current_user.uuid,
+        created_by=current_user.uuid,
         entry_date=date_obj,
         nepali_date=payload.nepali_date,
         metrics=payload.metrics,

@@ -23,7 +23,7 @@ class Link(Base):
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     is_favorite = Column(Boolean, default=False)
     is_archived = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     
     # Soft Delete
     is_deleted = Column(Boolean, default=False, index=True)

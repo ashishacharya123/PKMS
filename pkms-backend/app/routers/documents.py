@@ -30,6 +30,7 @@ from app.services.file_detection import FileTypeDetectionService
 from app.services.project_service import project_service
 from app.services.file_management_service import file_management_service
 from app.services.search_service import search_service
+from app.models.enums import ModuleType
 from app.schemas.document import (
     DocumentResponse,
     CommitDocumentUploadRequest,
@@ -93,7 +94,7 @@ async def commit_document_upload(
             tags=payload.tags,
             project_ids=payload.project_ids,
             is_exclusive_mode=payload.is_exclusive_mode,
-            user_uuid=current_user.uuid,
+            created_by=current_user.uuid,
             document_model=Document,
             tag_service=tag_service,
             project_service=project_service,
@@ -382,7 +383,7 @@ async def update_document(
         # SECURITY: Sanitize tags to prevent XSS injection
         raw_tags = update_data.pop("tags")
         sanitized_tags = sanitize_tags(raw_tags)
-        await tag_service.handle_tags(db, doc, sanitized_tags, current_user.uuid, "documents", document_tags)
+        await tag_service.handle_tags(db, doc, sanitized_tags, current_user.uuid, ModuleType.DOCUMENTS, document_tags)
 
     # Handle projects if provided (with ownership verification)
     if "project_ids" in update_data:

@@ -21,15 +21,15 @@ class TestJWTAuthentication:
     
     def test_create_access_token(self):
         """Test JWT token creation."""
-        user_id = "123"
-        token = create_access_token(data={"sub": user_id})
+        created_by = "123"
+        token = create_access_token(data={"sub": created_by})
         
         assert_token_valid(token)
         
         # Verify token payload
         payload = verify_token(token)
         assert payload is not None
-        assert payload["sub"] == user_id
+        assert payload["sub"] == created_by
         assert "exp" in payload
     
     def test_token_expiration(self):
@@ -108,7 +108,7 @@ class TestUserAuthentication:
         
         data = response.json()
         assert data["username"] == test_user.username
-        assert data["user_id"] == test_user.id
+        assert data["created_by"] == test_user.id
         assert_token_valid(data["access_token"])
     
     def test_login_invalid_credentials(self, test_client: TestClient, test_user: User):

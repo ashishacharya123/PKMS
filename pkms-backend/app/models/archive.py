@@ -24,8 +24,8 @@ class ArchiveFolder(Base):
     is_archived = Column(Boolean, default=False, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
 
 
     # Relationships
@@ -55,8 +55,8 @@ class ArchiveItem(Base):
     is_archived = Column(Boolean, default=False, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     
     # Additional metadata as JSON
     metadata_json = Column(Text, default="{}")  # Additional metadata as JSON

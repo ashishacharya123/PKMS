@@ -28,10 +28,8 @@ class Note(Base):
     is_exclusive_mode = Column(Boolean, default=False, index=True)  # If True, note is deleted when any of its projects are deleted
 
     # Audit trail
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
-    
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     
     
     # Classification
@@ -74,8 +72,8 @@ class NoteFile(Base):
     description = Column(Text, nullable=True)  # Optional description/caption
     is_archived = Column(Boolean, default=False, index=True)
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)  # Who uploaded this file
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
 
     # Relationships
     note = relationship("Note", back_populates="files")

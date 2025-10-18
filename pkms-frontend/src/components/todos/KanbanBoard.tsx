@@ -8,26 +8,26 @@ import { SubtaskList } from './SubtaskList';
 interface KanbanBoardProps {
   todos: Todo[];
   onTodoUpdate: (todo: Todo) => void;
-  onTodoDelete?: (todoUuid: string) => void;
-  onTodoArchive?: (todoUuid: string) => void;
+  onTodoDelete?: (todoUuuuid: string) => void;
+  onTodoArchive?: (todoUuuuid: string) => void;
   onTodoEdit?: (todo: Todo) => void;
   onSubtaskUpdate?: (subtask: Todo) => void;
-  onSubtaskDelete?: (subtaskUuid: string) => void;
+  onSubtaskDelete?: (subtaskUuuuid: string) => void;
   onSubtaskEdit?: (subtask: Todo) => void;
 }
 
 interface StatusLane {
-  id: string;
+  uuid: string;
   title: string;
   color: string;
   todos: Todo[];
 }
 
 const STATUS_LANES: Omit<StatusLane, 'todos'>[] = [
-  { id: 'pending', title: 'Pending', color: '#757575' },
-  { id: 'in_progress', title: 'In Progress', color: '#2196F3' },
-  { id: 'blocked', title: 'Blocked', color: '#FF9800' },
-  { id: 'done', title: 'Done', color: '#4CAF50' }
+  { uuid: 'pending', title: 'Pending', color: '#757575' },
+  { uuid: 'in_progress', title: 'In Progress', color: '#2196F3' },
+  { uuid: 'blocked', title: 'Blocked', color: '#FF9800' },
+  { uuid: 'done', title: 'Done', color: '#4CAF50' }
 ];
 
 export const KanbanBoard: React.FC<KanbanBoardProps> = ({
@@ -54,7 +54,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     setLanes(organizedLanes);
   }, [todos]);
 
-  const handleStatusChange = async (todoUuid: string, newStatus: string, newOrderIndex: number) => {
+  const handleStatusChange = async (todoUuuuid: string, newStatus: string, newOrderIndex: number) => {
     try {
       // Update status first
       const updatedTodo = await updateTodoStatus(todoUuid, newStatus);
@@ -71,7 +71,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
   };
 
-  const handleReorder = async (todoUuid: string, newOrderIndex: number, currentStatus: string) => {
+  const handleReorder = async (todoUuuuid: string, newOrderIndex: number, currentStatus: string) => {
     try {
       await reorderTodo(todoUuid, newOrderIndex);
       // Refresh the lanes to show new order
@@ -350,7 +350,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                     <Box mt="sm" pl="md" style={{ borderLeft: '2px solid #e0e0e0' }}>
                       <SubtaskList
                         parentTodo={todo}
-                        onSubtaskComplete={(subtaskUuid: string, isCompleted: boolean) => {
+                        onSubtaskComplete={(subtaskUuuuid: string, isCompleted: boolean) => {
                           // Handle subtask completion
                           if (onSubtaskUpdate) {
                             const subtask = todo.subtasks?.find(st => st.uuid === subtaskUuid);
@@ -361,7 +361,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                         }}
                         onSubtaskDelete={onSubtaskDelete || (() => {})}
                         onSubtaskEdit={onSubtaskEdit ? (subtask: TodoSummary) => onSubtaskEdit(subtask as any) : () => {}}
-                        onAddSubtask={(parentUuid: string) => {
+                        onAddSubtask={(parentUuuuid: string) => {
                           // Handle add subtask
                           console.log('Add subtask to:', parentUuid);
                         }}

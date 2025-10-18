@@ -18,13 +18,18 @@ import string
 import subprocess
 import os
 from pathlib import Path
+import logging
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 from ..database import get_db
 from ..auth.dependencies import get_current_user
 from ..models.user import User, Session, RecoveryKey
 from ..models.note import Note
 from ..models.document import Document
-from ..models.todo import Todo, Project
+from ..models.todo import Todo
+from ..models.project import Project
 from ..models.diary import DiaryEntry, DiaryMedia, DiaryDailyMetadata
 from ..models.archive import ArchiveFolder, ArchiveItem
 from ..models.tag import Tag
@@ -72,12 +77,12 @@ async def get_database_stats(
         for table_name, model in tables_to_check:
             try:
                 if table_name == "users":
-                    # For users table, don't filter by user_id
+                    # For users table, don't filter by created_by
                     result = await db.execute(select(func.count()).select_from(model))
                 else:
                     # For other tables, filter by current user
                     result = await db.execute(
-                        select(func.count()).select_from(model).where(model.user_uuid == current_user.uuid)
+                        select(func.count()).select_from(model).where(model.created_by == current_user.uuid)
                     )
                 count = result.scalar()
                 stats[table_name] = count
@@ -341,7 +346,7 @@ async def get_database_stats(
                 "fts_overhead": "FTS5 tables provide full-text search but require additional storage (typically 30-50% of original data)."
             },
             "timestamp": datetime.now(NEPAL_TZ).isoformat(),
-            "user_uuid": current_user.uuid,
+            "created_by": current_user.uuid,
             "username": current_user.username
         }
         
@@ -450,7 +455,7 @@ async def get_performance_metrics(
         complex_start = time.time()
         await db.execute(
             select(func.count()).select_from(Note)
-            .join(User, Note.user_uuid == User.uuid)
+            .join(User, Note.created_by == User.uuid)
             .where(User.uuid == current_user.uuid)
         )
         query_timings["complex_join"] = round((time.time() - complex_start) * 1000, 2)
@@ -509,7 +514,7 @@ async def validate_data_integrity(
             # Check for orphaned notes
             orphaned_notes = await db.execute(
                 select(func.count()).select_from(Note)
-                .outerjoin(User, Note.user_uuid == User.uuid)
+                .outerjoin(User, Note.created_by == User.uuid)
                 .where(User.uuid.is_(None))
             )
             orphaned_count = orphaned_notes.scalar()
@@ -686,7 +691,7 @@ async def get_sample_rows(
     try:
         # Handle different table types
         if table == "users":
-            # Special case: users table (no user_id filtering, show current user only)
+            # Special case: users table (no created_by filtering, show current user only)
             query = select(User).where(User.uuid == current_user.uuid).limit(1)
             result = await db.execute(query)
             rows = result.scalars().all()
@@ -695,8 +700,8 @@ async def get_sample_rows(
             # System tables - use raw SQL for flexibility
             if table not in {"sessions", "recovery_keys"}:
                 raise HTTPException(status_code=400, detail="Unsupported table")
-            table_query = text(f"SELECT * FROM {table} WHERE user_uuid = :user_uuid LIMIT :limit")
-            result = await db.execute(table_query, {"user_uuid": current_user.uuid, "limit": limit})
+            table_query = text(f"SELECT * FROM {table} WHERE created_by = :created_by LIMIT :limit")
+            result = await db.execute(table_query, {"created_by": current_user.uuid, "limit": limit})
             rows = result.fetchall()
             
             # Convert to dict format
@@ -729,7 +734,7 @@ async def get_sample_rows(
                     FROM note_tags nt 
                     JOIN notes n ON nt.note_uuid = n.uuid 
                     JOIN tags t ON nt.tag_uuid = t.uuid 
-                    WHERE n.user_uuid = :user_uuid 
+                    WHERE n.created_by = :created_by 
                     LIMIT :limit
                 """)
             elif table == "document_tags":
@@ -738,7 +743,7 @@ async def get_sample_rows(
                     FROM document_tags dt 
                     JOIN documents d ON dt.document_uuid = d.uuid 
                     JOIN tags t ON dt.tag_uuid = t.uuid 
-                    WHERE d.user_uuid = :user_uuid 
+                    WHERE d.created_by = :created_by 
                     LIMIT :limit
                 """)
             elif table == "todo_tags":
@@ -747,7 +752,7 @@ async def get_sample_rows(
                     FROM todo_tags tt 
                     JOIN todos td ON tt.todo_uuid = td.uuid 
                     JOIN tags t ON tt.tag_uuid = t.uuid 
-                    WHERE td.user_uuid = :user_uuid 
+                    WHERE td.created_by = :created_by 
                     LIMIT :limit
                 """)
             elif table == "diary_entry_tags":
@@ -756,7 +761,7 @@ async def get_sample_rows(
                     FROM diary_entry_tags det
                     JOIN diary_entries de ON det.diary_entry_uuid = de.uuid
                     JOIN tags t ON det.tag_uuid = t.uuid
-                    WHERE de.user_uuid = :user_uuid
+                    WHERE de.created_by = :created_by
                     LIMIT :limit
                 """)
             elif table == "archive_item_tags":
@@ -765,7 +770,7 @@ async def get_sample_rows(
                     FROM archive_item_tags ait
                     JOIN archive_items ai ON ait.item_uuid = ai.uuid
                     JOIN tags t ON ait.tag_uuid = t.uuid
-                    WHERE ai.user_uuid = :user_uuid
+                    WHERE ai.created_by = :created_by
                     LIMIT :limit
                 """)
             elif table == "archive_folder_tags":
@@ -774,11 +779,11 @@ async def get_sample_rows(
                     FROM archive_folder_tags aft
                     JOIN archive_folders af ON aft.archive_folder_uuid = af.uuid
                     JOIN tags t ON aft.tag_uuid = t.uuid
-                    WHERE af.user_uuid = :user_uuid
+                    WHERE af.created_by = :created_by
                     LIMIT :limit
                 """)
             
-            result = await db.execute(junction_query, {"user_uuid": current_user.uuid, "limit": limit})
+            result = await db.execute(junction_query, {"created_by": current_user.uuid, "limit": limit})
             rows = result.fetchall()
             
             columns = result.keys()
@@ -815,7 +820,7 @@ async def get_sample_rows(
             model = table_models[table]
             
             # Build query with user filtering
-            query = select(model).where(model.user_uuid == current_user.uuid).limit(limit)
+            query = select(model).where(model.created_by == current_user.uuid).limit(limit)
             
             result = await db.execute(query)
             rows = result.scalars().all()
@@ -943,7 +948,7 @@ async def test_diary_encryption(
     """Test diary encryption by verifying password and showing decryption capabilities."""
     try:
         # Get a sample diary entry
-        query = select(DiaryEntry).where(DiaryEntry.user_uuid == current_user.uuid).limit(1)
+        query = select(DiaryEntry).where(DiaryEntry.created_by == current_user.uuid).limit(1)
         result = await db.execute(query)
         sample_entry = result.scalar_one_or_none()
         
@@ -1059,22 +1064,22 @@ async def file_sanity_check(
         timestamped_msg = f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {msg}"
         results["messages"].append(timestamped_msg)
         if verbose:
-            print(f"File Test: {timestamped_msg}")
+            logger.info(f"File Test: {timestamped_msg}")
     
     test_content = f"PKMS File System Test\nUser: {current_user.username}\nTimestamp: {datetime.now(NEPAL_TZ).isoformat()}\nTest Data: {'A' * 100}"
     
     try:
-        add_message(f"📁 Ensuring directory exists: {temp_dir}")
-        add_message(f"📝 Preparing to test file: {filename}")
-        add_message(f"📊 Test content size: {len(test_content.encode('utf-8'))} bytes")
+        add_message(f"FILE: Ensuring directory exists: {temp_dir}")
+        add_message(f"INFO: Preparing to test file: {filename}")
+        add_message(f"STATS: Test content size: {len(test_content.encode('utf-8'))} bytes")
         
         # Test: Create and Write
-        add_message("🔨 Starting CREATE/WRITE operation...")
+        add_message("ACTION: Starting CREATE/WRITE operation...")
         start_time = time.perf_counter()
         
         # Check if file already exists
         if file_path.exists():
-            add_message(f"⚠️ File already exists, will overwrite")
+            add_message(f"WARNING: File already exists, will overwrite")
         
         file_path.write_text(test_content, encoding='utf-8')
         write_time = (time.perf_counter() - start_time) * 1000
@@ -1084,10 +1089,10 @@ async def file_sanity_check(
             "time_ms": round(write_time, 3),
             "bytes_written": len(test_content.encode('utf-8'))
         }
-        add_message(f"✅ WRITE successful: {len(test_content.encode('utf-8'))} bytes written in {write_time:.2f}ms")
+        add_message(f"SUCCESS: WRITE successful: {len(test_content.encode('utf-8'))} bytes written in {write_time:.2f}ms")
         
         # Test: Read
-        add_message("📖 Starting READ operation...")
+        add_message("READ: Starting READ operation...")
         start_time = time.perf_counter()
         read_content = file_path.read_text(encoding='utf-8')
         read_time = (time.perf_counter() - start_time) * 1000
@@ -1101,21 +1106,21 @@ async def file_sanity_check(
         }
         
         if content_matches:
-            add_message(f"✅ READ successful: {len(read_content.encode('utf-8'))} bytes read in {read_time:.2f}ms, content verified")
+            add_message(f"SUCCESS: READ successful: {len(read_content.encode('utf-8'))} bytes read in {read_time:.2f}ms, content verified")
         else:
-            add_message(f"❌ READ failed: Content mismatch (expected {len(test_content)} chars, got {len(read_content)} chars)")
+            add_message(f"ERROR: READ failed: Content mismatch (expected {len(test_content)} chars, got {len(read_content)} chars)")
         
         # Test: File exists and size
-        add_message("📋 Checking file STAT information...")
+        add_message("INFO: Checking file STAT information...")
         file_exists = file_path.exists()
         if file_exists:
             file_stat = file_path.stat()
             file_size = file_stat.st_size
             file_mtime = file_stat.st_mtime
-            add_message(f"📊 File stats: size={file_size} bytes, modified={datetime.fromtimestamp(file_mtime).strftime('%H:%M:%S')}")
+            add_message(f"STATS: File stats: size={file_size} bytes, modified={datetime.fromtimestamp(file_mtime).strftime('%H:%M:%S')}")
         else:
             file_size = 0
-            add_message("❌ File does not exist for stat check")
+            add_message("ERROR: File does not exist for stat check")
             
         results["operations"]["stat"] = {
             "status": "success" if file_exists else "error",
@@ -1124,13 +1129,13 @@ async def file_sanity_check(
         }
         
         # Test: Delete
-        add_message("🗑️ Starting DELETE operation...")
+        add_message("DELETED: Starting DELETE operation...")
         start_time = time.perf_counter()
         if file_path.exists():
             file_path.unlink()
-            add_message("🔥 File deletion attempted")
+            add_message("DELETE: File deletion attempted")
         else:
-            add_message("⚠️ File not found for deletion")
+            add_message("WARNING: File not found for deletion")
             
         delete_time = (time.perf_counter() - start_time) * 1000
         
@@ -1142,9 +1147,9 @@ async def file_sanity_check(
         }
         
         if file_deleted:
-            add_message(f"✅ DELETE successful: file removed in {delete_time:.2f}ms")
+            add_message(f"SUCCESS: DELETE successful: file removed in {delete_time:.2f}ms")
         else:
-            add_message(f"❌ DELETE failed: file still exists after {delete_time:.2f}ms")
+            add_message(f"ERROR: DELETE failed: file still exists after {delete_time:.2f}ms")
         
         # Overall status and summary
         all_success = all(op.get("status") == "success" for op in results["operations"].values())
@@ -1161,25 +1166,25 @@ async def file_sanity_check(
         }
         
         if all_success:
-            add_message(f"🎉 ALL OPERATIONS SUCCESSFUL - Total time: {total_time:.2f}ms (Rating: {results['performance_summary']['performance_rating']})")
+            add_message(f"COMPLETED: ALL OPERATIONS SUCCESSFUL - Total time: {total_time:.2f}ms (Rating: {results['performance_summary']['performance_rating']})")
         else:
             failed_ops = [op for op, data in results["operations"].items() if data.get("status") != "success"]
-            add_message(f"⚠️ PARTIAL SUCCESS - Failed operations: {', '.join(failed_ops)}")
+            add_message(f"WARNING: PARTIAL SUCCESS - Failed operations: {', '.join(failed_ops)}")
         
     except Exception as e:
         results["overall_status"] = "error"
         results["error"] = str(e)
-        add_message(f"💥 CRITICAL ERROR: {str(e)}")
+        add_message(f"CRITICAL: CRITICAL ERROR: {str(e)}")
         
         # Clean up file if it exists
         try:
             if file_path.exists():
                 file_path.unlink()
-                add_message("🧹 Cleanup: Removed test file after error")
+                add_message("CLEANUP: Cleanup: Removed test file after error")
         except Exception as cleanup_error:
-            add_message(f"🚨 Cleanup failed: {str(cleanup_error)}")
+            add_message(f"WARNING: Cleanup failed: {str(cleanup_error)}")
     
-    add_message(f"📋 Test completed with status: {results['overall_status']}")
+    add_message(f"INFO: Test completed with status: {results['overall_status']}")
     return results
 
 def generate_test_identifier():
@@ -1204,8 +1209,8 @@ async def _test_notes_crud(db: AsyncSession, user: User, cleanup_list: list, ver
             "timestamp": datetime.now(NEPAL_TZ).isoformat()
         }
         if verbose:
-            status_icon = "✅" if success else "❌"
-            print(f"Notes CRUD {op_name}: {status_icon} {'Success' if success else error}")
+            status_icon = "SUCCESS:" if success else "ERROR:"
+            logger.info(f"Notes CRUD {op_name}: {status_icon} {'Success' if success else error}")
     
     note = None
     
@@ -1220,7 +1225,7 @@ async def _test_notes_crud(db: AsyncSession, user: User, cleanup_list: list, ver
             "area": "TEST_AREA",  # Clear test identifier
             "year": current_year,
             "is_archived": False,
-            "user_uuid": user.uuid
+            "created_by": user.uuid
         }
         
         note = Note(**note_data)
@@ -1337,8 +1342,8 @@ async def _test_documents_crud(db: AsyncSession, user: User, cleanup_list: list,
             "timestamp": datetime.now(NEPAL_TZ).isoformat()
         }
         if verbose:
-            status_icon = "✅" if success else "❌"
-            print(f"Documents CRUD {op_name}: {status_icon} {'Success' if success else error}")
+            status_icon = "SUCCESS:" if success else "ERROR:"
+            logger.info(f"Documents CRUD {op_name}: {status_icon} {'Success' if success else error}")
     
     document = None
     
@@ -1356,7 +1361,7 @@ async def _test_documents_crud(db: AsyncSession, user: User, cleanup_list: list,
             "extracted_text": f"Test document content for CRUD testing - ID: {test_id} - Password: {test_password}",
             "metadata_json": f'{{"test_id": "{test_id}", "test_password": "{test_password}", "test_type": "CRUD"}}',
             "is_archived": False,
-            "user_uuid": user.uuid
+            "created_by": user.uuid
         }
         
         document = Document(**doc_data)
@@ -1471,23 +1476,23 @@ async def _test_todos_crud(db: AsyncSession, user: User, cleanup_list: list, ver
             "timestamp": datetime.now(NEPAL_TZ).isoformat()
         }
         if verbose:
-            status_icon = "✅" if success else "❌"
-            print(f"Todos CRUD {op_name}: {status_icon} {'Success' if success else error}")
+            status_icon = "SUCCESS:" if success else "ERROR:"
+            logger.info(f"Todos CRUD {op_name}: {status_icon} {'Success' if success else error}")
     
     todo = None
     
     # Test Create - Using proper Todo schema
     try:
-        from ..models.todo import Todo
+        from ..models.todo import Todo, TodoStatus
         test_password = generate_random_password()
         
         todo_data = {
             "title": f"TEST_TODO_{test_id}",
             "description": f"Test todo for CRUD testing - ID: {test_id} - Password: {test_password}",
             "priority": 2,  # Medium priority (1=Low, 2=Medium, 3=High)
-            "status": "pending",
+            "status": TodoStatus.PENDING,
             "is_recurring": False,
-            "user_uuid": user.uuid
+            "created_by": user.uuid
         }
         
         todo = Todo(**todo_data)
@@ -1532,14 +1537,14 @@ async def _test_todos_crud(db: AsyncSession, user: User, cleanup_list: list, ver
             
             todo.title = updated_title
             todo.description = updated_description
-            todo.status = "completed"
+            todo.status = TodoStatus.DONE
             todo.priority = 3  # High priority
             todo.completed_at = datetime.now()
             await db.flush()
             await db.refresh(todo)
             
             if (todo.title == updated_title and 
-                todo.status == "completed" and 
+                todo.status == TodoStatus.DONE and 
                 new_test_password in todo.description):
                 add_operation("update", True, {
                     "new_title": updated_title,
@@ -1610,8 +1615,8 @@ async def _test_archive_crud(db: AsyncSession, user: User, cleanup_list: list, v
             "timestamp": datetime.now(NEPAL_TZ).isoformat()
         }
         if verbose:
-            status_icon = "✅" if success else "❌"
-            print(f"Archive CRUD {op_name}: {status_icon} {'Success' if success else error}")
+            status_icon = "SUCCESS:" if success else "ERROR:"
+            logger.info(f"Archive CRUD {op_name}: {status_icon} {'Success' if success else error}")
     
     folder = None
     item = None
@@ -1630,7 +1635,7 @@ async def _test_archive_crud(db: AsyncSession, user: User, cleanup_list: list, v
             "description": f"Test folder for CRUD testing - ID: {test_id} - Password: {test_password}",
             "path": folder_path,
             "is_archived": False,
-            "user_id": user.id
+            "created_by": user.uuid
         }
         
         folder = ArchiveFolder(**folder_data)
@@ -1665,7 +1670,7 @@ async def _test_archive_crud(db: AsyncSession, user: User, cleanup_list: list, v
                 "extracted_text": f"Test file content - ID: {test_id} - Password: {item_test_password}",
                 "metadata_json": f'{{"test_id": "{test_id}", "test_password": "{item_test_password}", "test_type": "ARCHIVE_CRUD"}}',
                 "is_archived": False,
-                "user_id": user.id
+                "created_by": user.uuid
             }
             
             item = ArchiveItem(**item_data)
@@ -1830,14 +1835,14 @@ async def _cleanup_test_data(db: AsyncSession, cleanup_list: list, verbose: bool
                     cleaned_count += 1
         except Exception as e:
             if verbose:
-                print(f"🚨 Cleanup failed for item {item_id} of type {item_type}: {e}")
+                logger.warning(f"Cleanup failed for item {item_id} of type {item_type}: {e}")
             pass  # Continue cleanup even if some items fail
-    
+
     try:
         await db.commit()
     except Exception as e:
         if verbose:
-            print(f"🚨 Final DB commit failed during cleanup: {e}")
+            logger.warning(f"Final DB commit failed during cleanup: {e}")
         pass
     
     return {
@@ -1878,7 +1883,7 @@ async def get_detailed_health(
         
         # Check user session info
         health_info["user_session"] = {
-            "user_uuid": current_user.uuid,
+            "created_by": current_user.uuid,
             "username": current_user.username,
             "is_first_login": current_user.is_first_login,
             "last_login": current_user.last_login.isoformat() if current_user.last_login else None,
@@ -1921,7 +1926,7 @@ if (token) {
     const expiresAt = new Date(payload.exp * 1000);
     const now = new Date();
     const remainingMs = expiresAt - now;
-    console.log('🔐 Auth Status:', {
+    console.log('AUTH: Auth Status:', {
       hasToken: true,
       expiresAt: expiresAt.toISOString(),
       remainingTime: `${Math.floor(remainingMs / 1000)}s`,
@@ -1929,10 +1934,10 @@ if (token) {
       payload: payload
     });
   } catch (e) {
-    console.log('❌ Token parse error:', e);
+    console.log('ERROR: Token parse error:', e);
   }
 } else {
-  console.log('⚠️ No authentication token found');
+  console.log('WARNING: No authentication token found');
 }"""
                 },
                 "storage_analysis": {
@@ -1971,7 +1976,7 @@ for (let key in sessionStorage) {
 }
 
 storageAnalysis.totalSize = `${storageAnalysis.totalSize} bytes (${(storageAnalysis.totalSize/1024).toFixed(2)} KB)`;
-console.log('💾 Storage Analysis:', storageAnalysis);"""
+console.log('STORAGE: Storage Analysis:', storageAnalysis);"""
                 },
                 "api_connectivity": {
                     "description": "Test API connectivity and response times",
@@ -2006,7 +2011,7 @@ Promise.all(testEndpoints.map(async (endpoint) => {
     };
   }
 })).then(results => {
-  console.log('🌐 API Connectivity Test:', results);
+  console.log('NETWORK: API Connectivity Test:', results);
 });"""
                 },
                 "error_log_export": {
@@ -2046,7 +2051,7 @@ window.exportErrorLog = () => {
   URL.revokeObjectURL(url);
 };
 
-console.log('📝 Error logging enabled. Call exportErrorLog() to download log.');"""
+console.log('INFO: Error logging enabled. Call exportErrorLog() to download log.');"""
                 },
                 "performance_monitor": {
                     "description": "Monitor frontend performance metrics",
@@ -2064,12 +2069,12 @@ const performanceData = {
     loadComplete: `${performance.getEntriesByType('navigation')[0].loadEventEnd}ms`
   }
 };
-console.log('⚡ Performance Data:', performanceData);"""
+console.log('PERFORMANCE: Performance Data:', performanceData);"""
                 },
                 "clear_all_data": {
                     "description": "Clear all PKMS application data (DANGER!)",
                     "command": """// DANGER: Clear all application data
-if (confirm('⚠️ This will clear ALL PKMS data. Are you sure?')) {
+if (confirm('WARNING: This will clear ALL PKMS data. Are you sure?')) {
   localStorage.clear();
   sessionStorage.clear();
   
@@ -2078,9 +2083,9 @@ if (confirm('⚠️ This will clear ALL PKMS data. Are you sure?')) {
     document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
   });
   
-  console.log('🧹 All browser data cleared. Reload the page.');
+  console.log('CLEANUP: All browser data cleared. Reload the page.');
 } else {
-  console.log('❌ Data clear cancelled.');
+  console.log('ERROR: Data clear cancelled.');
 }"""
                 }
             }
@@ -2339,7 +2344,7 @@ echo "TOKEN_HERE" | cut -d. -f2 | base64 -d | jq .
 python3 -c "
 import sqlite3
 conn = sqlite3.connect('data/pkm_metadata.db')
-sessions = conn.execute('SELECT id, user_id, created_at, expires_at FROM sessions ORDER BY created_at DESC LIMIT 10').fetchall()
+sessions = conn.execute('SELECT id, created_by, created_at, expires_at FROM sessions ORDER BY created_at DESC LIMIT 10').fetchall()
 print('Recent sessions:')
 for session in sessions:
     print(f'Session {session[0]}: User {session[1]}, Created: {session[2]}, Expires: {session[3]}')
@@ -2486,7 +2491,7 @@ async def test_notes_create(
         note = Note(
             title=f"{title} - {datetime.now().strftime('%H:%M:%S')}",
             content=content,
-            user_uuid=current_user.uuid
+            created_by=current_user.uuid
         )
         db.add(note)
         await db.flush()
@@ -2523,7 +2528,7 @@ async def test_documents_create(
             file_size=file_size,
             content_type=content_type,
             upload_date=datetime.now(),
-            user_uuid=current_user.uuid
+            created_by=current_user.uuid
         )
         db.add(document)
         await db.flush()
@@ -2559,7 +2564,7 @@ async def test_todos_create(
             description=description,
             completed=False,
             priority=priority,
-            user_uuid=current_user.uuid
+            created_by=current_user.uuid
         )
         db.add(todo)
         await db.flush()
@@ -2593,19 +2598,19 @@ async def cleanup_test_item(
         if item_type == "note":
             from ..models.note import Note
             item = await db.get(Note, item_id)
-            if item and item.user_uuid == current_user.uuid:
+            if item and item.created_by == current_user.uuid:
                 await db.delete(item)
                 deleted = True
         elif item_type == "document":
             from ..models.document import Document
             item = await db.get(Document, item_id)
-            if item and item.user_uuid == current_user.uuid:
+            if item and item.created_by == current_user.uuid:
                 await db.delete(item)
                 deleted = True
         elif item_type == "todo":
             from ..models.todo import Todo
             item = await db.get(Todo, item_id)
-            if item and item.user_uuid == current_user.uuid:
+            if item and item.created_by == current_user.uuid:
                 await db.delete(item)
                 deleted = True
         
@@ -2818,9 +2823,9 @@ async def get_diary_table_details(
                    AVG(CASE WHEN content_length IS NOT NULL THEN content_length END) as avg_content_length,
                    SUM(content_length) as total_content_length
             FROM diary_entries 
-            WHERE user_uuid = :user_uuid
+            WHERE created_by = :created_by
         """)
-        entries_result = await db.execute(entries_query, {"user_uuid": current_user.uuid})
+        entries_result = await db.execute(entries_query, {"created_by": current_user.uuid})
         entries_stats = entries_result.fetchone()
         
         # Get media table info
@@ -2834,9 +2839,9 @@ async def get_diary_table_details(
                    AVG(size_bytes) as avg_media_size,
                    COUNT(CASE WHEN duration_seconds IS NOT NULL THEN 1 END) as media_with_duration
             FROM diary_media 
-            WHERE user_uuid = :user_uuid
+            WHERE created_by = :created_by
         """)
-        media_result = await db.execute(media_query, {"user_uuid": current_user.uuid})
+        media_result = await db.execute(media_query, {"created_by": current_user.uuid})
         media_stats = media_result.fetchone()
         
         # Get daily metadata table info
@@ -2848,9 +2853,9 @@ async def get_diary_table_details(
                    MAX(date) as latest_snapshot,
                    COUNT(DISTINCT strftime('%Y-%m', date)) as months_with_snapshots
             FROM diary_daily_metadata
-            WHERE user_uuid = :user_uuid
+            WHERE created_by = :created_by
         """)
-        daily_metadata_result = await db.execute(daily_metadata_query, {"user_uuid": current_user.uuid})
+        daily_metadata_result = await db.execute(daily_metadata_query, {"created_by": current_user.uuid})
         daily_metadata_stats = daily_metadata_result.fetchone()
         
         # Get sample entries (structure only, no decryption)
@@ -2860,11 +2865,11 @@ async def get_diary_table_details(
                    LENGTH(content_file_path) as content_file_path_length,
                    encryption_iv, file_hash
             FROM diary_entries 
-            WHERE user_uuid = :user_uuid
+            WHERE created_by = :created_by
             ORDER BY created_at DESC
             LIMIT 5
         """)
-        sample_result = await db.execute(sample_query, {"user_uuid": current_user.uuid})
+        sample_result = await db.execute(sample_query, {"created_by": current_user.uuid})
         sample_entries = []
         
         weather_labels = {0: "Clear", 1: "Partly Cloudy", 2: "Cloudy", 3: "Rain", 4: "Storm", 5: "Snow", 6: "Scorching Sun"}
@@ -2901,11 +2906,11 @@ async def get_diary_table_details(
                    LENGTH(filename) as filename_length,
                    LENGTH(file_path) as filepath_length
             FROM diary_media 
-            WHERE user_uuid = :user_uuid
+            WHERE created_by = :created_by
             ORDER BY created_at DESC
             LIMIT 3
         """)
-        sample_media_result = await db.execute(sample_media_query, {"user_uuid": current_user.uuid})
+        sample_media_result = await db.execute(sample_media_query, {"created_by": current_user.uuid})
         sample_media = []
         
         for row in sample_media_result:
@@ -2984,9 +2989,9 @@ async def get_diary_table_details(
                 "privacy_preserved": "This ensures your diary remains private even during system testing"
             },
             "table_structure": {
-                "diary_entries_columns": ["id", "uuid", "title", "date", "mood", "weather_code", "location", "day_of_week", "media_count", "content_length", "content_file_path", "file_hash", "encryption_iv", "is_favorite", "is_archived", "is_template", "from_template_id", "user_id", "created_at", "updated_at", "daily_metadata_id", "tags_text"],
-                "diary_media_columns": ["uuid", "diary_entry_uuid", "filename_encrypted", "filepath_encrypted", "encryption_iv", "mime_type", "size_bytes", "media_type", "duration_seconds", "user_id", "created_at"],
-                "diary_daily_metadata_columns": ["id", "user_id", "date", "nepali_date", "metrics_json", "created_at", "updated_at"]
+                "diary_entries_columns": ["id", "uuid", "title", "date", "mood", "weather_code", "location", "day_of_week", "media_count", "content_length", "content_file_path", "file_hash", "encryption_iv", "is_favorite", "is_archived", "is_template", "from_template_id", "created_by", "created_at", "updated_at", "daily_metadata_id", "tags_text"],
+                "diary_media_columns": ["uuid", "diary_entry_uuid", "filename_encrypted", "filepath_encrypted", "encryption_iv", "mime_type", "size_bytes", "media_type", "duration_seconds", "created_by", "created_at"],
+                "diary_daily_metadata_columns": ["id", "created_by", "date", "nepali_date", "metrics_json", "created_at", "updated_at"]
             },
             "weather_code_mapping": {
                 "0": "Clear",
@@ -3016,7 +3021,7 @@ async def get_session_status(
         # Get current user's active session
         session_result = await db.execute(
             select(Session)
-            .where(Session.user_uuid == current_user.uuid)
+            .where(Session.created_by == current_user.uuid)
             .where(Session.expires_at > datetime.utcnow())
             .order_by(Session.expires_at.desc())
             .limit(1)
@@ -3027,7 +3032,7 @@ async def get_session_status(
             return {
                 "status": "no_active_session",
                 "message": "No active session found",
-                "user_uuid": current_user.uuid,
+                "created_by": current_user.uuid,
                 "timestamp": datetime.utcnow().isoformat()
             }
         
@@ -3065,7 +3070,7 @@ async def get_session_status(
                 "test_result": "PASS" if recently_extended else "MIGHT_NEED_INVESTIGATION"
             },
             "user_info": {
-                "user_uuid": current_user.uuid,
+                "created_by": current_user.uuid,
                 "username": current_user.username,
                 "is_active": current_user.is_active
             },
@@ -3170,42 +3175,42 @@ async def full_crud_test(
         timestamped_msg = f"[{datetime.now().strftime('%H:%M:%S.%f')[:-3]}] {msg}"
         results["global_messages"].append(timestamped_msg)
         if verbose:
-            print(f"CRUD Test: {timestamped_msg}")
+            logger.info(f"CRUD Test: {timestamped_msg}")
     
     test_data_cleanup = []  # Track created items for cleanup
     
     try:
-        add_global_message(f"🚀 Starting CRUD tests for modules: {', '.join(selected_modules)}")
-        add_global_message(f"🧹 Cleanup after tests: {'enabled' if cleanup else 'disabled'}")
+        add_global_message(f"STARTING: Starting CRUD tests for modules: {', '.join(selected_modules)}")
+        add_global_message(f"CLEANUP: Cleanup after tests: {'enabled' if cleanup else 'disabled'}")
         
         # Test each selected module
         if "notes" in selected_modules:
-            add_global_message("📝 Testing Notes module...")
+            add_global_message("INFO: Testing Notes module...")
             note_results = await _test_notes_crud(db, current_user, test_data_cleanup, verbose)
             results["modules_tested"].append("notes")
             results["test_summary"]["notes"] = note_results
-            add_global_message(f"📝 Notes testing completed: {note_results.get('status', 'unknown')}")
+            add_global_message(f"INFO: Notes testing completed: {note_results.get('status', 'unknown')}")
         
         if "documents" in selected_modules:
-            add_global_message("📄 Testing Documents module...")
+            add_global_message("DOCUMENT: Testing Documents module...")
             doc_results = await _test_documents_crud(db, current_user, test_data_cleanup, verbose)
             results["modules_tested"].append("documents")
             results["test_summary"]["documents"] = doc_results
-            add_global_message(f"📄 Documents testing completed: {doc_results.get('status', 'unknown')}")
+            add_global_message(f"DOCUMENT: Documents testing completed: {doc_results.get('status', 'unknown')}")
         
         if "todos" in selected_modules:
-            add_global_message("✅ Testing Todos module...")
+            add_global_message("SUCCESS: Testing Todos module...")
             todo_results = await _test_todos_crud(db, current_user, test_data_cleanup, verbose)
             results["modules_tested"].append("todos")
             results["test_summary"]["todos"] = todo_results
-            add_global_message(f"✅ Todos testing completed: {todo_results.get('status', 'unknown')}")
+            add_global_message(f"SUCCESS: Todos testing completed: {todo_results.get('status', 'unknown')}")
         
         if "archive" in selected_modules:
-            add_global_message("📁 Testing Archive module...")
+            add_global_message("FILE: Testing Archive module...")
             archive_results = await _test_archive_crud(db, current_user, test_data_cleanup, verbose)
             results["modules_tested"].append("archive")
             results["test_summary"]["archive"] = archive_results
-            add_global_message(f"📁 Archive testing completed: {archive_results.get('status', 'unknown')}")
+            add_global_message(f"FILE: Archive testing completed: {archive_results.get('status', 'unknown')}")
         
         # Calculate overall status - Count all individual operations, not just modules
         all_tests = []
@@ -3217,16 +3222,16 @@ async def full_crud_test(
         
         if passed_tests == total_tests:
             results["overall_status"] = "all_passed"
-            add_global_message(f"🎉 ALL TESTS PASSED: {passed_tests}/{total_tests}")
+            add_global_message(f"COMPLETED: ALL TESTS PASSED: {passed_tests}/{total_tests}")
         elif passed_tests > total_tests * 0.8:
             results["overall_status"] = "mostly_passed"
-            add_global_message(f"⚠️ MOSTLY PASSED: {passed_tests}/{total_tests} (warning threshold)")
+            add_global_message(f"WARNING: MOSTLY PASSED: {passed_tests}/{total_tests} (warning threshold)")
         elif passed_tests > 0:
             results["overall_status"] = "partial_failure"
-            add_global_message(f"❌ PARTIAL FAILURE: {passed_tests}/{total_tests}")
+            add_global_message(f"ERROR: PARTIAL FAILURE: {passed_tests}/{total_tests}")
         else:
             results["overall_status"] = "failed"
-            add_global_message(f"💥 ALL TESTS FAILED: {passed_tests}/{total_tests}")
+            add_global_message(f"CRITICAL: ALL TESTS FAILED: {passed_tests}/{total_tests}")
         
         results["test_counts"] = {
             "total_tests": total_tests,
@@ -3237,13 +3242,13 @@ async def full_crud_test(
         
         # Cleanup phase
         if cleanup:
-            add_global_message(f"🧹 Starting cleanup of {len(test_data_cleanup)} test items...")
+            add_global_message(f"CLEANUP: Starting cleanup of {len(test_data_cleanup)} test items...")
             cleanup_results = await _cleanup_test_data(db, test_data_cleanup, verbose)
             results["cleanup_performed"] = True
             results["cleanup_summary"] = cleanup_results
-            add_global_message(f"🧹 Cleanup completed: {cleanup_results.get('cleaned_count', 0)} items removed")
+            add_global_message(f"CLEANUP: Cleanup completed: {cleanup_results.get('cleaned_count', 0)} items removed")
         else:
-            add_global_message(f"⚠️ Cleanup skipped - {len(test_data_cleanup)} test items remain in database")
+            add_global_message(f"WARNING: Cleanup skipped - {len(test_data_cleanup)} test items remain in database")
             results["cleanup_performed"] = False
             results["cleanup_summary"] = {
                 "status": "skipped",
@@ -3254,18 +3259,18 @@ async def full_crud_test(
     except Exception as e:
         results["overall_status"] = "error"
         results["error"] = str(e)
-        add_global_message(f"💥 CRITICAL ERROR: {str(e)}")
+        add_global_message(f"CRITICAL: CRITICAL ERROR: {str(e)}")
         
         # Emergency cleanup if enabled
         if cleanup and test_data_cleanup:
             try:
-                add_global_message("🚨 Attempting emergency cleanup...")
+                add_global_message("WARNING: Attempting emergency cleanup...")
                 await _cleanup_test_data(db, test_data_cleanup, verbose)
-                add_global_message("🚨 Emergency cleanup completed")
+                add_global_message("WARNING: Emergency cleanup completed")
             except Exception as cleanup_error:
-                add_global_message(f"🚨 Emergency cleanup failed: {str(cleanup_error)}")
+                add_global_message(f"WARNING: Emergency cleanup failed: {str(cleanup_error)}")
     
-    add_global_message(f"📋 CRUD testing completed with overall status: {results['overall_status']}")
+    add_global_message(f"INFO: CRUD testing completed with overall status: {results['overall_status']}")
     return results
 
 @router.post("/database/diary-migration")
@@ -3282,7 +3287,7 @@ async def run_diary_migration(
     def log_message(msg: str, level: str = "info"):
         timestamped_msg = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
         migration_log.append({"timestamp": datetime.now(NEPAL_TZ).isoformat(), "level": level, "message": msg})
-        print(f"Migration: {timestamped_msg}")
+        logger.info(f"Migration: {timestamped_msg}")
     
     try:
         from pathlib import Path
@@ -3294,19 +3299,19 @@ async def run_diary_migration(
         
         from migrate_diary_schema import DiaryMigration
         
-        log_message("🚀 Starting diary schema migration from web interface", "info")
+        log_message("STARTING: Starting diary schema migration from web interface", "info")
         log_message(f"Settings: backup={backup}, force={force}", "info")
         
         # Create migration instance
         migration = DiaryMigration(backup=backup, force=force)
         
         # Check current schema first
-        log_message("🔍 Checking current database schema...", "info")
+        log_message("SEARCH: Checking current database schema...", "info")
         result = await db.execute(text("PRAGMA table_info(users)"))
         user_columns = [row[1] for row in result.fetchall()]
         
         if 'diary_password_hash' in user_columns and not force:
-            log_message("⚠️ Migration appears to already be applied!", "warning")
+            log_message("WARNING: Migration appears to already be applied!", "warning")
             return {
                 "status": "already_applied", 
                 "message": "Migration appears to already be applied. Use force=true to run anyway.",
@@ -3316,7 +3321,7 @@ async def run_diary_migration(
         
         # Create backup if requested
         if backup:
-            log_message("💾 Creating database backup...", "info")
+            log_message("STORAGE: Creating database backup...", "info")
             try:
                 data_dir = get_data_dir()
                 backup_dir = data_dir / "backups"
@@ -3327,31 +3332,31 @@ async def run_diary_migration(
                 backup_path = backup_dir / backup_name
                 
                 await db.execute(text(f"VACUUM INTO '{backup_path}'"))
-                log_message(f"✅ Backup created: {backup_name}", "info")
+                log_message(f"SUCCESS: Backup created: {backup_name}", "info")
                 
             except Exception as e:
-                log_message(f"❌ Backup creation failed: {str(e)}", "error")
+                log_message(f"ERROR: Backup creation failed: {str(e)}", "error")
                 raise
         
         # Apply schema changes
-        log_message("🔧 Applying schema changes...", "info")
+        log_message("FIXED: Applying schema changes...", "info")
         
         # Add new columns to users table
         try:
             await db.execute(text("ALTER TABLE users ADD COLUMN diary_password_hash TEXT;"))
-            log_message("  ✅ Added diary_password_hash column to users table", "info")
+            log_message("  SUCCESS: Added diary_password_hash column to users table", "info")
         except Exception as e:
             if "duplicate column name" not in str(e).lower():
                 raise
-            log_message("  ℹ️ diary_password_hash column already exists", "info")
+            log_message("  INFO: diary_password_hash column already exists", "info")
         
         try:
             await db.execute(text("ALTER TABLE users ADD COLUMN diary_password_hint TEXT;"))
-            log_message("  ✅ Added diary_password_hint column to users table", "info")
+            log_message("  SUCCESS: Added diary_password_hint column to users table", "info")
         except Exception as e:
             if "duplicate column name" not in str(e).lower():
                 raise
-            log_message("  ℹ️ diary_password_hint column already exists", "info")
+            log_message("  INFO: diary_password_hint column already exists", "info")
         
         # Add new columns to diary_entries table
         new_columns = [
@@ -3364,14 +3369,14 @@ async def run_diary_migration(
         for col_name, col_type in new_columns:
             try:
                 await db.execute(text(f"ALTER TABLE diary_entries ADD COLUMN {col_name} {col_type};"))
-                log_message(f"  ✅ Added {col_name} column to diary_entries table", "info")
+                log_message(f"  SUCCESS: Added {col_name} column to diary_entries table", "info")
             except Exception as e:
                 if "duplicate column name" not in str(e).lower():
                     raise
-                log_message(f"  ℹ️ {col_name} column already exists", "info")
+                log_message(f"  INFO: {col_name} column already exists", "info")
         
         # Update day_of_week for existing entries
-        log_message("📅 Calculating day_of_week for existing entries...", "info")
+        log_message("DATE: Calculating day_of_week for existing entries...", "info")
         result = await db.execute(text("SELECT id, date FROM diary_entries WHERE day_of_week IS NULL"))
         entries = result.fetchall()
         
@@ -3388,10 +3393,10 @@ async def run_diary_migration(
                     await db.execute(text("UPDATE diary_entries SET day_of_week = :dow WHERE id = :id"), 
                                    {"dow": day_of_week, "id": entry_id})
                 except Exception as e:
-                    log_message(f"  ⚠️ Failed to update day_of_week for entry {entry_id}: {e}", "warning")
+                    log_message(f"  WARNING: Failed to update day_of_week for entry {entry_id}: {e}", "warning")
         
         # Update media_count for existing entries
-        log_message("📷 Calculating media_count for existing entries...", "info")
+        log_message("MEDIA: Calculating media_count for existing entries...", "info")
         await db.execute(text("""
             UPDATE diary_entries 
             SET media_count = (
@@ -3403,18 +3408,18 @@ async def run_diary_migration(
         """))
         
         # Migrate existing diary data to files
-        log_message("📦 Migrating existing diary data to file-based storage...", "info")
+        log_message("MIGRATION: Migrating existing diary data to file-based storage...", "info")
         
         # Get entries that still have encrypted_blob but no content_file_path
         result = await db.execute(text("""
-            SELECT id, title, encrypted_blob, encryption_iv, encryption_tag, date, user_id
+            SELECT id, title, encrypted_blob, encryption_iv, encryption_tag, date, created_by
             FROM diary_entries 
             WHERE encrypted_blob IS NOT NULL 
             AND (content_file_path IS NULL OR content_file_path = '')
         """))
         entries_to_migrate = result.fetchall()
         
-        log_message(f"  🔍 Found {len(entries_to_migrate)} entries to migrate", "info")
+        log_message(f"  SEARCH: Found {len(entries_to_migrate)} entries to migrate", "info")
         
         if entries_to_migrate:
             # Create directory structure
@@ -3425,7 +3430,7 @@ async def run_diary_migration(
             
             migrated_count = 0
             for entry in entries_to_migrate:
-                entry_id, title, encrypted_blob, iv, tag, entry_date, user_id = entry
+                entry_id, title, encrypted_blob, iv, tag, entry_date, created_by = entry
                 
                 try:
                     # Parse date for filename
@@ -3464,18 +3469,18 @@ async def run_diary_migration(
                     migrated_count += 1
                     
                     if migrated_count % 5 == 0:
-                        log_message(f"  📝 Migrated {migrated_count}/{len(entries_to_migrate)} entries...", "info")
+                        log_message(f"  INFO: Migrated {migrated_count}/{len(entries_to_migrate)} entries...", "info")
                         
                 except Exception as e:
-                    log_message(f"  ⚠️ Failed to migrate entry {entry_id}: {e}", "warning")
+                    log_message(f"  WARNING: Failed to migrate entry {entry_id}: {e}", "warning")
                     continue
             
-            log_message(f"✅ Successfully migrated {migrated_count} diary entries", "info")
+            log_message(f"SUCCESS: Successfully migrated {migrated_count} diary entries", "info")
         
         await db.commit()
         
         # Verify migration
-        log_message("🔍 Verifying migration...", "info")
+        log_message("SEARCH: Verifying migration...", "info")
         
         # Check if all required columns exist
         result = await db.execute(text("PRAGMA table_info(users)"))
@@ -3494,7 +3499,7 @@ async def run_diary_migration(
             if col not in diary_columns:
                 raise Exception(f"Required column {col} not found in diary_entries table")
         
-        log_message("✅ Schema verification passed", "info")
+        log_message("SUCCESS: Schema verification passed", "info")
         
         # Check data integrity
         result = await db.execute(text("""
@@ -3506,9 +3511,9 @@ async def run_diary_migration(
         result = await db.execute(text("SELECT COUNT(*) FROM diary_entries"))
         total_entries = result.scalar()
         
-        log_message(f"📊 {migrated_entries}/{total_entries} entries have file-based storage", "info")
-        log_message("🎉 Migration completed successfully!", "info")
-        log_message("🚀 Diary module is now using file-based encryption!", "info")
+        log_message(f"STATS: {migrated_entries}/{total_entries} entries have file-based storage", "info")
+        log_message("COMPLETED: Migration completed successfully!", "info")
+        log_message("STARTING: Diary module is now using file-based encryption!", "info")
         
         return {
             "status": "success",
@@ -3523,7 +3528,7 @@ async def run_diary_migration(
         }
         
     except Exception as e:
-        log_message(f"❌ Migration failed: {str(e)}", "error")
+        log_message(f"ERROR: Migration failed: {str(e)}", "error")
         await db.rollback()
         
         return {

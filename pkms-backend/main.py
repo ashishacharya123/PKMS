@@ -85,7 +85,7 @@ async def cleanup_expired_sessions():
                     logger.info(f"Cleaned up {deleted_count} expired sessions")
                     
         except Exception as e:
-            logger.error(f"❌ Session cleanup error: {e}")
+            logger.error(f"Session cleanup error: {e}")
         
         # Sleep for configured interval
         await asyncio.sleep(settings.session_cleanup_interval_hours * 3600)
@@ -153,7 +153,7 @@ app = FastAPI(
 app.state.limiter = limiter
 
 # ------------------------------------------------------------
-# ⛑️  Global middlewares - CORS MUST BE FIRST
+# Global middlewares - CORS MUST BE FIRST
 # ------------------------------------------------------------
 # CORS middleware for frontend communication - MUST BE FIRST
 app.add_middleware(

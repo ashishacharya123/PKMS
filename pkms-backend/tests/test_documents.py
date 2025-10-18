@@ -35,7 +35,7 @@ class FakeTag:
 @pytest.mark.asyncio
 async def test_handle_document_tags_usage_counts():
     """Test that tag usage counts are updated correctly and new tags are created."""
-    doc = Document(id=1, uuid="doc-uuid", user_id=1, title="Doc", filename="file", file_path="path")
+    doc = Document(id=1, uuid="doc-uuid", created_by=1, title="Doc", filename="file", file_path="path")
 
     existing_tag = FakeTag(uuid="tag-1", name="existing", usage_count=3)
 
@@ -55,7 +55,7 @@ async def test_handle_document_tags_usage_counts():
 
     new_tags = ["existing", "new"]
 
-    await _handle_document_tags(db, doc, new_tags, user_id=1)
+    await _handle_document_tags(db, doc, new_tags, created_by=1)
 
     # Verify execute was called for all expected queries
     assert db.execute.await_count >= 4, "Should execute at least 4 queries"

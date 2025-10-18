@@ -17,7 +17,7 @@ from app.models.user import User
 from app.models.note import Note
 from app.models.document import Document
 from app.models.todo import Todo, TodoStatus
-from app.models.project import Project
+from app.models.project import Project, ProjectStatus
 from app.models.diary import DiaryEntry
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.schemas.dashboard import DashboardStats, ModuleActivity, QuickStats
@@ -27,7 +27,7 @@ router = APIRouter()
 # ============================================================
 # TTL In-Memory Cache (30 seconds)
 # Reduces database load for repeated dashboard refreshes
-# Cache key: user_uuid (and days for activity endpoint)
+# Cache key: created_by (and days for activity endpoint)
 # Cache value: (timestamp, response_object)
 # ============================================================
 _DASH_TTL_SECONDS = 30
@@ -48,11 +48,11 @@ async def get_dashboard_stats(
     This is optimized for fast dashboard loading with 30s TTL cache
     """
     try:
-        user_uuid = current_user.uuid
+        created_by = current_user.uuid
         
         # Check cache first
         now_ts = time.time()
-        cached = _STATS_CACHE.get(user_uuid)
+        cached = _STATS_CACHE.get(created_by)
         if cached and (now_ts - cached[0] < _DASH_TTL_SECONDS):
             return cached[1]
         
@@ -62,13 +62,13 @@ async def get_dashboard_stats(
         # Notes Statistics
         notes_total = await db.scalar(
             select(func.count(Note.uuid)).where(
-                and_(Note.created_by == user_uuid, Note.is_archived.is_(False))
+                and_(Note.created_by == created_by, Note.is_archived.is_(False))
             )
         )
         notes_recent = await db.scalar(
             select(func.count(Note.uuid)).where(
                 and_(
-                    Note.created_by == user_uuid,
+                    Note.created_by == created_by,
                     Note.is_archived.is_(False),
                     Note.created_at >= recent_cutoff
                 )
@@ -78,13 +78,13 @@ async def get_dashboard_stats(
         # Documents Statistics  
         docs_total = await db.scalar(
             select(func.count(Document.uuid)).where(
-                and_(Document.created_by == user_uuid, Document.is_archived.is_(False))
+                and_(Document.created_by == created_by, Document.is_archived.is_(False))
             )
         )
         docs_recent = await db.scalar(
             select(func.count(Document.uuid)).where(
                 and_(
-                    Document.created_by == user_uuid,
+                    Document.created_by == created_by,
                     Document.is_archived.is_(False),
                     Document.created_at >= recent_cutoff
                 )
@@ -93,40 +93,40 @@ async def get_dashboard_stats(
         
         # Todos Statistics with Status Breakdown
         todos_total = await db.scalar(
-            select(func.count(Todo.uuid)).where(Todo.created_by == user_uuid)
+            select(func.count(Todo.uuid)).where(Todo.created_by == created_by)
         )
         
         # Status breakdown
         todos_pending = await db.scalar(
             select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == user_uuid, Todo.status == TodoStatus.PENDING)
+                and_(Todo.created_by == created_by, Todo.status == TodoStatus.PENDING)
             )
         )
         todos_in_progress = await db.scalar(
             select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == user_uuid, Todo.status == TodoStatus.IN_PROGRESS)
+                and_(Todo.created_by == created_by, Todo.status == TodoStatus.IN_PROGRESS)
             )
         )
         todos_blocked = await db.scalar(
             select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == user_uuid, Todo.status == TodoStatus.BLOCKED)
+                and_(Todo.created_by == created_by, Todo.status == TodoStatus.BLOCKED)
             )
         )
         todos_done = await db.scalar(
             select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == user_uuid, Todo.status == TodoStatus.DONE)
+                and_(Todo.created_by == created_by, Todo.status == TodoStatus.DONE)
             )
         )
         todos_cancelled = await db.scalar(
             select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == user_uuid, Todo.status == TodoStatus.CANCELLED)
+                and_(Todo.created_by == created_by, Todo.status == TodoStatus.CANCELLED)
             )
         )
         
         # Legacy completed count (for backward compatibility)
         todos_completed = await db.scalar(
             select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == user_uuid, Todo.status == TodoStatus.DONE)
+                and_(Todo.created_by == created_by, Todo.status == TodoStatus.DONE)
             )
         )
         
@@ -134,7 +134,7 @@ async def get_dashboard_stats(
         todos_overdue = await db.scalar(
             select(func.count(Todo.uuid)).where(
                 and_(
-                    Todo.created_by == user_uuid,
+                    Todo.created_by == created_by,
                     Todo.status.notin_([TodoStatus.DONE, TodoStatus.CANCELLED]),
                     Todo.due_date.is_not(None),
                     Todo.due_date < datetime.now(NEPAL_TZ).date()
@@ -150,7 +150,7 @@ async def get_dashboard_stats(
         todos_due_today = await db.scalar(
             select(func.count(Todo.uuid)).where(
                 and_(
-                    Todo.created_by == user_uuid,
+                    Todo.created_by == created_by,
                     Todo.status.notin_([TodoStatus.DONE, TodoStatus.CANCELLED]),
                     Todo.due_date == today_date,
                 )
@@ -161,7 +161,7 @@ async def get_dashboard_stats(
         todos_completed_today = await db.scalar(
             select(func.count(Todo.uuid)).where(
                 and_(
-                    Todo.created_by == user_uuid,
+                    Todo.created_by == created_by,
                     Todo.status == TodoStatus.DONE,
                     Todo.completed_at >= start_today,
                     Todo.completed_at < end_today,
@@ -171,25 +171,26 @@ async def get_dashboard_stats(
         
         # Diary Statistics
         diary_total = await db.scalar(
-            select(func.count(DiaryEntry.uuid)).where(DiaryEntry.created_by == user_uuid)
+            select(func.count(DiaryEntry.uuid)).where(DiaryEntry.created_by == created_by)
         )
         
         # Calculate diary streak (consecutive days with entries)
-        diary_streak = await _calculate_diary_streak(db, user_uuid)
+        diary_streak = await _calculate_diary_streak(db, created_by)
         
         # Archive Statistics
         archive_folders = await db.scalar(
-            select(func.count(ArchiveFolder.uuid)).where(ArchiveFolder.created_by == user_uuid)
+            select(func.count(ArchiveFolder.uuid)).where(ArchiveFolder.created_by == created_by)
         )
         archive_items = await db.scalar(
-            select(func.count(ArchiveItem.uuid)).where(ArchiveItem.created_by == user_uuid)
+            select(func.count(ArchiveItem.uuid)).where(ArchiveItem.created_by == created_by)
         )
         
         # Active Projects Count
         active_projects = await db.scalar(
             select(func.count(Project.uuid)).where(
                 and_(
-                    Project.created_by == user_uuid, 
+                    Project.created_by == created_by,
+                    Project.status == ProjectStatus.IS_RUNNING,
                     Project.is_archived.is_(False),
                     Project.is_deleted.is_(False)
                 )
@@ -235,7 +236,7 @@ async def get_dashboard_stats(
         if len(_STATS_CACHE) >= _STATS_CACHE_MAX:
             oldest_key = min(_STATS_CACHE, key=lambda k: _STATS_CACHE[k][0])
             _STATS_CACHE.pop(oldest_key, None)
-        _STATS_CACHE[user_uuid] = (now_ts, stats)
+        _STATS_CACHE[created_by] = (now_ts, stats)
         return stats
         
     except Exception as e:
@@ -252,11 +253,11 @@ async def get_recent_activity(
 ):
     """Get recent activity across all modules with 30s TTL cache"""
     try:
-        user_uuid = current_user.uuid
+        created_by = current_user.uuid
         
-        # Check cache first (keyed by user_uuid and days)
+        # Check cache first (keyed by created_by and days)
         now_ts = time.time()
-        cache_key = (user_uuid, days)
+        cache_key = (created_by, days)
         cached = _ACTIVITY_CACHE.get(cache_key)
         if cached and (now_ts - cached[0] < _DASH_TTL_SECONDS):
             return cached[1]
@@ -266,27 +267,27 @@ async def get_recent_activity(
         # Get recent activity counts
         recent_notes = await db.scalar(
             select(func.count(Note.uuid)).where(
-                and_(Note.created_by == user_uuid, Note.created_at >= cutoff)
+                and_(Note.created_by == created_by, Note.created_at >= cutoff)
             )
         )
         recent_documents = await db.scalar(
             select(func.count(Document.uuid)).where(
-                and_(Document.created_by == user_uuid, Document.created_at >= cutoff)
+                and_(Document.created_by == created_by, Document.created_at >= cutoff)
             )
         )
         recent_todos = await db.scalar(
             select(func.count(Todo.uuid)).where(
-                and_(Todo.created_by == user_uuid, Todo.created_at >= cutoff)
+                and_(Todo.created_by == created_by, Todo.created_at >= cutoff)
             )
         )
         recent_diary = await db.scalar(
             select(func.count(DiaryEntry.uuid)).where(
-                and_(DiaryEntry.created_by == user_uuid, DiaryEntry.created_at >= cutoff)
+                and_(DiaryEntry.created_by == created_by, DiaryEntry.created_at >= cutoff)
             )
         )
         recent_archive = await db.scalar(
             select(func.count(ArchiveItem.uuid)).where(
-                and_(ArchiveItem.created_by == user_uuid, ArchiveItem.created_at >= cutoff)
+                and_(ArchiveItem.created_by == created_by, ArchiveItem.created_at >= cutoff)
             )
         )
         
@@ -318,22 +319,22 @@ async def get_quick_stats(
 ):
     """Get quick overview statistics for dashboard widgets with 30s TTL cache"""
     try:
-        user_uuid = current_user.uuid
+        created_by = current_user.uuid
         
         # Check cache first
         now_ts = time.time()
-        cached = _QUICK_CACHE.get(user_uuid)
+        cached = _QUICK_CACHE.get(created_by)
         if cached and (now_ts - cached[0] < _DASH_TTL_SECONDS):
             return cached[1]
         
         # Batch total counts for all modules in a single query (avoiding 5 round trips)
         from sqlalchemy import union_all
         counts_query = union_all(
-            select(func.count(Note.uuid).label("count")).where(Note.created_by == user_uuid),
-            select(func.count(Document.uuid)).where(Document.created_by == user_uuid),
-            select(func.count(Todo.uuid)).where(Todo.created_by == user_uuid),
-            select(func.count(DiaryEntry.uuid)).where(DiaryEntry.created_by == user_uuid),
-            select(func.count(ArchiveItem.uuid)).where(ArchiveItem.created_by == user_uuid)
+            select(func.count(Note.uuid).label("count")).where(Note.created_by == created_by),
+            select(func.count(Document.uuid)).where(Document.created_by == created_by),
+            select(func.count(Todo.uuid)).where(Todo.created_by == created_by),
+            select(func.count(DiaryEntry.uuid)).where(DiaryEntry.created_by == created_by),
+            select(func.count(ArchiveItem.uuid)).where(ArchiveItem.created_by == created_by)
         )
         counts_result = await db.execute(counts_query)
         count_values = [r[0] or 0 for r in counts_result.fetchall()]
@@ -344,7 +345,12 @@ async def get_quick_stats(
         # Active projects
         active_projects = await db.scalar(
             select(func.count(Project.uuid)).where(
-                and_(Project.created_by == user_uuid, Project.is_archived.is_(False), Project.is_deleted.is_(False))
+                and_(
+                    Project.created_by == created_by,
+                    Project.status == ProjectStatus.IS_RUNNING,
+                    Project.is_archived.is_(False),
+                    Project.is_deleted.is_(False)
+                )
             )
         )
         
@@ -352,7 +358,7 @@ async def get_quick_stats(
         overdue_todos = await db.scalar(
             select(func.count(Todo.uuid)).where(
                 and_(
-                    Todo.created_by == user_uuid,
+                    Todo.created_by == created_by,
                     Todo.is_completed.is_(False),
                     Todo.due_date < datetime.now(NEPAL_TZ)
                 )
@@ -360,24 +366,24 @@ async def get_quick_stats(
         )
         
         # Diary streak
-        diary_streak = await _calculate_diary_streak(db, user_uuid)
+        diary_streak = await _calculate_diary_streak(db, created_by)
         
         # Storage used (approximate from file sizes)
         docs_bytes = await db.scalar(
-            select(func.coalesce(func.sum(Document.file_size), 0)).where(Document.created_by == user_uuid)
+            select(func.coalesce(func.sum(Document.file_size), 0)).where(Document.created_by == created_by)
         )
         archive_bytes = await db.scalar(
-            select(func.coalesce(func.sum(ArchiveItem.file_size), 0)).where(ArchiveItem.created_by == user_uuid)
+            select(func.coalesce(func.sum(ArchiveItem.file_size), 0)).where(ArchiveItem.created_by == created_by)
         )
         notes_bytes = await db.scalar(
-            select(func.coalesce(func.sum(Note.size_bytes), 0)).where(Note.created_by == user_uuid)
+            select(func.coalesce(func.sum(Note.size_bytes), 0)).where(Note.created_by == created_by)
         )
         from app.models.diary import DiaryMedia, DiaryEntry as _DiaryEntry
         diary_media_bytes = await db.scalar(
-            select(func.coalesce(func.sum(DiaryMedia.file_size), 0)).where(DiaryMedia.created_by == user_uuid)
+            select(func.coalesce(func.sum(DiaryMedia.file_size), 0)).where(DiaryMedia.created_by == created_by)
         )
         diary_text_bytes = await db.scalar(
-            select(func.coalesce(func.sum(_DiaryEntry.content_length), 0)).where(_DiaryEntry.created_by == user_uuid)
+            select(func.coalesce(func.sum(_DiaryEntry.content_length), 0)).where(_DiaryEntry.created_by == created_by)
         )
 
         total_storage_bytes = (
@@ -408,7 +414,7 @@ async def get_quick_stats(
         if len(_QUICK_CACHE) >= _QUICK_CACHE_MAX:
             oldest_key = min(_QUICK_CACHE, key=lambda k: _QUICK_CACHE[k][0])
             _QUICK_CACHE.pop(oldest_key, None)
-        _QUICK_CACHE[user_uuid] = (now_ts, quick_stats)
+        _QUICK_CACHE[created_by] = (now_ts, quick_stats)
         return quick_stats
         
     except Exception as e:
@@ -417,13 +423,13 @@ async def get_quick_stats(
             detail=f"Failed to load quick statistics: {str(e)}"
         )
 
-async def _calculate_diary_streak(db: AsyncSession, user_uuid: str) -> int:
+async def _calculate_diary_streak(db: AsyncSession, created_by: str) -> int:
     """Calculate the current consecutive diary writing streak"""
     try:
         # Get the most recent diary entries ordered by date descending
         result = await db.execute(
             select(DiaryEntry.date)
-            .where(DiaryEntry.created_by == user_uuid)
+            .where(DiaryEntry.created_by == created_by)
             .order_by(DiaryEntry.date.desc())
             .limit(365)
         )

@@ -116,7 +116,7 @@ class TokenResponse(CamelCaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
-    user_id: int
+    created_by: int
     username: str
 
 class UserResponse(CamelCaseModel):

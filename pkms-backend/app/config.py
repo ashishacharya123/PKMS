@@ -8,6 +8,7 @@ import secrets
 from pathlib import Path
 from typing import Optional
 from pydantic_settings import BaseSettings
+from pydantic import Field
 import warnings
 from datetime import timezone, timedelta
 from sqlalchemy import text
@@ -95,7 +96,10 @@ class Settings(BaseSettings):
         "http://localhost",
         "http://127.0.0.1"
     ]
-    trusted_hosts: list = ["localhost", "127.0.0.1", "0.0.0.0", "localhost:8000", "127.0.0.1:8000"]
+    trusted_hosts: list[str] = Field(
+        default_factory=lambda: ["localhost", "127.0.0.1"],
+        description="Allowed hostnames for TrustedHostMiddleware (production only)"
+    )
     
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

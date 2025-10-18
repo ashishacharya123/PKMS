@@ -15,7 +15,7 @@ class TagService:
         db: AsyncSession,
         item: Base,
         new_tag_names: List[str],
-        user_uuid: str,
+        created_by: str,
         module_type: str,
         association_table: Type[Base]
     ):
@@ -64,7 +64,7 @@ class TagService:
             # Get or create the tag (case-insensitive lookup)
             tag_query = select(Tag).where(
                 func.lower(Tag.name) == tag_name,
-                Tag.user_uuid == user_uuid,
+                Tag.created_by == created_by,
                 Tag.module_type == module_type
             )
             tag_result = await db.execute(tag_query)
@@ -73,7 +73,7 @@ class TagService:
             if not tag:
                 tag = Tag(
                     name=tag_name,  # Store in lowercase
-                    user_uuid=user_uuid,
+                    created_by=created_by,
                     module_type=module_type,
                     usage_count=1
                 )

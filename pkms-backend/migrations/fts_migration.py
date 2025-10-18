@@ -31,7 +31,7 @@ async def drop_old_fts_tables():
     # Use the shared engine from database module
     
     async with engine.begin() as conn:
-        logger.info("🗑️ Dropping old FTS tables and triggers...")
+        logger.info("Dropping old FTS tables and triggers...")
         
         # Drop old FTS tables
         old_tables = [
@@ -46,9 +46,9 @@ async def drop_old_fts_tables():
         for table in old_tables:
             try:
                 await conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
-                logger.info(f"✅ Dropped {table}")
+                logger.info(f"Dropped {table}")
             except Exception as e:
-                logger.warning(f"⚠️ Could not drop {table}: {e}")
+                logger.warning(f"Could not drop {table}: {e}")
         
         # Drop old FTS triggers
         old_triggers = [
@@ -63,9 +63,9 @@ async def drop_old_fts_tables():
         for trigger in old_triggers:
             try:
                 await conn.execute(text(f"DROP TRIGGER IF EXISTS {trigger}"))
-                logger.info(f"✅ Dropped {trigger}")
+                logger.info(f"Dropped {trigger}")
             except Exception as e:
-                logger.warning(f"⚠️ Could not drop {trigger}: {e}")
+                logger.warning(f"Could not drop {trigger}: {e}")
 
 
 async def create_new_fts_table():
@@ -73,14 +73,14 @@ async def create_new_fts_table():
     # Use the shared engine from database module
     
     async with engine.begin() as conn:
-        logger.info("🏗️ Creating new unified FTS table...")
+        logger.info("Creating new unified FTS table...")
         
         # Create the unified FTS table
         await conn.execute(text("""
             CREATE VIRTUAL TABLE IF NOT EXISTS fts_content USING fts5(
                 item_uuid UNINDEXED,   -- UUID of the original item
                 item_type UNINDEXED,   -- 'note', 'todo', 'document', 'project', 'diary', 'link', 'archive'
-                user_uuid UNINDEXED,   -- To scope searches by user
+                created_by UNINDEXED,   -- To scope searches by user
                 title,                 -- Title/name from any item
                 description,           -- Description (not full content)
                 tags,                  -- Space-separated list of tags
@@ -90,12 +90,12 @@ async def create_new_fts_table():
             )
         """))
         
-        logger.info("✅ Created unified fts_content table")
+        logger.info("Created unified fts_content table")
 
 
 async def bulk_index_existing_content():
     """Bulk index all existing content into the new FTS table."""
-    logger.info("📚 Starting bulk index of existing content...")
+    logger.info("Starting bulk index of existing content...")
     
     # Get database session
     async for db in get_db():
@@ -108,16 +108,16 @@ async def bulk_index_existing_content():
             logger.info(f"Found {total_users} users to index")
             
             for i, user in enumerate(users, 1):
-                logger.info(f"📝 Indexing content for user {user.uuid} ({i}/{total_users})")
+                logger.info(f"Indexing content for user {user.uuid} ({i}/{total_users})")
                 await search_service.bulk_index_user_content(db, user.uuid)
                 await db.commit()
-                logger.info(f"✅ Completed indexing for user {user.uuid}")
+                logger.info(f"Completed indexing for user {user.uuid}")
             
-            logger.info("🎉 Bulk indexing completed successfully!")
+            logger.info("Bulk indexing completed successfully!")
             break
             
         except Exception:
-            logger.exception("❌ Error during bulk indexing")
+            logger.exception("Error during bulk indexing")
             raise
         finally:
             # Session lifecycle managed by get_db(); do not close explicitly here
@@ -129,14 +129,14 @@ async def verify_migration():
     # Use the shared engine from database module
     
     async with engine.begin() as conn:
-        logger.info("🔍 Verifying migration...")
+        logger.info("Verifying migration...")
         
         # Check if new FTS table exists and has content
         result = await conn.execute(text("SELECT COUNT(*) FROM fts_content"))
         count = result.scalar()
         
         if count > 0:
-            logger.info(f"✅ Migration successful! {count} items indexed in fts_content")
+            logger.info(f"Migration successful! {count} items indexed in fts_content")
             
             # Show breakdown by type
             type_result = await conn.execute(text("""
@@ -146,16 +146,16 @@ async def verify_migration():
                 ORDER BY count DESC
             """))
             
-            logger.info("📊 Content breakdown by type:")
+            logger.info("Content breakdown by type:")
             for row in type_result:
                 logger.info(f"  {row[0]}: {row[1]} items")
         else:
-            logger.warning("⚠️ No content found in fts_content table")
+            logger.warning("No content found in fts_content table")
 
 
 async def main():
     """Main migration function."""
-    logger.info("🚀 Starting FTS5 migration...")
+    logger.info("Starting FTS5 migration...")
     
     try:
         # Step 1: Drop old FTS tables
@@ -170,10 +170,10 @@ async def main():
         # Step 4: Verify migration
         await verify_migration()
         
-        logger.info("🎉 FTS5 migration completed successfully!")
+        logger.info("FTS5 migration completed successfully!")
         
     except Exception:
-        logger.exception("❌ Migration failed")
+        logger.exception("Migration failed")
         raise
 
 

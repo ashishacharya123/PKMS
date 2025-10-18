@@ -12,22 +12,7 @@ from app.models.base import Base
 from app.config import nepal_now
 from app.models.tag_associations import todo_tags, project_tags
 from app.models.associations import todo_projects, todo_dependencies
-
-
-class TodoStatus(str, enum.Enum):
-    """Todo status enum for better task management"""
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    BLOCKED = "blocked"
-    DONE = "done"
-    CANCELLED = "cancelled"
-
-
-class TodoType(str, enum.Enum):
-    """Todo type enum for different kinds of tasks"""
-    TASK = "task"  # Regular task
-    CHECKLIST = "checklist"  # Task with checkboxes
-    SUBTASK = "subtask"  # Subtask of another todo
+from app.models.enums import TodoStatus, TodoType
 
 
 class Todo(Base):
@@ -62,8 +47,8 @@ class Todo(Base):
     start_date = Column(Date, nullable=True)
     due_date = Column(Date, nullable=True)
     completed_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     
     # Audit trail
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)

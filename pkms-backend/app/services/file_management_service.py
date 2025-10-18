@@ -19,13 +19,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 import logging
 
-from app.services.chunk_service import chunk_manager
+from app.services.chunk_service import chunk_manager, ChunkUploadStatus
 from app.services.file_detection import FileTypeDetectionService
 from app.config import get_data_dir, get_file_storage_dir
 from app.utils.security import sanitize_filename, validate_file_size
 from app.config import settings
 from sqlalchemy import select, and_
 from app.models.note import NoteFile
+from app.models.document import UploadStatus
+from app.models.enums import ModuleType
 
 logger = logging.getLogger(__name__)
 file_detector = FileTypeDetectionService()
@@ -60,7 +62,7 @@ class FileManagementService:
         try:
             # Check upload status
             status = await chunk_manager.get_upload_status(upload_id)
-            if status["status"] != "completed":
+            if status["status"] != ChunkUploadStatus.COMPLETED:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Upload not completed. Status: {status['status']}"
@@ -94,7 +96,7 @@ class FileManagementService:
 
             # Move to temporary location first
             await asyncio.to_thread(shutil.move, str(assembled_path), str(temp_path))
-            logger.info(f"✅ File moved to temporary location: {temp_path}")
+            logger.info(f"SUCCESS: File moved to temporary location: {temp_path}")
 
             # Update parent item with final path
             final_relative_path = f"{subdirectory}/{final_filename}"
@@ -103,11 +105,11 @@ class FileManagementService:
 
             # Commit database transaction
             await db.commit()
-            logger.info(f"✅ Database transaction committed for {parent_item.uuid}")
+            logger.info(f"SUCCESS: Database transaction committed for {parent_item.uuid}")
 
             # Move to final location after successful DB commit
             await asyncio.to_thread(temp_path.rename, final_path)
-            logger.info(f"✅ File moved to final location: {final_path}")
+            logger.info(f"SUCCESS: File moved to final location: {final_path}")
 
             # Clean up upload from chunk manager
             chunk_manager.remove_upload(upload_id)
@@ -119,19 +121,19 @@ class FileManagementService:
             try:
                 if 'temp_path' in locals() and await asyncio.to_thread(Path.exists, temp_path):
                     await asyncio.to_thread(Path.unlink, temp_path)
-                    logger.info(f"🧹 Cleaned up temporary file: {temp_path}")
+                    logger.info(f"Cleaned up temporary file: {temp_path}")
             except Exception as cleanup_error:
-                logger.error(f"❌ Failed to cleanup temp file: {cleanup_error}")
+                logger.error(f"ERROR: Failed to cleanup temp file: {cleanup_error}")
 
             try:
                 if 'assembled_path' in locals() and await asyncio.to_thread(Path.exists, assembled_path):
                     await asyncio.to_thread(Path.unlink, assembled_path)
-                    logger.info(f"🧹 Cleaned up assembled file: {assembled_path}")
+                    logger.info(f"Cleaned up assembled file: {assembled_path}")
             except Exception as cleanup_error:
-                logger.error(f"❌ Failed to cleanup assembled file: {cleanup_error}")
+                logger.error(f"ERROR: Failed to cleanup assembled file: {cleanup_error}")
 
             await db.rollback()
-            logger.exception("❌ Upload commit failed")
+            logger.exception("ERROR: Upload commit failed")
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to commit upload: {str(e)}"
@@ -146,7 +148,7 @@ class FileManagementService:
         tags: Optional[list],
         project_ids: Optional[list],
         is_exclusive_mode: bool,
-        user_uuid: str,
+        created_by: str,
         document_model: Type,
         tag_service: any,
         project_service: any,
@@ -172,7 +174,7 @@ class FileManagementService:
             # Check assembled file status
             status_obj = await chunk_manager.get_upload_status(upload_id)
             logger.info(f"File status: {status_obj}")
-            if not status_obj or status_obj.get("status") != "completed":
+            if not status_obj or status_obj.get("status") != ChunkUploadStatus.COMPLETED:
                 logger.warning(f"File not ready - status: {status_obj.get('status') if status_obj else 'None'}")
                 raise HTTPException(status_code=400, detail=f"File not yet assembled - status: {status_obj.get('status') if status_obj else 'None'}")
 
@@ -251,9 +253,9 @@ class FileManagementService:
                 file_size=file_size,
                 mime_type=detection_result["mime_type"],
                 description=sanitized_description,
-                upload_status="completed",
+                upload_status=UploadStatus.COMPLETED,
                 is_exclusive_mode=is_exclusive_mode or False,
-                user_uuid=user_uuid,
+                created_by=created_by,
                 # Projects will be handled by project associations
             )
             
@@ -265,20 +267,20 @@ class FileManagementService:
                 # SECURITY: Sanitize tags to prevent XSS injection
                 from app.utils.security import sanitize_tags
                 sanitized_tags = sanitize_tags(tags)
-                await tag_service.handle_tags(db, document, sanitized_tags, user_uuid, "documents", document_tags)
+                await tag_service.handle_tags(db, document, sanitized_tags, created_by, ModuleType.DOCUMENTS, document_tags)
 
             # Handle projects (with ownership verification)
             if project_ids:
-                await project_service.handle_associations(db, document, project_ids, user_uuid, document_projects, "document_uuid")
+                await project_service.handle_associations(db, document, project_ids, created_by, document_projects, "document_uuid")
 
             await db.commit()
             
             # SECURITY: Move file to final location ONLY after successful DB commit
             try:
                 await asyncio.to_thread(lambda: temp_dest_path.rename(final_dest_path))
-                logger.info(f"✅ File moved to final location: {final_dest_path}")
+                logger.info(f"SUCCESS: File moved to final location: {final_dest_path}")
             except Exception as move_error:
-                logger.exception("❌ Failed to move file to final location")
+                logger.exception("ERROR: Failed to move file to final location")
                 # Clean up temp file
                 try:
                     if await asyncio.to_thread(lambda: temp_dest_path.exists()):
@@ -335,7 +337,7 @@ class FileManagementService:
         note_uuid: str,
         original_name: Optional[str],
         description: Optional[str],
-        user_uuid: str
+        created_by: str
     ) -> any:
         """
         Commit a note file upload with full metadata handling.
@@ -357,7 +359,7 @@ class FileManagementService:
             from app.models.note import Note
             note_result = await db.execute(
                 select(Note).where(
-                    and_(Note.uuid == note_uuid, Note.created_by == user_uuid)
+                    and_(Note.uuid == note_uuid, Note.created_by == created_by)
                 )
             )
             note = note_result.scalar_one_or_none()
@@ -366,7 +368,7 @@ class FileManagementService:
 
             # Check upload status
             status_obj = await chunk_manager.get_upload_status(upload_id)
-            if not status_obj or status_obj.get("status") != "completed":
+            if not status_obj or status_obj.get("status") != ChunkUploadStatus.COMPLETED:
                 raise HTTPException(status_code=400, detail="File not yet assembled")
 
             # Locate assembled file
@@ -396,7 +398,7 @@ class FileManagementService:
             # Create NoteFile record
             note_file = NoteFile(
                 note_uuid=note_uuid,
-                user_uuid=user_uuid,
+                created_by=created_by,
                 filename=stored_filename,
                 original_name=original_name or "uploaded_file",
                 file_path=file_path_relative,
@@ -422,9 +424,9 @@ class FileManagementService:
             # SECURITY: Move file to final location ONLY after successful DB commit
             try:
                 await asyncio.to_thread(lambda: temp_dest_path.rename(final_dest_path))
-                logger.info(f"✅ File moved to final location: {final_dest_path}")
+                logger.info(f"SUCCESS: File moved to final location: {final_dest_path}")
             except Exception as move_error:
-                logger.exception("❌ Failed to move file to final location")
+                logger.exception("ERROR: Failed to move file to final location")
                 # Clean up temp file
                 try:
                     if await asyncio.to_thread(lambda: temp_dest_path.exists()):
@@ -458,7 +460,7 @@ class FileManagementService:
                     await asyncio.to_thread(lambda: temp_dest_path.unlink())
             except Exception:
                 pass
-            logger.exception("❌ Error committing note file upload")
+            logger.exception("ERROR: Error committing note file upload")
             raise HTTPException(
                 status_code=500,
                 detail="Failed to commit note file upload"
@@ -534,21 +536,21 @@ class FileManagementService:
             True if deletion was successful
         """
         if not file_path.exists():
-            logger.warning(f"⚠️ File does not exist: {file_path}")
+            logger.warning(f"WARNING: File does not exist: {file_path}")
             return True
 
         try:
             if backup:
                 backup_path = file_path.with_suffix(file_path.suffix + ".backup")
                 shutil.copy2(file_path, backup_path)
-                logger.info(f"📦 Created backup: {backup_path}")
+                logger.info(f"Created backup: {backup_path}")
 
             file_path.unlink()
-            logger.info(f"🗑️ Deleted file: {file_path}")
+            logger.info(f"Deleted file: {file_path}")
             return True
 
         except Exception as e:
-            logger.error(f"❌ Failed to delete file {file_path}: {str(e)}")
+            logger.error(f"ERROR: Failed to delete file {file_path}: {str(e)}")
             return False
 
     async def safe_move_file(
@@ -576,15 +578,15 @@ class FileManagementService:
             if dest_path.exists() and create_backup:
                 backup_path = dest_path.with_suffix(dest_path.suffix + ".backup")
                 shutil.copy2(dest_path, backup_path)
-                logger.info(f"📦 Created backup: {backup_path}")
+                logger.info(f"Created backup: {backup_path}")
 
             # Move the file
             shutil.move(str(src_path), str(dest_path))
-            logger.info(f"📁 Moved file: {src_path} -> {dest_path}")
+            logger.info(f"Moved file: {src_path} -> {dest_path}")
             return True
 
         except Exception as e:
-            logger.error(f"❌ Failed to move file {src_path} -> {dest_path}: {str(e)}")
+            logger.error(f"ERROR: Failed to move file {src_path} -> {dest_path}: {str(e)}")
             return False
 
 

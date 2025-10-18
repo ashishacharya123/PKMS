@@ -138,7 +138,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       
       // Convert Note to NoteSummary for the list
       const noteSummary: NoteSummary = {
-        id: note.id,
         uuid: note.uuid,
         title: note.title,
         file_count: note.file_count,
@@ -184,7 +183,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       
       // Convert Note to NoteSummary for the list
       const noteSummary: NoteSummary = {
-        id: updatedNote.id,
         uuid: updatedNote.uuid,
         title: updatedNote.title,
         file_count: updatedNote.file_count,

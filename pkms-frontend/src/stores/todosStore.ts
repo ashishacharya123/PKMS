@@ -192,7 +192,6 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       
       // Convert Todo to TodoSummary for the list
       const todoSummary: TodoSummary = {
-        id: todo.id,
         uuid: todo.uuid,
         title: todo.title,
         project_name: todo.project_name,
@@ -284,7 +283,6 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       
       // Convert Todo to TodoSummary for the list
       const todoSummary: TodoSummary = {
-        id: completedTodo.id,
         uuid: completedTodo.uuid,
         title: completedTodo.title,
         project_name: completedTodo.project_name,

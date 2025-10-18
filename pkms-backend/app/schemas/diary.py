@@ -107,7 +107,6 @@ class DiaryEntryCreate(CamelCaseModel):
 
 class DiaryEntryResponse(CamelCaseModel):
     uuid: str
-    id: int
     date: date
     title: Optional[str]
     encrypted_blob: str
@@ -146,7 +145,6 @@ class DiaryEntryResponse(CamelCaseModel):
 
 class DiaryEntrySummary(CamelCaseModel):
     uuid: str
-    id: int
     date: date
     title: Optional[str]
     mood: Optional[int]
@@ -203,6 +201,66 @@ class WellnessTrendPoint(CamelCaseModel):
 
 class WellnessStats(CamelCaseModel):
     """Comprehensive wellness analytics across all metrics"""
+
+    # Period info
+    period_start: str
+    period_end: str
+    total_days: int
+    days_with_data: int
+
+    # Overall wellness
+    wellness_score: Optional[float] = None
+    wellness_components: Dict[str, float] = Field(default_factory=dict)
+
+    # Mood metrics
+    average_mood: Optional[float] = None
+    mood_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    mood_distribution: Dict[int, int] = Field(default_factory=dict)
+
+    # Sleep metrics
+    average_sleep: Optional[float] = None
+    sleep_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    sleep_quality_days: int = 0
+
+    # Exercise metrics
+    exercise_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    days_exercised: int = 0
+    exercise_frequency_per_week: float = 0.0
+    average_exercise_minutes: Optional[float] = None
+
+    # Screen time metrics
+    screen_time_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    average_screen_time: Optional[float] = None
+
+    # Energy and stress metrics
+    energy_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    stress_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    average_energy: Optional[float] = None
+    average_stress: Optional[float] = None
+
+    # Hydration metrics
+    hydration_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    average_water_intake: Optional[float] = None
+
+    # Habit metrics
+    meditation_days: int = 0
+    gratitude_days: int = 0
+    social_interaction_days: int = 0
+
+    # Correlation analytics
+    mood_sleep_correlation: List[Dict[str, float]] = Field(default_factory=list)
+    correlation_coefficient: Optional[float] = None
+
+    # Financial metrics
+    financial_trend: List[Dict[str, float]] = Field(default_factory=list)
+    total_income: float = 0.0
+    total_expense: float = 0.0
+    net_savings: float = 0.0
+    average_daily_income: Optional[float] = None
+    average_daily_expense: Optional[float] = None
+
+    # Insights
+    insights: List[Dict[str, Any]] = Field(default_factory=list)
     
 class WeeklyHighlights(CamelCaseModel):
     # Period info (calculated on the fly)

@@ -1,4 +1,4 @@
-"""Tag utilities router – autocomplete and future tag endpoints"""
+"""Tag utilities router - autocomplete and future tag endpoints"""
 
 # noqa: E501
 from typing import List, Tuple, Dict, Optional
@@ -18,7 +18,7 @@ from app.models.user import User
 
 router = APIRouter(tags=["Tags"])
 
-# Simple in-process cache: {(user_uuid, query): (timestamp, suggestions)}
+# Simple in-process cache: {(created_by, query): (timestamp, suggestions)}
 _CACHE: Dict[Tuple[str, str], Tuple[float, List[str]]] = {}
 _CACHE_TTL_S = 5  # seconds
 

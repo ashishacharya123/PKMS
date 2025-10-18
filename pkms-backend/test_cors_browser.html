@@ -15,7 +15,7 @@
     </style>
 </head>
 <body>
-    <h1>🧪 CORS Test - PKMS Backend</h1>
+    <h1>Test: CORS Test - PKMS Backend</h1>
     
     <div class="test-section">
         <h3>Test 1: Basic CORS Test</h3>
@@ -48,7 +48,7 @@
             const element = document.getElementById(elementId);
             element.className = success ? 'test-section success' : 'test-section error';
             element.innerHTML = `
-                <h3>${success ? '✅ Success' : '❌ Error'}</h3>
+                <h3>${success ? 'Success' : 'Error'}</h3>
                 <p><strong>Message:</strong> ${message}</p>
                 ${data ? `<pre><strong>Data:</strong> ${JSON.stringify(data, null, 2)}</pre>` : ''}
             `;

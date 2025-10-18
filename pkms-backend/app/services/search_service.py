@@ -50,7 +50,7 @@ class SearchService:
         try:
             # Extract common fields
             item_uuid = str(item.uuid)
-            user_uuid = getattr(item, 'created_by', None)
+            created_by = getattr(item, 'created_by', None)
             title = getattr(item, 'title', None) or getattr(item, 'name', None) or ''
             description = getattr(item, 'description', None) or ''
             
@@ -89,7 +89,7 @@ class SearchService:
             """), {
                 "uuid": item_uuid,
                 "type": item_type,
-                "created_by": user_uuid,
+                "created_by": created_by,
                 "title": title,
                 "description": description,
                 "tags": tags,
@@ -117,7 +117,7 @@ class SearchService:
         except Exception:
             logger.exception("Error removing %s from search index", item_uuid)
     
-    async def search(self, db: AsyncSession, user_uuid: str, query: str, 
+    async def search(self, db: AsyncSession, created_by: str, query: str, 
                     item_types: Optional[List[str]] = None, 
                     has_attachments: Optional[bool] = None,
                     limit: int = 50,
@@ -129,7 +129,7 @@ class SearchService:
         
         Args:
             db: Database session
-            user_uuid: User UUID to scope search
+            created_by: User UUID to scope search
             query: Search query string
             item_types: Optional list of item types to search
             has_attachments: Optional filter for items with attachments
@@ -145,9 +145,9 @@ class SearchService:
             sql = """
                 SELECT item_uuid, item_type, bm25(fts_content) AS score
                 FROM fts_content
-                WHERE fts_content MATCH :query AND created_by = :user_uuid
+                WHERE fts_content MATCH :query AND created_by = :created_by
             """
-            params = {"query": fts_query, "user_uuid": user_uuid}
+            params = {"query": fts_query, "created_by": created_by}
             
             if item_types:
                 sql += " AND item_type IN :types"
@@ -310,73 +310,73 @@ class SearchService:
         except Exception:
             return False
     
-    async def bulk_index_user_content(self, db: AsyncSession, user_uuid: str) -> None:
+    async def bulk_index_user_content(self, db: AsyncSession, created_by: str) -> None:
         """
         Bulk index all content for a user (useful for migration).
 
         Args:
             db: Database session
-            user_uuid: User UUID to index content for
+            created_by: User UUID to index content for
         """
-        logger.info("Starting bulk index for user %s", user_uuid)
+        logger.info("Starting bulk index for user %s", created_by)
 
         # Index notes
         notes_result = await db.execute(
-            select(Note).options(selectinload(Note.tag_objs)).where(Note.created_by == user_uuid)
+            select(Note).options(selectinload(Note.tag_objs)).where(Note.created_by == created_by)
         )
         for note in notes_result.scalars():
             await self.index_item(db, note, 'note')
 
         # Index documents
         docs_result = await db.execute(
-            select(Document).options(selectinload(Document.tag_objs)).where(Document.created_by == user_uuid)
+            select(Document).options(selectinload(Document.tag_objs)).where(Document.created_by == created_by)
         )
         for doc in docs_result.scalars():
             await self.index_item(db, doc, 'document')
 
         # Index todos
         todos_result = await db.execute(
-            select(Todo).options(selectinload(Todo.tag_objs)).where(Todo.created_by == user_uuid)
+            select(Todo).options(selectinload(Todo.tag_objs)).where(Todo.created_by == created_by)
         )
         for todo in todos_result.scalars():
             await self.index_item(db, todo, 'todo')
 
         # Index projects
         projects_result = await db.execute(
-            select(Project).options(selectinload(Project.tag_objs)).where(Project.created_by == user_uuid)
+            select(Project).options(selectinload(Project.tag_objs)).where(Project.created_by == created_by)
         )
         for project in projects_result.scalars():
             await self.index_item(db, project, 'project')
 
         # Index diary entries
         diary_result = await db.execute(
-            select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.created_by == user_uuid)
+            select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.created_by == created_by)
         )
         for entry in diary_result.scalars():
             await self.index_item(db, entry, 'diary')
 
         # Index links
         links_result = await db.execute(
-            select(Link).options(selectinload(Link.tag_objs)).where(Link.created_by == user_uuid)
+            select(Link).options(selectinload(Link.tag_objs)).where(Link.created_by == created_by)
         )
         for link in links_result.scalars():
             await self.index_item(db, link, 'link')
 
         # Index archive folders
         folders_result = await db.execute(
-            select(ArchiveFolder).options(selectinload(ArchiveFolder.tag_objs)).where(ArchiveFolder.created_by == user_uuid)
+            select(ArchiveFolder).options(selectinload(ArchiveFolder.tag_objs)).where(ArchiveFolder.created_by == created_by)
         )
         for folder in folders_result.scalars():
             await self.index_item(db, folder, 'archive_folder')
 
         # Index archive items
         items_result = await db.execute(
-            select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.created_by == user_uuid)
+            select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.created_by == created_by)
         )
         for item in items_result.scalars():
             await self.index_item(db, item, 'archive_item')
 
-        logger.info("Completed bulk index for user %s", user_uuid)
+        logger.info("Completed bulk index for user %s", created_by)
 
 
 # Global instance

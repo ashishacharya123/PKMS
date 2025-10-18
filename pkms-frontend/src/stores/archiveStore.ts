@@ -125,6 +125,7 @@ export const useArchiveStore = create<ArchiveState>((set, get) => ({
       }
     } catch (error) {
       set({ error: 'Failed to delete folder', isLoading: false });
+      throw error; // allow UI to handle specific errors (e.g., prompt force-delete)
     }
   },
 

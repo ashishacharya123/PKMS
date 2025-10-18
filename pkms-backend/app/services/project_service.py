@@ -14,6 +14,10 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional, Type
 from fastapi import HTTPException
 from pathlib import Path
+import logging
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 from app.models.project import Project
 from app.models.associations import note_projects, document_projects, todo_projects
@@ -34,7 +38,7 @@ class ProjectService:
         db: AsyncSession,
         item: any,
         project_uuids: List[str],
-        user_uuid: str,
+        created_by: str,
         association_table: Type,
         item_uuid_field: str
     ):
@@ -45,7 +49,7 @@ class ProjectService:
             db: Database session
             item: The content item (note, document, todo)
             project_uuids: List of project UUIDs to associate
-            user_uuid: User UUID for ownership verification
+            created_by: User UUID for ownership verification
             association_table: The junction table (note_projects, document_projects, todo_projects)
             item_uuid_field: The field name for the item UUID in the association table
         """
@@ -63,7 +67,7 @@ class ProjectService:
             select(Project).where(
                 and_(
                     Project.uuid.in_(project_uuids),
-                    Project.created_by == user_uuid
+                    Project.created_by == created_by
                 )
             )
         )
@@ -211,7 +215,7 @@ class ProjectService:
         name: str,
         description: Optional[str],
         color: str,
-        user_uuid: str
+        created_by: str
     ) -> Project:
         """
         Create a new project.
@@ -221,7 +225,7 @@ class ProjectService:
             name: Project name
             description: Project description
             color: Project color
-            user_id: User ID
+            created_by: User UUID
             
         Returns:
             Created Project object
@@ -230,7 +234,7 @@ class ProjectService:
             name=name,
             description=description,
             color=color,
-            created_by=user_uuid
+            created_by=created_by
         )
         db.add(project)
         await db.flush()
@@ -240,7 +244,7 @@ class ProjectService:
         self,
         db: AsyncSession,
         project_uuid: str,
-        user_uuid: str
+        created_by: str
     ):
         """
         Delete a project with proper cleanup.
@@ -248,14 +252,14 @@ class ProjectService:
         Args:
             db: Database session
             project_uuid: Project UUID to delete
-            user_id: User ID for ownership verification
+            created_by: User UUID for ownership verification
         """
         # Verify ownership
         project_result = await db.execute(
             select(Project).where(
                 and_(
                     Project.uuid == project_uuid,
-                    Project.created_by == user_uuid
+                    Project.created_by == created_by
                 )
             )
         )
@@ -297,7 +301,8 @@ class ProjectService:
                         if file_path.exists():
                             file_path.unlink()
                     except Exception as e:
-                        print(f"⚠️ Failed to delete file for note {note.uuid}: {str(e)}") # Using print for now
+                        logger.warning(f"Failed to delete file for note {note.uuid}: {str(e)}")
+            await search_service.remove_item(db, note.uuid)
             await tag_service.decrement_tags_on_delete(db, note)
             await db.delete(note)
         
@@ -318,7 +323,8 @@ class ProjectService:
                 try:
                     Path(doc.file_path).unlink()
                 except Exception as e:
-                    print(f"⚠️ Failed to delete file for document {doc.uuid}: {str(e)}") # Using print for now
+                    logger.warning(f"Failed to delete file for document {doc.uuid}: {str(e)}")
+            await search_service.remove_item(db, doc.uuid)
             await tag_service.decrement_tags_on_delete(db, doc)
             await db.delete(doc)
         
@@ -335,15 +341,18 @@ class ProjectService:
         )
         exclusive_todos = exclusive_todos_result.scalars().all()
         for todo in exclusive_todos:
+            await search_service.remove_item(db, todo.uuid)
             await tag_service.decrement_tags_on_delete(db, todo)
             await db.delete(todo)
         
         # Remove from search index BEFORE deleting project
         await search_service.remove_item(db, project_uuid)
         
-        # Step 3: Delete project (SET NULL will set project_uuid=NULL in junction tables)
-        # Linked items (is_exclusive_mode=False) survive with project_name_snapshot
-        await db.delete(project)
+        # Step 3: Soft delete the project by setting the is_deleted flag.
+        # The project's status remains unchanged, preserving its state for historical reference.
+        project.is_deleted = True
+        db.add(project)
+        await db.commit()
 
 
 # Create singleton instance

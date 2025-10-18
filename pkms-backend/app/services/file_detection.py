@@ -28,25 +28,25 @@ class FileTypeDetectionService:
             from magika import Magika
             self.magika = Magika()
             self.magika_available = True
-            logger.info("✅ Magika AI file detector initialized")
+            logger.info("SUCCESS: Magika AI file detector initialized")
         except ImportError:
-            logger.info("⚠️ Magika not available - install with: pip install magika")
+            logger.info("WARNING: Magika not available - install with: pip install magika")
         except Exception as e:
-            logger.warning(f"⚠️ Failed to initialize Magika: {e}")
+            logger.warning(f"WARNING: Failed to initialize Magika: {e}")
         
         # Try to initialize pyfsig (magic bytes detector)
         try:
             import pyfsig
             self.pyfsig = pyfsig
             self.pyfsig_available = True
-            logger.info("✅ pyfsig magic bytes detector initialized")
+            logger.info("SUCCESS: pyfsig magic bytes detector initialized")
         except ImportError:
-            logger.info("⚠️ pyfsig not available - install with: pip install pyfsig")
+            logger.info("WARNING: pyfsig not available - install with: pip install pyfsig")
         except Exception as e:
-            logger.warning(f"⚠️ Failed to initialize pyfsig: {e}")
+            logger.warning(f"WARNING: Failed to initialize pyfsig: {e}")
         
         if not self.magika_available and not self.pyfsig_available:
-            logger.warning("⚠️ No advanced file detectors available - using basic mimetypes only")
+            logger.warning("WARNING: No advanced file detectors available - using basic mimetypes only")
     
     async def detect_file_type(self, file_path: Path, file_content: Optional[bytes] = None) -> Dict[str, Any]:
         """
@@ -94,7 +94,7 @@ class FileTypeDetectionService:
             return results
             
         except Exception as e:
-            logger.error(f"❌ File type detection failed for {file_path}: {e}")
+            logger.error(f"ERROR: File type detection failed for {file_path}: {e}")
             return results
     
     async def _detect_with_magika(self, file_path: Path, file_content: Optional[bytes] = None) -> Dict[str, Any]:
@@ -134,7 +134,7 @@ class FileTypeDetectionService:
                 }
             
         except Exception as e:
-            logger.warning(f"⚠️ Magika detection failed: {e}")
+            logger.warning(f"WARNING: Magika detection failed: {e}")
         
         return {
             "confidence": "low",
@@ -178,7 +178,7 @@ class FileTypeDetectionService:
                 }
                 
         except Exception as e:
-            logger.warning(f"⚠️ pyfsig detection failed: {e}")
+            logger.warning(f"WARNING: pyfsig detection failed: {e}")
         
         return {
             "confidence": "low",
@@ -212,7 +212,7 @@ class FileTypeDetectionService:
                 }
         
         except Exception as e:
-            logger.warning(f"⚠️ mimetypes detection failed: {e}")
+            logger.warning(f"WARNING: mimetypes detection failed: {e}")
         
         return {
             "mime_type": "application/octet-stream",
@@ -258,7 +258,7 @@ class FileTypeDetectionService:
         detection_results = {}
         for result in results:
             if isinstance(result, Exception):
-                logger.error(f"❌ Bulk detection error: {result}")
+                logger.error(f"ERROR: Bulk detection error: {result}")
                 continue
             
             path, detection = result

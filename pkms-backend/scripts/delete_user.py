@@ -66,15 +66,15 @@ class UserDeletionService:
                         result["errors"].append("No users found in system")
                         return result
                 
-                result["user_deleted"] = {"id": user.id, "username": user.username}
-                print(f"🗑️  Deleting user: {user.username} (ID: {user.id})")
+                result["user_deleted"] = {"uuid": user.uuid, "username": user.username}
+                print(f"Deleting user: {user.username} (UUID: {user.uuid})")
                 
                 # Delete files first (before DB records)
-                await self._delete_user_files(db, user.id)
+                await self._delete_user_files(db, user.uuid)
                 result["files_deleted"] = self.deleted_files
                 
                 # Delete database records in proper order (respecting foreign keys)
-                await self._delete_database_records(db, user.id)
+                await self._delete_database_records(db, user.uuid)
                 result["database_records_deleted"] = self.deleted_db_records
                 
                 # Finally delete the user
@@ -82,21 +82,21 @@ class UserDeletionService:
                 await db.commit()
                 
                 result["success"] = True
-                print(f"✅ User '{user.username}' and all associated data deleted successfully")
+                print(f"User '{user.username}' and all associated data deleted successfully")
                 
         except Exception as e:
             result["errors"].append(f"Error during deletion: {str(e)}")
-            print(f"❌ Error: {str(e)}")
+            print(f"Error: {str(e)}")
         
         return result
     
-    async def _delete_user_files(self, db: AsyncSession, user_id: int):
+    async def _delete_user_files(self, db: AsyncSession, created_by: str):
         """Delete all files associated with the user."""
-        print("🗂️  Deleting user files...")
+        print("Deleting user files...")
         
         # Delete diary entry files
         diary_result = await db.execute(
-            select(DiaryEntry.content_file_path).where(DiaryEntry.user_id == user_id)
+            select(DiaryEntry.content_file_path).where(DiaryEntry.created_by == created_by)
         )
         for (file_path,) in diary_result.fetchall():
             if file_path:
@@ -104,7 +104,7 @@ class UserDeletionService:
         
         # Delete diary media files
         media_result = await db.execute(
-            select(DiaryMedia.file_path).where(DiaryMedia.user_id == user_id)
+            select(DiaryMedia.file_path).where(DiaryMedia.created_by == created_by)
         )
         for (file_path,) in media_result.fetchall():
             if file_path:
@@ -112,7 +112,7 @@ class UserDeletionService:
         
         # Delete document files
         doc_result = await db.execute(
-            select(Document.file_path).where(Document.user_id == user_id)
+            select(Document.file_path).where(Document.created_by == created_by)
         )
         for (file_path,) in doc_result.fetchall():
             if file_path:
@@ -120,7 +120,7 @@ class UserDeletionService:
         
         # Delete note files
         note_file_result = await db.execute(
-            select(NoteFile.file_path).where(NoteFile.user_id == user_id)
+            select(NoteFile.file_path).where(NoteFile.created_by == created_by)
         )
         for (file_path,) in note_file_result.fetchall():
             if file_path:
@@ -128,7 +128,7 @@ class UserDeletionService:
         
         # Delete archive item files
         archive_result = await db.execute(
-            select(ArchiveItem.file_path).where(ArchiveItem.user_id == user_id)
+            select(ArchiveItem.file_path).where(ArchiveItem.created_by == created_by)
         )
         for (file_path,) in archive_result.fetchall():
             if file_path:
@@ -149,41 +149,41 @@ class UserDeletionService:
         for dir_path in user_dirs:
             self._delete_directory_if_empty(dir_path)
     
-    async def _delete_database_records(self, db: AsyncSession, user_id: int):
+    async def _delete_database_records(self, db: AsyncSession, created_by: str):
         """Delete all database records for the user in proper order."""
-        print("🗄️  Deleting database records...")
+        print("Deleting database records...")
         
         # Order matters due to foreign key constraints
         deletion_order = [
-            ("sessions", Session, Session.user_id),
-            ("recovery_keys", RecoveryKey, RecoveryKey.user_id),
-            ("note_files", NoteFile, NoteFile.user_id),
-            ("notes", Note, Note.user_id),
-            ("documents", Document, Document.user_id),
-            ("todos", Todo, Todo.user_id),
-            ("projects", Project, Project.user_id),
-            ("diary_media", DiaryMedia, DiaryMedia.user_id),
-            ("diary_entries", DiaryEntry, DiaryEntry.user_id),
-            ("archive_items", ArchiveItem, ArchiveItem.user_id),
-            ("archive_folders", ArchiveFolder, ArchiveFolder.user_id),
-            ("tags", Tag, Tag.user_id),
+            ("sessions", Session, Session.created_by),
+            ("recovery_keys", RecoveryKey, RecoveryKey.created_by),
+            ("note_files", NoteFile, NoteFile.created_by),
+            ("notes", Note, Note.created_by),
+            ("documents", Document, Document.created_by),
+            ("todos", Todo, Todo.created_by),
+            ("projects", Project, Project.created_by),
+            ("diary_media", DiaryMedia, DiaryMedia.created_by),
+            ("diary_entries", DiaryEntry, DiaryEntry.created_by),
+            ("archive_items", ArchiveItem, ArchiveItem.created_by),
+            ("archive_folders", ArchiveFolder, ArchiveFolder.created_by),
+            ("tags", Tag, Tag.created_by),
         ]
         
         for table_name, model_class, user_field in deletion_order:
             # Count records first
             count_result = await db.execute(
-                select(func.count()).select_from(model_class).where(user_field == user_id)
+                select(func.count()).select_from(model_class).where(user_field == created_by)
             )
             record_count = count_result.scalar()
             
             if record_count > 0:
                 # Delete records
                 delete_result = await db.execute(
-                    delete(model_class).where(user_field == user_id)
+                    delete(model_class).where(user_field == created_by)
                 )
                 deleted_count = delete_result.rowcount
                 self.deleted_db_records[table_name] = deleted_count
-                print(f"   🗑️  Deleted {deleted_count} records from {table_name}")
+                print(f"   Deleted {deleted_count} records from {table_name}")
     
     def _delete_file_safely(self, file_path: Path):
         """Safely delete a file and track deletion."""
@@ -191,9 +191,9 @@ class UserDeletionService:
             if file_path.exists():
                 file_path.unlink()
                 self.deleted_files.append(str(file_path))
-                print(f"   🗑️  Deleted file: {file_path}")
+                print(f"   Deleted file: {file_path}")
         except Exception as e:
-            print(f"   ⚠️  Could not delete file {file_path}: {e}")
+            print(f"   Warning: Could not delete file {file_path}: {e}")
     
     def _delete_directory_if_empty(self, dir_path: Path):
         """Delete directory if it's empty."""
@@ -202,14 +202,14 @@ class UserDeletionService:
                 # Check if directory is empty
                 if not any(dir_path.iterdir()):
                     dir_path.rmdir()
-                    print(f"   🗑️  Deleted empty directory: {dir_path}")
+                    print(f"   Deleted empty directory: {dir_path}")
         except Exception as e:
-            print(f"   ⚠️  Could not delete directory {dir_path}: {e}")
+            print(f"   Warning: Could not delete directory {dir_path}: {e}")
 
 
 async def main():
     """Main function to run user deletion."""
-    print("🚨 PKMS User Deletion Script")
+    print("PKMS User Deletion Script")
     print("=" * 50)
     
     # Get username from command line or prompt
@@ -226,7 +226,7 @@ async def main():
         confirm = input("Are you sure you want to delete the user and ALL their data? (type 'DELETE' to confirm): ")
     
     if confirm != "DELETE":
-        print("❌ Deletion cancelled.")
+        print("Deletion cancelled.")
         return
     
     # Perform deletion
@@ -234,24 +234,24 @@ async def main():
     result = await service.delete_user_completely(username)
     
     print("\n" + "=" * 50)
-    print("🏁 DELETION SUMMARY")
+    print("DELETION SUMMARY")
     print("=" * 50)
     
     if result["success"]:
         user_info = result["user_deleted"]
-        print(f"✅ Successfully deleted user: {user_info['username']} (ID: {user_info['id']})")
+        print(f"Successfully deleted user: {user_info['username']} (UUID: {user_info['uuid']})")
         
-        print(f"\n📊 Database records deleted:")
+        print(f"\nDatabase records deleted:")
         for table, count in result["database_records_deleted"].items():
-            print(f"   • {table}: {count} records")
+            print(f"   * {table}: {count} records")
         
-        print(f"\n🗂️  Files deleted: {len(result['files_deleted'])} files")
+        print(f"\nFiles deleted: {len(result['files_deleted'])} files")
         
-        print(f"\n🎯 System is now clean and ready for new user registration!")
+        print(f"\nSystem is now clean and ready for new user registration!")
     else:
-        print("❌ Deletion failed:")
+        print("Deletion failed:")
         for error in result["errors"]:
-            print(f"   • {error}")
+            print(f"   * {error}")
 
 
 if __name__ == "__main__":

@@ -24,10 +24,10 @@ async def test_unified_search_empty(async_client: AsyncClient, test_user):
 @pytest.mark.asyncio
 async def test_unified_search_item_types_and_offset(async_client: AsyncClient, db_session: AsyncSession, test_user):
     # Seed two documents and two notes, index them, verify offset/limit and item_types
-    doc1 = Document(uuid="doc-1", user_uuid=test_user.uuid, title="Alpha Doc", filename="a.pdf", file_path="assets/documents/a.pdf", file_size=10, mime_type="application/pdf")
-    doc2 = Document(uuid="doc-2", user_uuid=test_user.uuid, title="Beta Doc", filename="b.pdf", file_path="assets/documents/b.pdf", file_size=10, mime_type="application/pdf")
-    note1 = Note(uuid="note-1", user_uuid=test_user.uuid, title="Alpha Note")
-    note2 = Note(uuid="note-2", user_uuid=test_user.uuid, title="Beta Note")
+    doc1 = Document(uuid="doc-1", created_by=test_user.uuid, title="Alpha Doc", filename="a.pdf", file_path="assets/documents/a.pdf", file_size=10, mime_type="application/pdf")
+    doc2 = Document(uuid="doc-2", created_by=test_user.uuid, title="Beta Doc", filename="b.pdf", file_path="assets/documents/b.pdf", file_size=10, mime_type="application/pdf")
+    note1 = Note(uuid="note-1", created_by=test_user.uuid, title="Alpha Note")
+    note2 = Note(uuid="note-2", created_by=test_user.uuid, title="Beta Note")
     db_session.add_all([doc1, doc2, note1, note2])
     await db_session.commit()
 
@@ -64,8 +64,8 @@ async def test_unified_search_item_types_and_offset(async_client: AsyncClient, d
 @pytest.mark.asyncio
 async def test_unified_search_has_attachments_for_documents(async_client: AsyncClient, db_session: AsyncSession, test_user):
     # Seed: doc with filename (attachment) and one without (edge)
-    doc_with = Document(uuid="doc-a", user_uuid=test_user.uuid, title="Doc A", filename="a.pdf", file_path="assets/documents/a.pdf", file_size=10, mime_type="application/pdf")
-    doc_without = Document(uuid="doc-b", user_uuid=test_user.uuid, title="Doc B", filename=None, file_path="", file_size=0, mime_type="application/pdf")
+    doc_with = Document(uuid="doc-a", created_by=test_user.uuid, title="Doc A", filename="a.pdf", file_path="assets/documents/a.pdf", file_size=10, mime_type="application/pdf")
+    doc_without = Document(uuid="doc-b", created_by=test_user.uuid, title="Doc B", filename=None, file_path="", file_size=0, mime_type="application/pdf")
     db_session.add_all([doc_with, doc_without])
     await db_session.commit()
 

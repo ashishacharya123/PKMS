@@ -10,17 +10,15 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from sqlalchemy.orm import selectinload
 import logging
-from pathlib import Path
-
-from app.config import get_file_storage_dir
 
 logger = logging.getLogger(__name__)
 
 from app.database import get_db
-from app.models.todo import Todo, TodoStatus
+from app.models.todo import Todo
 from app.models.project import Project
 from app.models.tag import Tag
 from app.models.user import User
+from app.models.enums import ModuleType, TodoStatus
 from app.models.associations import todo_projects
 from app.models.tag_associations import todo_tags, project_tags
 from app.auth.dependencies import get_current_user
@@ -55,13 +53,7 @@ async def todos_stats_overview(
     )).all()
     
     # Convert to dictionary with default values
-    status_stats = {
-        'pending': 0,
-        'in_progress': 0,
-        'blocked': 0,
-        'done': 0,
-        'cancelled': 0
-    }
+    status_stats = {s.value: 0 for s in TodoStatus}
     for status, count in status_counts:
         key = getattr(status, "value", status)
         status_stats[key] = int(count)
@@ -79,7 +71,7 @@ async def todos_stats_overview(
     overdue_count = (await db.execute(
         select(func.count(Todo.uuid)).where(and_(
             Todo.created_by == current_user.uuid,
-            Todo.status != 'done',
+            Todo.status != TodoStatus.DONE,
             Todo.is_archived.is_(False),
             Todo.due_date.is_not(None),
             Todo.due_date < now_date
@@ -144,7 +136,7 @@ async def _get_project_counts(db: AsyncSession, project_uuid: str) -> tuple[int,
         .join(Todo, Todo.uuid == todo_projects.c.todo_uuid)
         .where(and_(
             todo_projects.c.project_uuid == project_uuid,
-            Todo.status == 'done'
+            Todo.status == TodoStatus.DONE
         ))
     )).scalar() or 0
     
@@ -217,7 +209,7 @@ async def create_todo(
             raise HTTPException(status_code=400, detail=f"Invalid priority. Must be one of: {VALID_PRIORITIES}")
         
         # Validate status
-        valid_statuses = ['pending', 'in_progress', 'blocked', 'done', 'cancelled']
+        valid_statuses = [s.value for s in TodoStatus]
         if todo_data.status not in valid_statuses:
             raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
         
@@ -237,7 +229,7 @@ async def create_todo(
         await db.flush()
 
         if todo_data.tags:
-            await tag_service.handle_tags(db, todo, todo_data.tags, current_user.uuid, "todos", todo_tags)
+            await tag_service.handle_tags(db, todo, todo_data.tags, current_user.uuid, ModuleType.TODOS, todo_tags)
 
         # Handle projects
         if todo_data.project_ids:
@@ -299,6 +291,7 @@ async def list_todos(
     ).where(
         and_(
             Todo.created_by == current_user.uuid,
+            Todo.is_deleted.is_(False),
             Todo.is_exclusive_mode.is_(False),  # Only show linked (non-exclusive) items
             Todo.parent_uuid.is_(None)  # Never list subtasks standalone
         )
@@ -391,7 +384,7 @@ async def create_project(
     await db.commit()
     await db.refresh(project)
     if tags:
-        await tag_service.handle_tags(db, project, tags, current_user.uuid, "projects", project_tags)
+        await tag_service.handle_tags(db, project, tags, current_user.uuid, ModuleType.PROJECTS, project_tags)
     
     # Index in search and persist
     await search_service.index_item(db, project, 'project')
@@ -486,7 +479,7 @@ async def update_project(
     await db.commit()
     await db.refresh(project)
     if tags is not None:
-        await tag_service.handle_tags(db, project, tags, current_user.uuid, "projects", project_tags)
+        await tag_service.handle_tags(db, project, tags, current_user.uuid, ModuleType.PROJECTS, project_tags)
     
     # Index in search and persist
     await search_service.index_item(db, project, 'project')
@@ -548,7 +541,7 @@ async def update_todo(
     update_data = todo_data.model_dump(exclude_unset=True)
     
     if "tags" in update_data:
-        await tag_service.handle_tags(db, todo, update_data.pop("tags"), current_user.uuid, "todos", todo_tags)
+        await tag_service.handle_tags(db, todo, update_data.pop("tags"), current_user.uuid, ModuleType.TODOS, todo_tags)
 
     # Handle projects if provided
     if "project_ids" in update_data:
@@ -561,16 +554,16 @@ async def update_todo(
     # SECURITY: Ensure data integrity for status field
     if todo_data.status is not None:
         # Validate status first
-        valid_statuses = ['pending', 'in_progress', 'blocked', 'done', 'cancelled']
+        valid_statuses = [s.value for s in TodoStatus]
         if todo_data.status not in valid_statuses:
             raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}")
         
         todo.status = todo_data.status
         # Handle completed_at timestamp with timezone awareness
-        if todo_data.status == 'done' and not todo.completed_at:
+        if todo_data.status == TodoStatus.DONE and not todo.completed_at:
             from datetime import datetime, timezone
             todo.completed_at = datetime.now(timezone.utc)
-        elif todo_data.status != 'done':
+        elif todo_data.status != TodoStatus.DONE:
             todo.completed_at = None
 
     await db.commit()
@@ -640,7 +633,9 @@ async def delete_todo(
     # Remove from search index BEFORE deleting todo
     await search_service.remove_item(db, todo_uuid)
     
-    await db.delete(todo)
+    # Soft delete the todo by setting the is_deleted flag
+    todo.is_deleted = True
+    db.add(todo)
     await db.commit()
 
 @router.patch("/{todo_uuid}/status", response_model=TodoResponse)
@@ -659,7 +654,7 @@ async def update_todo_status(
         raise HTTPException(status_code=404, detail="Todo not found")
     
     # Validate status
-    valid_statuses = ['pending', 'in_progress', 'blocked', 'done', 'cancelled']
+    valid_statuses = [s.value for s in TodoStatus]
     if status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}")
     
@@ -667,10 +662,10 @@ async def update_todo_status(
     todo.status = status
     
     # SECURITY: Handle completed_at timestamp with timezone awareness
-    if status == 'done' and not todo.completed_at:
+    if status == TodoStatus.DONE and not todo.completed_at:
         from datetime import datetime, timezone
         todo.completed_at = datetime.now(timezone.utc)  # Use timezone-aware datetime
-    elif status != 'done':
+    elif status != TodoStatus.DONE:
         todo.completed_at = None
     
     await db.commit()
@@ -732,7 +727,7 @@ async def complete_todo(
     db: AsyncSession = Depends(get_db)
 ):
     """Mark todo as completed (legacy endpoint - now sets status to 'done')."""
-    return await update_todo_status(todo_uuid, "done", current_user, db)
+    return await update_todo_status(todo_uuid, TodoStatus.DONE, current_user, db)
 
 # --- End Project Endpoints ---
 
@@ -758,7 +753,7 @@ async def create_subtask(
     subtask = Todo(
         title=subtask_data.title,
         description=subtask_data.description,
-        status=subtask_data.status or "pending",
+        status=subtask_data.status or TodoStatus.PENDING,
         priority=subtask_data.priority or 2,
         order_index=subtask_data.order_index or 0,
         start_date=subtask_data.start_date,

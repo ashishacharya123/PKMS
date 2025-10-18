@@ -35,8 +35,8 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     is_first_login = Column(Boolean, default=True)
     settings_json = Column(Text, default="{}")  # User preferences as JSON
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     last_login = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
@@ -65,9 +65,9 @@ class Session(Base):
     __tablename__ = "sessions"
     
     session_token = Column(String(255), primary_key=True, index=True)
-    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     last_activity = Column(DateTime(timezone=True), server_default=nepal_now())
     ip_address = Column(String(45), nullable=True)  # IPv6 support
     user_agent = Column(String(500), nullable=True)
@@ -76,7 +76,7 @@ class Session(Base):
     user = relationship("User", back_populates="sessions")
     
     def __repr__(self):
-        return f"<Session(session_token='{self.session_token}', user_uuid={self.user_uuid})>"
+        return f"<Session(session_token='{self.session_token}', created_by={self.created_by})>"
 
 
 class RecoveryKey(Base):
@@ -85,16 +85,16 @@ class RecoveryKey(Base):
     __tablename__ = "recovery_keys"
     
     uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
-    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     key_hash = Column(String(255), nullable=False)
     questions_json = Column(Text, nullable=False)  # Security questions as JSON
     answers_hash = Column(String(255), nullable=False)  # Hashed answers
     salt = Column(String(255), nullable=False)  # Salt for answers (still needed for security questions)
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     last_used = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
     user = relationship("User", back_populates="recovery_keys")
     
     def __repr__(self):
-        return f"<RecoveryKey(uuid={self.uuid}, user_uuid={self.user_uuid})>" 
+        return f"<RecoveryKey(uuid={self.uuid}, created_by={self.created_by})>" 

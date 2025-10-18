@@ -294,11 +294,11 @@ class TagSyncService:
             for entry in diary_entries:
                 await TagSyncService.sync_diary_entry_tags(db, entry[0])
             
-            logger.info("✅ Full tags_text synchronization completed successfully")
+            logger.info("SUCCESS: Full tags_text synchronization completed successfully")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Full tags_text synchronization failed: {e}")
+            logger.error(f"ERROR: Full tags_text synchronization failed: {e}")
             return False
 
 

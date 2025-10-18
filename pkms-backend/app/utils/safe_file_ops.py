@@ -18,36 +18,36 @@ async def safe_delete_with_db(file_path: Path, db_record: Any, db: AsyncSession)
     backup_path = file_path.with_suffix(f'.backup_{int(time.time())}')
     if file_path.exists():
         shutil.copy2(file_path, backup_path)
-        logger.info(f"📋 Created backup: {backup_path}")
+        logger.info(f"Created backup: {backup_path}")
 
     try:
         # Delete from database first
         await db.delete(db_record)
         await db.commit()
-        logger.info(f"🗑️ Deleted database record")
+        logger.info(f"Deleted database record")
 
         # Only delete file after successful DB delete
         if file_path.exists():
             file_path.unlink()
-            logger.info(f"✅ Deleted file: {file_path}")
+            logger.info(f"Deleted file: {file_path}")
 
         # Clean up backup
         if backup_path.exists():
             backup_path.unlink()
-            logger.info(f"🧹 Cleaned up backup: {backup_path}")
+            logger.info(f"Cleaned up backup: {backup_path}")
 
     except Exception as e:
-        logger.error(f"❌ Error during atomic deletion: {e}")
+        logger.error(f"ERROR: Error during atomic deletion: {e}")
         
         # Restore from backup if DB operation failed
         if backup_path.exists() and not file_path.exists():
             shutil.copy2(backup_path, file_path)
-            logger.info(f"🔄 Restored file from backup: {file_path}")
+            logger.info(f"Restored file from backup: {file_path}")
 
         # Clean up backup
         if backup_path.exists():
             backup_path.unlink()
-            logger.info(f"🧹 Cleaned up backup after error: {backup_path}")
+            logger.info(f"Cleaned up backup after error: {backup_path}")
         
         raise e
 
@@ -60,29 +60,29 @@ async def safe_move_with_backup(source_path: Path, dest_path: Path):
         # Create backup of destination if it exists
         if dest_path.exists():
             shutil.copy2(dest_path, backup_path)
-            logger.info(f"📋 Created destination backup: {backup_path}")
+            logger.info(f"Created destination backup: {backup_path}")
         
         # Move the file
         shutil.move(str(source_path), str(dest_path))
-        logger.info(f"✅ Moved file: {source_path} -> {dest_path}")
+        logger.info(f"Moved file: {source_path} -> {dest_path}")
         
         # Clean up backup
         if backup_path.exists():
             backup_path.unlink()
-            logger.info(f"🧹 Cleaned up backup: {backup_path}")
+            logger.info(f"Cleaned up backup: {backup_path}")
             
     except Exception as e:
-        logger.error(f"❌ Error during file move: {e}")
+        logger.error(f"ERROR: Error during file move: {e}")
         
         # Restore destination from backup if move failed
         if backup_path.exists() and not dest_path.exists():
             shutil.copy2(backup_path, dest_path)
-            logger.info(f"🔄 Restored destination from backup: {dest_path}")
+            logger.info(f"Restored destination from backup: {dest_path}")
         
         # Clean up backup
         if backup_path.exists():
             backup_path.unlink()
-            logger.info(f"🧹 Cleaned up backup after error: {backup_path}")
+            logger.info(f"Cleaned up backup after error: {backup_path}")
         
         raise e
 
@@ -100,14 +100,14 @@ async def safe_copy_with_verification(source_path: Path, dest_path: Path):
         if source_path.stat().st_size != dest_path.stat().st_size:
             raise Exception("Copy verification failed - file size mismatch")
         
-        logger.info(f"✅ Copied and verified file: {source_path} -> {dest_path}")
+        logger.info(f"Copied and verified file: {source_path} -> {dest_path}")
         
     except Exception as e:
-        logger.error(f"❌ Error during file copy: {e}")
+        logger.error(f"ERROR: Error during file copy: {e}")
         
         # Clean up failed copy
         if dest_path.exists():
             dest_path.unlink()
-            logger.info(f"🧹 Cleaned up failed copy: {dest_path}")
+            logger.info(f"Cleaned up failed copy: {dest_path}")
         
         raise e

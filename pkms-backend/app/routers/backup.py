@@ -37,13 +37,16 @@ from typing import List
 from datetime import datetime, timezone, timedelta
 import json
 import os
-import subprocess
 from pathlib import Path
 import shutil
 import asyncio
+import logging
 
 # Nepal Standard Time offset
 NEPAL_TZ = timezone(timedelta(hours=5, minutes=45))
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 from ..database import get_db
 from ..auth.dependencies import get_current_user
@@ -133,13 +136,13 @@ async def create_database_backup(
             
             try:
                 # STEP 1: Checkpoint WAL to ensure ALL recent changes are in main DB
-                print("📝 Checkpointing WAL to consolidate all changes...")
+                logger.info("Checkpointing WAL to consolidate all changes...")
                 checkpoint_result = await db.execute(text("PRAGMA wal_checkpoint(FULL)"))
                 checkpoint_info = checkpoint_result.fetchone()
                 await db.commit()
-                
+
                 # STEP 2: Now backup the main DB file (contains ALL data)
-                print("💾 Backing up consolidated database file...")
+                logger.info("BACKUP: Backing up consolidated database file...")
                 source_path = "/app/data/pkm_metadata.db"
                 backup_path = f"/app/PKMS_Data/backups/{backup_filename}"
                 
@@ -161,12 +164,12 @@ async def create_database_backup(
                     "timestamp": nepal_time.isoformat(),
                     "created_by": current_user.username,
                     "data_guarantee": "All recent changes included via WAL checkpoint",
-                    "industry_practice": "✅ RECOMMENDED - Checkpoint first, then backup main DB"
+                    "industry_practice": "RECOMMENDED - Checkpoint first, then backup main DB"
                 }
                     
             except Exception as checkpoint_error:
                 # Fallback: If checkpoint fails, try VACUUM INTO
-                print(f"⚠️ Checkpoint failed ({checkpoint_error}), falling back to VACUUM INTO...")
+                logger.warning(f"Checkpoint failed ({checkpoint_error}), falling back to VACUUM INTO...")
                 
                 backup_filename = f"pkm_metadata_fallback_{timestamp}.db"
                 backup_path = f"/app/PKMS_Data/backups/{backup_filename}"
@@ -269,7 +272,16 @@ async def restore_database_backup(
                 "backup_filename": backup_filename,
                 "timestamp": datetime.now(NEPAL_TZ).isoformat()
             }
-        
+
+        # Security check: only allow .db files in backups directory
+        if not backup_filename.endswith('.db') or '/' in backup_filename or '\\' in backup_filename:
+            return {
+                "status": "error",
+                "message": "Invalid backup filename. Only .db files in backups directory are allowed.",
+                "backup_filename": backup_filename,
+                "timestamp": datetime.now(NEPAL_TZ).isoformat()
+            }
+
         # Validate backup file exists
         backup_path = Path(f"/app/PKMS_Data/backups/{backup_filename}")
         if not backup_path.exists():
@@ -571,7 +583,7 @@ async def manual_wal_checkpoint(
         wal_size_before = os.path.getsize(wal_path) if os.path.exists(wal_path) else 0
         
         # Execute checkpoint
-        print(f"🔄 Manual WAL checkpoint ({checkpoint_mode}) initiated by {current_user.username}")
+        logger.info(f"Manual WAL checkpoint ({checkpoint_mode}) initiated by {current_user.username}")
         checkpoint_result = await db.execute(text(f"PRAGMA wal_checkpoint({checkpoint_mode})"))
         checkpoint_info = checkpoint_result.fetchone()
         await db.commit()

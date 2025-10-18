@@ -2,20 +2,20 @@
 Chunk Upload Service
 Handles chunked file uploads with progress tracking and error handling
 
-⚠️  ARCHITECTURAL LIMITATION WARNING ⚠️
+WARNING: ARCHITECTURAL LIMITATION WARNING
 =====================================
 
 This ChunkUploadManager uses in-memory state management (self.uploads dictionary)
 and is designed for SINGLE-PROCESS deployments only.
 
-🚨 CRITICAL: NOT SAFE FOR MULTI-WORKER DEPLOYMENTS 🚨
+CRITICAL: NOT SAFE FOR MULTI-WORKER DEPLOYMENTS
 - If deployed with multiple workers (e.g., gunicorn -w 4), chunks will be
   distributed across different processes, causing data loss and assembly failures
 - File-based state persistence will be corrupted by concurrent writes
 - Race conditions will occur during chunk assembly
 
-✅ CURRENT DEPLOYMENT: Single-process uvicorn (safe)
-❌ FUTURE SCALING: Multi-worker deployment requires Redis refactoring
+CURRENT DEPLOYMENT: Single-process uvicorn (safe)
+FUTURE SCALING: Multi-worker deployment requires Redis refactoring
 
 For multi-worker deployments, refactor to use Redis for shared state management.
 See: https://redis.io/docs/data-types/hashes/ for implementation guidance.
@@ -32,6 +32,7 @@ import zlib
 from datetime import datetime, timedelta
 
 from app.config import settings, get_data_dir, NEPAL_TZ
+from app.models.enums import ChunkUploadStatus
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ CHUNK_SIZE = 1024 * 1024  # 1MB chunks
 CLEANUP_INTERVAL = 3600  # 1 hour
 MAX_CHUNK_AGE = 24  # hours
 CONCURRENT_ASSEMBLIES = 3
+
 
 class ChunkUploadManager:
     """Manages chunked file uploads with progress tracking"""
@@ -114,7 +116,7 @@ class ChunkUploadManager:
             logger.error(f"Failed to load upload state: {e}")
             # Continue with empty state if loading fails
     
-    async def save_chunk(self, file_id: str, chunk_number: int, chunk_data: BinaryIO, filename: str, total_chunks: int, total_size: int) -> Dict:
+    async def save_chunk(self, file_id: str, chunk_number: int, chunk_data: BinaryIO, filename: str, total_chunks: int, total_size: int, created_by: str) -> Dict:
         """Save a chunk to disk and update progress"""
         try:
             # Initialize upload tracking if not exists
@@ -125,10 +127,11 @@ class ChunkUploadManager:
                     'received_chunks': set(),
                     'total_size': total_size,
                     'bytes_received': 0,
-                    'status': 'uploading',
+                    'status': ChunkUploadStatus.UPLOADING,
                     'started_at': datetime.now(NEPAL_TZ),
                     'last_update': datetime.now(NEPAL_TZ),
-                    'chunk_hashes': {}
+                    'chunk_hashes': {},
+                    'created_by': created_by
                 }
             
             upload = self.uploads[file_id]
@@ -157,7 +160,7 @@ class ChunkUploadManager:
             
             # Check if upload is complete
             if len(upload['received_chunks']) == total_chunks:
-                upload['status'] = 'assembling'
+                upload['status'] = ChunkUploadStatus.ASSEMBLING
             
             # Save state after important changes
             await self._save_state_to_file()
@@ -173,7 +176,7 @@ class ChunkUploadManager:
             
         except Exception as e:
             logger.error(f"Error saving chunk {chunk_number} for file {file_id}: {str(e)}")
-            self.uploads[file_id]['status'] = 'error'
+            self.uploads[file_id]['status'] = ChunkUploadStatus.ERROR
             raise
     
     async def assemble_file(self, file_id: str) -> Optional[Path]:
@@ -184,7 +187,7 @@ class ChunkUploadManager:
                 if not upload:
                     raise ValueError(f"No upload found for file_id: {file_id}")
                 
-                if upload['status'] != 'assembling':
+                if upload['status'] != ChunkUploadStatus.ASSEMBLING:
                     raise ValueError(f"Upload not ready for assembly, status: {upload['status']}")
                 
                 chunk_dir = Path(get_data_dir()) / "temp_uploads" / file_id
@@ -217,7 +220,7 @@ class ChunkUploadManager:
                     raise ValueError("Assembled file size mismatch")
                 
                 # Update status
-                upload['status'] = 'completed'
+                upload['status'] = ChunkUploadStatus.COMPLETED
                 
                 # Save state after completion
                 await self._save_state_to_file()
@@ -251,7 +254,7 @@ class ChunkUploadManager:
             except Exception as e:
                 logger.error(f"Error assembling file {file_id}: {str(e)}")
                 if file_id in self.uploads:
-                    self.uploads[file_id]['status'] = 'failed'
+                    self.uploads[file_id]['status'] = ChunkUploadStatus.FAILED
                     self.uploads[file_id]['error'] = str(e)
                     # Save state after failure
                     await self._save_state_to_file()
@@ -269,7 +272,8 @@ class ChunkUploadManager:
             'bytes_uploaded': upload['bytes_received'],
             'total_size': upload['total_size'],
             'status': upload['status'],
-            'progress': len(upload['received_chunks']) / upload['total_chunks'] * 100 if upload['total_chunks'] > 0 else 0
+            'progress': len(upload['received_chunks']) / upload['total_chunks'] * 100 if upload['total_chunks'] > 0 else 0,
+            'created_by': upload.get('created_by')
         }
     
     async def _cleanup_loop(self):

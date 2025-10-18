@@ -35,18 +35,18 @@ from io import BytesIO
 from functools import lru_cache, wraps
 import time
 
-from app.services.chunk_service import chunk_manager
+from app.services.chunk_service import chunk_manager, ChunkUploadStatus
 
 # Path generation utilities for hybrid UUID/name-based system
-async def get_filesystem_path(folder_uuid: str, db: AsyncSession, user_uuid: Optional[str] = None) -> str:
+async def get_filesystem_path(folder_uuid: str, db: AsyncSession, created_by: Optional[str] = None) -> str:
     """Build UUID-based path for actual file storage"""
     if not folder_uuid:
         return "/"
     
     # Get the folder
     cond = (ArchiveFolder.uuid == folder_uuid)
-    if user_uuid:
-        cond = and_(cond, ArchiveFolder.created_by == user_uuid)
+    if created_by:
+        cond = and_(cond, ArchiveFolder.created_by == created_by)
     result = await db.execute(select(ArchiveFolder).where(cond))
     folder = result.scalar_one_or_none()
     
@@ -65,8 +65,8 @@ async def get_filesystem_path(folder_uuid: str, db: AsyncSession, user_uuid: Opt
         visited.add(current_parent)
         
         parent_cond = (ArchiveFolder.uuid == current_parent)
-        if user_uuid:
-            parent_cond = and_(parent_cond, ArchiveFolder.created_by == user_uuid)
+        if created_by:
+            parent_cond = and_(parent_cond, ArchiveFolder.created_by == created_by)
         parent_result = await db.execute(select(ArchiveFolder).where(parent_cond))
         parent_folder = parent_result.scalar_one_or_none()
         
@@ -78,15 +78,15 @@ async def get_filesystem_path(folder_uuid: str, db: AsyncSession, user_uuid: Opt
     
     return "/" + "/".join(path_parts) + "/"
 
-async def get_display_path(folder_uuid: str, db: AsyncSession, user_uuid: Optional[str] = None) -> str:
+async def get_display_path(folder_uuid: str, db: AsyncSession, created_by: Optional[str] = None) -> str:
     """Build name-based path for user display"""
     if not folder_uuid:
         return "/"
     
     # Get the folder
     cond = (ArchiveFolder.uuid == folder_uuid)
-    if user_uuid:
-        cond = and_(cond, ArchiveFolder.created_by == user_uuid)
+    if created_by:
+        cond = and_(cond, ArchiveFolder.created_by == created_by)
     result = await db.execute(select(ArchiveFolder).where(cond))
     folder = result.scalar_one_or_none()
     
@@ -105,8 +105,8 @@ async def get_display_path(folder_uuid: str, db: AsyncSession, user_uuid: Option
         visited.add(current_parent)
         
         parent_cond = (ArchiveFolder.uuid == current_parent)
-        if user_uuid:
-            parent_cond = and_(parent_cond, ArchiveFolder.created_by == user_uuid)
+        if created_by:
+            parent_cond = and_(parent_cond, ArchiveFolder.created_by == created_by)
         parent_result = await db.execute(select(ArchiveFolder).where(parent_cond))
         parent_folder = parent_result.scalar_one_or_none()
         
@@ -118,7 +118,7 @@ async def get_display_path(folder_uuid: str, db: AsyncSession, user_uuid: Option
     
     return "/" + "/".join(path_parts) + "/"
 
-async def validate_folder_name(name: str, parent_uuid: Optional[str], user_uuid: str, db: AsyncSession, exclude_uuid: Optional[str] = None) -> None:
+async def validate_folder_name(name: str, parent_uuid: Optional[str], created_by: str, db: AsyncSession, exclude_uuid: Optional[str] = None) -> None:
     """Validate folder name is unique at the same level"""
     # Sanitize folder name
     sanitized_name = name.strip()
@@ -135,7 +135,7 @@ async def validate_folder_name(name: str, parent_uuid: Optional[str], user_uuid:
         and_(
             func.lower(ArchiveFolder.name) == func.lower(sanitized_name),
             ArchiveFolder.parent_uuid == parent_uuid,
-            ArchiveFolder.created_by == user_uuid
+            ArchiveFolder.created_by == created_by
         )
     )
     
@@ -206,6 +206,7 @@ from app.utils.security import (
     sanitize_text_input
 )
 from app.services.file_detection import file_detector
+from app.models.enums import ModuleType
 
 router = APIRouter()
 
@@ -222,15 +223,15 @@ def folder_cache(maxsize: int = 128):
     the same folders. Cache is per-user and respects query parameters.
     """
     def decorator(func):
-        # Create a simple cache key from user_uuid and critical parameters
+        # Create a simple cache key from created_by and critical parameters
         def cache_key(*args, **kwargs):
-            # Extract user_uuid from current_user parameter
-            user_uuid = None
+            # Extract created_by from current_user parameter
+            created_by = None
             if 'current_user' in kwargs:
-                user_uuid = getattr(kwargs['current_user'], 'uuid', None)
+                created_by = getattr(kwargs['current_user'], 'uuid', None)
             
             # Extract key parameters that affect results
-            key_parts = [user_uuid]
+            key_parts = [created_by]
             for param in ['parent_uuid', 'root_uuid', 'archived', 'search']:
                 if param in kwargs:
                     key_parts.append((param, kwargs[param]))
@@ -379,7 +380,7 @@ async def create_folder(
         await db.commit()
         await db.refresh(folder)
         
-        logger.info(f"✅ Created folder '{folder.name}' for user {current_user.username}")
+        logger.info(f"SUCCESS: Created folder '{folder.name}' for user {current_user.username}")
         
         # Clear cache after folder creation
         list_folders.cache_clear()
@@ -391,7 +392,7 @@ async def create_folder(
         # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
-        logger.error(f"❌ Error creating folder: {str(e)}")
+        logger.error(f"ERROR: Error creating folder: {str(e)}")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -546,7 +547,7 @@ async def list_folders(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error listing folders: {str(e)}")
+        logger.error(f"ERROR: Error listing folders: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve folders. Please try again."
@@ -759,20 +760,20 @@ async def update_folder(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error updating folder: {str(e)}")
+        logger.error(f"ERROR: Error updating folder: {str(e)}")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update folder. Please try again."
         )
 
-async def _get_all_items_in_folder(db: AsyncSession, folder_uuid: str, user_uuid: str) -> List[ArchiveItem]:
+async def _get_all_items_in_folder(db: AsyncSession, folder_uuid: str, created_by: str) -> List[ArchiveItem]:
     items = []
     
     # Get items in the current folder
     item_result = await db.execute(
         select(ArchiveItem).where(
-            and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == user_uuid)
+            and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == created_by)
         )
     )
     items.extend(item_result.scalars().all())
@@ -780,14 +781,14 @@ async def _get_all_items_in_folder(db: AsyncSession, folder_uuid: str, user_uuid
     # Get subfolders
     subfolder_result = await db.execute(
         select(ArchiveFolder).where(
-            and_(ArchiveFolder.parent_uuid == folder_uuid, ArchiveFolder.created_by == user_uuid)
+            and_(ArchiveFolder.parent_uuid == folder_uuid, ArchiveFolder.created_by == created_by)
         )
     )
     subfolders = subfolder_result.scalars().all()
     
     # Recursively get items from subfolders
     for subfolder in subfolders:
-        items.extend(await _get_all_items_in_folder(db, subfolder.uuid, user_uuid))
+        items.extend(await _get_all_items_in_folder(db, subfolder.uuid, created_by))
         
     return items
 
@@ -824,14 +825,14 @@ async def delete_folder(
                     try:
                         Path(item.file_path).unlink()
                     except Exception as e:
-                        logger.warning(f"⚠️ Failed to delete file: {str(e)}")
+                        logger.warning(f"WARNING: Failed to delete file: {str(e)}")
                 
                 thumb_path = getattr(item, "thumbnail_path", None)
                 if thumb_path and Path(thumb_path).exists():
                     try:
                         Path(thumb_path).unlink()
                     except Exception as e:
-                        logger.warning(f"⚠️ Failed to delete thumbnail: {str(e)}")
+                        logger.warning(f"WARNING: Failed to delete thumbnail: {str(e)}")
 
         else:
             # Check if folder has contents
@@ -862,7 +863,7 @@ async def delete_folder(
         await db.delete(folder)
         await db.commit()
         
-        logger.info(f"✅ Deleted folder '{folder.name}' for user {current_user.username}")
+        logger.info(f"DELETED: Deleted folder '{folder.name}' for user {current_user.username}")
         
         # Clear cache after folder deletion
         list_folders.cache_clear()
@@ -873,7 +874,7 @@ async def delete_folder(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error deleting folder: {str(e)}")
+        logger.error(f"ERROR: Error deleting folder: {str(e)}")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -914,7 +915,7 @@ async def bulk_move_items(
     if not target_folder_obj:
         raise HTTPException(status_code=404, detail="Target folder not found")
 
-    # Fetch all items to move – ensure they belong to user
+    # Fetch all items to move - ensure they belong to user
     result = await db.execute(
         select(ArchiveItem).where(
             and_(ArchiveItem.uuid.in_(payload.items), ArchiveItem.created_by == current_user.uuid)
@@ -1047,7 +1048,7 @@ async def upload_item(
             async with aiofiles.open(temp_file_path, 'wb') as f:
                 await f.write(file_content)
         except Exception as e:
-            logger.error(f"❌ Failed to save file: {str(e)}")
+            logger.error(f"ERROR: Failed to save file: {str(e)}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to save file to storage"
@@ -1063,7 +1064,7 @@ async def upload_item(
         #         # Sanitize AI-generated tags
         #         ai_tags = sanitize_tags(ai_tags)
         #     except Exception as e:
-        #         logger.warning(f"⚠️ AI analysis failed: {str(e)}")
+        #         logger.warning(f"WARNING: AI analysis failed: {str(e)}")
         #         # Continue without AI tags
         
         # Combine tags (user tags take precedence)
@@ -1096,10 +1097,10 @@ async def upload_item(
             if not final_file_path.exists():
                 raise Exception("File move completed but destination file does not exist")
             
-            logger.info(f"✅ File moved to final location: {final_file_path}")
+            logger.info(f"SUCCESS: File moved to final location: {final_file_path}")
             
         except Exception as move_error:
-            logger.error(f"❌ Failed to move file to final location: {move_error}")
+            logger.error(f"ERROR: Failed to move file to final location: {move_error}")
             # Clean up temp file
             try:
                 if temp_file_path.exists():
@@ -1119,12 +1120,12 @@ async def upload_item(
             await search_service.index_item(db, item, 'archive_item')
             await db.commit()
         except Exception:
-            # Best-effort: don’t fail the request if indexing fails
+            # Best-effort: don't fail the request if indexing fails
             logger.exception("Indexing failed for archive_item %s", item.uuid)
         
         # (Already indexed above with commit)
         
-        logger.info(f"✅ Uploaded file '{original_filename}' to folder '{folder.name}' for user {current_user.username}")
+        logger.info(f"SUCCESS: Uploaded file '{original_filename}' to folder '{folder.name}' for user {current_user.username}")
         
         return await _get_item_with_relations(db, item.uuid)
         
@@ -1138,7 +1139,7 @@ async def upload_item(
             pass
         raise
     except Exception as e:
-        logger.error(f"❌ Error uploading file: {str(e)}")
+        logger.error(f"ERROR: Error uploading file: {str(e)}")
         await db.rollback()
         # Clean up temp file on DB rollback
         try:
@@ -1295,7 +1296,7 @@ async def update_item(
         
         # Handle tags
         if item_data.tags is not None:
-            await tag_service.handle_tags(db, item, item_data.tags, current_user.uuid, "archive_items", archive_item_tags)
+            await tag_service.handle_tags(db, item, item_data.tags, current_user.uuid, ModuleType.ARCHIVE_ITEMS, archive_item_tags)
         
         await db.commit()
         await db.refresh(item)
@@ -1312,7 +1313,7 @@ async def update_item(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error updating item: {str(e)}")
+        logger.error(f"ERROR: Error updating item: {str(e)}")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1363,22 +1364,22 @@ async def delete_item(
             try:
                 Path(file_path_to_delete).unlink()
             except Exception as e:
-                logger.warning(f"⚠️ Failed to delete file: {str(e)}")
+                logger.warning(f"WARNING: Failed to delete file: {str(e)}")
         
         if thumb_path_to_delete and Path(thumb_path_to_delete).exists():
             try:
                 Path(thumb_path_to_delete).unlink()
             except Exception as e:
-                logger.warning(f"⚠️ Failed to delete thumbnail: {str(e)}")
+                logger.warning(f"WARNING: Failed to delete thumbnail: {str(e)}")
 
-        logger.info(f"✅ Deleted item '{item.name}' for user {current_user.username}")
+        logger.info(f"DELETED: Deleted item '{item.name}' for user {current_user.username}")
         
         return {"message": "Item deleted successfully"}
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Error deleting item: {str(e)}")
+        logger.error(f"ERROR: Error deleting item: {str(e)}")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1484,7 +1485,7 @@ async def search_items(
         item_query = (
             select(ArchiveItem)
             .options(selectinload(ArchiveItem.tag_objs))
-            .where(ArchiveItem.uuid.in_(uuid_list))
+            .where(and_(ArchiveItem.uuid.in_(uuid_list), ArchiveItem.created_by == current_user.uuid))
         )
         # Archive items don't need archived filtering - they're all active in archive
         if folder_uuid:
@@ -1504,12 +1505,12 @@ async def search_items(
             if uuid in item_map:
                 item_response = await _get_item_with_relations(db, uuid)
                 item_responses.append(item_response)
-        logger.info(f"🔍 FTS5 Search completed: '{query}' - {len(item_responses)} results for user {current_user.username}")
+        logger.info(f"SEARCH: FTS5 Search completed: '{query}' - {len(item_responses)} results for user {current_user.username}")
         return item_responses
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ FTS5 search error: {str(e)}")
+        logger.error(f"ERROR: FTS5 search error: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Search failed. Please try again."
@@ -1517,12 +1518,14 @@ async def search_items(
 
 # Helper functions
 
-async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str, user_uuid: str) -> FolderResponse:
+async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str, created_by: str) -> FolderResponse:
     """Get folder with statistics (simplified for single user)"""
     
     # Get folder
     result = await db.execute(
-        select(ArchiveFolder).where(ArchiveFolder.uuid == folder_uuid)
+        select(ArchiveFolder).where(
+            and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.created_by == created_by)
+        )
     )
     folder = result.scalar_one_or_none()
     
@@ -1532,7 +1535,7 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str, user_uuid: 
     # Get item count
     item_count_result = await db.execute(
         select(func.count(ArchiveItem.uuid)).where(
-            and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == user_uuid)
+            and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == created_by)
             # Archive items don't use is_archived flag - all are active by being in archive
         )
     )
@@ -1541,7 +1544,7 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str, user_uuid: 
     # Get subfolder count
     subfolder_count_result = await db.execute(
         select(func.count(ArchiveFolder.uuid)).where(
-            and_(ArchiveFolder.parent_uuid == folder_uuid, ArchiveFolder.created_by == user_uuid)
+            and_(ArchiveFolder.parent_uuid == folder_uuid, ArchiveFolder.created_by == created_by)
             # Archive folders don't use is_archived flag - all are active by being in archive
         )
     )
@@ -1550,15 +1553,15 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str, user_uuid: 
     # Get total size
     size_result = await db.execute(
         select(func.sum(ArchiveItem.file_size)).where(
-            and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == user_uuid)
+            and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == created_by)
             # Archive items don't use is_archived flag - all are active by being in archive
         )
     )
     total_size = size_result.scalar() or 0
     
     # Generate both path types dynamically
-    display_path = await get_display_path(folder.uuid, db, user_uuid)
-    filesystem_path = await get_filesystem_path(folder.uuid, db, user_uuid)
+    display_path = await get_display_path(folder.uuid, db, created_by)
+    filesystem_path = await get_filesystem_path(folder.uuid, db, created_by)
     
     return FolderResponse(
         uuid=folder.uuid,
@@ -1822,7 +1825,7 @@ async def _create_archive_item(
                 metadata.update(additional_metadata)
             metadata = sanitize_json_metadata(metadata)
         except Exception as e:
-            logger.warning(f"⚠️ Metadata extraction failed: {str(e)}")
+            logger.warning(f"WARNING: Metadata extraction failed: {str(e)}")
             metadata = additional_metadata or {}
         
         # Create item name
@@ -1850,14 +1853,14 @@ async def _create_archive_item(
         if tags:
             try:
                 from app.models.tag_associations import archive_item_tags
-                await tag_service.handle_tags(db, item, tags, user_uuid, "archive_items", archive_item_tags)
+                await tag_service.handle_tags(db, item, tags, created_by, ModuleType.ARCHIVE_ITEMS, archive_item_tags)
             except Exception as e:
-                logger.warning(f"⚠️ Tag handling failed: {str(e)}")
+                logger.warning(f"WARNING: Tag handling failed: {str(e)}")
         
         return item
         
     except Exception as e:
-        logger.error(f"❌ Error creating archive item: {str(e)}")
+        logger.error(f"ERROR: Error creating archive item: {str(e)}")
         raise
 
 @router.post("/upload")
@@ -1871,7 +1874,7 @@ async def upload_files(
 ):
     """Upload multiple files to the archive"""
     
-    logger.info(f"📁 Starting upload of {len(files)} files to folder {folder_uuid}")
+    logger.info(f"UPLOAD: Starting upload of {len(files)} files to folder {folder_uuid}")
     
     try:
         # Verify folder exists if specified
@@ -1899,7 +1902,7 @@ async def upload_files(
             try:
                 # Validate file input
                 if not file or not file.filename:
-                    logger.warning(f"⚠️ Skipping invalid file in bulk upload")
+                    logger.warning(f"WARNING: Skipping invalid file in bulk upload")
                     continue
                     
                 # Validate file size
@@ -1909,7 +1912,7 @@ async def upload_files(
                 try:
                     validate_file_size(file_size, MAX_FILE_SIZE)
                 except Exception as e:
-                    logger.warning(f"⚠️ Skipping file '{file.filename}' due to size validation: {str(e)}")
+                    logger.warning(f"WARNING: Skipping file '{file.filename}' due to size validation: {str(e)}")
                     continue
                 
                 # Generate unique filename
@@ -1936,7 +1939,7 @@ async def upload_files(
                         file_content=file_content
                     )
                 except Exception as e:
-                    logger.warning(f"⚠️ File detection failed for '{file.filename}': {str(e)}")
+                    logger.warning(f"WARNING: File detection failed for '{file.filename}': {str(e)}")
                     # Use fallback detection
                     import mimetypes
                     mime_type, _ = mimetypes.guess_type(file.filename)
@@ -1948,7 +1951,7 @@ async def upload_files(
                 
                 # Validate MIME type
                 if detection_result["mime_type"] not in VALID_MIME_TYPES:
-                    logger.warning(f"⚠️ Skipping file '{file.filename}' due to unsupported MIME type: {detection_result['mime_type']}")
+                    logger.warning(f"WARNING: Skipping file '{file.filename}' due to unsupported MIME type: {detection_result['mime_type']}")
                     continue
                 
                 # Save file to TEMPORARY location with error handling
@@ -1958,7 +1961,7 @@ async def upload_files(
                     # Track temp path for later cleanup
                     temp_file_paths.append((temp_file_path, final_file_path))
                 except Exception as e:
-                    logger.error(f"❌ Failed to save file '{file.filename}': {str(e)}")
+                    logger.error(f"ERROR: Failed to save file '{file.filename}': {str(e)}")
                     continue
                 
                 # Create archive item using shared helper
@@ -1999,10 +2002,10 @@ async def upload_files(
                     "detection_info": detection_result
                 })
                 
-                logger.info(f"✅ Uploaded file: {file.filename} -> {safe_filename}")
+                logger.info(f"SUCCESS: Uploaded file: {file.filename} -> {safe_filename}")
                 
             except Exception as e:
-                logger.error(f"❌ Failed to upload file {file.filename}: {e}")
+                logger.error(f"ERROR: Failed to upload file {file.filename}: {e}")
                 raise HTTPException(
                     status_code=500,
                     detail=f"Failed to upload file {file.filename}"
@@ -2014,7 +2017,7 @@ async def upload_files(
                 exists = await asyncio.to_thread(temp_path.exists)
                 if exists:
                     await asyncio.to_thread(temp_path.rename, final_path)
-                    logger.info(f"✅ File moved to final location: {final_path}")
+                    logger.info(f"SUCCESS: File moved to final location: {final_path}")
                     # Update DB record to point to final path
                     try:
                         await db.execute(
@@ -2023,13 +2026,13 @@ async def upload_files(
                             .values(file_path=str(final_path))
                         )
                     except Exception as db_error:
-                        logger.error(f"❌ Failed to update database record for file path: {db_error}")
+                        logger.error(f"ERROR: Failed to update database record for file path: {db_error}")
                         raise Exception(f"Database update failed: {str(db_error)}")
                 else:
-                    logger.warning(f"⚠️ Temp file not found: {temp_path}")
+                    logger.warning(f"WARNING: Temp file not found: {temp_path}")
                     raise Exception(f"Temp file missing: {temp_path}")
             except Exception as move_error:
-                logger.error(f"❌ Failed to move file to final location: {move_error}")
+                logger.error(f"ERROR: Failed to move file to final location: {move_error}")
                 # Rollback and cleanup on any file move failure
                 await db.rollback()
                 for tp, fp in temp_file_paths:
@@ -2054,7 +2057,7 @@ async def upload_files(
         except Exception:
             logger.exception("Indexing failed for bulk uploaded archive_items")
 
-        logger.info(f"🎉 Successfully uploaded {len(uploaded_files)} files")
+        logger.info(f"COMPLETED: Successfully uploaded {len(uploaded_files)} files")
 
         return {
             "message": f"Successfully uploaded {len(uploaded_files)} files",
@@ -2081,7 +2084,7 @@ async def upload_files(
                     temp_path.unlink()
             except Exception:
                 pass
-        logger.error(f"❌ Archive upload failed: {e}")
+        logger.error(f"ERROR: Archive upload failed: {e}")
         raise HTTPException(status_code=500, detail="Upload failed") 
 
 
@@ -2106,20 +2109,20 @@ async def commit_uploaded_file(
             raise HTTPException(status_code=404, detail="Upload not found")
         
         # If still assembling, wait for completion with timeout
-        if status.get("status") == "assembling":
+        if status.get("status") == ChunkUploadStatus.ASSEMBLING:
             logger.info(f"File {payload.file_id} still assembling, waiting for completion...")
             max_wait = 30  # seconds
             for i in range(max_wait):
                 await asyncio.sleep(1)
                 status = await chunk_manager.get_upload_status(payload.file_id)
-                if status.get("status") == "completed":
+                if status.get("status") == ChunkUploadStatus.COMPLETED:
                     break
-                elif status.get("status") == "failed":
+                elif status.get("status") == ChunkUploadStatus.FAILED:
                     raise HTTPException(status_code=400, detail="File assembly failed")
             else:
                 raise HTTPException(status_code=408, detail="Assembly timeout - file took too long to assemble")
         
-        if status.get("status") != "completed":
+        if status.get("status") != ChunkUploadStatus.COMPLETED:
             raise HTTPException(status_code=400, detail="File not yet assembled or assembly failed")
 
         # Locate assembled file path
@@ -2187,7 +2190,7 @@ async def commit_uploaded_file(
             moved_size = dest_path.stat().st_size
             if moved_size != original_size:
                 # File size mismatch - move may have corrupted the file
-                logger.error(f"❌ File size mismatch after move: original={original_size}, moved={moved_size}")
+                logger.error(f"ERROR: File size mismatch after move: original={original_size}, moved={moved_size}")
                 # Clean up corrupted file
                 try:
                     dest_path.unlink()
@@ -2195,10 +2198,10 @@ async def commit_uploaded_file(
                     pass
                 raise Exception(f"File integrity check failed: size mismatch ({original_size} vs {moved_size})")
             
-            logger.info(f"✅ File moved successfully with integrity verified: {original_size} bytes")
+            logger.info(f"SUCCESS: File moved successfully with integrity verified: {original_size} bytes")
             
         except Exception as e:
-            logger.error(f"❌ Failed to move assembled file: {str(e)}")
+            logger.error(f"ERROR: Failed to move assembled file: {str(e)}")
             # Clean up assembled file on failure
             try:
                 if assembled.exists():
@@ -2232,7 +2235,7 @@ async def commit_uploaded_file(
         if payload.file_id in chunk_manager.uploads:
             del chunk_manager.uploads[payload.file_id]
 
-        logger.info(f"✅ Committed chunked upload '{item.original_filename}' to folder '{folder.name}' for user {current_user.username}")
+        logger.info(f"SUCCESS: Committed chunked upload '{item.original_filename}' to folder '{folder.name}' for user {current_user.username}")
         
         return await _get_item_with_relations(db, item.uuid)
         
@@ -2241,7 +2244,7 @@ async def commit_uploaded_file(
         await db.rollback()
         raise
     except Exception as e:
-        logger.error(f"❌ Error committing chunked upload: {str(e)}")
+        logger.error(f"ERROR: Error committing chunked upload: {str(e)}")
         await db.rollback()
         
         # Clean up destination file if it was created
@@ -2249,7 +2252,7 @@ async def commit_uploaded_file(
             if 'dest_path' in locals() and dest_path.exists():
                 dest_path.unlink()
         except Exception as cleanup_error:
-            logger.error(f"❌ Failed to cleanup destination file: {str(cleanup_error)}")
+            logger.error(f"ERROR: Failed to cleanup destination file: {str(cleanup_error)}")
         
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -2268,8 +2271,8 @@ async def debug_fts_status(
         result = await db.execute(text("""
             SELECT COUNT(*) as archive_items_count 
             FROM archive_items 
-            WHERE created_by = :user_uuid
-        """), {"user_uuid": current_user.uuid})
+            WHERE created_by = :created_by
+        """), {"created_by": current_user.uuid})
         archive_items_count = result.scalar()
         
         # Check FTS table
@@ -2277,8 +2280,8 @@ async def debug_fts_status(
             fts_result = await db.execute(text("""
                 SELECT COUNT(*) as fts_count 
                 FROM fts_content 
-                WHERE created_by = :user_uuid AND item_type = 'archive_item'
-            """), {"user_uuid": current_user.uuid})
+                WHERE created_by = :created_by AND item_type = 'archive_item'
+            """), {"created_by": current_user.uuid})
             fts_count = fts_result.scalar()
         except Exception as e:
             fts_count = f"Error: {str(e)}"
@@ -2301,7 +2304,7 @@ async def debug_fts_status(
         }
         
     except Exception as e:
-        logger.error(f"❌ FTS debug check failed: {str(e)}")
+        logger.error(f"ERROR: FTS debug check failed: {str(e)}")
         return {
             "error": str(e),
             "archive_items_count": 0,

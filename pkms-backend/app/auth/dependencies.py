@@ -65,8 +65,8 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    user_uuid = payload.get("sub")
-    if not user_uuid:
+    created_by = payload.get("sub")
+    if not created_by:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",
@@ -74,7 +74,7 @@ async def get_current_user(
         )
 
     # Get user from database by UUID
-    result = await db.execute(select(User).where(User.uuid == user_uuid))
+    result = await db.execute(select(User).where(User.uuid == created_by))
     user = result.scalar_one_or_none()
     
     if user is None:
@@ -124,12 +124,12 @@ async def get_optional_user(
         if not payload:
             return None
         
-        user_uuid = payload.get("sub")
-        if user_uuid is None:
+        created_by = payload.get("sub")
+        if created_by is None:
             return None
         
         # Get user from database
-        result = await db.execute(select(User).where(User.uuid == user_uuid))
+        result = await db.execute(select(User).where(User.uuid == created_by))
         user = result.scalar_one_or_none()
         
         if user is None or not user.is_active:

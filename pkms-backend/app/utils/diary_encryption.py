@@ -1,14 +1,14 @@
-"""diary_encryption.py – helper utilities for PKMS diary text/media encryption files.
+"""diary_encryption.py - helper utilities for PKMS diary text/media encryption files.
 
 Header format (see models.diary docstring):
 Offset | Size | Purpose
 0      | 4    | b"PKMS" magic
 4      | 1    | version byte (0x01)
-5      | 1    | original extension length N (0-255) – 0 means diary text
+5      | 1    | original extension length N (0-255) - 0 means diary text
 6      | N    | original extension bytes (utf-8)
 6+N    | 12   | IV (AES-GCM nonce)
 18+N   | 16   | TAG (AES-GCM authentication tag)
-34+N   | …    | ciphertext payload
+34+N   | ...  | ciphertext payload
 
 Functions:
     write_encrypted_file(...): pack header + ciphertext and write to disk

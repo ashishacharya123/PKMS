@@ -108,7 +108,7 @@ async def setup_user(
     key_hash, key_salt = hash_recovery_key(recovery_key)
     
     recovery_record = RecoveryKey(
-        user_uuid=user.uuid,
+        created_by=user.uuid,
         key_hash=key_hash,
         questions_json=json.dumps(user_data.recovery_questions),
         answers_hash=answers_hash,
@@ -120,7 +120,7 @@ async def setup_user(
     session_token = generate_session_token()
     session = Session(
         session_token=session_token,
-        user_uuid=user.uuid,
+        created_by=user.uuid,
         expires_at=datetime.now(NEPAL_TZ) + timedelta(days=7),
         ip_address=None,
         user_agent="internal-setup"
@@ -154,7 +154,7 @@ async def setup_user(
     return TokenResponse(
         access_token=access_token,  # Still return in body for backward compatibility during transition
         expires_in=settings.access_token_expire_minutes * 60,
-        user_uuid=user.uuid,
+        created_by=user.uuid,
         username=user.username
     )
 
@@ -211,13 +211,13 @@ async def login(
     
     # Clean up old sessions for this user
     await db.execute(
-        delete(Session).where(Session.user_uuid == user.uuid)
+        delete(Session).where(Session.created_by == user.uuid)
     )
     
     # Create new session
     session = Session(
         session_token=session_token,
-        user_uuid=user.uuid,
+        created_by=user.uuid,
         expires_at=expires_at,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent", "")[:500]
@@ -253,7 +253,7 @@ async def login(
         access_token=access_token,  # Still return in body for backward compatibility during transition
         token_type="bearer",
         expires_in=settings.access_token_expire_minutes * 60,
-        user_uuid=user.uuid,
+        created_by=user.uuid,
         username=user.username
     )
 
@@ -279,7 +279,7 @@ async def logout(
                 delete(Session).where(
                     and_(
                         Session.session_token == session_token,
-                        Session.user_uuid == current_user.uuid
+                        Session.created_by == current_user.uuid
                     )
                 )
             )
@@ -324,7 +324,7 @@ async def get_recovery_questions(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
     recovery_key_res = await db.execute(
-        select(RecoveryKey).where(RecoveryKey.user_uuid == user.uuid)
+        select(RecoveryKey).where(RecoveryKey.created_by == user.uuid)
     )
     recovery_key = recovery_key_res.scalar_one_or_none()
 
@@ -382,7 +382,7 @@ async def reset_password(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
     # Get recovery key for this user
-    result = await db.execute(select(RecoveryKey).where(RecoveryKey.user_uuid == user.uuid))
+    result = await db.execute(select(RecoveryKey).where(RecoveryKey.created_by == user.uuid))
     recovery_record = result.scalar_one_or_none()
 
     if not recovery_record:
@@ -488,7 +488,7 @@ async def refresh_access_token(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
 
         # Get user
-        result = await db.execute(select(User).where(User.uuid == session.user_uuid))
+        result = await db.execute(select(User).where(User.uuid == session.created_by))
         user = result.scalar_one_or_none()
         if not user or not user.is_active:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account disabled")
@@ -541,7 +541,7 @@ async def refresh_access_token(
         return TokenResponse(
             access_token=access_token,
             expires_in=settings.access_token_expire_minutes * 60,
-            user_uuid=user.uuid,
+            created_by=user.uuid,
             username=user.username
         )
     except HTTPException:

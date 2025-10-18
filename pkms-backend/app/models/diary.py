@@ -34,8 +34,8 @@ class DiaryEntry(Base):
     is_template = Column(Boolean, default=False, index=True)  # Template flag for reusable entries
     from_template_id = Column(String(36), nullable=True, index=True)  # Source template UUID/ID
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     
     # Additional metadata as JSON for flexibility
     daily_metadata_id = Column(String(36), ForeignKey("diary_daily_metadata.uuid", ondelete="SET NULL"), nullable=True, index=True)
@@ -78,8 +78,8 @@ class DiaryDailyMetadata(Base):
     
     # Generic metrics (legacy)
     metrics_json = Column(Text, nullable=False, default='{}')
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
 
     # Relationships
     user = relationship("User", back_populates="diary_daily_metadata", foreign_keys=[created_by])
@@ -107,8 +107,8 @@ class DiaryMedia(Base):
     is_encrypted = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     
     # Soft Delete
     is_deleted = Column(Boolean, default=False, index=True)

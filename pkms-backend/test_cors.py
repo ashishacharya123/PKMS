@@ -17,8 +17,8 @@ def test_cors_headers():
         # Make a request to the backend
         response = requests.get(url)
         
-        print(f"✅ Response Status: {response.status_code}")
-        print(f"✅ Response Headers:")
+        print(f"Response Status: {response.status_code}")
+        print(f"Response Headers:")
         
         # Check for CORS headers
         cors_headers = [
@@ -32,24 +32,24 @@ def test_cors_headers():
             if header in response.headers:
                 print(f"   {header}: {response.headers[header]}")
             else:
-                print(f"   ❌ {header}: MISSING")
+                print(f"   {header}: MISSING")
         
-        print(f"\n✅ Response Body:")
+        print(f"\nResponse Body:")
         print(json.dumps(response.json(), indent=2))
         
         # Test with Origin header (simulating browser request)
         headers = {'Origin': 'http://localhost:3000'}
         response_with_origin = requests.get(url, headers=headers)
         
-        print(f"\n🔍 Testing with Origin header 'http://localhost:3000':")
+        print(f"\nTesting with Origin header 'http://localhost:3000':")
         print(f"   Access-Control-Allow-Origin: {response_with_origin.headers.get('Access-Control-Allow-Origin', 'MISSING')}")
         
     except requests.exceptions.ConnectionError:
-        print("❌ Cannot connect to backend. Make sure it's running on localhost:8000")
+        print("Cannot connect to backend. Make sure it's running on localhost:8000")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
-    print("🧪 Testing CORS Configuration...")
+    print("Testing CORS Configuration...")
     print("=" * 50)
     test_cors_headers()

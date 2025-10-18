@@ -19,7 +19,7 @@ from main import app
 from app.database import Base, get_db
 from app.models.user import User
 from app.auth.security import hash_password, create_access_token
-from app.config import get_settings
+from app.config import settings
 
 # Test database URL (in-memory SQLite)
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"

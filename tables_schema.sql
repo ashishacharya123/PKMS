@@ -54,8 +54,8 @@ CREATE TABLE users (
     is_first_login BOOLEAN DEFAULT TRUE,
     settings_json TEXT DEFAULT '{}',      -- User preferences as JSON
 
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_login DATETIME
 );
 
@@ -64,8 +64,8 @@ CREATE TABLE sessions (
     session_token VARCHAR(255) NOT NULL PRIMARY KEY,
     created_by VARCHAR(36) NOT NULL,
     expires_at DATETIME NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_activity DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     ip_address VARCHAR(45),               -- IPv6 support
     user_agent VARCHAR(500),
 
@@ -80,7 +80,7 @@ CREATE TABLE recovery_keys (
     questions_json TEXT NOT NULL,         -- Security questions as JSON
     answers_hash VARCHAR(255) NOT NULL,   -- Hashed answers
     salt VARCHAR(255) NOT NULL,           -- Salt for answers
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_used DATETIME,
 
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
@@ -100,8 +100,8 @@ CREATE TABLE tags (
     created_by VARCHAR(36) NOT NULL,
     is_system BOOLEAN DEFAULT FALSE,      -- System tags vs user tags
     usage_count INTEGER DEFAULT 0,       -- Track tag usage frequency
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
@@ -119,8 +119,8 @@ CREATE TABLE notes (
     created_by VARCHAR(36) NOT NULL,
     is_favorite BOOLEAN DEFAULT FALSE,
     is_archived BOOLEAN DEFAULT FALSE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
@@ -136,7 +136,7 @@ CREATE TABLE note_files (
     file_size BIGINT NOT NULL,
     mime_type VARCHAR(100) NOT NULL,
     description TEXT,                     -- Optional description/caption
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (note_uuid) REFERENCES notes(uuid) ON DELETE CASCADE,
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
@@ -160,9 +160,9 @@ CREATE TABLE documents (
     is_favorite BOOLEAN DEFAULT FALSE,
     is_archived BOOLEAN DEFAULT FALSE,
     is_exclusive_mode BOOLEAN DEFAULT FALSE,
-    upload_status VARCHAR(20) DEFAULT 'completed',  -- pending, processing, completed, failed
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    upload_status VARCHAR(20) NOT NULL DEFAULT 'completed',  -- pending, processing, completed, failed
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
@@ -177,11 +177,12 @@ CREATE TABLE projects (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     color VARCHAR(7) DEFAULT '#3498db',   -- Hex color code
+    status VARCHAR(20) NOT NULL DEFAULT 'is_running', -- is_running, on_hold, completed, cancelled
     is_archived BOOLEAN DEFAULT FALSE,
     is_deleted BOOLEAN DEFAULT FALSE,
     created_by VARCHAR(36) NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
@@ -195,12 +196,12 @@ CREATE TABLE todos (
     is_favorite BOOLEAN DEFAULT FALSE,
     is_exclusive_mode BOOLEAN DEFAULT FALSE,  -- If True, todo is deleted when any of its projects are deleted
     priority INTEGER DEFAULT 2,          -- 1=low, 2=medium, 3=high, 4=urgent
-    status VARCHAR(20) DEFAULT 'pending',  -- pending, in_progress, blocked, done, cancelled
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',  -- pending, in_progress, blocked, done, cancelled
     due_date DATE,
     completed_at DATETIME,
     created_by VARCHAR(36) NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );
@@ -278,7 +279,7 @@ CREATE TABLE diary_media (
     is_archived BOOLEAN DEFAULT FALSE,
     is_deleted BOOLEAN DEFAULT FALSE,     -- Soft Delete
     created_by VARCHAR(36) NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (diary_entry_uuid) REFERENCES diary_entries(uuid) ON DELETE CASCADE,
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
@@ -296,8 +297,8 @@ CREATE TABLE archive_folders (
     path VARCHAR(1000) NOT NULL,         -- Full path for hierarchy
     parent_uuid VARCHAR(36),
     created_by VARCHAR(36) NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (parent_uuid) REFERENCES archive_folders(uuid) ON DELETE CASCADE,
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
@@ -319,8 +320,8 @@ CREATE TABLE archive_items (
     created_by VARCHAR(36) NOT NULL,
     is_favorite BOOLEAN DEFAULT FALSE,
     version VARCHAR(50) DEFAULT '1.0',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (folder_uuid) REFERENCES archive_folders(uuid) ON DELETE CASCADE,
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
@@ -339,7 +340,7 @@ CREATE TABLE links (
     created_by VARCHAR(36) NOT NULL,
     is_favorite BOOLEAN DEFAULT FALSE,
     is_archived BOOLEAN DEFAULT FALSE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
 );

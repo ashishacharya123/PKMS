@@ -3,6 +3,8 @@ from pydantic.alias_generators import to_camel
 from typing import Optional, List
 from datetime import datetime, date
 
+from app.models.enums import TodoStatus
+
 VALID_PRIORITIES = [1, 2, 3, 4]  # 1=low, 2=medium, 3=high, 4=urgent
 
 class CamelCaseModel(BaseModel):
@@ -39,8 +41,13 @@ class TodoCreate(CamelCaseModel):
     start_date: Optional[date] = None
     due_date: Optional[date] = None
     priority: int = 2
-    status: str = "pending"
+
+class TodoBase(BaseModel):
+    title: str
+    description: Optional[str] = None
+    status: TodoStatus = TodoStatus.PENDING
     order_index: int = 0
+    priority: int = 2
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
     is_archived: Optional[bool] = False
 
@@ -53,7 +60,7 @@ class TodoCreate(CamelCaseModel):
 class TodoUpdate(CamelCaseModel):
     title: Optional[str] = Field(None, min_length=1)
     description: Optional[str] = None
-    status: Optional[str] = None
+    status: Optional[TodoStatus] = None
     order_index: Optional[int] = None
     project_ids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this todo to")
     is_exclusive_mode: Optional[bool] = Field(None, description="If True, todo is exclusive to projects and deleted when any project is deleted")
@@ -85,7 +92,7 @@ class TodoResponse(CamelCaseModel):
     uuid: str
     title: str
     description: Optional[str]
-    status: str
+    status: TodoStatus
     is_archived: bool
     is_favorite: bool
     is_exclusive_mode: bool
@@ -106,7 +113,7 @@ class TodoResponse(CamelCaseModel):
     @property
     def is_completed(self) -> bool:
         """Computed property: todo is completed if status is 'done'"""
-        return self.status == 'done'
+        return self.status == TodoStatus.DONE
 
 class ProjectCreate(CamelCaseModel):
     name: str

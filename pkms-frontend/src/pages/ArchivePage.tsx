@@ -404,8 +404,26 @@ export default function ArchivePage() {
     } catch (error: any) {
       console.error('Delete error:', error);
       
-      // Check if it's a "folder not empty" error
-      if (error?.response?.data?.detail?.includes('not empty') && selectedItem.mime_type === 'folder') {
+      // Handle "folder not empty" error robustly
+      const detail = error?.response?.data?.detail;
+      const status = error?.response?.status;
+      const isNotEmpty =
+        selectedItem.mime_type === 'folder' &&
+        (status === 409 || status === 400) &&
+        typeof detail === 'string' &&
+        detail.toLowerCase().includes('not empty');
+      
+      if (isNotEmpty) {
+        if (force) {
+          // Already forced; avoid loops
+          notifications.show({ 
+            title: 'Error', 
+            message: 'Folder could not be force-deleted.', 
+            color: 'red' 
+          });
+          return;
+        }
+        
         // Show force delete confirmation
         const confirmed = window.confirm(
           `Folder "${selectedItem.name}" is not empty. Do you want to delete all contents?\n\nThis action cannot be undone and will permanently delete all files and subfolders.`
@@ -1217,7 +1235,7 @@ export default function ArchivePage() {
             <Button variant="outline" onClick={closeDeleteModal}>
               Cancel
             </Button>
-            <Button color="red" onClick={() => handleDelete()}>
+            <Button color="red" onClick={async () => { await handleDelete(); }}>
               Delete
             </Button>
     </Group>

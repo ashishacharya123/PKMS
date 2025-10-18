@@ -4,8 +4,8 @@ Project Model for Organizing Work Items
 Projects can contain todos, documents, notes, and have tags for better organization.
 Supports FTS5 search and project duplication functionality.
 """
-
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Date
+import enum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Date, Enum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
@@ -13,6 +13,7 @@ from datetime import datetime, date
 
 from app.models.base import Base
 from app.config import nepal_now
+from app.models.enums import ProjectStatus, TodoStatus
 from app.models.tag_associations import project_tags
 from app.models.associations import note_projects, document_projects, todo_projects
 
@@ -35,7 +36,7 @@ class Project(Base):
     sort_order = Column(Integer, default=0)
 
     # Status and lifecycle
-    status = Column(String(20), default='active', index=True)  # active, on_hold, completed, cancelled
+    status = Column(Enum(ProjectStatus), default=ProjectStatus.IS_RUNNING, nullable=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
     is_deleted = Column(Boolean, default=False, index=True)
@@ -47,9 +48,8 @@ class Project(Base):
 
     # Audit trail
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now())
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now())
-
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     # Search indexing
     search_vector = Column(Text, nullable=True)  # For FTS5 - will be populated with searchable content
 
@@ -149,7 +149,7 @@ class Project(Base):
         # Count completed todos
         completed_todos = 0
         if self.todos_multi:
-            completed_todos = sum(1 for todo in self.todos_multi if todo.status == 'done')
+            completed_todos = sum(1 for todo in self.todos_multi if todo.status == TodoStatus.DONE)
 
         # Calculate actual progress if not manually set
         if todo_count > 0:
