@@ -370,12 +370,25 @@ async def create_folder(
         
         # Validate folder name is unique at this level
         await validate_folder_name(folder_data.name, folder_data.parent_uuid, current_user.uuid, db)
-        
-        # Create new folder (no path column needed - we generate paths dynamically)
+
+        # Calculate depth from parent
+        folder_depth = 0
+        if folder_data.parent_uuid:
+            parent_query = select(ArchiveFolder.depth).where(
+                and_(ArchiveFolder.uuid == folder_data.parent_uuid,
+                     ArchiveFolder.created_by == current_user.uuid)
+            )
+            parent_result = await db.execute(parent_query)
+            parent_depth = parent_result.scalar()
+            if parent_depth is not None:
+                folder_depth = parent_depth + 1
+
+        # Create new folder with proper depth calculation
         folder = ArchiveFolder(
             name=folder_data.name.strip(),
             description=folder_data.description,
             parent_uuid=folder_data.parent_uuid,
+            depth=folder_depth,
             created_by=current_user.uuid
         )
         
@@ -484,6 +497,7 @@ async def list_folders(
                     path=display_path,
                     display_path=display_path,
                     filesystem_path=filesystem_path,
+                    depth=folder.depth,
                     created_at=folder.created_at,
                     updated_at=folder.updated_at,
                     item_count=item_counts.get(folder.uuid, 0),
@@ -540,6 +554,7 @@ async def list_folders(
                 path=display_path,
                 display_path=display_path,
                 filesystem_path=filesystem_path,
+                depth=folder.depth,
                 created_at=folder.created_at,
                 updated_at=folder.updated_at,
                 item_count=item_counts.get(folder.uuid, 0),
@@ -641,6 +656,7 @@ async def get_folder_tree(
                     path=display_path,
                     display_path=display_path,
                     filesystem_path=filesystem_path,
+                    depth=folder.depth,
                     created_at=folder.created_at,
                     updated_at=folder.updated_at,
                     item_count=item_counts.get(folder.uuid, 0),
@@ -855,12 +871,19 @@ async def delete_folder(
                     detail="Folder is not empty. Use force=true to delete non-empty folder."
                 )
         
+        # Store parent UUID before deleting folder
+        parent_uuid = folder.parent_uuid
+
         # Decrement tag usage counts BEFORE deleting folder
         await tag_service.decrement_tags_on_delete(db, folder)
-        
+
         # Delete folder and all contents (CASCADE handles this atomically)
         await db.delete(folder)
         await db.commit()
+
+        # Update derived columns for parent folder AFTER successful delete
+        if parent_uuid:
+            await _update_folder_derived_columns(db, parent_uuid, current_user.uuid)
         
         # Only delete files AFTER successful DB commit to maintain consistency
         if force and 'file_paths_to_delete' in locals():
@@ -944,11 +967,21 @@ async def bulk_move_items(
         missing = set(payload.items) - {it.uuid for it in items_to_move}
         raise HTTPException(status_code=404, detail={"message": "Some items not found", "missing": list(missing)})
 
+    # Track affected folders for derived column updates
+    affected_folders = set()
+
     # Update folder_uuid for each item
     for item in items_to_move:
+        affected_folders.add(item.folder_uuid)  # Source folder
         item.folder_uuid = payload.target_folder
 
+    affected_folders.add(payload.target_folder)  # Target folder
+
     await db.commit()
+
+    # Update derived columns for all affected folders
+    for folder_uuid in affected_folders:
+        await _update_folder_derived_columns(db, folder_uuid, current_user.uuid)
 
     return {"moved": len(items_to_move), "target_folder": payload.target_folder}
 
@@ -1288,6 +1321,10 @@ async def update_item(
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
         
+        # Track folder changes for derived column updates
+        old_folder_uuid = item.folder_uuid
+        new_folder_uuid = item_data.folder_uuid if item_data.folder_uuid is not None else old_folder_uuid
+
         # Validate folder if changing
         if item_data.folder_uuid and item_data.folder_uuid != item.folder_uuid:
             folder_result = await db.execute(
@@ -1300,7 +1337,7 @@ async def update_item(
             )
             if not folder_result.scalar_one_or_none():
                 raise HTTPException(status_code=404, detail="Target folder not found")
-        
+
         # Update item fields
         if item_data.name is not None:
             item.name = item_data.name
@@ -1310,12 +1347,17 @@ async def update_item(
             item.folder_uuid = item_data.folder_uuid
         if item_data.is_favorite is not None:
             item.is_favorite = item_data.is_favorite
-        
+
         # Handle tags
         if item_data.tags is not None:
             await tag_service.handle_tags(db, item, item_data.tags, current_user.uuid, ModuleType.ARCHIVE_ITEMS, archive_item_tags)
-        
+
         await db.commit()
+
+        # Update derived columns for affected folders if folder changed
+        if old_folder_uuid != new_folder_uuid:
+            await _update_folder_derived_columns(db, old_folder_uuid, current_user.uuid)
+            await _update_folder_derived_columns(db, new_folder_uuid, current_user.uuid)
         await db.refresh(item)
         
         # Index in search with correct type and persist
@@ -1362,19 +1404,24 @@ async def delete_item(
         if not item:
             raise HTTPException(status_code=404, detail="Item not found or access denied")
         
-        # Store file paths before deleting the item
+        # Store file paths and folder UUID before deleting the item
         file_path_to_delete = item.file_path
         thumb_path_to_delete = getattr(item, "thumbnail_path", None)
+        folder_uuid = item.folder_uuid
 
         # Decrement tag usage counts BEFORE deleting item
         await tag_service.decrement_tags_on_delete(db, item)
 
         # Remove from search index BEFORE deleting item
         await search_service.remove_item(db, item_uuid)
-        
+
         # Delete item from database
         await db.delete(item)
         await db.commit()
+
+        # Update derived columns for parent folder AFTER successful delete
+        if folder_uuid:
+            await _update_folder_derived_columns(db, folder_uuid, current_user.uuid)
         
         # Delete file from storage AFTER successful DB commit
         if file_path_to_delete and Path(file_path_to_delete).exists():
@@ -1526,6 +1573,7 @@ async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str, created_by:
         path=display_path,  # Use display path for consistency
         display_path=display_path,  # Human-readable path
         filesystem_path=filesystem_path,  # UUID-based path for debugging
+        depth=folder.depth,
         created_at=folder.created_at,
         updated_at=folder.updated_at,
         item_count=item_count,
@@ -1566,12 +1614,12 @@ async def _get_item_with_relations(db: AsyncSession, item_uuid: str) -> ItemResp
         folder_uuid=item.folder_uuid,
         original_filename=item.original_filename,
         stored_filename=item.stored_filename,
+        file_path=item.file_path,
         mime_type=item.mime_type,
         file_size=item.file_size,
         metadata=metadata,
-        thumbnail_path=getattr(item, "thumbnail_path", None),
+        thumbnail_path=item.thumbnail_path,
         is_favorite=item.is_favorite,
-        version=getattr(item, "version", None),
         created_at=item.created_at,
         updated_at=item.updated_at,
         tags=tag_names
@@ -1749,6 +1797,58 @@ async def _extract_metadata(file_path: Path, mime_type: str, original_name: str)
 
 # --- END: COPIED FROM documents.py router ---
 
+
+async def _update_folder_derived_columns(db: AsyncSession, folder_uuid: str, created_by: str):
+    """
+    Update derived columns (item_count and total_size) for a folder.
+
+    This function should be called whenever items are added, removed, or moved
+    to maintain consistency of derived data.
+    """
+    try:
+        # Count items in the folder
+        item_count_result = await db.execute(
+            select(func.count(ArchiveItem.uuid))
+            .where(and_(
+                ArchiveItem.folder_uuid == folder_uuid,
+                ArchiveItem.created_by == created_by,
+                ArchiveItem.is_deleted == False
+            ))
+        )
+        item_count = item_count_result.scalar() or 0
+
+        # Sum file sizes in the folder
+        total_size_result = await db.execute(
+            select(func.sum(ArchiveItem.file_size))
+            .where(and_(
+                ArchiveItem.folder_uuid == folder_uuid,
+                ArchiveItem.created_by == created_by,
+                ArchiveItem.is_deleted == False
+            ))
+        )
+        total_size = total_size_result.scalar() or 0
+
+        # Update the folder
+        await db.execute(
+            update(ArchiveFolder)
+            .where(and_(
+                ArchiveFolder.uuid == folder_uuid,
+                ArchiveFolder.created_by == created_by
+            ))
+            .values(
+                item_count=item_count,
+                total_size=total_size,
+                updated_at=nepal_now()
+            )
+        )
+
+        logger.debug(f"Updated derived columns for folder {folder_uuid}: {item_count} items, {total_size} bytes")
+
+    except Exception as e:
+        logger.error(f"Failed to update derived columns for folder {folder_uuid}: {str(e)}")
+        # Don't raise - this is a maintenance operation that shouldn't break the main flow
+
+
 async def _create_archive_item(
     db: AsyncSession,
     file_path: Path,
@@ -1811,7 +1911,10 @@ async def _create_archive_item(
                 await tag_service.handle_tags(db, item, tags, created_by, ModuleType.ARCHIVE_ITEMS, archive_item_tags)
             except Exception as e:
                 logger.warning(f"WARNING: Tag handling failed: {str(e)}")
-        
+
+        # Update derived columns for parent folder
+        await _update_folder_derived_columns(db, folder_uuid, created_by)
+
         return item
         
     except Exception as e:
@@ -2022,21 +2125,25 @@ async def upload_files(
         
     except HTTPException:
         await db.rollback()
-        # Clean up all temp files on HTTP exception
+        # Clean up all temp and final files on HTTP exception
         for temp_path, final_path in temp_file_paths:
             try:
                 if temp_path.exists():
                     temp_path.unlink()
+                if final_path.exists():
+                    final_path.unlink()
             except Exception:
                 pass
         raise
     except Exception as e:
         await db.rollback()
-        # Clean up all temp files on DB rollback
+        # Clean up all temp and final files on DB rollback
         for temp_path, final_path in temp_file_paths:
             try:
                 if temp_path.exists():
                     temp_path.unlink()
+                if final_path.exists():
+                    final_path.unlink()
             except Exception:
                 pass
         logger.error(f"ERROR: Archive upload failed: {e}")

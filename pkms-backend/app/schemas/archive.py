@@ -95,6 +95,7 @@ class FolderResponse(CamelCaseModel):
     path: str  # Display path
     display_path: Optional[str] = None  # Human-readable path
     filesystem_path: Optional[str] = None  # UUID-based path for debugging
+    depth: int  # Folder depth in hierarchy
     created_at: datetime
     updated_at: datetime
     item_count: int
@@ -108,12 +109,13 @@ class ItemResponse(CamelCaseModel):
     folder_uuid: str
     original_filename: str
     stored_filename: str
+    file_path: str
     mime_type: str
     file_size: int
     metadata: Dict[str, Any]
-    thumbnail_path: Optional[str]
+    thumbnail_path: Optional[str]  # ✅ ADDED - now exists in ArchiveItem model
     is_favorite: bool
-    version: str
+    # version field removed - doesn't exist in ArchiveItem model
     created_at: datetime
     updated_at: datetime
     tags: List[str]

@@ -10,7 +10,6 @@ from sqlalchemy.orm import selectinload
 import uuid as uuid_lib
 from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFileResponse, CommitNoteFileRequest
 from app.schemas.project import ProjectBadge
-from app.schemas.link import LinkResponse
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from pathlib import Path
@@ -25,7 +24,6 @@ from app.models.note import Note, NoteFile
 from app.models.user import User
 from app.models.tag import Tag
 from app.models.tag_associations import note_tags
-from app.models.link import Link
 from app.models.project import Project
 from app.models.associations import note_projects
 from app.auth.dependencies import get_current_user
@@ -94,11 +92,11 @@ def _convert_note_to_response(note: Note, project_badges: Optional[List[ProjectB
     """Convert Note model to NoteResponse."""
     badges = project_badges or []
     return NoteResponse(
-        id=note.id if hasattr(note, 'id') else 0,
         uuid=note.uuid,
         title=note.title,
         content=note.content,
         file_count=note.file_count,
+        thumbnail_path=note.thumbnail_path,
         is_favorite=note.is_favorite,
         is_archived=note.is_archived,
         is_exclusive_mode=note.is_exclusive_mode,
@@ -444,6 +442,9 @@ async def archive_note(
         action = "archived" if archive else "unarchived"
         logger.info(f"Successfully {action} note '{note.title}' for user {current_user.username}")
         
+        # Invalidate dashboard cache
+        invalidate_user_dashboard_cache(current_user.uuid, f"note_{action}")
+        
         # Include project badges for consistency
         project_badges = await project_service.build_badges(db, note.uuid, note.is_exclusive_mode, note_projects, "note_uuid")
         return _convert_note_to_response(note, project_badges)
@@ -600,36 +601,4 @@ async def delete_note_file(
     
     return {"message": "File deleted successfully"}
 
-@router.get("/{note_uuid}/links", response_model=List[LinkResponse])
-async def get_note_links(
-    note_uuid: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get links extracted from a note's content."""
-    # Verify note exists and belongs to user
-    note_result = await db.execute(
-        select(Note.content).where(
-            and_(Note.uuid == note_uuid, Note.created_by == current_user.uuid)
-        )
-    )
-    note = note_result.scalar_one_or_none()
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
-
-    # Extract URLs from content
-    import re
-    url_pattern = r'https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?'
-    urls = re.findall(url_pattern, note)
-    
-    # Get existing Link records for these URLs
-    if urls:
-        result = await db.execute(
-            select(Link).where(
-                and_(Link.url.in_(urls), Link.created_by == current_user.uuid)
-            )
-        )
-        existing_links = result.scalars().all()
-        return existing_links
-    
-    return [] 
+ 

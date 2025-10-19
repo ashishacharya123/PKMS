@@ -19,7 +19,6 @@ from ..models.document import Document
 from ..models.todo import Todo
 from ..models.project import Project
 from ..models.diary import DiaryEntry
-from ..models.link import Link
 from ..models.archive import ArchiveFolder, ArchiveItem
 from .simple_search_cache import simple_search_cache_service
 
@@ -34,7 +33,6 @@ class SearchService:
             'todo': Todo,
             'project': Project,
             'diary': DiaryEntry,
-            'link': Link,
             'archive_folder': ArchiveFolder,
             'archive_item': ArchiveItem
         }
@@ -99,7 +97,7 @@ class SearchService:
             })
 
             # Invalidate user's search cache since content changed
-            simple_search_cache_service.invalidate_user_cache(created_by, "content_index_update")
+            await simple_search_cache_service.invalidate_user_cache(created_by, "content_index_update")
 
         except Exception:
             # Log error but don't fail the main operation
@@ -129,7 +127,7 @@ class SearchService:
 
             # Invalidate user's search cache since content was removed
             if created_by:
-                simple_search_cache_service.invalidate_user_cache(created_by, "content_deletion")
+                await simple_search_cache_service.invalidate_user_cache(created_by, "content_deletion")
 
         except Exception:
             logger.exception("Error removing %s from search index", item_uuid)
@@ -159,7 +157,7 @@ class SearchService:
         """
         try:
             # Step 1: Check simple cache first (UUIDs + scores only)
-            cached_results = simple_search_cache_service.get_search_results(
+            cached_results = await simple_search_cache_service.get_search_results(
                 query=query,
                 user_uuid=created_by,
                 item_types=item_types,
@@ -297,7 +295,7 @@ class SearchService:
 
             # Step 3: Cache the results for future fast access
             if results:
-                simple_search_cache_service.store_search_results(
+                await simple_search_cache_service.store_search_results(
                     query=query,
                     user_uuid=created_by,
                     results=results,

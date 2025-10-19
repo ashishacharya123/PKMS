@@ -23,8 +23,9 @@ from app.database import get_db_session
 from app.models.user import User, Session, RecoveryKey
 from app.models.note import Note, NoteFile
 from app.models.document import Document
-from app.models.todo import Todo, Project
-from app.models.diary import DiaryEntry, DiaryMedia
+from app.models.todo import Todo
+from app.models.project import Project
+from app.models.diary import DiaryEntry, DiaryFile
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import Tag
 from app.config import get_data_dir
@@ -104,7 +105,9 @@ class UserDeletionService:
         
         # Delete diary media files
         media_result = await db.execute(
-            select(DiaryMedia.file_path).where(DiaryMedia.created_by == created_by)
+            select(DiaryFile.file_path).where(DiaryFile.diary_entry_uuid.in_(
+                select(DiaryEntry.uuid).where(DiaryEntry.created_by == created_by)
+            ))
         )
         for (file_path,) in media_result.fetchall():
             if file_path:
@@ -162,7 +165,9 @@ class UserDeletionService:
             ("documents", Document, Document.created_by),
             ("todos", Todo, Todo.created_by),
             ("projects", Project, Project.created_by),
-            ("diary_media", DiaryMedia, DiaryMedia.created_by),
+            ("diary_files", DiaryFile, DiaryFile.diary_entry_uuid.in_(
+                select(DiaryEntry.uuid).where(DiaryEntry.created_by == created_by)
+            )),
             ("diary_entries", DiaryEntry, DiaryEntry.created_by),
             ("archive_items", ArchiveItem, ArchiveItem.created_by),
             ("archive_folders", ArchiveFolder, ArchiveFolder.created_by),

@@ -736,11 +736,7 @@ export function DocumentsPage() {
                       Archived
                     </Badge>
                   )}
-                  {document.upload_status && (
-                    <Badge size="xs" variant="light" color={document.upload_status === 'failed' ? 'red' : document.upload_status === 'processing' ? 'yellow' : 'green'}>
-                      {document.upload_status}
-                    </Badge>
-                  )}
+                  {/* upload_status removed - backend no longer tracks upload status */}
                   {document.is_favorite && (
                     <Badge size="xs" variant="light" color="pink">Favorite</Badge>
                   )}

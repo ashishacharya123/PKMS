@@ -30,10 +30,10 @@ from ..models.note import Note
 from ..models.document import Document
 from ..models.todo import Todo
 from ..models.project import Project
-from ..models.diary import DiaryEntry, DiaryMedia, DiaryDailyMetadata
+from ..models.diary import DiaryEntry, DiaryFile, DiaryDailyMetadata
 from ..models.archive import ArchiveFolder, ArchiveItem
 from ..models.tag import Tag
-from ..models.link import Link
+# from ..models.link import Link  # Link model not implemented
 from ..auth.security import verify_password
 from ..config import NEPAL_TZ, get_data_dir
 
@@ -59,12 +59,11 @@ async def get_database_stats(
             ("todos", Todo),
             ("projects", Project),
             ("diary_entries", DiaryEntry),
-            ("diary_media", DiaryMedia),
+            ("diary_files", DiaryFile),
             ("diary_daily_metadata", DiaryDailyMetadata),
             ("archive_folders", ArchiveFolder),
             ("archive_items", ArchiveItem),
-            ("tags", Tag),
-            ("links", Link)
+            ("tags", Tag)
         ]
 
         # Get SQLite page size for calculations
@@ -79,6 +78,14 @@ async def get_database_stats(
                 if table_name == "users":
                     # For users table, don't filter by created_by
                     result = await db.execute(select(func.count()).select_from(model))
+                elif table_name == "diary_media":
+                    # DiaryFile doesn't have created_by, need to join with DiaryEntry
+                    result = await db.execute(
+                        select(func.count())
+                        .select_from(model)
+                        .join(DiaryEntry, DiaryEntry.uuid == model.diary_entry_uuid)
+                        .where(DiaryEntry.created_by == current_user.uuid)
+                    )
                 else:
                     # For other tables, filter by current user
                     result = await db.execute(
@@ -807,11 +814,10 @@ async def get_sample_rows(
                 "todos": Todo,
                 "projects": Project,
                 "diary_entries": DiaryEntry,
-                "diary_media": DiaryMedia,
+                "diary_files": DiaryFile,
                 "archive_folders": ArchiveFolder,
                 "archive_items": ArchiveItem,
-                "tags": Tag,
-                "links": Link
+                "tags": Tag
             }
             
             if table not in table_models:
@@ -820,7 +826,12 @@ async def get_sample_rows(
             model = table_models[table]
             
             # Build query with user filtering
-            query = select(model).where(model.created_by == current_user.uuid).limit(limit)
+            if table == "diary_media":
+                # DiaryFile doesn't have created_by, need to join with DiaryEntry
+                query = select(model).join(DiaryEntry, DiaryEntry.uuid == model.diary_entry_uuid).where(DiaryEntry.created_by == current_user.uuid).limit(limit)
+            else:
+                # For other tables, filter by current user
+                query = select(model).where(model.created_by == current_user.uuid).limit(limit)
             
             result = await db.execute(query)
             rows = result.scalars().all()
@@ -861,10 +872,15 @@ async def get_table_schema(
 ):
     """Get detailed schema information for a specific table including size information."""
     try:
+        # Validate table exists to avoid injection
+        valid = await db.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name = :n"), {"n": table})
+        if not valid.scalar():
+            raise HTTPException(status_code=400, detail="Invalid table name")
+
         # Get table info using SQLite PRAGMA
-        schema_result = await db.execute(text(f"PRAGMA table_info({table})"))
+        schema_result = await db.execute(text(f"PRAGMA table_info([{table}])"))
         columns = []
-        
+
         for row in schema_result:
             columns.append({
                 "column_id": row[0],
@@ -874,15 +890,15 @@ async def get_table_schema(
                 "default_value": row[4],
                 "primary_key": bool(row[5])
             })
-        
+
         # Get indexes for the table
-        indexes_result = await db.execute(text(f"PRAGMA index_list({table})"))
+        indexes_result = await db.execute(text(f"PRAGMA index_list([{table}])"))
         indexes = []
         
         for row in indexes_result:
             index_name = row[1]
             # Get index details
-            index_info_result = await db.execute(text(f"PRAGMA index_info({index_name})"))
+            index_info_result = await db.execute(text(f"PRAGMA index_info([{index_name}])"))
             index_columns = []
             for info_row in index_info_result:
                 index_columns.append(info_row[2])  # Column name
@@ -898,7 +914,7 @@ async def get_table_schema(
         try:
             # Get table page count and size
             size_query = text(f"""
-                SELECT 
+                SELECT
                     COUNT(*) as page_count,
                     (SELECT page_size FROM PRAGMA_PAGE_SIZE()) as page_size
                 FROM PRAGMA_PAGE_LIST('{table}')
@@ -921,7 +937,7 @@ async def get_table_schema(
         
         # Get row count
         try:
-            count_result = await db.execute(text(f"SELECT COUNT(*) FROM {table}"))
+            count_result = await db.execute(text(f"SELECT COUNT(*) FROM [{table}]"))
             row_count = count_result.scalar() or 0
         except Exception:
             row_count = 0
@@ -993,21 +1009,22 @@ async def test_diary_encryption(
                 "mood": sample_entry.mood,
                 "created_at": sample_entry.created_at.isoformat(),
                 "updated_at": sample_entry.updated_at.isoformat(),
-                "metadata": json.loads(sample_entry.metadata_json) if sample_entry.metadata_json else {},
                 "is_template": sample_entry.is_template,
                 "encryption_details": {
-                    "has_encrypted_blob": bool(sample_entry.encrypted_blob),
                     "has_encryption_iv": bool(sample_entry.encryption_iv),
                     "has_encryption_tag": bool(sample_entry.encryption_tag),
-                    "encrypted_blob_length": len(sample_entry.encrypted_blob) if sample_entry.encrypted_blob else 0,
                     "iv_length": len(sample_entry.encryption_iv) if sample_entry.encryption_iv else 0,
                     "tag_length": len(sample_entry.encryption_tag) if sample_entry.encryption_tag else 0
                 }
             }
+            # Include file-based storage info (new schema)
+            entry_data["content_length"] = sample_entry.content_length
+            entry_data["content_file_path"] = sample_entry.content_file_path
+            entry_data["file_hash"] = sample_entry.file_hash
             
             # Get media count for this entry
-            media_query = select(func.count()).select_from(DiaryMedia).where(
-                DiaryMedia.diary_entry_uuid == sample_entry.uuid
+            media_query = select(func.count()).select_from(DiaryFile).where(
+                DiaryFile.diary_entry_uuid == sample_entry.uuid
             )
             media_result = await db.execute(media_query)
             media_count = media_result.scalar()
@@ -1217,12 +1234,11 @@ async def _test_notes_crud(db: AsyncSession, user: User, cleanup_list: list, ver
     # Test Create - Using proper Note schema
     try:
         from ..models.note import Note
-        current_year = datetime.now(NEPAL_TZ).year
-        
+
         note_data = {
             "title": f"TEST_NOTE_{test_id}",
-            "content": f"Test content for CRUD testing - ID: {test_id} - Password: {generate_random_password()}",
-            "year": current_year,
+            "content": f"Test content for CRUD testing - ID: {test_id}",
+            "description": f"CRUD test note {test_id}",
             "is_archived": False,
             "created_by": user.uuid
         }
@@ -1234,9 +1250,8 @@ async def _test_notes_crud(db: AsyncSession, user: User, cleanup_list: list, ver
         
         cleanup_list.append(("note", note.uuid))
         add_operation("create", True, {
-            "note_uuid": note.uuid, 
-            "title": note.title, 
-            "year": note.year,
+            "note_uuid": note.uuid,
+            "title": note.title,
             "test_id": test_id
         })
     except Exception as e:
@@ -1350,13 +1365,13 @@ async def _test_documents_crud(db: AsyncSession, user: User, cleanup_list: list,
         test_password = generate_random_password()
         
         doc_data = {
+            "title": f"TEST_DOC_{test_id}",
             "filename": f"TEST_DOC_{test_id}.txt",
             "original_name": f"Original_Test_Document_{test_id}.txt",
-            "filepath": f"/test_storage/crud_test_{test_id}.txt",
+            "file_path": f"/test_storage/crud_test_{test_id}.txt",
+            "file_size": 1024,
             "mime_type": "text/plain",
-            "size_bytes": 1024,
-            "extracted_text": f"Test document content for CRUD testing - ID: {test_id} - Password: {test_password}",
-            "metadata_json": f'{{"test_id": "{test_id}", "test_password": "{test_password}", "test_type": "CRUD"}}',
+            "description": f"Test document content for CRUD testing - ID: {test_id}",
             "is_archived": False,
             "created_by": user.uuid
         }
@@ -1379,11 +1394,11 @@ async def _test_documents_crud(db: AsyncSession, user: User, cleanup_list: list,
     if document:
         try:
             fetched_doc = await db.get(Document, document.uuid)
-            if fetched_doc and test_id in fetched_doc.filename and test_id in fetched_doc.extracted_text:
+            if fetched_doc and test_id in fetched_doc.filename and test_id in (fetched_doc.description or ""):
                 add_operation("read", True, {
                     "verified_filename": fetched_doc.filename,
                     "verified_uuid": fetched_doc.uuid,
-                    "contains_test_id": test_id in fetched_doc.extracted_text
+                    "contains_test_id": test_id in (fetched_doc.description or "")
                 })
             else:
                 add_operation("read", False, error="Document not found or test data mismatch")
@@ -1400,16 +1415,15 @@ async def _test_documents_crud(db: AsyncSession, user: User, cleanup_list: list,
             new_extracted_text = f"Updated test content - ID: {test_id} - New Password: {new_test_password}"
             
             document.filename = new_filename
-            document.extracted_text = new_extracted_text
-            document.metadata_json = f'{{"test_id": "{test_id}", "updated_password": "{new_test_password}", "test_type": "CRUD_UPDATED"}}'
+            document.description = new_extracted_text
             await db.flush()
             await db.refresh(document)
-            
-            if document.filename == new_filename and new_test_password in document.extracted_text:
+
+            if document.filename == new_filename and new_test_password in (document.description or ""):
                 add_operation("update", True, {
                     "new_filename": new_filename,
                     "new_content_length": len(new_extracted_text),
-                    "contains_new_password": new_test_password in document.extracted_text
+                    "contains_new_password": new_test_password in (document.description or "")
                 })
             else:
                 add_operation("update", False, error="Document update verification failed")
@@ -1481,14 +1495,14 @@ async def _test_todos_crud(db: AsyncSession, user: User, cleanup_list: list, ver
     # Test Create - Using proper Todo schema
     try:
         from ..models.todo import Todo, TodoStatus
+        from ..models.enums import TaskPriority
         test_password = generate_random_password()
         
         todo_data = {
             "title": f"TEST_TODO_{test_id}",
             "description": f"Test todo for CRUD testing - ID: {test_id} - Password: {test_password}",
-            "priority": 2,  # Medium priority (1=Low, 2=Medium, 3=High)
+            "priority": TaskPriority.MEDIUM,
             "status": TodoStatus.PENDING,
-            "is_recurring": False,
             "created_by": user.uuid
         }
         
@@ -1536,7 +1550,7 @@ async def _test_todos_crud(db: AsyncSession, user: User, cleanup_list: list, ver
             todo.description = updated_description
             todo.status = TodoStatus.DONE
             todo.priority = TaskPriority.HIGH
-            todo.completed_at = datetime.now()
+            todo.completed_at = datetime.now(NEPAL_TZ)
             await db.flush()
             await db.refresh(todo)
             
@@ -1630,8 +1644,6 @@ async def _test_archive_crud(db: AsyncSession, user: User, cleanup_list: list, v
         folder_data = {
             "name": folder_name,
             "description": f"Test folder for CRUD testing - ID: {test_id} - Password: {test_password}",
-            "path": folder_path,
-            "is_archived": False,
             "created_by": user.uuid
         }
         
@@ -1644,7 +1656,6 @@ async def _test_archive_crud(db: AsyncSession, user: User, cleanup_list: list, v
         add_operation("create_folder", True, {
             "folder_uuid": folder.uuid,
             "folder_name": folder.name,
-            "folder_path": folder.path,
             "test_id": test_id
         })
     except Exception as e:
@@ -1664,9 +1675,7 @@ async def _test_archive_crud(db: AsyncSession, user: User, cleanup_list: list, v
                 "file_path": f"/test_storage/archive_crud/{test_id}/test_file.txt",
                 "mime_type": "text/plain",
                 "file_size": 2048,
-                "extracted_text": f"Test file content - ID: {test_id} - Password: {item_test_password}",
                 "metadata_json": f'{{"test_id": "{test_id}", "test_password": "{item_test_password}", "test_type": "ARCHIVE_CRUD"}}',
-                "is_archived": False,
                 "created_by": user.uuid
             }
             
@@ -2514,11 +2523,12 @@ async def test_documents_create(
     try:
         from ..models.document import Document
         document = Document(
+            title=f"Test {filename}",
             filename=f"{filename}_{datetime.now().strftime('%H%M%S')}",
+            original_name=filename,
             file_path=f"/temp/{filename}",
             file_size=file_size,
-            content_type=content_type,
-            upload_date=datetime.now(),
+            mime_type=content_type,
             created_by=current_user.uuid
         )
         db.add(document)
@@ -2795,7 +2805,7 @@ async def get_diary_table_details(
 ):
     """Get detailed information about diary tables, showing structure while respecting encryption."""
     try:
-        from ..models.diary import DiaryEntry, DiaryMedia, DiaryDailyMetadata
+        from ..models.diary import DiaryEntry, DiaryFile, DiaryDailyMetadata
         
         # Get diary entries table info with new fields
         entries_query = text("""
@@ -2827,15 +2837,15 @@ async def get_diary_table_details(
         # Get media table info
         media_query = text("""
             SELECT COUNT(*) as total_media,
-                   COUNT(DISTINCT entry_id) as entries_with_media,
-                   COUNT(CASE WHEN media_type = 'photo' THEN 1 END) as photos,
-                   COUNT(CASE WHEN media_type = 'voice' THEN 1 END) as voice_recordings,
-                   COUNT(CASE WHEN media_type = 'video' THEN 1 END) as videos,
-                   SUM(size_bytes) as total_media_size,
-                   AVG(size_bytes) as avg_media_size,
-                   COUNT(CASE WHEN duration_seconds IS NOT NULL THEN 1 END) as media_with_duration
-            FROM diary_media 
-            WHERE created_by = :created_by
+                   COUNT(DISTINCT m.diary_entry_uuid) as entries_with_media,
+                   COUNT(CASE WHEN file_type = 'photo' THEN 1 END) as photos,
+                   COUNT(CASE WHEN file_type = 'voice' THEN 1 END) as voice_recordings,
+                   COUNT(CASE WHEN file_type = 'video' THEN 1 END) as videos,
+                   SUM(file_size) as total_media_size,
+                   AVG(file_size) as avg_media_size
+            FROM diary_media m
+            JOIN diary_entries e ON e.uuid = m.diary_entry_uuid
+            WHERE e.created_by = :created_by
         """)
         media_result = await db.execute(media_query, {"created_by": current_user.uuid})
         media_stats = media_result.fetchone()
@@ -2856,53 +2866,52 @@ async def get_diary_table_details(
         
         # Get sample entries (structure only, no decryption)
         sample_query = text("""
-            SELECT id, uuid, date, title, mood, weather_code, location, is_template,
-                   from_template_id, content_length, created_at,  -- daily_metadata_id removed
+            SELECT uuid, date, title, mood, weather_code, location, is_template,
+                   from_template_id, content_length, created_at,
                    LENGTH(content_file_path) as content_file_path_length,
                    encryption_iv, file_hash
-            FROM diary_entries 
+            FROM diary_entries
             WHERE created_by = :created_by
             ORDER BY created_at DESC
-            LIMIT 5
+            LIMIT :limit
         """)
-        sample_result = await db.execute(sample_query, {"created_by": current_user.uuid})
+        sample_result = await db.execute(sample_query, {"created_by": current_user.uuid, "limit": 5})
         sample_entries = []
         
         weather_labels = {0: "Clear", 1: "Partly Cloudy", 2: "Cloudy", 3: "Rain", 4: "Storm", 5: "Snow", 6: "Scorching Sun"}
         
-        for row in sample_result:
+        for m in sample_result.mappings():
             sample_entries.append({
-                "id": row[0],
-                "uuid": row[1],
-                "date": str(row[2]),
-                "title": row[3] or "[No Title]",
-                "mood": row[4],
-                "weather_code": row[5],
-                "weather_label": weather_labels.get(row[5], "Unknown") if row[5] is not None else None,
-                "location": row[6],
-                "is_template": bool(row[7]),
-                "from_template_id": row[8],
-                # daily_metadata_id removed - now uses natural date relationship
-                "content_length": row[9],
-                "created_at": str(row[10]),
+                "uuid": m["uuid"],
+                "date": str(m["date"]),
+                "title": m["title"] or "[No Title]",
+                "mood": m["mood"],
+                "weather_code": m["weather_code"],
+                "weather_label": weather_labels.get(m["weather_code"], "Unknown") if m["weather_code"] is not None else None,
+                "location": m["location"],
+                "is_template": bool(m["is_template"]),
+                "from_template_id": m["from_template_id"],
+                "content_length": m["content_length"],
+                "created_at": str(m["created_at"]),
                 "content_file_info": {
-                    "has_file_path": row[12] is not None and row[12] > 0,
-                    "path_length": row[12]
+                    "has_file_path": (m["content_file_path_length"] or 0) > 0,
+                    "path_length": m["content_file_path_length"]
                 },
                 "encryption_metadata": {
-                    "has_iv": row[13] is not None,
-                    "has_file_hash": row[14] is not None
+                    "has_iv": m["encryption_iv"] is not None,
+                    "has_file_hash": m["file_hash"] is not None
                 }
             })
         
         # Get sample media entries
         sample_media_query = text("""
-            SELECT uuid, diary_entry_uuid, mime_type, file_size, media_type,
-                   created_at,
-                   LENGTH(filename) as filename_length,
-                   LENGTH(file_path) as filepath_length
-            FROM diary_media 
-            WHERE created_by = :created_by
+            SELECT m.uuid, m.diary_entry_uuid, m.mime_type, m.file_size, m.file_type,
+                   m.created_at,
+                   LENGTH(m.filename) as filename_length,
+                   LENGTH(m.file_path) as filepath_length
+            FROM diary_media m
+            JOIN diary_entries e ON e.uuid = m.diary_entry_uuid
+            WHERE e.created_by = :created_by
             ORDER BY created_at DESC
             LIMIT 3
         """)
@@ -2915,7 +2924,7 @@ async def get_diary_table_details(
                 "diary_entry_uuid": row[1],
                 "mime_type": row[2],
                 "size_mb": round((row[3] or 0) / (1024 * 1024), 2),
-                "media_type": row[4],
+                "file_type": row[4],
                 "created_at": str(row[5]),
                 "file_path_lengths": {
                     "filename_length": row[6],
@@ -2985,9 +2994,9 @@ async def get_diary_table_details(
                 "privacy_preserved": "This ensures your diary remains private even during system testing"
             },
             "table_structure": {
-                "diary_entries_columns": ["id", "uuid", "title", "date", "mood", "weather_code", "location", "day_of_week", "media_count", "content_length", "content_file_path", "file_hash", "encryption_iv", "is_favorite", "is_template", "from_template_id", "created_by", "created_at", "updated_at", "is_deleted", "tags_text"],  # Removed is_archived and daily_metadata_id
-                "diary_media_columns": ["uuid", "diary_entry_uuid", "filename_encrypted", "filepath_encrypted", "encryption_iv", "mime_type", "size_bytes", "media_type", "duration_seconds", "created_by", "created_at"],
-                "diary_daily_metadata_columns": ["id", "created_by", "date", "nepali_date", "metrics_json", "created_at", "updated_at"]
+                "diary_entries_columns": ["uuid","title","date","mood","weather_code","location","media_count","content_length","content_file_path","file_hash","encryption_iv","encryption_tag","is_favorite","is_template","from_template_id","created_by","created_at","updated_at","is_deleted"],
+                "diary_media_columns": ["uuid","diary_entry_uuid","filename","file_path","mime_type","file_size","file_type","description","display_order","created_at","updated_at","is_deleted"],
+                "diary_daily_metadata_columns": ["uuid","created_by","date","nepali_date","day_of_week","metrics_json","created_at","updated_at"]
             },
             "weather_code_mapping": {
                 "0": "Clear",
@@ -3013,12 +3022,13 @@ async def get_session_status(
     try:
         from ..models.user import Session
         from datetime import datetime, timedelta
+from app.config import nepal_now
         
         # Get current user's active session
         session_result = await db.execute(
             select(Session)
             .where(Session.created_by == current_user.uuid)
-            .where(Session.expires_at > datetime.utcnow())
+            .where(Session.expires_at > nepal_now())
             .order_by(Session.expires_at.desc())
             .limit(1)
         )
@@ -3029,10 +3039,10 @@ async def get_session_status(
                 "status": "no_active_session",
                 "message": "No active session found",
                 "created_by": current_user.uuid,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": nepal_now().isoformat()
             }
         
-        now = datetime.utcnow()
+        now = nepal_now()
         time_until_expiry = session.expires_at - now
         time_since_created = now - session.created_at
         time_since_activity = now - session.last_activity if session.last_activity else None
@@ -3079,7 +3089,7 @@ async def get_session_status(
             "status": "error",
             "error": str(e),
             "message": "Failed to analyze session status",
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": nepal_now().isoformat()
         }
 
 @router.get("/health")
@@ -3394,24 +3404,28 @@ async def run_diary_migration(
         # Update media_count for existing entries
         log_message("MEDIA: Calculating media_count for existing entries...", "info")
         await db.execute(text("""
-            UPDATE diary_entries 
+            UPDATE diary_entries
             SET media_count = (
-                SELECT COUNT(*) 
-                FROM diary_media 
-                WHERE diary_media.entry_uuid = diary_entries.uuid
+                SELECT COUNT(*)
+                FROM diary_media
+                WHERE diary_media.diary_entry_uuid = diary_entries.uuid
             )
             WHERE media_count IS NULL OR media_count = 0
         """))
         
         # Migrate existing diary data to files
-        log_message("MIGRATION: Migrating existing diary data to file-based storage...", "info")
+        log_message("MIGRATION: No legacy data migration needed - using current file-based storage", "info")
         
         # Get entries that still have encrypted_blob but no content_file_path
+        # Prefer uuid where present; fall back to legacy id
+        # Note: encrypted_blob may exist only on legacy rows.
         result = await db.execute(text("""
-            SELECT id, title, encrypted_blob, encryption_iv, encryption_tag, date, created_by
-            FROM diary_entries 
-            WHERE encrypted_blob IS NOT NULL 
-            AND (content_file_path IS NULL OR content_file_path = '')
+            SELECT
+                COALESCE(uuid, CAST(id AS TEXT)) AS entry_key,
+                encrypted_blob, encryption_iv, encryption_tag, date
+            FROM diary_entries
+            WHERE encrypted_blob IS NOT NULL
+              AND (content_file_path IS NULL OR content_file_path = '')
         """))
         entries_to_migrate = result.fetchall()
         
@@ -3426,7 +3440,7 @@ async def run_diary_migration(
             
             migrated_count = 0
             for entry in entries_to_migrate:
-                entry_id, title, encrypted_blob, iv, tag, entry_date, created_by = entry
+                entry_key, encrypted_blob, iv, tag, entry_date = entry
                 
                 try:
                     # Parse date for filename
@@ -3437,7 +3451,7 @@ async def run_diary_migration(
                     
                     # Generate readable filename
                     date_str = parsed_date.strftime("%Y-%m-%d")
-                    filename = f"{date_str}_diary_{entry_id}.dat"
+                    filename = f"{date_str}_diary_{entry_key}.dat"
                     file_path = secure_dir / filename
                     
                     # Write encrypted data to file using the new format

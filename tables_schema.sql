@@ -129,6 +129,7 @@ CREATE TABLE notes (
     is_deleted BOOLEAN DEFAULT FALSE,
     -- Derived counts
     file_count INTEGER DEFAULT 0 NOT NULL,  -- Count of attached files
+    thumbnail_path VARCHAR(500),           -- Path to note thumbnail (if applicable)
     created_by VARCHAR(36) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -174,6 +175,7 @@ CREATE TABLE documents (
     is_archived BOOLEAN DEFAULT FALSE,
     is_exclusive_mode BOOLEAN DEFAULT FALSE,
     -- Upload status removed - only needed during upload process, handled by upload services
+    thumbnail_path VARCHAR(500),           -- Path to thumbnail file
     -- Soft Delete
     is_deleted BOOLEAN DEFAULT FALSE,
     created_by VARCHAR(36) NOT NULL,
@@ -360,13 +362,16 @@ CREATE TABLE diary_media (
     mime_type VARCHAR(100) NOT NULL,
     media_type VARCHAR(20) NOT NULL,      -- photo, video, voice
     description TEXT,                     -- Renamed from caption for consistency
+    display_order INTEGER DEFAULT 0 NOT NULL, -- Order of display within diary entry (0 = first)
+    thumbnail_path VARCHAR(500),           -- Path to thumbnail file
     -- is_encrypted removed - diary media is always encrypted by default
-    is_deleted BOOLEAN DEFAULT FALSE,     -- Soft Delete
-    created_by VARCHAR(36) NOT NULL,
+    -- created_by removed - redundant, already in parent diary entry
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_deleted BOOLEAN DEFAULT FALSE,     -- Soft Delete
 
-    FOREIGN KEY (diary_entry_uuid) REFERENCES diary_entries(uuid) ON DELETE CASCADE,
-    FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
+    FOREIGN KEY (diary_entry_uuid) REFERENCES diary_entries(uuid) ON DELETE CASCADE
+    -- Note: created_by foreign key removed - created_by field removed from model
 );
 
 -- ================================
@@ -412,6 +417,7 @@ CREATE TABLE archive_items (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- Additional metadata as JSON
     metadata_json TEXT DEFAULT '{}',
+    thumbnail_path VARCHAR(500),           -- Path to thumbnail file
 
     FOREIGN KEY (folder_uuid) REFERENCES archive_folders(uuid) ON DELETE CASCADE,
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE

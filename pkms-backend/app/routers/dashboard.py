@@ -273,9 +273,11 @@ async def get_quick_stats(
         notes_bytes = await db.scalar(
             select(func.coalesce(func.sum(Note.size_bytes), 0)).where(Note.created_by == created_by)
         )
-        from app.models.diary import DiaryMedia, DiaryEntry as _DiaryEntry
+        from app.models.diary import DiaryFile, DiaryEntry as _DiaryEntry
         diary_media_bytes = await db.scalar(
-            select(func.coalesce(func.sum(DiaryMedia.file_size), 0)).where(DiaryMedia.created_by == created_by)
+            select(func.coalesce(func.sum(DiaryFile.file_size), 0))
+            .join(DiaryEntry, DiaryFile.diary_entry_uuid == DiaryEntry.uuid)
+            .where(DiaryEntry.created_by == created_by)
         )
         diary_text_bytes = await db.scalar(
             select(func.coalesce(func.sum(_DiaryEntry.content_length), 0)).where(_DiaryEntry.created_by == created_by)

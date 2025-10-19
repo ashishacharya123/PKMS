@@ -66,11 +66,11 @@ class NoteUpdate(CamelCaseModel):
         return v
 
 class NoteResponse(CamelCaseModel):
-    id: int
     uuid: str
     title: str
     content: str
     file_count: int
+    thumbnail_path: Optional[str]  # ✅ ADDED - now exists in Note model
     is_favorite: bool
     is_archived: bool
     is_exclusive_mode: bool
@@ -80,7 +80,6 @@ class NoteResponse(CamelCaseModel):
     projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this note belongs to")
 
 class NoteSummary(CamelCaseModel):
-    id: int
     uuid: str
     title: str
     file_count: int

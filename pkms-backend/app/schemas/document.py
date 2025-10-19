@@ -52,9 +52,14 @@ class DocumentResponse(CamelCaseModel):
     title: str
     description: Optional[str] = None
     original_name: str
-    mime_type: str
+    filename: str
+    file_path: str
     file_size: int
-    # upload_status removed - only needed during upload process
+    mime_type: str
+    is_favorite: bool
+    is_archived: bool
+    is_exclusive_mode: bool
+    # upload_status removed - only needed during upload process, not stored in model
     created_at: datetime
     updated_at: datetime
     tags: List[str]

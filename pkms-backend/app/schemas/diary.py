@@ -23,16 +23,13 @@ class CamelCaseModel(BaseModel):
     )
 
 
-
 class EncryptionSetupRequest(CamelCaseModel):
     password: str
     hint: Optional[str] = None
 
 
-
 class EncryptionUnlockRequest(CamelCaseModel):
     password: str
-
 
 
 class DiaryEntryUpdate(CamelCaseModel):
@@ -106,27 +103,27 @@ class DiaryEntryCreate(CamelCaseModel):
 
 
 class DiaryEntryResponse(CamelCaseModel):
+    """Secure diary entry response - metadata only, no encrypted content"""
     uuid: str
     date: date
     title: Optional[str]
-    encrypted_blob: str
-    encryption_iv: str
     mood: Optional[int]
     weather_code: Optional[int]
     weather_label: Optional[str] = None
     location: Optional[str]
     daily_metrics: Dict[str, Any] = Field(default_factory=dict)
     nepali_date: Optional[str]
-    daily_income: Optional[int] = 0  # Income in NPR
-    daily_expense: Optional[int] = 0  # Expense in NPR
-    is_office_day: Optional[bool] = False  # Was this an office/work day?
+    daily_income: Optional[int] = 0
+    daily_expense: Optional[int] = 0
+    is_office_day: Optional[bool] = False
     is_template: bool
     from_template_id: Optional[str]
     created_at: datetime
     updated_at: datetime
-    media_count: int
+    file_count: int
     tags: List[str] = Field(default_factory=list)
     content_length: int
+    content_available: bool = Field(default=True, description="Whether encrypted content can be accessed with valid diary session")
 
     @validator("daily_metrics", pre=True, always=True)
     def parse_daily_metrics(cls, v):
@@ -156,7 +153,7 @@ class DiaryEntrySummary(CamelCaseModel):
     is_template: bool
     from_template_id: Optional[str]
     created_at: datetime
-    media_count: int
+    file_count: int
     encrypted_blob: str
     encryption_iv: str
     tags: List[str] = Field(default_factory=list)
@@ -182,8 +179,7 @@ class DiaryCalendarData(CamelCaseModel):
     date: str
     mood: Optional[int]
     has_entry: bool
-    media_count: int
-
+    file_count: int
 
 
 class MoodStats(CamelCaseModel):
@@ -201,133 +197,84 @@ class WellnessTrendPoint(CamelCaseModel):
 
 class WellnessStats(CamelCaseModel):
     """Comprehensive wellness analytics across all metrics"""
-
-    # Period info
     period_start: str
     period_end: str
     total_days: int
     days_with_data: int
-
-    # Overall wellness
     wellness_score: Optional[float] = None
     wellness_components: Dict[str, float] = Field(default_factory=dict)
-
-    # Mood metrics
     average_mood: Optional[float] = None
     mood_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     mood_distribution: Dict[int, int] = Field(default_factory=dict)
-
-    # Sleep metrics
     average_sleep: Optional[float] = None
     sleep_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     sleep_quality_days: int = 0
-
-    # Exercise metrics
     exercise_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     days_exercised: int = 0
     exercise_frequency_per_week: float = 0.0
     average_exercise_minutes: Optional[float] = None
-
-    # Screen time metrics
     screen_time_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     average_screen_time: Optional[float] = None
-
-    # Energy and stress metrics
     energy_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     stress_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     average_energy: Optional[float] = None
     average_stress: Optional[float] = None
-
-    # Hydration metrics
     hydration_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     average_water_intake: Optional[float] = None
-
-    # Habit metrics
     meditation_days: int = 0
     gratitude_days: int = 0
     social_interaction_days: int = 0
-
-    # Correlation analytics
     mood_sleep_correlation: List[Dict[str, float]] = Field(default_factory=list)
     correlation_coefficient: Optional[float] = None
-
-    # Financial metrics
     financial_trend: List[Dict[str, float]] = Field(default_factory=list)
     total_income: float = 0.0
     total_expense: float = 0.0
     net_savings: float = 0.0
     average_daily_income: Optional[float] = None
     average_daily_expense: Optional[float] = None
-
-    # Insights
     insights: List[Dict[str, Any]] = Field(default_factory=list)
     
 class WeeklyHighlights(CamelCaseModel):
-    # Period info (calculated on the fly)
     period_start: str
     period_end: str
     total_days: int = 7
     days_with_data: int = 0
-
-    # Summary metrics (for top cards)
     notes_created: int
     documents_uploaded: int
     todos_completed: int
     diary_entries: int
     archive_items_added: int
-    projects_created: int = 0  # TODO: Remove when project model is separated
-    projects_completed: int = 0  # TODO: Remove when project model is separated
+    projects_created: int = 0
+    projects_completed: int = 0
     total_income: float
     total_expense: float
     net_savings: float
-
-    # Wellness metrics (calculated from diary entries)
-    wellness_score: Optional[float] = None  # 0-100 composite score
+    wellness_score: Optional[float] = None
     average_mood: Optional[float] = None
     average_sleep: Optional[float] = None
-    
-    # Mood data
     mood_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     mood_distribution: Dict[int, int] = Field(default_factory=dict)
-    
-    # Sleep data
     sleep_trend: List[WellnessTrendPoint] = Field(default_factory=list)
-    sleep_quality_days: int = 0  # Days with 7+ hours
-    
-    # Exercise data
+    sleep_quality_days: int = 0
     exercise_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     days_exercised: int = 0
     exercise_frequency_per_week: float = 0.0
     average_exercise_minutes: Optional[float] = None
-    
-    # Screen time
     screen_time_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     average_screen_time: Optional[float] = None
-    
-    # Energy & Stress
     energy_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     stress_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     average_energy: Optional[float] = None
     average_stress: Optional[float] = None
-    
-    # Hydration
     hydration_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     average_water_intake: Optional[float] = None
-    
-    # Mental wellness habits
     meditation_days: int = 0
     gratitude_days: int = 0
     social_interaction_days: int = 0
-    
-    # Correlations (for scatter plots)
-    mood_sleep_correlation: List[Dict[str, Optional[float]]] = Field(default_factory=list)  # [{mood, sleep}, ...]
-    correlation_coefficient: Optional[float] = None  # Pearson r for mood vs sleep
-    
-    # Wellness score breakdown (for radar chart)
-    wellness_components: Dict[str, float] = Field(default_factory=dict)  # {sleep: 85, exercise: 60, mental: 75, ...}
-    
-    # Insights
-    insights: List[Dict[str, str]] = Field(default_factory=list)  # [{type: 'positive', message: '...', metric: 'sleep'}, ...]
+    mood_sleep_correlation: List[Dict[str, Optional[float]]] = Field(default_factory=list)
+    correlation_coefficient: Optional[float] = None
+    wellness_components: Dict[str, float] = Field(default_factory=dict)
+    insights: List[Dict[str, str]] = Field(default_factory=list)
 
 
 class DiaryDailyMetadata(CamelCaseModel):
@@ -346,6 +293,7 @@ class DiaryDailyMetadata(CamelCaseModel):
 class DiaryDailyMetadataResponse(CamelCaseModel):
     date: date
     nepali_date: Optional[str]
+    day_of_week: Optional[int]
     metrics: Dict[str, Any]
     created_at: datetime
     updated_at: datetime
@@ -372,41 +320,40 @@ class DiaryDailyMetadataUpdate(CamelCaseModel):
         return v
 
 
-class DiaryMediaResponse(CamelCaseModel):
+class DiaryFileResponse(CamelCaseModel):
     uuid: str
-    entry_id: str
-    filename_encrypted: str
+    diary_entry_uuid: str
+    filename: str
     mime_type: str
-    size_bytes: int
-    media_type: str
+    file_size: int
+    file_type: str
     display_order: int
     duration_seconds: Optional[int]
     created_at: datetime
 
 
-
-class DiaryMediaUpload(CamelCaseModel):
+class DiaryFileUpload(CamelCaseModel):
     caption: Optional[str] = Field(None, max_length=500)
-    media_type: str = Field(..., description="Type: photo, video, voice")
+    file_type: str = Field(..., description="Type: photo, video, voice")
 
-    @validator('media_type')
-    def validate_media_type(cls, v):
+    @validator('file_type')
+    def validate_file_type(cls, v):
         allowed_types = ['photo', 'video', 'voice']
         if v not in allowed_types:
-            raise ValueError(f"Media type must be one of: {', '.join(allowed_types)}")
+            raise ValueError(f"File type must be one of: {', '.join(allowed_types)}")
         return v
 
 
-class CommitDiaryMediaRequest(CamelCaseModel):
+class CommitDiaryFileRequest(CamelCaseModel):
     file_id: str
-    entry_id: str
+    diary_entry_uuid: str
     caption: Optional[str] = None
-    media_type: str = Field(..., description="Type: photo, video, voice")
+    file_type: str = Field(..., description="Type: photo, video, voice")
     display_order: Optional[int] = Field(0, ge=0, description="Order of display (0 = first)")
 
-    @validator('media_type')
-    def validate_media_type(cls, v):
+    @validator('file_type')
+    def validate_file_type(cls, v):
         allowed_types = ['photo', 'video', 'voice']
         if v not in allowed_types:
-            raise ValueError(f"Media type must be one of: {', '.join(allowed_types)}")
+            raise ValueError(f"File type must be one of: {', '.join(allowed_types)}")
         return v

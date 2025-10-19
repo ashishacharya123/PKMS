@@ -2,7 +2,7 @@
 Archive Models for File Organization
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Enum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
@@ -10,7 +10,6 @@ from uuid import uuid4
 from app.models.base import Base
 from app.config import nepal_now
 from app.models.tag_associations import archive_folder_tags, archive_item_tags
-from app.models.enums import UploadStatus
 
 
 class ArchiveFolder(Base):
@@ -68,8 +67,8 @@ class ArchiveItem(Base):
     
     # Additional metadata as JSON
     metadata_json = Column(Text, default="{}")  # Additional metadata as JSON
-    
-    
+    thumbnail_path = Column(String(500), nullable=True)  # Path to thumbnail file
+
     # Relationships
     user = relationship("User", back_populates="archive_items", foreign_keys=[created_by])
     folder = relationship("ArchiveFolder", back_populates="items")

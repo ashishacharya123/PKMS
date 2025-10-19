@@ -209,7 +209,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         isExclusiveMode: (document as any).isExclusiveMode ?? false,
         is_favorite: document.is_favorite ?? false,
         is_archived: document.is_archived,
-        upload_status: document.upload_status || 'completed',
+        // upload_status: document.upload_status || 'completed',  // Removed - backend no longer tracks
         created_at: document.created_at,
         updated_at: document.updated_at,
         tags: document.tags,
@@ -288,7 +288,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         description: updatedDocument.description,
         is_favorite: updatedDocument.is_favorite,
         is_archived: updatedDocument.is_archived,
-        upload_status: updatedDocument.upload_status,
+        // upload_status: updatedDocument.upload_status,  // Removed - backend no longer tracks
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
         tags: updatedDocument.tags,
@@ -356,7 +356,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         description: updatedDocument.description,
         is_favorite: updatedDocument.is_favorite,
         is_archived: updatedDocument.is_archived,
-        upload_status: updatedDocument.upload_status,
+        // upload_status: updatedDocument.upload_status,  // Removed - backend no longer tracks
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
         tags: updatedDocument.tags,

@@ -1,7 +1,6 @@
 """
 Document Model for File Management
 """
-import enum
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Enum
 from sqlalchemy.orm import relationship
 from uuid import uuid4
@@ -32,6 +31,7 @@ class Document(Base):
     is_exclusive_mode = Column(Boolean, default=False, index=True)  # If True, document is deleted when any of its projects are deleted (project-exclusive)
 
     # Upload status removed - only needed during upload process, handled by upload services
+    thumbnail_path = Column(String(500), nullable=True)  # Path to thumbnail file
 
     # Audit trail
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)

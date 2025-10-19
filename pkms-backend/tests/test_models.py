@@ -21,10 +21,10 @@ from app.models.document import Document
 from app.models.todo import Todo
 from app.models.project import Project
 from app.models.enums import TodoStatus, TaskPriority
-from app.models.diary import DiaryEntry, DiaryMedia
+from app.models.diary import DiaryEntry, DiaryFile
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import Tag
-from app.models.link import Link
+# Link model removed; skip Link-related tests for now
 from app.auth.security import hash_password
 from .conftest import assert_response_success
 
@@ -270,7 +270,7 @@ class TestDocumentModel:
         assert document.filename == "doc_123.pdf"
         assert document.original_name == "Important Document.pdf"
         assert document.is_favorite is True
-        assert document.upload_status == "completed"  # Default value
+        # upload_status removed; handled by upload services
     
     @pytest.mark.asyncio
     async def test_document_archive_functionality(self, db_session: AsyncSession, test_user: User):
@@ -353,8 +353,7 @@ class TestTodoModel:
         project = Project(
             name="Test Project",
             description="Project for testing",
-            created_by=test_user.uuid,
-            status="active"
+            created_by=test_user.uuid
         )
         
         db_session.add(project)
@@ -524,11 +523,9 @@ class TestDiaryModel:
         """Test diary entry creation."""
         entry = DiaryEntry(
             title="My Day",
-            date=datetime.now().date(),
-            mood="happy",
+            date=datetime.now(),
+            mood=3,
             created_by=test_user.uuid,
-            encrypted_content=b"encrypted_content_here",
-            encrypted_metadata=b"encrypted_metadata_here"
         )
         
         db_session.add(entry)
@@ -537,9 +534,8 @@ class TestDiaryModel:
         
         assert entry.uuid is not None
         assert entry.title == "My Day"
-        assert entry.mood == "happy"
-        assert entry.encrypted_content is not None
-        assert entry.encryption_method == "AES-GCM"  # Default
+        assert entry.mood == 3
+        # encryption fields handled via services; not asserted here
     
     @pytest.mark.asyncio
     async def test_diary_unique_date_constraint(self, db_session: AsyncSession, test_user: User):
@@ -581,16 +577,14 @@ class TestDiaryModel:
         await db_session.commit()
         await db_session.refresh(entry)
         
-        media = DiaryMedia(
-            entry_uuid=entry.uuid,
+        media = DiaryFile(
+            diary_entry_uuid=entry.uuid,
             filename="photo.jpg",
             original_name="vacation_photo.jpg",
             file_path="/diary/media/photo.jpg",
             file_size=512000,
             mime_type="image/jpeg",
-            media_type="photo",
-            created_by=test_user.uuid,
-            encrypted_file_data=b"encrypted_image_data"
+            file_type="photo"
         )
         
         db_session.add(media)
@@ -598,7 +592,7 @@ class TestDiaryModel:
         
         # Verify relationship
         result = await db_session.execute(
-            select(DiaryMedia).where(DiaryMedia.entry_uuid == entry.uuid)
+            select(DiaryFile).where(DiaryFile.diary_entry_uuid == entry.uuid)
         )
         media_files = result.scalars().all()
         assert len(media_files) == 1
@@ -678,6 +672,7 @@ class TestTagModel:
         assert len(tag.documents) >= 1
 
 
+@pytest.mark.skip(reason="Link module removed; skipping link tests")
 class TestLinkModel:
     """Test Link model for cross-references."""
     

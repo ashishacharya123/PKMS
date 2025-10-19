@@ -78,6 +78,8 @@ class TagService:
                     usage_count=1
                 )
                 db.add(tag)
+                # Ensure tag row exists before association insert
+                await db.flush([tag])
             else:
                 # Only increment if it's a newly added tag for this item
                 if tag.name.lower() in tags_to_add:

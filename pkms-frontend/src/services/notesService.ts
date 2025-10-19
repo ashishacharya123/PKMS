@@ -17,7 +17,6 @@ export interface ProjectBadge {
 }
 
 export interface Note {
-  id: number;
   uuid: string;
   title: string;
   content: string;
@@ -37,7 +36,6 @@ export interface Note {
 }
 
 export interface NoteSummary {
-  id: number;
   uuid: string;
   title: string;
   file_count: number;
@@ -82,12 +80,6 @@ export interface UpdateNoteRequest {
   is_favorite?: boolean;
   projectIds?: string[];
   isExclusiveMode?: boolean;
-}
-
-export interface UploadFileRequest {
-  file: File;
-  noteId: number;
-  description?: string;
 }
 
 class NotesService {

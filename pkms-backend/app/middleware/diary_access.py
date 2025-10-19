@@ -88,7 +88,9 @@ class DiaryAccessMiddleware:
                 )
 
             # Verify session exists and is valid
-            async for db in get_db():
+            db_gen = get_db()
+            db = await db_gen.__anext__()
+            try:
                 result = await db.execute(
                     select(Session).where(
                         Session.session_token == session_token,
@@ -105,12 +107,14 @@ class DiaryAccessMiddleware:
 
                 # Check if user has unlocked diary
                 if not await _get_diary_password_from_session(session.created_by):
-                    logger.warning(f"DENIED: Diary search attempt without unlocked diary for user {session.created_by}")
+                    logger.warning("DENIED: Diary search attempt without unlocked diary")
+                    logger.debug("Diary search denied for user", extra={"created_by": session.created_by})
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="Diary must be unlocked to search"
                     )
-                break  # Exit after first iteration
+            finally:
+                await db_gen.aclose()
 
         # Note: Removing 'diary' from local lists doesn't affect the original request
         # This filtering should be handled at the service layer, not in middleware

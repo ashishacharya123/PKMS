@@ -65,7 +65,6 @@ def _convert_doc_to_response(doc: Document, project_badges: Optional[List[Projec
         is_favorite=doc.is_favorite,
         is_archived=doc.is_archived,
         is_exclusive_mode=doc.is_exclusive_mode,
-        upload_status=doc.upload_status,
         created_at=doc.created_at,
         updated_at=doc.updated_at,
         tags=[t.name for t in doc.tag_objs] if doc.tag_objs else [],
@@ -300,7 +299,6 @@ async def list_documents(
                         project_badges.append(ProjectBadge(
                             uuid=None,
                             name=junction._mapping["project_name_snapshot"],
-                            color="#6c757d",  # Gray for deleted
                             is_exclusive=junction._mapping["is_exclusive"],
                             is_deleted=True
                         ))

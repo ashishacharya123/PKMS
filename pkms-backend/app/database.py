@@ -21,14 +21,13 @@ from app.models.note import Note, NoteFile
 from app.models.document import Document
 from app.models.todo import Todo
 from app.models.project import Project
-from app.models.diary import DiaryEntry, DiaryMedia
+from app.models.diary import DiaryEntry, DiaryFile
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import Tag
-from app.models.link import Link
 # Import all tag association tables
 from app.models.tag_associations import (
-    note_tags, document_tags, todo_tags, 
-    diary_entry_tags, archive_item_tags, archive_folder_tags, link_tags
+    note_tags, document_tags, todo_tags,
+    diary_entry_tags, archive_item_tags, archive_folder_tags
 )
 
 # Configure logging

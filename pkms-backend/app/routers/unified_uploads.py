@@ -87,7 +87,7 @@ async def commit_unified_upload(
             db=db,
             upload_id=schema.file_id,
             module=module,
-            user_uuid=current_user.uuid,
+            created_by=current_user.uuid,
             metadata=metadata
         )
 
@@ -137,10 +137,24 @@ async def get_upload_status(
         from app.services.chunk_service import chunk_manager
 
         status_obj = await chunk_manager.get_upload_status(upload_id)
+        
+        # Check if upload exists
+        if not status_obj:
+            raise HTTPException(
+                status_code=404,
+                detail="Upload not found"
+            )
+        
+        # Verify ownership
+        if status_obj.get("created_by") != current_user.uuid:
+            raise HTTPException(
+                status_code=404,
+                detail="Upload not found"
+            )
 
         return UploadStatusResponse(
             upload_id=upload_id,
-            status=status_obj.get("status", "unknown"),
+            status=str(status_obj.get("status", "unknown")),
             progress=status_obj.get("progress"),
             chunks_total=status_obj.get("chunks_total"),
             chunks_completed=status_obj.get("chunks_completed"),
@@ -171,7 +185,30 @@ async def cleanup_upload(
     try:
         from app.services.chunk_service import chunk_manager
 
-        await chunk_manager.cleanup_upload(upload_id)
+        # First check if upload exists and verify ownership
+        status_obj = await chunk_manager.get_upload_status(upload_id)
+        
+        if not status_obj:
+            raise HTTPException(
+                status_code=404,
+                detail="Upload not found"
+            )
+        
+        # Verify ownership
+        if status_obj.get("created_by") != current_user.uuid:
+            raise HTTPException(
+                status_code=403,
+                detail="Not authorized to clean up this upload"
+            )
+
+        # Clean up the upload
+        success = await chunk_manager.cleanup_upload(upload_id)
+        
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to clean up upload"
+            )
 
         return {
             "success": True,

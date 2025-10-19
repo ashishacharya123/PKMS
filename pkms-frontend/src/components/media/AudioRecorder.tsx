@@ -23,9 +23,10 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
 
-  // Cleanup on unmount
+  // Comprehensive cleanup on unmount
   useEffect(() => {
     return () => {
       if (streamRef.current) {
@@ -34,16 +35,38 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.onended = null; // Clean up event listener
+      }
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
     };
   }, []);
 
+  const cleanupRecording = () => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+    setAudioUrl(null);
+    setDuration(0);
+    setIsPlaying(false);
+    audioChunksRef.current = [];
+  };
+
   const startRecording = async () => {
     try {
+      // Clean up any previous recording before starting a new one
+      cleanupRecording();
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       
       const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus' // Best browser support
+        mimeType: 'audio/webm;codecs=opus'
       });
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
@@ -58,9 +81,10 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         const url = URL.createObjectURL(audioBlob);
         setAudioUrl(url);
+        objectUrlRef.current = url; // Store the URL to revoke later
         
-        // Create audio element for playback
         const audio = new Audio(url);
+        audio.onended = () => setIsPlaying(false); // Fix: Reset playing state on end
         audioRef.current = audio;
       };
 
@@ -68,7 +92,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       setIsRecording(true);
       setDuration(0);
 
-      // Start duration timer
       intervalRef.current = setInterval(() => {
         setDuration(prev => prev + 1);
       }, 1000);
@@ -89,7 +112,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         clearInterval(intervalRef.current);
       }
 
-      // Stop all tracks
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -101,14 +123,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
       if (isPaused) {
         mediaRecorderRef.current.resume();
         setIsPaused(false);
-        // Resume timer
         intervalRef.current = setInterval(() => {
           setDuration(prev => prev + 1);
         }, 1000);
       } else {
         mediaRecorderRef.current.pause();
         setIsPaused(true);
-        // Pause timer
         if (intervalRef.current) {
           clearInterval(intervalRef.current);
         }
@@ -122,6 +142,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
         audioRef.current.pause();
         setIsPlaying(false);
       } else {
+        audioRef.current.currentTime = 0; // Always play from the start
         audioRef.current.play();
         setIsPlaying(true);
       }
@@ -149,7 +170,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             Voice Recording
           </h3>
 
-          {/* Filename Input */}
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Filename
@@ -163,7 +183,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             />
           </div>
 
-          {/* Recording Controls */}
           {!audioUrl ? (
             <div className="text-center">
               {!isRecording ? (
@@ -213,7 +232,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
               )}
             </div>
           ) : (
-            /* Playback Controls */
             <div className="text-center">
               <div className="mb-4">
                 <div className="w-20 h-20 mx-auto bg-green-100 rounded-full flex items-center justify-center">
@@ -235,12 +253,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
                   {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                 </button>
                 <button
-                  onClick={() => {
-                    setAudioUrl(null);
-                    setDuration(0);
-                    setIsPlaying(false);
-                    audioChunksRef.current = [];
-                  }}
+                  onClick={cleanupRecording}
                   className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
                 >
                   Record Again
@@ -249,7 +262,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({
             </div>
           )}
 
-          {/* Action Buttons */}
           <div className="flex justify-end space-x-3">
             <button
               onClick={onCancel}

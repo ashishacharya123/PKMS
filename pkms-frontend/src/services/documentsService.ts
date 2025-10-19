@@ -14,7 +14,7 @@ import { coreDownloadService, DownloadProgress } from './shared/coreDownloadServ
 export interface ProjectBadge {
   uuid: string | null;  // null if project is deleted (snapshot)
   name: string;
-  color: string;
+  // color: string;  // Removed - backend no longer provides project colors
   isExclusive: boolean;
   isDeleted: boolean;  // True if project was deleted (using snapshot name)
 }
@@ -31,6 +31,7 @@ export interface Document {
   is_favorite: boolean;
   is_archived: boolean;
   isExclusiveMode: boolean;
+  // upload_status: string;  // Removed - backend no longer tracks upload status
   created_at: string;
   updated_at: string;
   tags: string[];
@@ -49,6 +50,7 @@ export interface DocumentSummary {
   is_favorite: boolean;
   is_archived: boolean;
   isExclusiveMode: boolean;
+  // upload_status: string;  // Removed - backend no longer tracks upload status
   created_at: string;
   updated_at: string;
   tags: string[];

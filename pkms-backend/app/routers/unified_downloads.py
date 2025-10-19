@@ -22,8 +22,8 @@ from app.models.user import User
 from app.services.unified_download_service import unified_download_service
 from app.services.diary_crypto_service import DiaryCryptoService
 from app.routers.diary import _diary_sessions, _diary_sessions_lock
-from app.models.diary import DiaryMedia, DiaryEntry
-from sqlalchemy import and_
+from app.models.diary import DiaryFile, DiaryEntry
+from sqlalchemy import and_, select
 import logging
 
 logger = logging.getLogger(__name__)
@@ -94,11 +94,11 @@ async def download_diary_media(
     try:
         # Get media record with ownership verification
         result = await db.execute(
-            select(DiaryMedia)
+            select(DiaryFile)
             .join(DiaryEntry)
             .where(
                 and_(
-                    DiaryMedia.uuid == media_uuid,
+                    DiaryFile.uuid == media_uuid,
                     DiaryEntry.created_by == current_user.uuid
                 )
             )

@@ -45,6 +45,7 @@ class Note(Base):
     is_deleted = Column(Boolean, default=False, index=True)
     # Derived counts
     file_count = Column(Integer, default=0, nullable=False)
+    thumbnail_path = Column(String(500), nullable=True)  # Path to note thumbnail (if applicable)
     
     # Search optimization removed - word_count and reading_time_minutes not needed
     

@@ -14,6 +14,8 @@ from datetime import datetime, date
 from sqlalchemy.orm import selectinload
 import logging
 
+from app.config import NEPAL_TZ
+
 logger = logging.getLogger(__name__)
 
 from app.database import get_db
@@ -63,7 +65,6 @@ async def _get_project_counts(db: AsyncSession, project_uuid: str) -> tuple[int,
 
 # Todo Endpoints
 @router.post("/", response_model=TodoResponse)
-@router.post("", response_model=TodoResponse)
 async def create_todo(
     todo_data: TodoCreate,
     current_user: User = Depends(get_current_user),
@@ -327,7 +328,7 @@ async def update_todo_status(
         
         # Handle completed_at timestamp
         if todo_status == TodoStatus.DONE:
-            todo.completed_at = datetime.now()
+            todo.completed_at = datetime.now(NEPAL_TZ)
         else:
             todo.completed_at = None
         

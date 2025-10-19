@@ -45,7 +45,6 @@ export interface CalendarStats {
 class UnifiedCalendarService {
   private events: CalendarEvent[] = [];
 
-  // Public getter for all events
   public getAllEvents(): CalendarEvent[] {
     return this.events;
   }
@@ -55,10 +54,9 @@ class UnifiedCalendarService {
     this.loadFromCache();
   }
 
-  // Add events from different modules
   addNoteEvent(note: any): CalendarEvent {
     const event: CalendarEvent = {
-      id: `note-${note.id}`,
+      id: `note-${note.uuid}`,
       title: note.title || 'Untitled Note',
       description: note.content ? note.content.substring(0, 200) + '...' : '',
       date: new Date(note.createdAt || note.created_at),
@@ -72,14 +70,13 @@ class UnifiedCalendarService {
         ...note.metadata
       }
     };
-
     this.addEvent(event);
     return event;
   }
 
   addTodoEvent(todo: any): CalendarEvent {
     const event: CalendarEvent = {
-      id: `todo-${todo.id}`,
+      id: `todo-${todo.uuid}`,
       title: todo.title || 'Untitled Todo',
       description: todo.description || '',
       date: todo.dueDate || todo.due_date ? new Date(todo.dueDate || todo.due_date) : new Date(todo.createdAt || todo.created_at),
@@ -97,14 +94,13 @@ class UnifiedCalendarService {
         projectId: todo.projectId || todo.project_id
       }
     };
-
     this.addEvent(event);
     return event;
   }
 
   addDiaryEvent(diary: any): CalendarEvent {
     const event: CalendarEvent = {
-      id: `diary-${diary.id}`,
+      id: `diary-${diary.uuid}`,
       title: diary.title || `Diary Entry - ${new Date(diary.date || diary.createdAt).toLocaleDateString()}`,
       description: diary.content ? diary.content.substring(0, 200) + '...' : '',
       date: new Date(diary.date || diary.createdAt || diary.created_at),
@@ -120,14 +116,13 @@ class UnifiedCalendarService {
         location: diary.location
       }
     };
-
     this.addEvent(event);
     return event;
   }
 
   addProjectEvent(project: any): CalendarEvent {
     const event: CalendarEvent = {
-      id: `project-${project.id}`,
+      id: `project-${project.uuid}`,
       title: project.name || 'Untitled Project',
       description: project.description || '',
       date: project.dueDate || project.due_date ? new Date(project.dueDate || project.due_date) : new Date(project.createdAt || project.created_at),
@@ -143,14 +138,13 @@ class UnifiedCalendarService {
         completedDate: project.completedDate || project.completed_at ? new Date(project.completedDate || project.completed_at) : undefined
       }
     };
-
     this.addEvent(event);
     return event;
   }
 
   addDocumentEvent(document: any): CalendarEvent {
     const event: CalendarEvent = {
-      id: `document-${document.id}`,
+      id: `document-${document.uuid}`,
       title: document.title || document.filename || 'Untitled Document',
       description: document.description || '',
       date: new Date(document.createdAt || document.created_at),
@@ -165,47 +159,39 @@ class UnifiedCalendarService {
         projectId: document.projectId || document.project_id
       }
     };
-
     this.addEvent(event);
     return event;
   }
 
   private addEvent(event: CalendarEvent): void {
-    // Remove existing event with same ID
     this.events = this.events.filter(e => e.id !== event.id);
     this.events.push(event);
     this.saveToCache();
   }
 
-  // Get events for a specific date range
   getEvents(startDate: Date, endDate: Date, filters?: CalendarViewOptions['filters']): CalendarEvent[] {
     let filteredEvents = this.events.filter(event => {
       const eventDate = new Date(event.date);
       return eventDate >= startDate && eventDate <= endDate;
     });
 
-    // Apply additional filters
     if (filters) {
       if (filters.types && filters.types.length > 0) {
         filteredEvents = filteredEvents.filter(event => filters.types!.includes(event.type));
       }
-
       if (filters.modules && filters.modules.length > 0) {
         filteredEvents = filteredEvents.filter(event => filters.modules!.includes(event.module));
       }
-
       if (filters.tags && filters.tags.length > 0) {
         filteredEvents = filteredEvents.filter(event =>
           event.tags && event.tags.some(tag => filters.tags!.includes(tag))
         );
       }
-
       if (filters.status && filters.status.length > 0) {
         filteredEvents = filteredEvents.filter(event =>
           event.status && filters.status!.includes(event.status)
         );
       }
-
       if (filters.priorities && filters.priorities.length > 0) {
         filteredEvents = filteredEvents.filter(event =>
           event.priority && filters.priorities!.includes(event.priority)
@@ -216,23 +202,20 @@ class UnifiedCalendarService {
     return filteredEvents.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }
 
-  // Get events for a specific month
   getMonthEvents(date: Date, filters?: CalendarViewOptions['filters']): CalendarEvent[] {
     const startDate = new Date(date.getFullYear(), date.getMonth(), 1);
     const endDate = new Date(date.getFullYear(), date.getMonth() + 1, 0);
     return this.getEvents(startDate, endDate, filters);
   }
 
-  // Get events for a specific week
   getWeekEvents(date: Date, filters?: CalendarViewOptions['filters']): CalendarEvent[] {
     const startDate = new Date(date);
-    startDate.setDate(date.getDate() - date.getDay()); // Start of week (Sunday)
+    startDate.setDate(date.getDate() - date.getDay());
     const endDate = new Date(startDate);
-    endDate.setDate(startDate.getDate() + 6); // End of week (Saturday)
+    endDate.setDate(startDate.getDate() + 6);
     return this.getEvents(startDate, endDate, filters);
   }
 
-  // Get events for a specific day
   getDayEvents(date: Date, filters?: CalendarViewOptions['filters']): CalendarEvent[] {
     const startDate = new Date(date);
     startDate.setHours(0, 0, 0, 0);
@@ -241,10 +224,8 @@ class UnifiedCalendarService {
     return this.getEvents(startDate, endDate, filters);
   }
 
-  // Get calendar statistics
   getStats(dateRange?: { start: Date; end: Date }): CalendarStats {
     let eventsToAnalyze = this.events;
-
     if (dateRange) {
       eventsToAnalyze = this.getEvents(dateRange.start, dateRange.end);
     }
@@ -256,17 +237,11 @@ class UnifiedCalendarService {
     const now = new Date();
 
     eventsToAnalyze.forEach(event => {
-      // Count by type
       eventsByType[event.type] = (eventsByType[event.type] || 0) + 1;
-      // Count by module
       eventsByModule[event.module] = (eventsByModule[event.module] || 0) + 1;
-
-      // Count completed
       if (event.status === 'completed') {
         completedCount++;
       }
-
-      // Count overdue (for todos and projects with due dates)
       if ((event.type === 'todo' || event.type === 'project') &&
           event.metadata?.dueDate &&
           new Date(event.metadata.dueDate) < now &&
@@ -278,7 +253,6 @@ class UnifiedCalendarService {
     const totalEvents = eventsToAnalyze.length;
     const completionRate = totalEvents > 0 ? (completedCount / totalEvents) * 100 : 0;
 
-    // Count upcoming deadlines (next 7 days)
     const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     const upcomingDeadlines = eventsToAnalyze.filter(event =>
       (event.type === 'todo' || event.type === 'project') &&
@@ -298,7 +272,6 @@ class UnifiedCalendarService {
     };
   }
 
-  // Get upcoming events (next N days)
   getUpcomingEvents(days: number = 7): CalendarEvent[] {
     const now = new Date();
     const endDate = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
@@ -311,7 +284,6 @@ class UnifiedCalendarService {
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }
 
-  // Get overdue items
   getOverdueItems(): CalendarEvent[] {
     const now = new Date();
 
@@ -327,7 +299,6 @@ class UnifiedCalendarService {
     });
   }
 
-  // Search events
   searchEvents(query: string): CalendarEvent[] {
     const lowerQuery = query.toLowerCase();
 
@@ -338,19 +309,16 @@ class UnifiedCalendarService {
     );
   }
 
-  // Clear all events
   clearEvents(): void {
     this.events = [];
     this.saveToCache();
   }
 
-  // Remove event by ID
   removeEvent(id: string): void {
     this.events = this.events.filter(event => event.id !== id);
     this.saveToCache();
   }
 
-  // Export events to iCal format
   exportToICal(): string {
     const events = this.events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
@@ -365,15 +333,15 @@ X-WR-TIMEZONE:UTC
 
     events.forEach(event => {
       const startDate = new Date(event.date);
-      const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour duration
+      const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
 
       iCalContent += `BEGIN:VEVENT
 UID:${event.id}
 DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z
 DTSTART:${startDate.toISOString().replace(/[-:]/g, '').split('.')[0]}Z
 DTEND:${endDate.toISOString().replace(/[-:]/g, '').split('.')[0]}Z
-SUMMARY:${event.title.replace(/,/g, '\\,')}
-DESCRIPTION:${(event.description || '').replace(/,/g, '\\,').replace(/\n/g, '\\n')}
+SUMMARY:${event.title.replace(/,/g, '\,')}
+DESCRIPTION:${(event.description || '').replace(/,/g, '\,').replace(/\n/g, '\n')}
 CATEGORIES:${event.type}
 END:VEVENT
 `;
@@ -383,7 +351,6 @@ END:VEVENT
     return iCalContent;
   }
 
-  // Utility methods
   private getPriorityColor(priority: string): string {
     const colorMap: Record<string, string> = {
       low: '#40c057',
@@ -411,7 +378,6 @@ END:VEVENT
       const cached = localStorage.getItem(this.cacheKey);
       if (cached) {
         const cacheData = JSON.parse(cached);
-        // Convert date strings back to Date objects
         this.events = cacheData.events.map((event: any) => ({
           ...event,
           date: new Date(event.date),
@@ -427,7 +393,6 @@ END:VEVENT
     }
   }
 
-  // Clear cache (useful for debugging or when data becomes stale)
   clearCache(): void {
     try {
       localStorage.removeItem(this.cacheKey);
@@ -437,10 +402,8 @@ END:VEVENT
   }
 }
 
-// Global instance
 export const unifiedCalendar = new UnifiedCalendarService();
 
-// React hook for using the unified calendar
 export const useUnifiedCalendar = () => {
   return {
     events: unifiedCalendar.getAllEvents(),

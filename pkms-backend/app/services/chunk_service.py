@@ -146,7 +146,7 @@ class ChunkUploadManager:
             upload = self.uploads[file_id]
             
             # Validate chunk number
-            if chunk_number >= total_chunks:
+            if chunk_number < 0 or chunk_number >= total_chunks:
                 raise ValueError(f"Invalid chunk number {chunk_number}, total chunks: {total_chunks}")
             
             # Create chunk directory
@@ -185,7 +185,9 @@ class ChunkUploadManager:
             
         except Exception as e:
             logger.error(f"Error saving chunk {chunk_number} for file {file_id}: {str(e)}")
-            self.uploads[file_id]['status'] = ChunkUploadStatus.ERROR
+            # Safely update status only if file_id exists in uploads
+            if file_id in self.uploads:
+                self.uploads[file_id]['status'] = ChunkUploadStatus.ERROR
             raise
     
     async def assemble_file(self, file_id: str) -> Optional[Path]:
@@ -284,6 +286,29 @@ class ChunkUploadManager:
             'progress': len(upload['received_chunks']) / upload['total_chunks'] * 100 if upload['total_chunks'] > 0 else 0,
             'created_by': upload.get('created_by')
         }
+    
+    async def cleanup_upload(self, file_id: str) -> bool:
+        """Clean up a specific upload and its files"""
+        if file_id not in self.uploads:
+            return False
+            
+        try:
+            # Clean up files
+            chunk_dir = Path(get_data_dir()) / "temp_uploads" / file_id
+            if chunk_dir.exists():
+                shutil.rmtree(chunk_dir)
+            
+            # Remove from tracking
+            del self.uploads[file_id]
+            
+            # Save state after cleanup
+            await self._save_state_to_file()
+            
+            logger.info(f"Cleaned up upload {file_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error cleaning up upload {file_id}: {str(e)}")
+            return False
     
     async def _cleanup_loop(self):
         """Periodically clean up expired uploads"""

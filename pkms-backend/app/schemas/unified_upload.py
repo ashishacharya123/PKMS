@@ -7,8 +7,9 @@ across all upload modules while allowing module-specific extensions.
 This eliminates schema duplication and provides a unified interface for upload requests.
 """
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from pydantic.alias_generators import to_camel
+from pydantic.types import UUID4
 from typing import List, Optional
 from datetime import datetime
 
@@ -26,55 +27,64 @@ class CamelCaseModel(BaseModel):
 
 class BaseCommitUploadRequest(CamelCaseModel):
     """Base schema for all upload commit requests."""
-    file_id: str = Field(..., description="Upload ID from chunk manager")
+    file_id: UUID4 = Field(..., description="Upload ID from chunk manager")
     description: Optional[str] = Field(None, max_length=1000, description="File description")
-    display_order: Optional[int] = Field(0, ge=0, description="Order of display (0 = first)")
-    tags: Optional[List[str]] = Field(default_factory=list, max_items=20, description="Tags for the uploaded file")
+    display_order: int = Field(0, ge=0, description="Order of display (0 = first)")
+    tags: List[str] = Field(default_factory=list, description="Tags for the uploaded file")
 
-    @validator('tags')
+    @field_validator('tags', mode='before')
     def validate_tags(cls, v):
-        return sanitize_tags(v or [])
+        sanitized = sanitize_tags(v or [])
+        # Enforce/truncate to 20 items
+        return sanitized[:20] if len(sanitized) > 20 else sanitized
 
 
 class DocumentCommitUploadRequest(BaseCommitUploadRequest):
     """Extended schema for document uploads."""
     title: str = Field(..., min_length=1, max_length=255, description="Document title")
-    project_ids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="Project UUIDs to link this document to")
+    project_ids: List[UUID4] = Field(default_factory=list, description="Project UUIDs to link this document to")
     is_exclusive_mode: Optional[bool] = Field(False, description="If True, document is exclusive to projects and deleted when any project is deleted")
 
-    @validator('project_ids')
+    @field_validator('project_ids', mode='before')
     def validate_project_ids(cls, v):
         if not v:
-            return v
-        import re
-        uuid4 = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+            return []
+        # Convert strings to UUID4 objects and validate
+        validated_ids = []
         for pid in v:
-            if not isinstance(pid, str) or not uuid4.match(pid):
+            if isinstance(pid, str):
+                try:
+                    validated_ids.append(UUID4(pid))
+                except ValueError:
+                    raise ValueError(f"Invalid UUID4 format: {pid}")
+            elif isinstance(pid, UUID4):
+                validated_ids.append(pid)
+            else:
                 raise ValueError("project_ids must contain valid UUID4 strings")
-        return v
+        return validated_ids
 
 
 class NoteCommitUploadRequest(BaseCommitUploadRequest):
     """Extended schema for note file uploads."""
-    note_uuid: str = Field(..., description="UUID of the note to attach file to")
+    note_uuid: UUID4 = Field(..., description="UUID of the note to attach file to")
 
 
 class ArchiveCommitUploadRequest(BaseCommitUploadRequest):
     """Extended schema for archive uploads."""
     name: Optional[str] = Field(None, max_length=255, description="Display name for the archive item")
-    folder_uuid: Optional[str] = Field(None, description="UUID of parent folder")
+    folder_uuid: Optional[UUID4] = Field(None, description="UUID of parent folder")
 
 
 class DiaryCommitUploadRequest(BaseCommitUploadRequest):
-    """Extended schema for diary media uploads."""
-    entry_id: str = Field(..., description="UUID of the diary entry")
-    media_type: str = Field(..., description="Media type: photo, video, voice")
+    """Extended schema for diary file uploads."""
+    entry_id: UUID4 = Field(..., description="UUID of the diary entry")
+    file_type: str = Field(..., description="File type: photo, video, voice")
 
-    @validator('media_type')
-    def validate_media_type(cls, v):
+    @field_validator('file_type', mode='before')
+    def validate_file_type(cls, v):
         valid_types = ["photo", "video", "voice"]
         if v not in valid_types:
-            raise ValueError(f"media_type must be one of: {valid_types}")
+            raise ValueError(f"file_type must be one of: {valid_types}")
         return v
 
 

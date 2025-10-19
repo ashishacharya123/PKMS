@@ -1,9 +1,9 @@
-"""
+'''
 Unified Download Service for PKMS
 
 This service provides consistent download functionality across all modules
 while supporting module-specific requirements like file path resolution.
-"""
+'''
 
 import asyncio
 from pathlib import Path
@@ -20,7 +20,7 @@ from app.models.base import Base
 from app.models.document import Document
 from app.models.note import NoteFile
 from app.models.archive import ArchiveItem
-from app.models.diary import DiaryMedia
+from app.models.diary import DiaryFile
 from app.models.user import User
 from app.config import get_file_storage_dir, get_data_dir
 
@@ -55,24 +55,17 @@ class UnifiedDownloadService:
     def _generate_etag(self, file_path: Path, record, config) -> str:
         """Generate ETag based on file metadata (size + modification time + database record)"""
         try:
-            # Get file stats
             stat = file_path.stat()
             file_size = stat.st_size
             mod_time = stat.st_mtime
-
-            # Get database record timestamp for more accurate change detection
             updated_at = getattr(record, 'updated_at', None)
             db_timestamp = updated_at.timestamp() if updated_at else 0
-
-            # Create ETag from file metadata + database timestamp
             etag_data = f"{file_size}-{mod_time}-{db_timestamp}-{config.module}"
             return hashlib.md5(etag_data.encode()).hexdigest()
         except Exception as e:
             logger.warning(f"Failed to generate ETag for {file_path}: {e}")
-            # Fallback to simple hash
             return hashlib.md5(str(file_path).encode()).hexdigest()
 
-    # Module configurations
     CONFIGS = {
         "documents": DownloadConfig(
             module="documents",
@@ -93,9 +86,9 @@ class UnifiedDownloadService:
         ),
         "diary": DownloadConfig(
             module="diary",
-            model_class=DiaryMedia,
+            model_class=DiaryFile,
             original_name_field="original_name",
-            requires_decryption=False  # Download encrypted file directly, client handles decryption
+            requires_decryption=False
         )
     }
 
@@ -111,35 +104,17 @@ class UnifiedDownloadService:
         additional_conditions: Optional[list] = None,
         request: Optional[Request] = None
     ) -> Union[FileResponse, Response]:
-        """
-        Unified download method for all modules except diary (which has its own service).
-
-        Args:
-            db: Database session
-            file_uuid: UUID of the file to download
-            module: Module name ("documents", "notes", "archive")
-            user_uuid: User UUID for ownership verification
-            additional_conditions: Additional SQLAlchemy conditions for complex queries
-            request: FastAPI Request object for conditional download support
-
-        Returns:
-            FileResponse with caching headers or 304 Not Modified response
-        """
-        # Validate module
+        """Unified download method for all modules."""
         if module not in self.CONFIGS:
             raise ValueError(f"Unsupported module: {module}")
 
         config = self.CONFIGS[module]
 
-        # Diary files don't need decryption here - we download encrypted files directly
-
         try:
-            # Get file record from database
             record = await self._get_file_record(
                 db, config, file_uuid, user_uuid, additional_conditions
             )
 
-            # Resolve file path
             file_path = self._resolve_file_path(record, config)
             if not file_path.exists():
                 raise HTTPException(
@@ -147,28 +122,23 @@ class UnifiedDownloadService:
                     detail="File not found on disk"
                 )
 
-            # Get file metadata
             original_name = getattr(record, config.original_name_field)
             mime_type = getattr(record, config.mime_type_field)
             file_size = getattr(record, config.file_size_field)
 
-            # Generate ETag for caching
             etag = self._generate_etag(file_path, record, config)
 
-            # Check if client has cached version (conditional request)
             if request:
                 if_none_match = request.headers.get("if-none-match")
                 if if_none_match and if_none_match == etag:
-                    # File unchanged - return 304 Not Modified
                     return Response(
                         status_code=304,
                         headers={
                             "ETag": etag,
-                            "Cache-Control": "private, max-age=3600",  # Cache for 1 hour
+                            "Cache-Control": "private, max-age=3600",
                         }
                     )
 
-            # Create FileResponse with caching headers
             response = FileResponse(
                 path=str(file_path),
                 filename=original_name,
@@ -179,7 +149,7 @@ class UnifiedDownloadService:
                     "X-Module": config.module,
                     "X-File-UUID": file_uuid,
                     "ETag": etag,
-                    "Cache-Control": "private, max-age=3600",  # Cache for 1 hour
+                    "Cache-Control": "private, max-age=3600",
                 }
             )
 
@@ -204,27 +174,23 @@ class UnifiedDownloadService:
         additional_conditions: Optional[list] = None
     ) -> Base:
         """Get file record with ownership verification."""
-        # Build base query
         query = select(config.model_class).where(
             config.model_class.uuid == file_uuid
         )
 
-        # Add user ownership filter
         if hasattr(config.model_class, 'created_by'):
             query = query.where(config.model_class.created_by == user_uuid)
-        elif hasattr(config.model_class, 'note_uuid'):  # For NoteFile
+        elif hasattr(config.model_class, 'note_uuid'):
             from app.models.note import Note
             query = query.join(Note).where(Note.created_by == user_uuid)
-        elif hasattr(config.model_class, 'diary_entry_uuid'):  # For DiaryMedia
+        elif hasattr(config.model_class, 'diary_entry_uuid'):  # For DiaryFile
             from app.models.diary import DiaryEntry
             query = query.join(DiaryEntry).where(DiaryEntry.created_by == user_uuid)
 
-        # Add additional conditions if provided
         if additional_conditions:
             for condition in additional_conditions:
                 query = query.where(condition)
 
-        # Execute query
         result = await db.execute(query)
         record = result.scalar_one_or_none()
 
@@ -240,12 +206,10 @@ class UnifiedDownloadService:
         """Resolve database file path to absolute filesystem path."""
         file_path_str = getattr(record, config.file_path_field)
 
-        # Handle different path formats
         file_path = Path(file_path_str)
         if file_path.is_absolute():
-            return file_path
+            return path
 
-        # Relative paths are under data_dir
         return (get_data_dir() / file_path_str.lstrip("/")).resolve()
 
     async def get_file_info(
@@ -255,33 +219,18 @@ class UnifiedDownloadService:
         module: str,
         user_uuid: str
     ) -> dict:
-        """
-        Get file metadata without downloading the actual file.
-
-        Args:
-            db: Database session
-            file_uuid: UUID of the file
-            module: Module name
-            user_uuid: User UUID for ownership verification
-
-        Returns:
-            Dictionary with file metadata
-        """
-        # Validate module
+        """Get file metadata without downloading the actual file."""
         if module not in self.CONFIGS:
             raise ValueError(f"Unsupported module: {module}")
 
         config = self.CONFIGS[module]
 
-        # Skip diary - it has its own service
         if config.requires_decryption:
             raise ValueError(f"Module {module} requires decryption - use dedicated service")
 
         try:
-            # Get file record
             record = await self._get_file_record(db, config, file_uuid, user_uuid)
 
-            # Get file metadata
             file_path = self._resolve_file_path(record, config)
             file_exists = file_path.exists()
 
@@ -305,5 +254,4 @@ class UnifiedDownloadService:
             )
 
 
-# Create singleton instance
 unified_download_service = UnifiedDownloadService()

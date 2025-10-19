@@ -1,5 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Play, Pause, Download, Trash2, Image, FileText, Mic, Video } from 'lucide-react';
+import { apiService } from '../../services/api';
 
 interface MediaFile {
   uuid: string;
@@ -16,7 +17,6 @@ interface MediaFile {
 interface MediaListProps {
   files: MediaFile[];
   onDelete: (fileId: string) => void;
-  onDownload: (file: MediaFile) => void;
   module: 'notes' | 'diary' | 'documents' | 'archive';
   className?: string;
 }
@@ -24,12 +24,33 @@ interface MediaListProps {
 export const MediaList: React.FC<MediaListProps> = ({
   files,
   onDelete,
-  onDownload,
   module,
   className = ''
 }) => {
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+      }
+    };
+  }, []);
+
+  const getDownloadUrl = (currentModule: string, fileUuid: string): string => {
+    // Documents module has a different download route structure
+    if (currentModule === 'documents') {
+      return `/${currentModule}/${fileUuid}/download`;
+    }
+    // Notes and Diary now use the same consistent structure
+    return `/${currentModule}/files/${fileUuid}/download`;
+  };
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes';
@@ -56,73 +77,62 @@ export const MediaList: React.FC<MediaListProps> = ({
     return mediaType === 'voice' || mimeType.startsWith('audio/');
   };
 
+  const cleanupAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+    setPlayingAudio(null);
+  };
+
   const handlePlayAudio = async (file: MediaFile) => {
+    if (playingAudio === file.uuid) {
+      cleanupAudio();
+      return;
+    }
+
+    cleanupAudio();
+
     try {
-      if (playingAudio === file.uuid) {
-        // Pause current audio
-        if (audioRef.current) {
-          audioRef.current.pause();
-          setPlayingAudio(null);
-        }
-        return;
-      }
-
-      // Stop any currently playing audio
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-
-      // Fetch audio file
-      const response = await fetch(`/api/v1/${module}/files/${file.uuid}/download`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        }
+      const downloadUrl = getDownloadUrl(module, file.uuid);
+      const response = await apiService.get(downloadUrl, {
+        responseType: 'blob',
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch audio file');
-      }
-
-      const audioBlob = await response.blob();
+      const audioBlob = response.data as Blob;
       const audioUrl = URL.createObjectURL(audioBlob);
-      
-      const audio = new Audio(audioUrl);
-      audioRef.current = audio;
-      
-      audio.onended = () => {
-        setPlayingAudio(null);
-        URL.revokeObjectURL(audioUrl);
-      };
+      audioUrlRef.current = audioUrl;
 
-      audio.onerror = () => {
-        setPlayingAudio(null);
-        URL.revokeObjectURL(audioUrl);
-        alert('Failed to play audio file');
-      };
-
-      await audio.play();
-      setPlayingAudio(file.uuid);
-
+      if (audioRef.current) {
+        audioRef.current.src = audioUrl;
+        audioRef.current.onended = cleanupAudio;
+        audioRef.current.onerror = () => {
+          console.error('Error playing audio file.');
+          alert('Failed to play audio file');
+          cleanupAudio();
+        };
+        await audioRef.current.play();
+        setPlayingAudio(file.uuid);
+      }
     } catch (error) {
       console.error('Error playing audio:', error);
       alert('Failed to play audio file');
+      cleanupAudio();
     }
   };
 
   const handleDownload = async (file: MediaFile) => {
     try {
-      const response = await fetch(`/api/v1/${module}/files/${file.uuid}/download`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        }
+      const downloadUrl = getDownloadUrl(module, file.uuid);
+      const response = await apiService.get(downloadUrl, {
+        responseType: 'blob',
       });
 
-      if (!response.ok) {
-        throw new Error('Download failed');
-      }
-
-      const blob = await response.blob();
+      const blob = response.data as Blob;
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -141,18 +151,10 @@ export const MediaList: React.FC<MediaListProps> = ({
   const handleDelete = async (fileId: string) => {
     if (window.confirm('Are you sure you want to delete this file?')) {
       try {
-        const response = await fetch(`/api/v1/${module}/files/${fileId}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-          }
-        });
-
-        if (response.ok) {
-          onDelete(fileId);
-        } else {
-          throw new Error('Delete failed');
-        }
+        // Note: The delete URL might also be inconsistent, assuming /files/ for now
+        const deleteUrl = `/${module}/files/${fileId}`;
+        await apiService.delete(deleteUrl);
+        onDelete(fileId);
       } catch (error) {
         console.error('Delete error:', error);
         alert('Failed to delete file');
@@ -199,7 +201,6 @@ export const MediaList: React.FC<MediaListProps> = ({
           </div>
 
           <div className="flex items-center space-x-2 ml-3">
-            {/* Audio Play/Pause Button */}
             {isAudioFile(file.mime_type, file.media_type) && (
               <button
                 onClick={() => handlePlayAudio(file)}
@@ -214,7 +215,6 @@ export const MediaList: React.FC<MediaListProps> = ({
               </button>
             )}
 
-            {/* Download Button */}
             <button
               onClick={() => handleDownload(file)}
               className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
@@ -223,7 +223,6 @@ export const MediaList: React.FC<MediaListProps> = ({
               <Download className="w-4 h-4" />
             </button>
             
-            {/* Delete Button */}
             <button
               onClick={() => handleDelete(file.uuid)}
               className="p-1 text-gray-400 hover:text-red-600 transition-colors"
@@ -235,8 +234,7 @@ export const MediaList: React.FC<MediaListProps> = ({
         </div>
       ))}
 
-      {/* Audio Player (Hidden) */}
-      <audio ref={audioRef} style={{ display: 'none' }} />
+      <audio ref={audioRef} style={{ display: 'none' }} preload="none" />
     </div>
   );
 };

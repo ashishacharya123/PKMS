@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     
     # Security Headers
     enable_security_headers: bool = True
+
+    # Emergency override to force decryption even if integrity checks fail
+    force_decrypt_on_integrity_failure: bool = False
     
     # CORS
     cors_origins: list = [

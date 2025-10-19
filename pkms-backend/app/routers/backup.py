@@ -226,7 +226,8 @@ async def list_database_backups(
                 stat = backup_file.stat()
                 backups.append({
                     "filename": backup_file.name,
-                    "full_path": str(backup_file),
+                    # Omit absolute server path to avoid disclosure
+                    # "full_path": str(backup_file),
                     "relative_path": f"PKMS_Data/backups/{backup_file.name}",
                     "file_size_bytes": stat.st_size,
                     "file_size_kb": round(stat.st_size / 1024, 2),
@@ -274,7 +275,10 @@ async def restore_database_backup(
             }
 
         # Security check: only allow .db files in backups directory
-        if not backup_filename.endswith('.db') or '/' in backup_filename or '\\' in backup_filename:
+        base_dir = Path("/app/PKMS_Data/backups").resolve()
+        name_only = Path(backup_filename).name
+        candidate = (base_dir / name_only).resolve()
+        if not name_only.endswith('.db') or base_dir not in candidate.parents or candidate.parent != base_dir:
             return {
                 "status": "error",
                 "message": "Invalid backup filename. Only .db files in backups directory are allowed.",
@@ -341,7 +345,10 @@ async def delete_database_backup(
             }
         
         # Security check: only allow .db files in backups directory
-        if not backup_filename.endswith('.db') or '/' in backup_filename or '\\' in backup_filename:
+        base_dir = Path("/app/PKMS_Data/backups").resolve()
+        name_only = Path(backup_filename).name
+        candidate = (base_dir / name_only).resolve()
+        if not name_only.endswith('.db') or base_dir not in candidate.parents or candidate.parent != base_dir:
             return {
                 "status": "error",
                 "message": "Invalid backup filename. Only .db files in backups directory are allowed.",

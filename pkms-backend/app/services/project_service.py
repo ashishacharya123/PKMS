@@ -159,9 +159,8 @@ class ProjectService:
             elif project_name_snapshot:
                 # Deleted project snapshot
                 badge = ProjectBadge(
-                    uuid=None,  # Use None for deleted projects
+                    uuid=None,  # deleted/snapshotted project
                     name=project_name_snapshot,
-                    color="#6c757d",  # Default gray for deleted projects
                     is_deleted=True,
                     is_exclusive=is_exclusive
                 )
@@ -284,11 +283,16 @@ class ProjectService:
         exclusive_notes = exclusive_notes_result.scalars().all()
         for note in exclusive_notes:
             if note.files:
+                base_dir = get_file_storage_dir().resolve()
                 for note_file in note.files:
                     try:
-                        file_path = get_file_storage_dir() / note_file.file_path
-                        if file_path.exists():
-                            file_path.unlink()
+                        resolved_path = self._resolve_path(note_file.file_path).resolve()
+                        # Security Check: Prevent path traversal
+                        if str(resolved_path).startswith(str(base_dir)):
+                            if resolved_path.exists():
+                                resolved_path.unlink()
+                        else:
+                            logger.warning(f"Skipping deletion of note file due to potential path traversal: {note_file.file_path}")
                     except Exception as e:
                         logger.warning(f"Failed to delete file for note {note.uuid}: {str(e)}")
             await search_service.remove_item(db, note.uuid)
@@ -309,10 +313,15 @@ class ProjectService:
         exclusive_docs = exclusive_docs_result.scalars().all()
         for doc in exclusive_docs:
             if doc.file_path:
+                base_dir = get_file_storage_dir().resolve()
                 try:
-                    resolved_path = self._resolve_path(doc.file_path)
-                    if resolved_path.exists():
-                        resolved_path.unlink()
+                    resolved_path = self._resolve_path(doc.file_path).resolve()
+                    # Security Check: Prevent path traversal
+                    if str(resolved_path).startswith(str(base_dir)):
+                        if resolved_path.exists():
+                            resolved_path.unlink()
+                    else:
+                        logger.warning(f"Skipping deletion of document file due to potential path traversal: {doc.file_path}")
                 except Exception as e:
                     logger.warning(f"Failed to delete file for document {doc.uuid}: {str(e)}")
             await search_service.remove_item(db, doc.uuid)

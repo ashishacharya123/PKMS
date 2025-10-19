@@ -133,7 +133,7 @@ async def lifespan(app: FastAPI):
                 await cleanup_task
             except asyncio.CancelledError:
                 pass
-          await chunk_manager.stop()
+        await chunk_manager.stop()
         await close_db()
 
 # Create FastAPI app
@@ -177,8 +177,8 @@ app.include_router(dashboard.router, prefix="/api/v1/dashboard")
 app.include_router(search_endpoints_router, prefix="/api/v1")  # Unified search endpoints
 app.include_router(backup.router, prefix="/api/v1/backup")
 app.include_router(tags.router, prefix="/api/v1/tags")
-app.include_router(unified_uploads.router, prefix="/api/v1")
-app.include_router(unified_downloads.router, prefix="/api/v1")
+app.include_router(unified_uploads.router)
+app.include_router(unified_downloads.router)
 app.include_router(testing_router, prefix="/api/v1/testing")
 app.include_router(advanced_fuzzy.router, prefix="/api/v1")  # Re-enabled for hybrid search
 
