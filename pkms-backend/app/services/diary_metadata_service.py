@@ -14,9 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, extract
 
 from app.config import NEPAL_TZ
-from app.models.diary import DiaryEntry, DiaryFile, DiaryDailyMetadata
+from app.models.diary import DiaryEntry, DiaryDailyMetadata
 from app.models.note import Note
 from app.models.document import Document
+from app.models.associations import document_diary
 from app.models.todo import Todo, TodoStatus
 from app.models.project import Project, ProjectStatus
 from app.models.archive import ArchiveItem
@@ -177,20 +178,22 @@ class DiaryMetadataService:
         Returns:
             Dictionary with calendar_data key containing list of DiaryCalendarData
         """
-        # Subquery to count files per day
+        # Subquery to count files per day (via document_diary association)
         file_count_subquery = (
             select(
-                func.date(DiaryFile.created_at).label("media_date"),
-                func.count(DiaryFile.uuid).label("file_count")
+                func.date(Document.created_at).label("media_date"),
+                func.count(Document.uuid).label("file_count")
             )
+            .join(document_diary, Document.uuid == document_diary.c.document_uuid)
+            .join(DiaryEntry, document_diary.c.diary_entry_uuid == DiaryEntry.uuid)
             .where(
                 and_(
-                    DiaryFile.created_by == user_uuid,
-                    extract('year', DiaryFile.created_at) == year,
-                    extract('month', DiaryFile.created_at) == month
+                    DiaryEntry.created_by == user_uuid,
+                    extract('year', Document.created_at) == year,
+                    extract('month', Document.created_at) == month
                 )
             )
-            .group_by(func.date(DiaryFile.created_at))
+            .group_by(func.date(Document.created_at))
             .subquery()
         )
         
@@ -915,6 +918,462 @@ class DiaryMetadataService:
         await db.refresh(snapshot)
         
         return DiaryMetadataService.format_daily_metadata(snapshot)
+
+    # ==================== HABIT TRACKING METHODS ====================
+
+    @staticmethod
+    async def update_daily_habits(
+        db: AsyncSession,
+        user_uuid: str,
+        target_date: date,
+        habits_data: dict,
+        units: dict = None
+    ) -> dict:
+        """
+        Update habits for specific day with automatic streak calculation.
+
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            target_date: Date for habit tracking
+            habits_data: Dictionary of habit values
+            units: Dictionary of unit definitions for habits
+
+        Returns:
+            Updated habits data with calculated streaks
+        """
+        try:
+            # Get or create metadata record
+            snapshot = await DiaryMetadataService.get_or_create_daily_metadata(
+                db=db,
+                user_uuid=user_uuid,
+                entry_date=target_date
+            )
+
+            # Get previous day's streaks for calculation
+            previous_date = target_date - timedelta(days=1)
+            previous_metadata = await DiaryMetadataService.get_daily_metadata(
+                db, user_uuid, previous_date
+            )
+
+            # Parse previous habits data
+            previous_habits = {}
+            if previous_metadata and previous_metadata.habits_json:
+                try:
+                    previous_habits = json.loads(previous_metadata.habits_json)
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid habits_json for user {user_uuid} on {previous_date}")
+                    previous_habits = {}
+
+            previous_streaks = previous_habits.get("streaks", {})
+
+            # Calculate new streaks
+            new_streaks = {}
+            for habit_key, value in habits_data.items():
+                if value != 0:  # Non-zero value continues or starts streak
+                    new_streaks[habit_key] = previous_streaks.get(habit_key, 0) + 1
+                else:  # Zero value resets streak
+                    new_streaks[habit_key] = 0
+
+            # Update first tracked dates for new habits
+            current_habits = {}
+            if snapshot.habits_json:
+                try:
+                    current_habits = json.loads(snapshot.habits_json)
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid habits_json for user {user_uuid} on {target_date}")
+                    current_habits = {}
+
+            first_tracked = current_habits.get("first_tracked", {})
+            for habit_key in habits_data:
+                if habit_key not in first_tracked:
+                    first_tracked[habit_key] = target_date.isoformat()
+
+            # Build updated habits_json
+            updated_habits_json = {
+                "habits": habits_data,
+                "streaks": new_streaks,
+                "units": units or current_habits.get("units", {}),
+                "first_tracked": first_tracked,
+                "last_updated": datetime.now(NEPAL_TZ).isoformat()
+            }
+
+            # Update record
+            snapshot.habits_json = json.dumps(updated_habits_json)
+            await db.commit()
+            await db.refresh(snapshot)
+
+            return updated_habits_json
+
+        except Exception as e:
+            logger.error(f"Error updating habits for user {user_uuid} on {target_date}: {e}")
+            await db.rollback()
+            raise
+
+    @staticmethod
+    async def calculate_habit_streak(
+        db: AsyncSession,
+        user_uuid: str,
+        habit_key: str,
+        end_date: date
+    ) -> int:
+        """
+        Calculate streak by counting consecutive non-zero days.
+
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            habit_key: Key of the habit to calculate streak for
+            end_date: End date for streak calculation
+
+        Returns:
+            Current streak count
+        """
+        streak = 0
+        check_date = end_date
+
+        while True:
+            # Get that day's metadata
+            daily_metadata = await DiaryMetadataService.get_daily_metadata(
+                db, user_uuid, check_date
+            )
+
+            if not daily_metadata or not daily_metadata.habits_json:
+                break
+
+            try:
+                habits_data = json.loads(daily_metadata.habits_json)
+                habit_values = habits_data.get("habits", {})
+
+                # Check if habit has non-zero value
+                if habit_key in habit_values and habit_values[habit_key] != 0:
+                    streak += 1
+                    check_date -= timedelta(days=1)
+                else:
+                    break
+
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid habits_json for user {user_uuid} on {check_date}")
+                break
+
+        return streak
+
+    @staticmethod
+    async def get_habit_analytics(
+        db: AsyncSession,
+        user_uuid: str,
+        days: int = 30
+    ) -> dict:
+        """
+        Get comprehensive analytics for all tracked habits.
+
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            days: Number of days to analyze
+
+        Returns:
+            Dictionary with analytics for each habit
+        """
+        try:
+            # Get recent daily metadata records
+            end_date = datetime.now(NEPAL_TZ).date()
+            start_date = end_date - timedelta(days=days-1)
+
+            records = await DiaryMetadataService._get_metadata_in_date_range(
+                db, user_uuid, start_date, end_date
+            )
+
+            # Get all unique habit keys
+            all_habits = set()
+            for record in records:
+                if record.habits_json:
+                    try:
+                        habits = json.loads(record.habits_json).get("habits", {})
+                        all_habits.update(habits.keys())
+                    except json.JSONDecodeError:
+                        continue
+
+            # Calculate analytics for each habit
+            analytics = {}
+            for habit in all_habits:
+                analytics[habit] = await DiaryMetadataService._calculate_single_habit_analytics(
+                    db, user_uuid, habit, days
+                )
+
+            return analytics
+
+        except Exception as e:
+            logger.error(f"Error getting habit analytics for user {user_uuid}: {e}")
+            return {}
+
+    @staticmethod
+    async def _calculate_single_habit_analytics(
+        db: AsyncSession,
+        user_uuid: str,
+        habit_key: str,
+        days: int
+    ) -> dict:
+        """Calculate analytics for a single habit"""
+        end_date = datetime.now(NEPAL_TZ).date()
+        start_date = end_date - timedelta(days=days-1)
+
+        records = await DiaryMetadataService._get_metadata_in_date_range(
+            db, user_uuid, start_date, end_date
+        )
+
+        # Calculate metrics
+        current_streak = 0
+        best_streak = 0
+        total_tracked = 0
+        total_value = 0
+        non_zero_days = 0
+
+        for record in records:
+            if record.habits_json:
+                try:
+                    habits = json.loads(record.habits_json)
+                    habit_value = habits.get("habits", {}).get(habit_key, 0)
+                    streaks = habits.get("streaks", {}).get(habit_key, 0)
+
+                    if habit_value is not None:
+                        total_tracked += 1
+                        total_value += habit_value
+
+                        if habit_value != 0:
+                            non_zero_days += 1
+
+                    if streaks > best_streak:
+                        best_streak = streaks
+
+                except json.JSONDecodeError:
+                    continue
+
+        # Current streak (from today's record)
+        today_metadata = await DiaryMetadataService.get_daily_metadata(
+            db, user_uuid, end_date
+        )
+        if today_metadata and today_metadata.habits_json:
+            try:
+                today_habits = json.loads(today_metadata.habits_json)
+                current_streak = today_habits.get("streaks", {}).get(habit_key, 0)
+            except json.JSONDecodeError:
+                pass
+
+        # Calculate trend (simple comparison of first half vs second half)
+        trend = "stable"
+        if total_tracked >= 10:
+            mid_point = total_tracked // 2
+            sorted_records = sorted(records, key=lambda x: x.date)
+
+            first_half_avg = 0
+            second_half_avg = 0
+            first_count = 0
+            second_count = 0
+
+            for i, record in enumerate(sorted_records):
+                if record.habits_json:
+                    try:
+                        habits = json.loads(record.habits_json)
+                        value = habits.get("habits", {}).get(habit_key, 0)
+
+                        if i < mid_point:
+                            first_half_avg += value
+                            first_count += 1
+                        else:
+                            second_half_avg += value
+                            second_count += 1
+                    except json.JSONDecodeError:
+                        continue
+
+            if first_count > 0 and second_count > 0:
+                first_avg = first_half_avg / first_count
+                second_avg = second_half_avg / second_count
+
+                if second_avg > first_avg * 1.1:
+                    trend = "improving"
+                elif second_avg < first_avg * 0.9:
+                    trend = "declining"
+
+        return {
+            "current_streak": current_streak,
+            "best_streak": best_streak,
+            "completion_rate": non_zero_days / total_tracked if total_tracked > 0 else 0,
+            "total_days_tracked": total_tracked,
+            "average_value": total_value / non_zero_days if non_zero_days > 0 else 0,
+            "trend": trend
+        }
+
+    @staticmethod
+    async def get_active_habit_keys(
+        db: AsyncSession,
+        user_uuid: str,
+        days: int = 30
+    ) -> list:
+        """
+        Get list of all habit keys user has tracked recently.
+
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            days: Number of days to look back
+
+        Returns:
+            List of habit keys
+        """
+        try:
+            end_date = datetime.now(NEPAL_TZ).date()
+            start_date = end_date - timedelta(days=days-1)
+
+            records = await DiaryMetadataService._get_metadata_in_date_range(
+                db, user_uuid, start_date, end_date
+            )
+
+            all_habits = set()
+            for record in records:
+                if record.habits_json:
+                    try:
+                        habits = json.loads(record.habits_json).get("habits", {})
+                        all_habits.update(habits.keys())
+                    except json.JSONDecodeError:
+                        continue
+
+            return sorted(list(all_habits))
+
+        except Exception as e:
+            logger.error(f"Error getting active habits for user {user_uuid}: {e}")
+            return []
+
+    @staticmethod
+    async def get_habit_insights(
+        db: AsyncSession,
+        user_uuid: str,
+        days: int = 30
+    ) -> list:
+        """
+        Generate personalized insights based on habit patterns.
+
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            days: Number of days to analyze
+
+        Returns:
+            List of insight objects
+        """
+        try:
+            analytics = await DiaryMetadataService.get_habit_analytics(db, user_uuid, days)
+            insights = []
+
+            for habit, data in analytics.items():
+                # Streak achievements
+                if data["current_streak"] >= 7:
+                    insights.append({
+                        "type": "achievement",
+                        "message": f"🔥 {data['current_streak']} day streak for {habit}!",
+                        "habit": habit,
+                        "severity": "success"
+                    })
+                elif data["current_streak"] >= 3:
+                    insights.append({
+                        "type": "achievement",
+                        "message": f"👍 {data['current_streak']} day streak for {habit}!",
+                        "habit": habit,
+                        "severity": "info"
+                    })
+
+                # Streak warnings
+                if data["current_streak"] == 0 and data["best_streak"] >= 7:
+                    insights.append({
+                        "type": "warning",
+                        "message": f"💔 Streak broken for {habit}. Best was {data['best_streak']} days!",
+                        "habit": habit,
+                        "severity": "warning"
+                    })
+
+                # Completion rate insights
+                if data["completion_rate"] >= 0.8:
+                    insights.append({
+                        "type": "positive",
+                        "message": f"📈 Great consistency with {habit}! {data['completion_rate']*100:.0f}% completion rate",
+                        "habit": habit,
+                        "severity": "success"
+                    })
+                elif data["completion_rate"] < 0.3 and data["total_days_tracked"] >= 7:
+                    insights.append({
+                        "type": "suggestion",
+                        "message": f"💪 Try setting a smaller goal for {habit} to build momentum",
+                        "habit": habit,
+                        "severity": "info"
+                    })
+
+                # Trend insights
+                if data["trend"] == "improving":
+                    insights.append({
+                        "type": "positive",
+                        "message": f"📊 {habit} is trending upward! Keep up the great work!",
+                        "habit": habit,
+                        "severity": "success"
+                    })
+                elif data["trend"] == "declining":
+                    insights.append({
+                        "type": "warning",
+                        "message": f"📉 {habit} is trending down. Let's get back on track!",
+                        "habit": habit,
+                        "severity": "warning"
+                    })
+
+            return insights
+
+        except Exception as e:
+            logger.error(f"Error generating habit insights for user {user_uuid}: {e}")
+            return []
+
+    @staticmethod
+    async def get_today_habits(
+        db: AsyncSession,
+        user_uuid: str,
+        target_date: date = None
+    ) -> dict:
+        """
+        Get today's habits data.
+
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            target_date: Date to get habits for (defaults to today)
+
+        Returns:
+            Habits data dictionary
+        """
+        if target_date is None:
+            target_date = datetime.now(NEPAL_TZ).date()
+
+        try:
+            daily_metadata = await DiaryMetadataService.get_daily_metadata(
+                db, user_uuid, target_date
+            )
+
+            if daily_metadata and daily_metadata.habits_json:
+                return json.loads(daily_metadata.habits_json)
+            else:
+                return {
+                    "habits": {},
+                    "streaks": {},
+                    "units": {},
+                    "first_tracked": {},
+                    "last_updated": None
+                }
+
+        except Exception as e:
+            logger.error(f"Error getting today's habits for user {user_uuid}: {e}")
+            return {
+                "habits": {},
+                "streaks": {},
+                "units": {},
+                "first_tracked": {},
+                "last_updated": None
+            }
 
 
 # Global instance

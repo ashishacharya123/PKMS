@@ -2,7 +2,7 @@
 Todo Model for Task Management
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum, Date
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum, Date, Index
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
@@ -35,14 +35,15 @@ class Todo(Base):
     parent_uuid = Column(String(36), ForeignKey("todos.uuid", ondelete="CASCADE"), nullable=True)  # For subtasks
     # blocked_by removed - replaced with todo_dependencies junction table
     
-    # Phase 2: Time Tracking
-    estimate_days = Column(Integer, nullable=True)  # Estimated time in days (more intuitive)
-    actual_minutes = Column(Integer, nullable=True)  # Actual time spent in minutes (precise tracking)
+    # Phase 2: Time Tracking - calculated in frontend from dates
+    # estimate_days: frontend calculates (due_date - start_date).days
+    # actual_days: frontend calculates (completion_date - start_date).days
     
     # Existing fields
     is_archived = Column(Boolean, default=False, nullable=False)
     is_favorite = Column(Boolean, default=False, nullable=False)
-    is_exclusive_mode = Column(Boolean, default=False, nullable=False)  # If True, todo is deleted when any of its projects are deleted (project-exclusive)
+    is_project_exclusive = Column(Boolean, default=False, nullable=False)  # If True, todo is deleted when any of its projects are deleted
+    is_todo_exclusive = Column(Boolean, default=False, nullable=False)  # If True, todo is exclusive to parent todo (subtask-only)
     priority = Column(Enum(TaskPriority), default=TaskPriority.MEDIUM, nullable=False)
     start_date = Column(Date, nullable=True)
     due_date = Column(Date, nullable=True)
@@ -55,6 +56,17 @@ class Todo(Base):
     
     # Soft Delete
     is_deleted = Column(Boolean, default=False, index=True)
+    
+    # Composite indexes for common query patterns
+    __table_args__ = (
+        Index('ix_todo_user_status_archived', 'created_by', 'status', 'is_archived'),
+        Index('ix_todo_user_parent', 'created_by', 'parent_uuid'),
+        Index('ix_todo_user_created_desc', 'created_by', 'created_at'),
+        Index('ix_todo_user_due_date', 'created_by', 'due_date'),
+        Index('ix_todo_user_priority', 'created_by', 'priority'),
+        Index('ix_todo_user_favorite', 'created_by', 'is_favorite'),
+    )
+    
     
     # Progress Tracking
     completion_percentage = Column(Integer, default=0)  # Auto-calculated from subtasks or manual override

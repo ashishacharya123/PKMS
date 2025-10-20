@@ -37,7 +37,7 @@ from app.routers import (
     advanced_fuzzy,
     delete_preflight,
 )
-from app.routers import unified_uploads, unified_downloads
+from app.routers import unified_uploads
 from app.routers.search import router as search_endpoints_router
 from app.services.chunk_service import chunk_manager
 from app.middleware.query_monitoring import QueryMonitoringMiddleware
@@ -48,6 +48,22 @@ from app.config import settings, get_data_dir, NEPAL_TZ
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
+
+# TODO: Add security headers middleware for production deployment
+# Security headers to add:
+# - X-Content-Type-Options: nosniff
+# - X-Frame-Options: DENY
+# - X-XSS-Protection: 1; mode=block
+# - Strict-Transport-Security: max-age=31536000; includeSubDomains
+# - Content-Security-Policy: default-src 'self'
+# Example implementation:
+# @app.middleware("http")
+# async def add_security_headers(request: Request, call_next):
+#     response = await call_next(request)
+#     response.headers["X-Content-Type-Options"] = "nosniff"
+#     response.headers["X-Frame-Options"] = "DENY"
+#     response.headers["X-XSS-Protection"] = "1; mode=block"
+#     return response
 
 # Session cleanup task
 cleanup_task = None
@@ -184,7 +200,6 @@ app.include_router(search_endpoints_router, prefix="/api/v1")  # Unified search 
 app.include_router(backup.router, prefix="/api/v1/backup")
 app.include_router(tags.router, prefix="/api/v1/tags")
 app.include_router(unified_uploads.router)
-app.include_router(unified_downloads.router)
 app.include_router(testing_router, prefix="/api/v1/testing")
 app.include_router(advanced_fuzzy.router, prefix="/api/v1")  # Re-enabled for hybrid search
 app.include_router(delete_preflight.router, prefix="/api/v1/delete-preflight")  # Unified delete preflight

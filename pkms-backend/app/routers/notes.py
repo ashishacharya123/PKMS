@@ -18,7 +18,6 @@ from app.models.user import User
 from app.auth.dependencies import get_current_user
 from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFileResponse, CommitNoteFileRequest
 from app.services.note_crud_service import note_crud_service
-from app.services.note_content_service import note_content_service
 from app.services.chunk_service import chunk_manager
 
 logger = logging.getLogger(__name__)
@@ -251,54 +250,3 @@ async def delete_note_file(
             detail=f"Failed to delete file: {str(e)}"
         )
 
-
-@router.post("/{note_uuid}/analyze")
-async def analyze_note_content(
-    note_uuid: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Analyze note content for insights and statistics"""
-    try:
-        # Get note first
-        note_response = await note_crud_service.get_note_with_relations(db, note_uuid, current_user.uuid)
-        
-        # Analyze content
-        analysis = await note_content_service.process_note_content(
-            db, note_response, note_response.content, current_user.uuid
-        )
-        
-        return {
-            "note_uuid": note_uuid,
-            "analysis": analysis,
-            "statistics": note_content_service.get_content_statistics(note_response.content)
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error analyzing note {note_uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to analyze note content: {str(e)}"
-        )
-
-
-@router.post("/validate-content")
-async def validate_note_content(
-    content: str = Form(...),
-    current_user: User = Depends(get_current_user)
-):
-    """Validate note content for quality and security"""
-    try:
-        validation = note_content_service.validate_content(content)
-        return {
-            "validation": validation,
-            "preview": note_content_service.extract_preview(content),
-            "statistics": note_content_service.get_content_statistics(content)
-        }
-    except Exception as e:
-        logger.exception("Error validating note content")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to validate content: {str(e)}"
-        )

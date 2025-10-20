@@ -30,7 +30,7 @@ from ..models.note import Note
 from ..models.document import Document
 from ..models.todo import Todo
 from ..models.project import Project
-from ..models.diary import DiaryEntry, DiaryFile, DiaryDailyMetadata
+from ..models.diary import DiaryEntry, DiaryDailyMetadata
 from ..models.archive import ArchiveFolder, ArchiveItem
 from ..models.tag import Tag
 # from ..models.link import Link  # Link model not implemented
@@ -59,7 +59,7 @@ async def get_database_stats(
             ("todos", Todo),
             ("projects", Project),
             ("diary_entries", DiaryEntry),
-            ("diary_files", DiaryFile),
+            # DiaryFile model removed - diary files now use Document + document_diary
             ("diary_daily_metadata", DiaryDailyMetadata),
             ("archive_folders", ArchiveFolder),
             ("archive_items", ArchiveItem),
@@ -79,13 +79,9 @@ async def get_database_stats(
                     # For users table, don't filter by created_by
                     result = await db.execute(select(func.count()).select_from(model))
                 elif table_name == "diary_media":
-                    # DiaryFile doesn't have created_by, need to join with DiaryEntry
-                    result = await db.execute(
-                        select(func.count())
-                        .select_from(model)
-                        .join(DiaryEntry, DiaryEntry.uuid == model.diary_entry_uuid)
-                        .where(DiaryEntry.created_by == current_user.uuid)
-                    )
+                    # DiaryFile model removed - diary files now use Document + document_diary
+                    # This endpoint is no longer applicable
+                    result = await db.execute(select(func.count()).select_from(DiaryEntry).where(DiaryEntry.created_by == current_user.uuid))
                 else:
                     # For other tables, filter by current user
                     result = await db.execute(
@@ -814,7 +810,7 @@ async def get_sample_rows(
                 "todos": Todo,
                 "projects": Project,
                 "diary_entries": DiaryEntry,
-                "diary_files": DiaryFile,
+                # DiaryFile model removed - diary files now use Document + document_diary
                 "archive_folders": ArchiveFolder,
                 "archive_items": ArchiveItem,
                 "tags": Tag
@@ -827,8 +823,9 @@ async def get_sample_rows(
             
             # Build query with user filtering
             if table == "diary_media":
-                # DiaryFile doesn't have created_by, need to join with DiaryEntry
-                query = select(model).join(DiaryEntry, DiaryEntry.uuid == model.diary_entry_uuid).where(DiaryEntry.created_by == current_user.uuid).limit(limit)
+                # DiaryFile model removed - diary files now use Document + document_diary
+                # This endpoint is no longer applicable
+                query = select(DiaryEntry).where(DiaryEntry.created_by == current_user.uuid).limit(limit)
             else:
                 # For other tables, filter by current user
                 query = select(model).where(model.created_by == current_user.uuid).limit(limit)
@@ -1022,11 +1019,8 @@ async def test_diary_encryption(
             entry_data["content_file_path"] = sample_entry.content_file_path
             entry_data["file_hash"] = sample_entry.file_hash
             
-            # Get media count for this entry
-            media_query = select(func.count()).select_from(DiaryFile).where(
-                DiaryFile.diary_entry_uuid == sample_entry.uuid
-            )
-            media_result = await db.execute(media_query)
+            # DiaryFile model removed - diary files now use Document + document_diary
+            # Media count is now handled via document_diary association
             media_count = media_result.scalar()
             
             return {
@@ -2805,7 +2799,7 @@ async def get_diary_table_details(
 ):
     """Get detailed information about diary tables, showing structure while respecting encryption."""
     try:
-        from ..models.diary import DiaryEntry, DiaryFile, DiaryDailyMetadata
+        from ..models.diary import DiaryEntry, DiaryDailyMetadata
         
         # Get diary entries table info with new fields
         entries_query = text("""

@@ -26,6 +26,7 @@ from app.services.tag_service import tag_service
 from app.services.project_service import project_service
 from app.services.search_service import search_service
 from app.services.dashboard_service import dashboard_service
+from app.services.shared_utilities_service import shared_utilities_service
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ class TodoCRUDService:
             await db.commit()
             
             # OPTIMIZED: Use batch badge loading for single item to avoid N+1
-            project_badges = await self._batch_get_project_badges(
+            project_badges = await shared_utilities_service.batch_get_project_badges(
                 db, [todo.uuid], todo_projects, "todo_uuid"
             )
             project_badges = project_badges.get(todo.uuid, [])
@@ -154,7 +155,7 @@ class TodoCRUDService:
             
             # BATCH LOAD: Get all project badges in a single query to avoid N+1
             todo_uuids = [todo.uuid for todo in todos]
-            project_badges_map = await self._batch_get_project_badges(db, todo_uuids, todo_projects, "todo_uuid")
+            project_badges_map = await shared_utilities_service.batch_get_project_badges(db, todo_uuids, todo_projects, "todo_uuid")
             
             # Convert to response format with project badges
             todo_responses = []
@@ -190,7 +191,7 @@ class TodoCRUDService:
                 raise HTTPException(status_code=404, detail="Todo not found")
             
             # OPTIMIZED: Use batch badge loading for single item to avoid N+1
-            project_badges = await self._batch_get_project_badges(
+            project_badges = await shared_utilities_service.batch_get_project_badges(
                 db, [todo.uuid], todo_projects, "todo_uuid"
             )
             project_badges = project_badges.get(todo.uuid, [])
@@ -267,7 +268,7 @@ class TodoCRUDService:
             await db.refresh(todo)
             
             # OPTIMIZED: Use batch badge loading for single item to avoid N+1
-            project_badges = await self._batch_get_project_badges(
+            project_badges = await shared_utilities_service.batch_get_project_badges(
                 db, [todo.uuid], todo_projects, "todo_uuid"
             )
             project_badges = project_badges.get(todo.uuid, [])
@@ -368,7 +369,7 @@ class TodoCRUDService:
             await db.refresh(todo)
             
             # OPTIMIZED: Use batch badge loading for single item to avoid N+1
-            project_badges = await self._batch_get_project_badges(
+            project_badges = await shared_utilities_service.batch_get_project_badges(
                 db, [todo.uuid], todo_projects, "todo_uuid"
             )
             project_badges = project_badges.get(todo.uuid, [])
@@ -475,7 +476,8 @@ class TodoCRUDService:
             priority=todo.priority,
             is_archived=todo.is_archived,
             is_favorite=todo.is_favorite,
-            is_exclusive_mode=todo.is_exclusive_mode,
+            is_project_exclusive=todo.is_project_exclusive,
+            is_todo_exclusive=todo.is_todo_exclusive,
             start_date=todo.start_date,
             due_date=todo.due_date,
             created_at=todo.created_at,
@@ -486,75 +488,6 @@ class TodoCRUDService:
         )
 
 
-    async def _batch_get_project_badges(
-        self, db: AsyncSession, item_uuids: List[str], association_table, uuid_column: str
-    ) -> Dict[str, List[ProjectBadge]]:
-        """Batch load project badges for multiple items to avoid N+1 queries."""
-        if not item_uuids:
-            return {}
-        
-        # Single query to get all associations
-        result = await db.execute(
-            select(association_table)
-            .where(getattr(association_table.c, uuid_column).in_(item_uuids))
-        )
-        associations = result.fetchall()
-        
-        # Collect all project UUIDs
-        project_uuids = set()
-        for assoc in associations:
-            project_uuid = assoc._mapping["project_uuid"]
-            if project_uuid:
-                project_uuids.add(project_uuid)
-        
-        # Single query to get all projects
-        projects = []
-        if project_uuids:
-            from app.models.project import Project
-            project_result = await db.execute(
-                select(Project).where(Project.uuid.in_(project_uuids))
-            )
-            projects = project_result.scalars().all()
-        
-        # Create project lookup map
-        project_map = {p.uuid: p for p in projects}
-        
-        # Group associations by item UUID
-        associations_by_item: Dict[str, list] = {}
-        for assoc in associations:
-            item_uuid = assoc._mapping[uuid_column]
-            if item_uuid not in associations_by_item:
-                associations_by_item[item_uuid] = []
-            associations_by_item[item_uuid].append(assoc)
-        
-        # Build project badges for each item
-        badges_map = {}
-        for item_uuid in item_uuids:
-            item_associations = associations_by_item.get(item_uuid, [])
-            project_badges = []
-            
-            for assoc in item_associations:
-                project_uuid = assoc._mapping["project_uuid"]
-                if project_uuid and project_uuid in project_map:
-                    project = project_map[project_uuid]
-                    project_badges.append(ProjectBadge(
-                        uuid=project.uuid,
-                        name=project.name,
-                        is_exclusive=assoc._mapping.get("is_exclusive", False),
-                        is_deleted=False
-                    ))
-                elif assoc._mapping.get("project_name_snapshot"):
-                    # Deleted project (snapshot)
-                    project_badges.append(ProjectBadge(
-                        uuid=None,
-                        name=assoc._mapping["project_name_snapshot"],
-                        is_exclusive=assoc._mapping.get("is_exclusive", False),
-                        is_deleted=True
-                    ))
-            
-            badges_map[item_uuid] = project_badges
-        
-        return badges_map
 
 
 # Global instance

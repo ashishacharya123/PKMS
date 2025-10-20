@@ -20,7 +20,7 @@ from fastapi import HTTPException, status
 from fastapi.responses import FileResponse
 
 from app.config import NEPAL_TZ, get_file_storage_dir
-from app.models.diary import DiaryEntry, DiaryFile, DiaryDailyMetadata
+from app.models.diary import DiaryEntry, DiaryDailyMetadata
 from app.models.tag import Tag
 from app.models.tag_associations import diary_entry_tags
 from app.models.enums import ModuleType
@@ -34,9 +34,6 @@ from app.schemas.diary import (
     DiaryEntryUpdate,
     DiaryEntryResponse,
     DiaryEntrySummary,
-    DiaryFileResponse,
-    DiaryFileUpload,
-    CommitDiaryFileRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -264,10 +261,11 @@ class DiaryCRUDService:
         Returns:
             List of DiaryEntrySummary
         """
-        # Subquery to count files per entry
+        # Subquery to count documents per entry (using document_diary association)
+        from app.models.associations import document_diary
         file_count_subquery = (
-            select(DiaryFile.diary_entry_uuid, func.count(DiaryFile.uuid).label("file_count"))
-            .group_by(DiaryFile.diary_entry_uuid)
+            select(document_diary.c.diary_entry_uuid, func.count(document_diary.c.document_uuid).label("file_count"))
+            .group_by(document_diary.c.diary_entry_uuid)
             .subquery()
         )
 
@@ -856,150 +854,243 @@ class DiaryCRUDService:
         # Remove from search index
         await search_service.remove_item(db, entry.uuid, 'diary')
         await db.commit()
-    
+
+    # Habit tracking methods - integrating with diary workflow
     @staticmethod
-    async def get_entry_files(
+    async def update_habits_for_diary_day(
         db: AsyncSession,
         user_uuid: str,
-        entry_ref: str
-    ) -> List[DiaryFileResponse]:
+        target_date: str,
+        habits_data: Dict[str, Any],
+        units: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
         """
-        Get all files attached to a diary entry.
-        
+        Update habits for a specific diary day using the metadata service.
+
         Args:
             db: Database session
             user_uuid: User's UUID
-            entry_ref: Entry UUID or date
-            
+            target_date: Date string in YYYY-MM-DD format
+            habits_data: Dictionary of habit values
+            units: Dictionary of habit units
+
         Returns:
-            List of DiaryFileResponse
+            Updated habits data with streaks
         """
-        # Get entry first to validate access
+        from app.services.diary_metadata_service import diary_metadata_service
+
+        logger.info(f"Updating habits for user {user_uuid} on {target_date}")
+
         try:
-            entry_date = datetime.strptime(entry_ref, "%Y-%m-%d").date()
-            # For date-based lookup, get the first entry for that date
-            query = select(DiaryEntry).where(
-                and_(
-                    func.date(DiaryEntry.date) == entry_date,
-                    DiaryEntry.created_by == user_uuid,
-                    DiaryEntry.is_deleted.is_(False)
-                )
-            ).limit(1)
+            habits_result = await diary_metadata_service.update_daily_habits(
+                db=db,
+                user_uuid=user_uuid,
+                target_date=target_date,
+                habits_data=habits_data,
+                units=units
+            )
+
+            logger.info(f"Successfully updated {len(habits_result)} habits for {target_date}")
+            return habits_result
+
+        except Exception as e:
+            logger.error(f"Failed to update habits for {target_date}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to update habits for {target_date}"
+            )
+
+    @staticmethod
+    async def get_habits_for_diary_day(
+        db: AsyncSession,
+        user_uuid: str,
+        target_date: str
+    ) -> Dict[str, Any]:
+        """
+        Get habits for a specific diary day.
+
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            target_date: Date string in YYYY-MM-DD format
+
+        Returns:
+            Dictionary of habits data or empty dict if not found
+        """
+        from app.services.diary_metadata_service import diary_metadata_service
+
+        try:
+            daily_metadata = await diary_metadata_service.get_daily_metadata(
+                db=db,
+                user_uuid=user_uuid,
+                target_date=target_date
+            )
+
+            if daily_metadata and daily_metadata.habits_json:
+                habits = json.loads(daily_metadata.habits_json)
+                logger.debug(f"Found {len(habits)} habits for {target_date}")
+                return habits
+
+            return {}
+
         except ValueError:
-            # UUID-based lookup
-            query = select(DiaryEntry).where(
-                and_(
-                    DiaryEntry.uuid == entry_ref,
-                    DiaryEntry.created_by == user_uuid,
-                    DiaryEntry.is_deleted.is_(False)
-                )
+            # No daily metadata found
+            return {}
+        except Exception as e:
+            logger.error(f"Failed to get habits for {target_date}: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to retrieve habits for {target_date}"
             )
-        
-        result = await db.execute(query)
-        entry = result.scalar_one_or_none()
-        
-        if not entry:
-            raise HTTPException(status_code=404, detail=f"Diary entry not found: {entry_ref}")
-        
-        # Get files for this entry
-        files_query = (
-            select(DiaryFile)
-            .where(
-                and_(
-                    DiaryFile.diary_entry_uuid == entry.uuid,
-                    DiaryFile.created_by == user_uuid,
-                    DiaryFile.is_deleted.is_(False)
-                )
-            )
-            .order_by(DiaryFile.created_at)
-        )
-        
-        files_result = await db.execute(files_query)
-        files = files_result.scalars().all()
-        
-        return [
-            DiaryFileResponse(
-                uuid=file.uuid,
-                original_name=file.original_name,
-                file_type=file.file_type,
-                file_size=file.file_size,
-                mime_type=file.mime_type,
-                created_at=file.created_at,
-                updated_at=file.updated_at,
-            )
-            for file in files
-        ]
-    
+
     @staticmethod
-    async def commit_file_upload(
+    async def get_habit_analytics_for_user(
         db: AsyncSession,
         user_uuid: str,
-        upload_id: str,
-        metadata: CommitDiaryFileRequest
-    ) -> DiaryFileResponse:
+        days: int = 30
+    ) -> Dict[str, Any]:
         """
-        Commit a file upload to a diary entry.
-        
+        Get habit analytics for a user using the metadata service.
+
         Args:
             db: Database session
             user_uuid: User's UUID
-            upload_id: Upload ID from chunked upload
-            metadata: File metadata
-            
+            days: Number of days to analyze
+
         Returns:
-            DiaryFileResponse for the committed file
+            Habit analytics data
         """
-        # Use unified upload service
-        diary_file = await unified_upload_service.commit_upload(
-            db=db,
-            upload_id=upload_id,
-            module="diary",
-            created_by=user_uuid,
-            metadata={
-                "diary_entry_uuid": metadata.diary_entry_uuid,
-                "original_name": metadata.original_name,
-                "file_type": metadata.file_type,
-                "file_size": metadata.file_size,
-                "mime_type": metadata.mime_type,
-            }
-        )
-        
-        return DiaryFileResponse(
-            uuid=diary_file.uuid,
-            original_name=diary_file.original_name,
-            file_type=diary_file.file_type,
-            file_size=diary_file.file_size,
-            mime_type=diary_file.mime_type,
-            created_at=diary_file.created_at,
-            updated_at=diary_file.updated_at,
-        )
-    
+        from app.services.diary_metadata_service import diary_metadata_service
+
+        try:
+            analytics = await diary_metadata_service.get_habit_analytics(
+                db=db,
+                user_uuid=user_uuid,
+                days=days
+            )
+
+            logger.info(f"Retrieved habit analytics for user {user_uuid} over {days} days")
+            return analytics
+
+        except Exception as e:
+            logger.error(f"Failed to get habit analytics: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to retrieve habit analytics"
+            )
+
     @staticmethod
-    async def download_file(
+    async def get_habit_insights_for_user(
         db: AsyncSession,
         user_uuid: str,
-        file_uuid: str,
-        request
-    ) -> FileResponse:
+        days: int = 30
+    ) -> Dict[str, Any]:
         """
-        Download a diary file.
-        
+        Get habit insights for a user using the metadata service.
+
         Args:
             db: Database session
             user_uuid: User's UUID
-            file_uuid: File UUID
-            request: FastAPI request object
-            
+            days: Number of days to analyze
+
         Returns:
-            FileResponse for download
+            Habit insights data
         """
-        return await unified_download_service.download_file(
-            db=db,
-            file_uuid=file_uuid,
-            module="diary",
-            user_uuid=user_uuid,
-            request=request
-        )
+        from app.services.diary_metadata_service import diary_metadata_service
+
+        try:
+            insights = await diary_metadata_service.get_habit_insights(
+                db=db,
+                user_uuid=user_uuid,
+                days=days
+            )
+
+            logger.info(f"Retrieved habit insights for user {user_uuid} over {days} days")
+            return insights
+
+        except Exception as e:
+            logger.error(f"Failed to get habit insights: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to retrieve habit insights"
+            )
+
+    @staticmethod
+    async def get_active_habits_for_user(
+        db: AsyncSession,
+        user_uuid: str,
+        days: int = 30
+    ) -> List[str]:
+        """
+        Get list of active habits for a user using the metadata service.
+
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            days: Number of days to look back
+
+        Returns:
+            List of active habit names
+        """
+        from app.services.diary_metadata_service import diary_metadata_service
+
+        try:
+            active_habits = await diary_metadata_service.get_active_habits(
+                db=db,
+                user_uuid=user_uuid,
+                days=days
+            )
+
+            logger.info(f"Found {len(active_habits)} active habits for user {user_uuid}")
+            return active_habits
+
+        except Exception as e:
+            logger.error(f"Failed to get active habits: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to retrieve active habits"
+            )
+
+    @staticmethod
+    async def get_habit_streak_for_user(
+        db: AsyncSession,
+        user_uuid: str,
+        habit_key: str,
+        end_date: Optional[str] = None
+    ) -> int:
+        """
+        Get current streak for a specific habit using the metadata service.
+
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            habit_key: Habit name/key
+            end_date: End date for streak calculation (defaults to today)
+
+        Returns:
+            Current streak count
+        """
+        from app.services.diary_metadata_service import diary_metadata_service
+
+        try:
+            streak = await diary_metadata_service.calculate_habit_streak(
+                db=db,
+                user_uuid=user_uuid,
+                habit_key=habit_key,
+                end_date=end_date
+            )
+
+            logger.info(f"Retrieved streak {streak} for habit '{habit_key}' for user {user_uuid}")
+            return streak
+
+        except Exception as e:
+            logger.error(f"Failed to get habit streak for '{habit_key}': {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to retrieve streak for habit '{habit_key}'"
+            )
+
+# DiaryFile-related methods removed - using Document + document_diary association instead
 
 
 # Global instance

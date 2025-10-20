@@ -16,7 +16,8 @@ from app.models.note import Note
 from app.models.document import Document
 from app.models.todo import Todo, TodoStatus
 from app.models.project import Project, ProjectStatus
-from app.models.diary import DiaryEntry, DiaryFile
+from app.models.diary import DiaryEntry
+from app.models.associations import document_diary
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.schemas.dashboard import DashboardStats, ModuleActivity, QuickStats
 from app.services.unified_cache_service import dashboard_cache
@@ -208,10 +209,13 @@ class DashboardService:
             .where(Note.created_by == user_uuid)
         ) or 0
         
-        # Diary media storage
+        # Diary media storage (via document_diary association)
         diary_media_bytes = await db.scalar(
-            select(func.coalesce(func.sum(DiaryFile.file_size), 0))
-            .join(DiaryEntry, DiaryFile.diary_entry_uuid == DiaryEntry.uuid)
+            select(func.coalesce(func.sum(Document.file_size), 0))
+            .join(DiaryEntry, Document.uuid.in_(
+                select(document_diary.c.document_uuid)
+                .where(document_diary.c.diary_entry_uuid == DiaryEntry.uuid)
+            ))
             .where(DiaryEntry.created_by == user_uuid)
         ) or 0
         

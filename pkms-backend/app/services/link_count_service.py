@@ -18,7 +18,7 @@ import logging
 from app.models.document import Document
 from app.models.note import Note, NoteFile
 from app.models.todo import Todo
-from app.models.diary import DiaryFile
+# DiaryFile removed - diary files now use Document + document_diary
 from app.models.project import Project
 from app.models.associations import document_projects, note_projects, todo_projects
 
@@ -108,14 +108,8 @@ class LinkCountService:
             note = await db.get(Note, item.note_uuid)
             return item if note and note.created_by == user_uuid else None
             
-        elif item_type == "diary_file":
-            item = await db.get(DiaryFile, item_uuid)
-            if not item:
-                return None
-            # Check ownership through parent diary entry
-            from app.models.diary import DiaryEntry
-            entry = await db.get(DiaryEntry, item.diary_entry_uuid)
-            return item if entry and entry.created_by == user_uuid else None
+        # DiaryFile removed - diary files now use Document + document_diary
+        # No separate diary_file type needed
             
         else:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown item type: {item_type}")

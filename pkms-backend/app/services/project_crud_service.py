@@ -31,6 +31,7 @@ from app.schemas.project import (
 from app.services.tag_service import tag_service
 from app.services.search_service import search_service
 from app.services.dashboard_service import dashboard_service
+from app.services.shared_utilities_service import shared_utilities_service
 
 logger = logging.getLogger(__name__)
 
@@ -362,7 +363,7 @@ class ProjectCRUDService:
             
             # BATCH LOAD: Get all project badges in a single query to avoid N+1
             doc_uuids = [doc.uuid for doc in documents]
-            project_badges_map = await self._batch_get_project_badges(db, doc_uuids, document_projects, "document_uuid")
+            project_badges_map = await shared_utilities_service.batch_get_project_badges(db, doc_uuids, document_projects, "document_uuid")
             
             # Build project badges for each document
             for doc in documents:
@@ -382,7 +383,7 @@ class ProjectCRUDService:
             
             # BATCH LOAD: Get all project badges in a single query to avoid N+1
             note_uuids = [note.uuid for note in notes]
-            project_badges_map = await self._batch_get_project_badges(db, note_uuids, note_projects, "note_uuid")
+            project_badges_map = await shared_utilities_service.batch_get_project_badges(db, note_uuids, note_projects, "note_uuid")
             
             # Build project badges for each note
             for note in notes:
@@ -402,7 +403,7 @@ class ProjectCRUDService:
             
             # BATCH LOAD: Get all project badges in a single query to avoid N+1
             todo_uuids = [todo.uuid for todo in todos]
-            project_badges_map = await self._batch_get_project_badges(db, todo_uuids, todo_projects, "todo_uuid")
+            project_badges_map = await shared_utilities_service.batch_get_project_badges(db, todo_uuids, todo_projects, "todo_uuid")
             
             # Build project badges for each todo
             for todo in todos:
@@ -631,95 +632,27 @@ class ProjectCRUDService:
         
         return counts
 
-    async def _batch_get_project_badges(
-        self, db: AsyncSession, item_uuids: List[str], association_table, uuid_column: str
-    ) -> Dict[str, List[ProjectBadge]]:
-        """Batch load project badges for multiple items to avoid N+1 queries."""
-        if not item_uuids:
-            return {}
-        
-        # Single query to get all associations
-        result = await db.execute(
-            select(association_table)
-            .where(getattr(association_table.c, uuid_column).in_(item_uuids))
-        )
-        associations = result.fetchall()
-        
-        # Collect all project UUIDs
-        project_uuids = set()
-        for assoc in associations:
-            project_uuid = assoc._mapping["project_uuid"]
-            if project_uuid:
-                project_uuids.add(project_uuid)
-        
-        # Single query to get all projects
-        projects = []
-        if project_uuids:
-            project_result = await db.execute(
-                select(Project).where(Project.uuid.in_(project_uuids))
-            )
-            projects = project_result.scalars().all()
-        
-        # Create project lookup map
-        project_map = {p.uuid: p for p in projects}
-        
-        # Group associations by item UUID
-        associations_by_item: Dict[str, list] = {}
-        for assoc in associations:
-            item_uuid = assoc._mapping[uuid_column]
-            if item_uuid not in associations_by_item:
-                associations_by_item[item_uuid] = []
-            associations_by_item[item_uuid].append(assoc)
-        
-        # Build project badges for each item
-        badges_map = {}
-        for item_uuid in item_uuids:
-            item_associations = associations_by_item.get(item_uuid, [])
-            project_badges = []
-            
-            for assoc in item_associations:
-                project_uuid = assoc._mapping["project_uuid"]
-                if project_uuid and project_uuid in project_map:
-                    project = project_map[project_uuid]
-                    project_badges.append(ProjectBadge(
-                        uuid=project.uuid,
-                        name=project.name,
-                        is_exclusive=assoc._mapping.get("is_exclusive", False),
-                        is_deleted=False
-                    ))
-                elif assoc._mapping.get("project_name_snapshot"):
-                    # Deleted project (snapshot)
-                    project_badges.append(ProjectBadge(
-                        uuid=None,
-                        name=assoc._mapping["project_name_snapshot"],
-                        is_exclusive=assoc._mapping.get("is_exclusive", False),
-                        is_deleted=True
-                    ))
-            
-            badges_map[item_uuid] = project_badges
-        
-        return badges_map
 
     async def _build_document_project_badges(
-        self, db: AsyncSession, document_uuid: str, is_exclusive_mode: bool
+        self, db: AsyncSession, document_uuid: str, is_project_exclusive: bool
     ) -> List[ProjectBadge]:
         """Build project badges for a document."""
         from app.services.project_service import project_service
-        return await project_service.build_badges(db, document_uuid, is_exclusive_mode, document_projects, "document_uuid")
+        return await project_service.build_badges(db, document_uuid, is_project_exclusive, document_projects, "document_uuid")
 
     async def _build_note_project_badges(
-        self, db: AsyncSession, note_uuid: str, is_exclusive_mode: bool
+        self, db: AsyncSession, note_uuid: str, is_project_exclusive: bool
     ) -> List[ProjectBadge]:
         """Build project badges for a note."""
         from app.services.project_service import project_service
-        return await project_service.build_badges(db, note_uuid, is_exclusive_mode, note_projects, "note_uuid")
+        return await project_service.build_badges(db, note_uuid, is_project_exclusive, note_projects, "note_uuid")
 
     async def _build_todo_project_badges(
-        self, db: AsyncSession, todo_uuid: str, is_exclusive_mode: bool
+        self, db: AsyncSession, todo_uuid: str, is_project_exclusive: bool
     ) -> List[ProjectBadge]:
         """Build project badges for a todo."""
         from app.services.project_service import project_service
-        return await project_service.build_badges(db, todo_uuid, is_exclusive_mode, todo_projects, "todo_uuid")
+        return await project_service.build_badges(db, todo_uuid, is_project_exclusive, todo_projects, "todo_uuid")
 
     def _convert_project_to_response(
         self, project: Project, todo_count: int = 0, completed_count: int = 0

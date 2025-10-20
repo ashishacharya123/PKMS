@@ -101,7 +101,7 @@ class ProjectService:
         self,
         db: AsyncSession,
         item_uuid: str,
-        is_exclusive: bool,
+        is_project_exclusive: bool,
         association_table: Type,
         item_uuid_field: str
     ) -> List[ProjectBadge]:
@@ -111,7 +111,7 @@ class ProjectService:
         Args:
             db: Database session
             item_uuid: The content item UUID
-            is_exclusive: Whether the item is in exclusive mode
+            is_project_exclusive: Whether the item is in project exclusive mode
             association_table: The junction table (note_projects, document_projects, todo_projects)
             item_uuid_field: The field name for the item UUID in the association table
             
@@ -154,7 +154,7 @@ class ProjectService:
                     name=project.name,
                     # color removed - project color field deleted
                     is_deleted=False,
-                    is_exclusive=is_exclusive
+                    is_project_exclusive=is_project_exclusive
                 )
             elif project_name_snapshot:
                 # Deleted project snapshot
@@ -162,7 +162,7 @@ class ProjectService:
                     uuid=None,  # deleted/snapshotted project
                     name=project_name_snapshot,
                     is_deleted=True,
-                    is_exclusive=is_exclusive
+                    is_project_exclusive=is_project_exclusive
                 )
             else:
                 # Skip invalid associations
@@ -276,7 +276,7 @@ class ProjectService:
             .where(
                 and_(
                     note_projects.c.project_uuid == project.uuid,
-                    Note.is_exclusive_mode.is_(True)
+                    Note.is_project_exclusive.is_(True)
                 )
             )
         )
@@ -306,7 +306,7 @@ class ProjectService:
             .where(
                 and_(
                     document_projects.c.project_uuid == project.uuid,
-                    Document.is_exclusive_mode.is_(True)
+                    Document.is_project_exclusive.is_(True)
                 )
             )
         )
@@ -335,7 +335,7 @@ class ProjectService:
             .where(
                 and_(
                     todo_projects.c.project_uuid == project.uuid,
-                    Todo.is_exclusive_mode.is_(True)
+                    Todo.is_project_exclusive.is_(True)
                 )
             )
         )

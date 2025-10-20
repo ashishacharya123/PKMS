@@ -8,9 +8,13 @@ import {
   WellnessStats,
   DiaryDailyMetadata,
   WeeklyHighlights,
+  HabitData,
+  HabitAnalytics,
+  HabitInsights,
 } from '../types/diary';
 import { coreUploadService } from './shared/coreUploadService';
 import { coreDownloadService } from './shared/coreDownloadService';
+import { diaryCryptoService } from './diaryCryptoService';
 
 class DiaryService {
   private baseUrl = '/diary';
@@ -50,48 +54,15 @@ class DiaryService {
   }
 
   async generateEncryptionKey(password: string): Promise<CryptoKey> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hash = await crypto.subtle.digest('SHA-256', data);
-    const key = await crypto.subtle.importKey(
-      'raw',
-      hash,
-      { name: 'AES-GCM' },
-      false,
-      ['encrypt', 'decrypt']
-    );
-    return key;
+    return diaryCryptoService.generateEncryptionKey(password);
   }
 
   async encryptContent(content: string, key: CryptoKey): Promise<{ encrypted_blob: string; iv: string; char_count: number }> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(content);
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const encrypted = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      key,
-      data
-    );
-
-    return {
-      encrypted_blob: btoa(String.fromCharCode(...new Uint8Array(encrypted))),
-      iv: btoa(String.fromCharCode(...iv)),
-      char_count: content.length,
-    };
+    return diaryCryptoService.encryptText(content, key);
   }
 
-  async decryptContent(encrypted_blob: string, iv: string, key: CryptoKey): Promise<string> {
-    const decoder = new TextDecoder();
-    const encryptedData = Uint8Array.from(atob(encrypted_blob), c => c.charCodeAt(0));
-    const ivData = Uint8Array.from(atob(iv), c => c.charCodeAt(0));
-
-    const decrypted = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: ivData },
-      key,
-      encryptedData
-    );
-
-    return decoder.decode(decrypted);
+  async decryptContent(encrypted_blob: string, _iv: string, key: CryptoKey): Promise<string> {
+    return diaryCryptoService.decryptText(encrypted_blob, key);
   }
 
   async getPasswordHint(): Promise<string> {
@@ -208,37 +179,66 @@ class DiaryService {
     return response.data;
   }
 
-  // --- Media Methods ---
+  // --- File Methods (Document-based) ---
 
-  async uploadMedia(
+  async uploadFile(
     entryUuid: string,
     file: File,
-    mediaType: 'photo' | 'video' | 'voice',
+    _fileType: 'photo' | 'video' | 'voice',
     caption?: string,
+    key?: CryptoKey,
     onProgress?: (progress: { progress: number; status: string }) => void
   ): Promise<any> {
     try {
-      // Step 1: Upload file using core chunk upload service
-      const uploadFileId = await coreUploadService.uploadFile(file, {
-        module: 'diary',
+      // Step 0: Encrypt file if key provided
+      let fileToUpload = file;
+      if (key) {
+        if (onProgress) {
+          onProgress({ progress: 5, status: 'Encrypting...' });
+        }
+        const encryptedBlob = await diaryCryptoService.encryptFile(file, key);
+        // Create a File object with .dat extension
+        fileToUpload = new File([encryptedBlob], `${file.name}.dat`, {
+          type: 'application/octet-stream'
+        });
+      }
+
+      // Step 1: Upload file as Document using core chunk upload service
+      const uploadFileId = await coreUploadService.uploadFile(fileToUpload, {
+        module: 'documents', // Upload as document, not diary
         onProgress: onProgress ? (progress) => {
+          const baseProgress = key ? 10 : 0; // Reserve 0-10% for encryption if encrypting
+          const uploadProgress = baseProgress + (progress.progress * (85 - baseProgress) / 100);
           onProgress({ 
-            progress: progress.progress, 
-            status: `Uploading... ${progress.progress}%` 
+            progress: Math.round(uploadProgress), 
+            status: `Uploading... ${Math.round(uploadProgress)}%` 
           });
         } : undefined,
       });
 
       if (onProgress) {
-        onProgress({ progress: 95, status: 'Processing...' });
+        onProgress({ progress: 90, status: 'Creating document...' });
       }
 
-      // Step 2: Commit the upload with diary-specific metadata
-      const commitResponse = await apiService.post(`${this.baseUrl}/media/upload/commit`, {
+      // Step 2: Commit the upload as a Document
+      const commitResponse = await apiService.post('/api/v1/documents/commit', {
         file_id: uploadFileId,
-        entry_id: entryUuid,
-        media_type: mediaType,
-        caption: caption || null
+        title: file.name, // Use filename as title
+        description: caption || null,
+        tags: [], // No tags for diary files
+        project_ids: [], // No project associations
+        is_project_exclusive: false,
+        is_diary_exclusive: true, // Hide from main document list (diary-only)
+        original_name: file.name
+      });
+
+      if (onProgress) {
+        onProgress({ progress: 95, status: 'Linking to diary...' });
+      }
+
+      // Step 3: Link the document to the diary entry
+      await apiService.post(`${this.baseUrl}/entries/${entryUuid}/documents:link`, {
+        document_uuids: [(commitResponse.data as any).uuid]
       });
 
       if (onProgress) {
@@ -247,62 +247,138 @@ class DiaryService {
 
       return commitResponse.data;
     } catch (error) {
-      console.error('❌ Diary media upload failed:', error);
+      console.error('❌ Diary file upload failed:', error);
       throw error;
     }
   }
 
-  async downloadMedia(
-    mediaUuid: string,
+  async downloadFile(
+    documentUuid: string,
+    key?: CryptoKey,
+    originalName?: string,
     onProgress?: (progress: { progress: number; status: string }) => void
   ): Promise<Blob> {
     try {
-      const downloadUrl = `${this.baseUrl}/media/${mediaUuid}/download`;
+      const downloadUrl = `/api/v1/documents/${documentUuid}/download`;
       
-      return await coreDownloadService.downloadFile(downloadUrl, {
-        fileId: `diary-media-${mediaUuid}`,
+      const encryptedBlob = await coreDownloadService.downloadFile(downloadUrl, {
+        fileId: `diary-document-${documentUuid}`,
         onProgress: onProgress ? (progress) => {
+          const downloadProgress = key ? progress.progress * 0.9 : progress.progress; // Reserve 90-100% for decryption
           onProgress({
-            progress: progress.progress,
+            progress: Math.round(downloadProgress),
             status: progress.status === 'downloading' ? 'Downloading...' : 'Complete'
           });
         } : undefined
       });
+
+      // Decrypt if key provided
+      if (key) {
+        if (onProgress) {
+          onProgress({ progress: 95, status: 'Decrypting...' });
+        }
+        const decryptedFile = await diaryCryptoService.decryptFile(encryptedBlob, key, originalName || 'file');
+        if (onProgress) {
+          onProgress({ progress: 100, status: 'Complete' });
+        }
+        return decryptedFile;
+      }
+
+      return encryptedBlob;
     } catch (error) {
-      console.error('❌ Diary media download failed:', error);
+      console.error('❌ Diary file download failed:', error);
       throw error;
     }
   }
 
-  async getMediaAsObjectURL(
-    mediaUuid: string,
+  async getFileAsObjectURL(
+    documentUuid: string,
+    key?: CryptoKey,
+    originalName?: string,
     onProgress?: (progress: { progress: number; status: string }) => void
   ): Promise<string> {
     try {
-      const downloadUrl = `${this.baseUrl}/media/${mediaUuid}/download`;
-
-      return await coreDownloadService.downloadAsObjectURL(downloadUrl, {
-        fileId: `diary-media-${mediaUuid}`,
-        onProgress: onProgress ? (progress) => {
-          onProgress({
-            progress: progress.progress,
-            status: progress.status === 'downloading' ? 'Downloading...' : 'Complete'
-          });
-        } : undefined
-      });
+      // Download and optionally decrypt
+      const blob = await this.downloadFile(documentUuid, key, originalName, onProgress);
+      
+      // Create object URL
+      return URL.createObjectURL(blob);
     } catch (error) {
-      console.error('❌ Diary media download failed:', error);
+      console.error('❌ Diary file download failed:', error);
       throw error;
     }
   }
 
-  async getEntryMedia(entryUuid: string): Promise<any[]> {
-    const response = await apiService.get<any[]>(`${this.baseUrl}/entries/${entryUuid}/media`);
+  async getEntryFiles(entryUuid: string): Promise<any[]> {
+    const response = await apiService.get<any[]>(`${this.baseUrl}/entries/${entryUuid}/documents`);
     return response.data as any[];
   }
 
-  async deleteMedia(mediaUuid: string): Promise<void> {
-    await apiService.delete(`${this.baseUrl}/media/${mediaUuid}`);
+  async deleteFile(entryUuid: string, documentUuid: string): Promise<void> {
+    // Unlink document from diary entry
+    await apiService.post(`${this.baseUrl}/entries/${entryUuid}/documents:unlink`, {
+      document_uuid: documentUuid
+    });
+  }
+
+  async reorderFiles(entryUuid: string, documentUuids: string[]): Promise<void> {
+    await apiService.patch(`${this.baseUrl}/entries/${entryUuid}/documents/reorder`, {
+      document_uuids: documentUuids
+    });
+  }
+
+  // --- Habit Tracking Methods ---
+
+  async updateHabitsForDay(
+    date: string,
+    habitsData: Record<string, any>,
+    units?: Record<string, string>
+  ): Promise<HabitData> {
+    const response = await apiService.post<HabitData>(
+      `${this.baseUrl}/daily-metadata/${date}/habits`,
+      {
+        habits: habitsData,
+        units: units
+      }
+    );
+    return response.data;
+  }
+
+  async getHabitsForDay(date: string): Promise<HabitData> {
+    const response = await apiService.get<HabitData>(
+      `${this.baseUrl}/daily-metadata/${date}/habits`
+    );
+    return response.data;
+  }
+
+  async getHabitAnalytics(days: number = 30): Promise<HabitAnalytics> {
+    const response = await apiService.get<HabitAnalytics>(
+      `${this.baseUrl}/habits/analytics?days=${days}`
+    );
+    return response.data;
+  }
+
+  async getActiveHabits(days: number = 30): Promise<string[]> {
+    const response = await apiService.get<string[]>(
+      `${this.baseUrl}/habits/active?days=${days}`
+    );
+    return response.data;
+  }
+
+  async getHabitInsights(days: number = 30): Promise<HabitInsights> {
+    const response = await apiService.get<HabitInsights>(
+      `${this.baseUrl}/habits/insights?days=${days}`
+    );
+    return response.data;
+  }
+
+  async getHabitStreak(habitKey: string, endDate?: string): Promise<number> {
+    const url = endDate
+      ? `${this.baseUrl}/habits/${habitKey}/streak?end_date=${endDate}`
+      : `${this.baseUrl}/habits/${habitKey}/streak`;
+
+    const response = await apiService.get<{ streak: number }>(url);
+    return response.data.streak;
   }
 }
 

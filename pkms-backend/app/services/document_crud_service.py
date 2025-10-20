@@ -61,7 +61,7 @@ class DocumentCRUDService:
                     "description": payload.description,
                     "tags": payload.tags,
                     "project_ids": payload.project_ids,
-                    "is_exclusive_mode": payload.is_exclusive_mode,
+                    "is_project_exclusive": payload.is_project_exclusive,
                     "original_name": payload.original_name if hasattr(payload, 'original_name') else ""
                 }
             )
@@ -120,8 +120,9 @@ class DocumentCRUDService:
         List documents with filtering and pagination. Uses FTS5 for text search.
         
         Exclusive mode filtering:
-        - Items with is_exclusive_mode=True are HIDDEN from main list (only in project dashboards)
-        - Items with is_exclusive_mode=False are ALWAYS shown (linked mode)
+        - Items with is_project_exclusive=True are HIDDEN from main list (only in project dashboards)
+        - Items with is_diary_exclusive=True are HIDDEN from main list (only in diary entries)
+        - Items with both flags=False are ALWAYS shown (linked mode)
         """
         try:
             logger.info(f"Listing documents for user {user_uuid} - archived: {archived}, search: {search}, tag: {tag}")
@@ -150,8 +151,10 @@ class DocumentCRUDService:
                     and_(
                         Document.created_by == user_uuid,
                         Document.is_archived == archived,
+                        Document.is_deleted.is_(False),  # Exclude deleted items
                         Document.uuid.in_(doc_uuids),
-                        Document.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
+                        Document.is_project_exclusive.is_(False),  # Only show linked (non-project-exclusive) items
+                        Document.is_diary_exclusive.is_(False)  # Only show non-diary-exclusive items
                     )
                 )
                 # Apply filters
@@ -179,13 +182,15 @@ class DocumentCRUDService:
                 
                 logger.info(f"Final ordered result: {len(ordered_docs)} documents (ordered by FTS relevance)")
             else:
-            # Fallback to regular query with eager loading for tags
-            logger.info(f"Using regular query for archived={archived}")
-            query = select(Document).options(selectinload(Document.tag_objs)).where(
+                # Fallback to regular query with eager loading for tags
+                logger.info(f"Using regular query for archived={archived}")
+                query = select(Document).options(selectinload(Document.tag_objs)).where(
                     and_(
                         Document.created_by == user_uuid,
                         Document.is_archived == archived,
-                        Document.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
+                        Document.is_deleted.is_(False),  # Exclude deleted items
+                        Document.is_project_exclusive.is_(False),  # Only show linked (non-project-exclusive) items
+                        Document.is_diary_exclusive.is_(False)  # Only show non-diary-exclusive items
                     )
                 )
                 # Apply filters
@@ -261,7 +266,7 @@ class DocumentCRUDService:
                             project_badges.append(ProjectBadge(
                                 uuid=project.uuid,
                                 name=project.name,
-                                is_exclusive=junction._mapping["is_exclusive"],
+                                is_project_exclusive=junction._mapping["is_project_exclusive"],
                                 is_deleted=False
                             ))
                         elif junction._mapping["project_name_snapshot"]:
@@ -269,7 +274,7 @@ class DocumentCRUDService:
                             project_badges.append(ProjectBadge(
                                 uuid=None,
                                 name=junction._mapping["project_name_snapshot"],
-                                is_exclusive=junction._mapping["is_exclusive"],
+                                is_project_exclusive=junction._mapping["is_project_exclusive"],
                                 is_deleted=True
                             ))
                     
@@ -448,7 +453,9 @@ class DocumentCRUDService:
             description=doc.description,
             is_favorite=doc.is_favorite,
             is_archived=doc.is_archived,
-            is_exclusive_mode=doc.is_exclusive_mode,
+            is_project_exclusive=doc.is_project_exclusive,
+            is_diary_exclusive=doc.is_diary_exclusive,
+            is_deleted=doc.is_deleted,
             created_at=doc.created_at,
             updated_at=doc.updated_at,
             tags=[t.name for t in doc.tag_objs] if doc.tag_objs else [],

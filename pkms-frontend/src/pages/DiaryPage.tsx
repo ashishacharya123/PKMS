@@ -67,6 +67,8 @@ import DiarySearch from '../components/diary/DiarySearch';
 import { KeyboardShortcutsHelp, KeyboardShortcutsButton } from '../components/diary/KeyboardShortcutsHelp';
 import { DailyMetricsPanel } from '../components/diary/DailyMetricsPanel';
 import { HistoricalEntries } from '../components/diary/HistoricalEntries';
+import { HabitTracker } from '../components/diary/HabitTracker';
+import { HabitAnalytics } from '../components/diary/HabitAnalytics';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 import { useForm } from '@mantine/form';
@@ -865,6 +867,33 @@ export function DiaryPage() {
                   <WeeklyHighlightsPanel />
                 </Accordion.Panel>
               </Accordion.Item>
+
+              {/* Habit Tracking */}
+              <Accordion.Item value="habit-tracker">
+                <Accordion.Control>
+                  <Text fw={600} size="md">🎯 Habit Tracker</Text>
+                </Accordion.Control>
+                <Accordion.Panel>
+                  <HabitTracker
+                    selectedDate={selectedDate}
+                    onStatusChange={(hasChanges, isLoading) => {
+                      // Handle habit tracker status changes if needed
+                      console.log('Habit tracker status:', { hasChanges, isLoading });
+                    }}
+                  />
+                </Accordion.Panel>
+              </Accordion.Item>
+
+              {/* Habit Analytics */}
+              <Accordion.Item value="habit-analytics">
+                <Accordion.Control>
+                  <Text fw={600} size="md">📈 Habit Analytics</Text>
+                </Accordion.Control>
+                <Accordion.Panel>
+                  <HabitAnalytics />
+                </Accordion.Panel>
+              </Accordion.Item>
+
               {/* Wellness Analytics */}
               <Accordion.Item value="wellness-analytics">
                 <Accordion.Control>
@@ -895,7 +924,7 @@ export function DiaryPage() {
                   </div>
                 </Accordion.Control>
                 <Accordion.Panel>
-                  <DailyMetricsPanel 
+                  <DailyMetricsPanel
                     onStatusChange={handleWellnessStatusChange}
                   />
                 </Accordion.Panel>

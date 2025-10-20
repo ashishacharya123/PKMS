@@ -19,7 +19,8 @@ class TodoCreate(CamelCaseModel):
     title: str = Field(..., min_length=1)
     description: Optional[str] = None
     project_ids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this todo to")
-    is_exclusive_mode: Optional[bool] = Field(default=False, description="If True, todo is exclusive to projects and deleted when any project is deleted")
+    is_project_exclusive: Optional[bool] = Field(default=False, description="If True, todo is exclusive to projects and deleted when any project is deleted")
+    is_todo_exclusive: Optional[bool] = Field(default=False, description="If True, todo is exclusive to parent todo (subtask-only)")
     
     @field_validator('project_ids')
     def validate_project_ids_are_uuid4(cls, v: Optional[List[str]]):
@@ -59,7 +60,8 @@ class TodoUpdate(CamelCaseModel):
     status: Optional[TodoStatus] = None
     order_index: Optional[int] = None
     project_ids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this todo to")
-    is_exclusive_mode: Optional[bool] = Field(None, description="If True, todo is exclusive to projects and deleted when any project is deleted")
+    is_project_exclusive: Optional[bool] = Field(None, description="If True, todo is exclusive to projects and deleted when any project is deleted")
+    is_todo_exclusive: Optional[bool] = Field(None, description="If True, todo is exclusive to parent todo (subtask-only)")
     
     @field_validator('project_ids')
     def validate_project_ids_are_uuid4_update(cls, v: Optional[List[str]]):
@@ -96,7 +98,8 @@ class TodoResponse(CamelCaseModel):
     status: TodoStatus
     is_archived: bool
     is_favorite: bool
-    is_exclusive_mode: bool
+    is_project_exclusive: bool
+    is_todo_exclusive: bool
     priority: TaskPriority
     project_uuid: Optional[str]  # Single project reference
     project_name: Optional[str]  # Single project name
@@ -110,6 +113,10 @@ class TodoResponse(CamelCaseModel):
     updated_at: datetime
     tags: List[str]
     projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this todo belongs to")
+    
+    # Time tracking calculated in frontend:
+    # estimate_days = (due_date - start_date).days if both exist
+    # actual_days = (completion_date - start_date).days if both exist
     
     @property
     def is_completed(self) -> bool:

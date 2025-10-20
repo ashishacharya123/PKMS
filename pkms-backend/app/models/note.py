@@ -2,7 +2,7 @@
 Note Model for Knowledge Management
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Index
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
@@ -22,11 +22,12 @@ class Note(Base):
     
     title = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)  # Brief description for FTS5 search
-    content = Column(Text, nullable=False)
+    content = Column(Text, nullable=False)  # Max ~65KB in SQLite TEXT
+    content_file_path = Column(String(500), nullable=True)  # For large content stored as files
     size_bytes = Column(BigInteger, default=0, nullable=False)  # Calculated on the fly and stored for analytics
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
-    is_exclusive_mode = Column(Boolean, default=False, index=True)  # If True, note is deleted when any of its projects are deleted (project-exclusive)
+    is_project_exclusive = Column(Boolean, default=False, index=True)  # If True, note is deleted when any of its projects are deleted
     # Ownership
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
 
@@ -43,8 +44,16 @@ class Note(Base):
     
     # Soft Delete
     is_deleted = Column(Boolean, default=False, index=True)
-    # Derived counts
+    # Derived counts - updated via service methods when files are added/removed
     file_count = Column(Integer, default=0, nullable=False)
+    
+    # Composite indexes for common query patterns
+    __table_args__ = (
+        Index('ix_note_user_archived_exclusive', 'created_by', 'is_archived', 'is_project_exclusive'),
+        Index('ix_note_user_created_desc', 'created_by', 'created_at'),
+        Index('ix_note_user_favorite', 'created_by', 'is_favorite'),
+        Index('ix_note_user_deleted', 'created_by', 'is_deleted'),
+    )
     thumbnail_path = Column(String(500), nullable=True)  # Path to note thumbnail (if applicable)
     
     # Search optimization removed - word_count and reading_time_minutes not needed
@@ -79,7 +88,7 @@ class NoteFile(Base):
     mime_type = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)  # Optional description/caption
     display_order = Column(Integer, default=0, nullable=False)  # Order of display within note (0 = first)
-    is_deleted = Column(Boolean, default=False, index=True)  # Consistent soft delete
+    # is_deleted removed - files are deleted when parent note is deleted (cascade)
     # created_by removed - redundant, already in parent note
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)

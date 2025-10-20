@@ -5,7 +5,7 @@ Projects can contain todos, documents, notes, and have tags for better organizat
 Supports FTS5 search and project duplication functionality.
 """
 import enum
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Date, Enum
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Date, Enum, Index
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
@@ -43,16 +43,22 @@ class Project(Base):
 
     # Timeline
     start_date = Column(Date, nullable=True)
-    end_date = Column(Date, nullable=True)
-    due_date = Column(Date, nullable=True)  # Professional project management feature
+    due_date = Column(Date, nullable=True)  # When project should be completed
     completion_date = Column(DateTime(timezone=True), nullable=True)  # When project was actually completed
 
     # Audit trail
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
-    # Search indexing
-    search_vector = Column(Text, nullable=True)  # For FTS5 - will be populated with searchable content
+    # Search indexing - FTS5 full-text search content (name, description, tags)
+    search_vector = Column(Text, nullable=True)  # Populated with searchable content for FTS5
+    
+    # Composite indexes for common query patterns
+    __table_args__ = (
+        Index('ix_project_user_deleted_created', 'created_by', 'is_deleted', 'created_at'),
+        Index('ix_project_user_status', 'created_by', 'status'),
+        Index('ix_project_user_favorite', 'created_by', 'is_favorite'),
+    )
 
     # Relationships
     user = relationship("User", back_populates="projects", foreign_keys="Project.created_by")

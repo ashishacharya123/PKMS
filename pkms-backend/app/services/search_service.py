@@ -365,21 +365,26 @@ class SearchService:
         return f'"{escaped}"'
     
     async def _get_item_with_relationships(self, db: AsyncSession, item_uuid: str, item_type: str) -> Optional[Any]:
-        """Get the actual item with its relationships loaded."""
+        """Get the actual item with its relationships loaded, excluding deleted items."""
         try:
             model_class = self.item_type_mapping.get(item_type)
             if not model_class:
                 return None
             
+            # Build base query with deleted item filtering
+            base_query = select(model_class).where(model_class.uuid == item_uuid)
+            
+            # Add deleted item filtering for models that have is_deleted column
+            if hasattr(model_class, 'is_deleted'):
+                base_query = base_query.where(model_class.is_deleted.is_(False))
+            
             # Load with tag relationships for proper tag display
             if hasattr(model_class, 'tag_objs'):
                 result = await db.execute(
-                    select(model_class).options(selectinload(getattr(model_class, 'tag_objs'))).where(model_class.uuid == item_uuid)
+                    base_query.options(selectinload(getattr(model_class, 'tag_objs')))
                 )
             else:
-                result = await db.execute(
-                    select(model_class).where(model_class.uuid == item_uuid)
-                )
+                result = await db.execute(base_query)
             return result.scalar_one_or_none()
         
         except Exception:

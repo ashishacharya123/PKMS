@@ -24,7 +24,7 @@ class ArchiveFolder(Base):
     is_favorite = Column(Boolean, default=False, index=True)
     # Soft Delete
     is_deleted = Column(Boolean, default=False, index=True)
-    # Derived counts and metadata
+    # Derived counts and metadata - updated via service methods when items are added/removed
     depth = Column(Integer, default=0, nullable=False)
     item_count = Column(Integer, default=0, nullable=False)
     total_size = Column(BigInteger, default=0, nullable=False)

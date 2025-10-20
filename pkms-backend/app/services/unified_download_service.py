@@ -20,7 +20,6 @@ from app.models.base import Base
 from app.models.document import Document
 from app.models.note import NoteFile
 from app.models.archive import ArchiveItem
-from app.models.diary import DiaryFile
 from app.models.user import User
 from app.config import get_file_storage_dir, get_data_dir
 
@@ -84,13 +83,7 @@ class UnifiedDownloadService:
             original_name_field="original_filename",
             requires_decryption=False
         ),
-        "diary": DownloadConfig(
-            module="diary",
-            model_class=DiaryFile,
-            original_name_field="original_name",
-            requires_decryption=False
-        )
-    }
+      }
 
     def __init__(self):
         pass
@@ -183,10 +176,7 @@ class UnifiedDownloadService:
         elif hasattr(config.model_class, 'note_uuid'):
             from app.models.note import Note
             query = query.join(Note).where(Note.created_by == user_uuid)
-        elif hasattr(config.model_class, 'diary_entry_uuid'):  # For DiaryFile
-            from app.models.diary import DiaryEntry
-            query = query.join(DiaryEntry).where(DiaryEntry.created_by == user_uuid)
-
+        
         if additional_conditions:
             for condition in additional_conditions:
                 query = query.where(condition)

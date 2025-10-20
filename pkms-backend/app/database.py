@@ -21,7 +21,7 @@ from app.models.note import Note, NoteFile
 from app.models.document import Document
 from app.models.todo import Todo
 from app.models.project import Project
-from app.models.diary import DiaryEntry, DiaryFile
+from app.models.diary import DiaryEntry
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import Tag
 # Import all tag association tables

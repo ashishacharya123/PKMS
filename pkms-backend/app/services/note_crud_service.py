@@ -6,6 +6,7 @@ file operations integration, and search indexing.
 """
 
 import logging
+import re
 import uuid as uuid_lib
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -31,7 +32,7 @@ from app.services.project_service import project_service
 from app.services.unified_upload_service import unified_upload_service
 from app.services.search_service import search_service
 from app.services.chunk_service import chunk_manager
-from app.services.note_content_service import note_content_service
+from app.services.shared_utilities_service import shared_utilities_service
 # Import dashboard cache invalidation function directly
 from app.services.dashboard_service import dashboard_service
 
@@ -63,7 +64,7 @@ class NoteCRUDService:
                 title=sanitized_title,
                 content=sanitized_content,
                 is_favorite=note_data.is_favorite or False,
-                is_exclusive_mode=note_data.is_exclusive_mode or False,
+                is_project_exclusive=note_data.is_project_exclusive or False,
                 created_by=user_uuid
             )
             
@@ -82,8 +83,7 @@ class NoteCRUDService:
                     db, user_uuid, note_data.project_uuids, [note.uuid], note_projects, "note_uuid"
                 )
             
-            # Process content links (if any)
-            await note_content_service.process_note_content(db, note, sanitized_content, user_uuid)
+            # Content processing removed - analysis was unused
             
             # Index in search
             await search_service.index_item(db, note, 'note')
@@ -155,7 +155,7 @@ class NoteCRUDService:
             
             # BATCH LOAD: Get all project badges in a single query to avoid N+1
             note_uuids = [note.uuid for note in notes]
-            project_badges_map = await self._batch_get_project_badges(db, note_uuids, note_projects, "note_uuid")
+            project_badges_map = await shared_utilities_service.batch_get_project_badges(db, note_uuids, note_projects, "note_uuid")
             
             # Convert to response format
             note_summaries = []
@@ -168,7 +168,7 @@ class NoteCRUDService:
                     content_preview=note.content[:200] + "..." if len(note.content) > 200 else note.content,
                     file_count=note.file_count,
                     is_favorite=note.is_favorite,
-                    is_exclusive_mode=note.is_exclusive_mode,
+                    is_project_exclusive=note.is_project_exclusive,
                     tags=[tag.name for tag in note.tag_objs],
                     project_badges=project_badges,
                     created_at=note.created_at,
@@ -203,7 +203,7 @@ class NoteCRUDService:
                 raise HTTPException(status_code=404, detail="Note not found")
             
             # OPTIMIZED: Use batch badge loading for single item to avoid N+1
-            project_badges = await self._batch_get_project_badges(
+            project_badges = await shared_utilities_service.batch_get_project_badges(
                 db, [note.uuid], note_projects, "note_uuid"
             )
             project_badges = project_badges.get(note.uuid, [])
@@ -245,14 +245,13 @@ class NoteCRUDService:
             
             if update_data.content is not None:
                 note.content = sanitize_text_input(update_data.content)
-                # Process new links if content changed
-                await note_content_service.process_note_content(db, note, note.content, user_uuid)
+                # Content processing removed - analysis was unused
             
             if update_data.is_favorite is not None:
                 note.is_favorite = update_data.is_favorite
             
-            if update_data.is_exclusive_mode is not None:
-                note.is_exclusive_mode = update_data.is_exclusive_mode
+            if update_data.is_project_exclusive is not None:
+                note.is_project_exclusive = update_data.is_project_exclusive
             
             # Handle tags
             if update_data.tags is not None:
@@ -451,7 +450,7 @@ class NoteCRUDService:
                 )
             
             # Update note file count
-            await self._update_note_file_count(db, commit_request.note_uuid)
+            await shared_utilities_service.update_file_count(db, "note", commit_request.note_uuid)
             
             # Invalidate dashboard cache
             dashboard_service.invalidate_user_cache(user_uuid, "note_file_uploaded")
@@ -529,97 +528,49 @@ class NoteCRUDService:
             file_count=note.file_count,
             thumbnail_path=note.thumbnail_path,
             is_favorite=note.is_favorite,
-            is_exclusive_mode=note.is_exclusive_mode,
+            is_project_exclusive=note.is_project_exclusive,
             tags=[tag.name for tag in note.tag_objs],
             project_badges=badges,
             created_at=note.created_at,
             updated_at=note.updated_at
         )
     
-    async def _update_note_file_count(self, db: AsyncSession, note_uuid: str) -> None:
-        """Update file count for a note"""
-        count_result = await db.execute(
-            select(func.count(NoteFile.uuid))
-            .where(and_(NoteFile.note_uuid == note_uuid, NoteFile.is_deleted == False))
-        )
-        file_count = count_result.scalar() or 0
-        
-        await db.execute(
-            Note.__table__.update()
-            .where(Note.uuid == note_uuid)
-            .values(file_count=file_count)
-        )
 
 
-    async def _batch_get_project_badges(
-        self, db: AsyncSession, item_uuids: List[str], association_table, uuid_column: str
-    ) -> Dict[str, List[ProjectBadge]]:
-        """Batch load project badges for multiple items to avoid N+1 queries."""
-        if not item_uuids:
-            return {}
+
+    def extract_preview(self, content: str, max_length: int = 200) -> str:
+        """
+        Extract a clean preview of the content.
         
-        # Single query to get all associations
-        result = await db.execute(
-            select(association_table)
-            .where(getattr(association_table.c, uuid_column).in_(item_uuids))
-        )
-        associations = result.fetchall()
-        
-        # Collect all project UUIDs
-        project_uuids = set()
-        for assoc in associations:
-            project_uuid = assoc._mapping["project_uuid"]
-            if project_uuid:
-                project_uuids.add(project_uuid)
-        
-        # Single query to get all projects
-        projects = []
-        if project_uuids:
-            from app.models.project import Project
-            project_result = await db.execute(
-                select(Project).where(Project.uuid.in_(project_uuids))
-            )
-            projects = project_result.scalars().all()
-        
-        # Create project lookup map
-        project_map = {p.uuid: p for p in projects}
-        
-        # Group associations by item UUID
-        associations_by_item: Dict[str, list] = {}
-        for assoc in associations:
-            item_uuid = assoc._mapping[uuid_column]
-            if item_uuid not in associations_by_item:
-                associations_by_item[item_uuid] = []
-            associations_by_item[item_uuid].append(assoc)
-        
-        # Build project badges for each item
-        badges_map = {}
-        for item_uuid in item_uuids:
-            item_associations = associations_by_item.get(item_uuid, [])
-            project_badges = []
+        Args:
+            content: Original content
+            max_length: Maximum length of preview
             
-            for assoc in item_associations:
-                project_uuid = assoc._mapping["project_uuid"]
-                if project_uuid and project_uuid in project_map:
-                    project = project_map[project_uuid]
-                    project_badges.append(ProjectBadge(
-                        uuid=project.uuid,
-                        name=project.name,
-                        is_exclusive=assoc._mapping.get("is_exclusive", False),
-                        is_deleted=False
-                    ))
-                elif assoc._mapping.get("project_name_snapshot"):
-                    # Deleted project (snapshot)
-                    project_badges.append(ProjectBadge(
-                        uuid=None,
-                        name=assoc._mapping["project_name_snapshot"],
-                        is_exclusive=assoc._mapping.get("is_exclusive", False),
-                        is_deleted=True
-                    ))
-            
-            badges_map[item_uuid] = project_badges
+        Returns:
+            Clean preview text
+        """
+        if not content:
+            return ""
         
-        return badges_map
+        # Remove extra whitespace
+        clean_content = re.sub(r'\s+', ' ', content.strip())
+        
+        # Truncate if needed
+        if len(clean_content) <= max_length:
+            return clean_content
+        
+        # Find a good break point (word boundary)
+        truncated = clean_content[:max_length]
+        last_space = truncated.rfind(' ')
+        
+        if last_space > max_length * 0.8:  # Break at word if possible
+            return truncated[:last_space] + "..."
+        else:
+            return truncated + "..."
+
+    def validate_content_length(self, content: str) -> bool:
+        """Simple content length validation (100KB limit)"""
+        return len(content) <= 100000
 
 
 # Global instance

@@ -11,6 +11,7 @@ from typing import Optional
 from app.models.base import Base
 from app.config import nepal_now
 from app.models.tag_associations import diary_entry_tags
+from app.models.associations import document_diary
 
 
 class DiaryEntry(Base):
@@ -24,7 +25,7 @@ class DiaryEntry(Base):
     mood = Column(SmallInteger, nullable=True, index=True)  # 1-5 scale
     weather_code = Column(SmallInteger, nullable=True, index=True)  # Enum-coded weather (0-6)
     location = Column(String(100), nullable=True)
-    media_count = Column(Integer, nullable=False, default=0) # Name is okay, it's a count
+    file_count = Column(Integer, nullable=False, default=0)  # Count of associated files (documents)
     content_length = Column(Integer, nullable=False, default=0)
     content_file_path = Column(String(500), nullable=True)
     file_hash = Column(String(128), nullable=True)
@@ -42,7 +43,7 @@ class DiaryEntry(Base):
     # Relationships
     user = relationship("User", back_populates="diary_entries", foreign_keys=[created_by])
     tag_objs = relationship("Tag", secondary=diary_entry_tags, back_populates="diary_entries")
-    files = relationship("DiaryFile", back_populates="entry", cascade="all, delete-orphan")
+    documents = relationship("Document", secondary=document_diary, order_by=document_diary.c.sort_order)
 
     async def get_daily_metadata(self, db: AsyncSession) -> Optional["DiaryDailyMetadata"]:
         """
@@ -69,7 +70,7 @@ class DiaryDailyMetadata(Base):
 
     __tablename__ = "diary_daily_metadata"
     __table_args__ = (
-        UniqueConstraint('created_by', 'date', name='uq_diary_daily_metadata_user_date'),
+        UniqueConstraint('created_by', 'date', name='uq_diary_daily_metadata_user_date'),  # One metadata per user per day
     )
 
     uuid = Column(String(36), primary_key=True, default=lambda: str(uuid4()), index=True)
@@ -81,6 +82,7 @@ class DiaryDailyMetadata(Base):
     daily_expense = Column(Integer, nullable=True, default=0)
     is_office_day = Column(Boolean, nullable=True, default=False)
     metrics_json = Column(Text, nullable=False, default='{}')
+    habits_json = Column(Text, nullable=False, default='{}')
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
 
@@ -105,29 +107,4 @@ class DiaryDailyMetadata(Base):
         return f"<DiaryDailyMetadata(uuid={self.uuid}, created_by={self.created_by}, date={self.date})>"
 
 
-class DiaryFile(Base):
-    """File attachments for diary entries (photos, videos, voice recordings)"""
-    
-    __tablename__ = "diary_files"
-    
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
-    diary_entry_uuid = Column(String(36), ForeignKey("diary_entries.uuid", ondelete="CASCADE"), nullable=False, index=True)
-    filename = Column(String(255), nullable=False)
-    original_name = Column(String(255), nullable=False)
-    file_path = Column(String(500), nullable=False)
-    file_size = Column(BigInteger, nullable=False)
-    mime_type = Column(String(100), nullable=False)
-    file_type = Column(String(20), nullable=False, index=True)  # photo, video, voice
-    description = Column(Text, nullable=True)
-    display_order = Column(Integer, default=0, nullable=False)
-    thumbnail_path = Column(String(500), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
-
-    is_deleted = Column(Boolean, default=False, index=True)
-    
-    # Relationships
-    entry = relationship("DiaryEntry", back_populates="files")
-    
-    def __repr__(self):
-        return f"<DiaryFile(uuid={self.uuid}, filename='{self.filename}', file_type='{self.file_type}')>"
+# DiaryFile model removed - using Document + document_diary association instead

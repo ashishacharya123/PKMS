@@ -152,7 +152,8 @@ class UnifiedUploadService:
                 file_size=file_stat.st_size,
                 mime_type=detection_result["mime_type"],
                 description=metadata.get("description"),
-                is_exclusive_mode=metadata.get("is_exclusive_mode", False),
+                is_project_exclusive=metadata.get("is_project_exclusive", False),
+                is_diary_exclusive=metadata.get("is_diary_exclusive", False),
                 created_by=user
             )
             
@@ -186,20 +187,7 @@ class UnifiedUploadService:
                 created_by=user
             )
             
-        elif module == "diary":
-            from app.models.diary import DiaryFile
-            record = DiaryFile(
-                uuid=file_uuid,
-                diary_entry_uuid=metadata.get("diary_entry_uuid"),
-                filename=final_path.name,
-                original_name=metadata.get("original_name", final_path.name),
-                file_path=str(final_path.relative_to(get_file_storage_dir())),
-                file_size=file_stat.st_size,
-                mime_type=metadata.get("mime_type", "application/octet-stream"),
-                file_type=metadata.get("file_type"),
-                description=metadata.get("caption"),
-                display_order=metadata.get("display_order", 0)
-            )
+        # Diary files now use Document + document_diary association, handled in documents module
             
         else:
             raise ValueError(f"Unsupported module: {module}")
@@ -227,8 +215,7 @@ class UnifiedUploadService:
         if module == "archive" and metadata.get("folder_uuid"):
             await self._update_folder_metadata(db, metadata["folder_uuid"])
         
-        if module == "diary":
-            await self._update_diary_file_count(db, metadata.get("diary_entry_uuid"))
+        # Diary files now use Document + document_diary association, no special handling needed
 
     async def _finalize_file(self, temp_path: Path, final_path: Path, record: Any, db: AsyncSession) -> None:
         try:
@@ -267,11 +254,8 @@ class UnifiedUploadService:
         size_res = await db.execute(size_query)
         await db.execute(ArchiveFolder.__table__.update().where(ArchiveFolder.uuid == folder_uuid).values(item_count=count_res.scalar() or 0, total_size=size_res.scalar() or 0))
 
-    async def _update_diary_file_count(self, db: AsyncSession, entry_id: str) -> None:
-        from app.models.diary import DiaryEntry, DiaryFile
-        count_query = select(func.count(DiaryFile.uuid)).where(DiaryFile.diary_entry_uuid == entry_id, DiaryFile.is_deleted.is_(False))
-        result = await db.execute(count_query)
-        await db.execute(DiaryEntry.__table__.update().where(DiaryEntry.uuid == entry_id).values(media_count=result.scalar() or 0))
+    # Diary file count updates are now handled by DiaryDocumentService
+    # when documents are linked/unlinked via document_diary association
 
     async def _get_filesystem_path(self, folder_uuid: str, db: AsyncSession) -> str:
         from app.models.archive import ArchiveFolder

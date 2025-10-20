@@ -236,5 +236,56 @@ export interface WeeklyHighlights {
   netSavings: number;
 }
 
+// Habit Tracking Types
+export interface HabitData {
+  [habitName: string]: {
+    value: number | string;
+    unit?: string;
+    streak?: number;
+  };
+}
+
+export interface HabitAnalytics {
+  periodStart: string;
+  periodEnd: string;
+  totalDays: number;
+  daysWithData: number;
+  habits: Array<{
+    name: string;
+    unit: string;
+    totalValue: number;
+    averageValue: number;
+    daysCompleted: number;
+    completionRate: number;
+    currentStreak: number;
+    longestStreak: number;
+    trend: Array<{
+      date: string;
+      value: number | string;
+      streak: number;
+    }>;
+  }>;
+}
+
+export interface HabitInsight {
+  type: 'positive' | 'negative' | 'neutral';
+  habit: string;
+  message: string;
+  data?: any;
+}
+
+export interface HabitInsights {
+  periodStart: string;
+  periodEnd: string;
+  insights: HabitInsight[];
+  summary: {
+    totalHabits: number;
+    activeHabits: number;
+    topPerformingHabit?: string;
+    mostConsistentHabit?: string;
+    needsAttentionHabits: string[];
+  };
+}
+
 export type SortField = 'date' | 'created_at' | 'mood';
 export type SortOrder = 'asc' | 'desc'; 

@@ -35,6 +35,20 @@ document_projects = Table(
 )
 Index('ix_docproj_project_order', document_projects.c.project_uuid, document_projects.c.sort_order)
 
+# Junction table for Document-Diary many-to-many relationship
+document_diary = Table(
+    'document_diary', 
+    Base.metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),  # Surrogate PK
+    Column('document_uuid', String(36), ForeignKey('documents.uuid', ondelete='CASCADE'), nullable=False, index=True),
+    Column('diary_entry_uuid', String(36), ForeignKey('diary_entries.uuid', ondelete='CASCADE'), nullable=False, index=True),
+    Column('sort_order', Integer, nullable=False, default=0),
+    Column('created_at', DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False),
+    UniqueConstraint('document_uuid', 'diary_entry_uuid', name='uq_document_diary_doc_entry')  # Prevent duplicates
+)
+Index('ix_docdiary_entry_order', document_diary.c.diary_entry_uuid, document_diary.c.sort_order)
+
 # Junction table for Todo-Project many-to-many relationship
 todo_projects = Table(
     'todo_projects', 
@@ -42,7 +56,7 @@ todo_projects = Table(
     Column('id', Integer, primary_key=True, autoincrement=True),  # Surrogate PK
     Column('todo_uuid', String(36), ForeignKey('todos.uuid', ondelete='CASCADE'), nullable=False, index=True),
     Column('project_uuid', String(36), ForeignKey('projects.uuid', ondelete='CASCADE'), nullable=False, index=True),
-    Column('is_exclusive', Boolean, default=False),  # Per-association exclusive flag
+    Column('is_project_exclusive', Boolean, default=False),  # Per-association project exclusive flag
     Column('sort_order', Integer, nullable=False, default=0),
     Column('created_at', DateTime(timezone=True), server_default=func.now(), nullable=False),
     Column('updated_at', DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False),

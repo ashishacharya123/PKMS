@@ -21,7 +21,7 @@ from app.models.document import Document
 from app.models.todo import Todo
 from app.models.project import Project
 from app.models.enums import TodoStatus, TaskPriority
-from app.models.diary import DiaryEntry, DiaryFile
+from app.models.diary import DiaryEntry
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import Tag
 # Link model removed; skip Link-related tests for now
@@ -577,26 +577,8 @@ class TestDiaryModel:
         await db_session.commit()
         await db_session.refresh(entry)
         
-        media = DiaryFile(
-            diary_entry_uuid=entry.uuid,
-            filename="photo.jpg",
-            original_name="vacation_photo.jpg",
-            file_path="/diary/media/photo.jpg",
-            file_size=512000,
-            mime_type="image/jpeg",
-            file_type="photo"
-        )
-        
-        db_session.add(media)
-        await db_session.commit()
-        
-        # Verify relationship
-        result = await db_session.execute(
-            select(DiaryFile).where(DiaryFile.diary_entry_uuid == entry.uuid)
-        )
-        media_files = result.scalars().all()
-        assert len(media_files) == 1
-        assert media_files[0].original_name == "vacation_photo.jpg"
+        # DiaryFile model removed - diary files now use Document + document_diary
+        # This test is no longer applicable
 
 
 class TestTagModel:

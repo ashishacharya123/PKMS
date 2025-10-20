@@ -320,40 +320,4 @@ class DiaryDailyMetadataUpdate(CamelCaseModel):
         return v
 
 
-class DiaryFileResponse(CamelCaseModel):
-    uuid: str
-    diary_entry_uuid: str
-    filename: str
-    mime_type: str
-    file_size: int
-    file_type: str
-    display_order: int
-    duration_seconds: Optional[int]
-    created_at: datetime
-
-
-class DiaryFileUpload(CamelCaseModel):
-    caption: Optional[str] = Field(None, max_length=500)
-    file_type: str = Field(..., description="Type: photo, video, voice")
-
-    @validator('file_type')
-    def validate_file_type(cls, v):
-        allowed_types = ['photo', 'video', 'voice']
-        if v not in allowed_types:
-            raise ValueError(f"File type must be one of: {', '.join(allowed_types)}")
-        return v
-
-
-class CommitDiaryFileRequest(CamelCaseModel):
-    file_id: str
-    diary_entry_uuid: str
-    caption: Optional[str] = None
-    file_type: str = Field(..., description="Type: photo, video, voice")
-    display_order: Optional[int] = Field(0, ge=0, description="Order of display (0 = first)")
-
-    @validator('file_type')
-    def validate_file_type(cls, v):
-        allowed_types = ['photo', 'video', 'voice']
-        if v not in allowed_types:
-            raise ValueError(f"File type must be one of: {', '.join(allowed_types)}")
-        return v
+# DiaryFile schemas removed - diary files now use Document + document_diary association

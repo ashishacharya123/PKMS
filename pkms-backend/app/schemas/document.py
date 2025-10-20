@@ -42,7 +42,8 @@ class DocumentUpdate(CamelCaseModel):
             except Exception:
                 raise ValueError(f"Invalid UUID: {s}")
         return out
-    is_exclusive_mode: Optional[bool] = Field(None, description="If True, document is exclusive to projects and deleted when any project is deleted")
+    is_project_exclusive: Optional[bool] = Field(None, description="If True, document is exclusive to projects and deleted when any project is deleted")
+    is_diary_exclusive: Optional[bool] = Field(None, description="If True, document is hidden from main document list (diary-only)")
 
 # UploadStatus import removed - documents no longer store upload status
 from app.schemas.project import ProjectBadge
@@ -58,7 +59,9 @@ class DocumentResponse(CamelCaseModel):
     mime_type: str
     is_favorite: bool
     is_archived: bool
-    is_exclusive_mode: bool
+    is_project_exclusive: bool
+    is_diary_exclusive: bool
+    is_deleted: bool
     # upload_status removed - only needed during upload process, not stored in model
     created_at: datetime
     updated_at: datetime
@@ -71,7 +74,8 @@ class CommitDocumentUploadRequest(CamelCaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
     project_ids: List[str] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this document to")
-    is_exclusive_mode: Optional[bool] = Field(default=False, description="If True, document is exclusive to projects and deleted when any project is deleted")
+    is_project_exclusive: Optional[bool] = Field(default=False, description="If True, document is exclusive to projects and deleted when any project is deleted")
+    is_diary_exclusive: Optional[bool] = Field(default=False, description="If True, document is hidden from main document list (diary-only)")
 
     @field_validator('tags')
     def validate_tags(cls, v):

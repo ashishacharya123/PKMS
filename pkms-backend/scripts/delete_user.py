@@ -25,7 +25,7 @@ from app.models.note import Note, NoteFile
 from app.models.document import Document
 from app.models.todo import Todo
 from app.models.project import Project
-from app.models.diary import DiaryEntry, DiaryFile
+from app.models.diary import DiaryEntry
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import Tag
 from app.config import get_data_dir
@@ -103,12 +103,9 @@ class UserDeletionService:
             if file_path:
                 self._delete_file_safely(Path(file_path))
         
-        # Delete diary media files
-        media_result = await db.execute(
-            select(DiaryFile.file_path).where(DiaryFile.diary_entry_uuid.in_(
-                select(DiaryEntry.uuid).where(DiaryEntry.created_by == created_by)
-            ))
-        )
+        # Delete diary media files (now via document_diary association)
+        # Note: Diary files are now Documents with is_diary_exclusive=True
+        # This is handled by the document deletion above
         for (file_path,) in media_result.fetchall():
             if file_path:
                 self._delete_file_safely(Path(file_path))
@@ -165,9 +162,7 @@ class UserDeletionService:
             ("documents", Document, Document.created_by),
             ("todos", Todo, Todo.created_by),
             ("projects", Project, Project.created_by),
-            ("diary_files", DiaryFile, DiaryFile.diary_entry_uuid.in_(
-                select(DiaryEntry.uuid).where(DiaryEntry.created_by == created_by)
-            )),
+            # Diary files now handled as Documents with is_diary_exclusive=True
             ("diary_entries", DiaryEntry, DiaryEntry.created_by),
             ("archive_items", ArchiveItem, ArchiveItem.created_by),
             ("archive_folders", ArchiveFolder, ArchiveFolder.created_by),

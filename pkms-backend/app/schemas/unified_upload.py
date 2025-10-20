@@ -43,7 +43,7 @@ class DocumentCommitUploadRequest(BaseCommitUploadRequest):
     """Extended schema for document uploads."""
     title: str = Field(..., min_length=1, max_length=255, description="Document title")
     project_ids: List[UUID4] = Field(default_factory=list, description="Project UUIDs to link this document to")
-    is_exclusive_mode: Optional[bool] = Field(False, description="If True, document is exclusive to projects and deleted when any project is deleted")
+    is_project_exclusive: Optional[bool] = Field(False, description="If True, document is exclusive to projects and deleted when any project is deleted")
 
     @field_validator('project_ids', mode='before')
     def validate_project_ids(cls, v):
