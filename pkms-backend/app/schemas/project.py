@@ -6,7 +6,7 @@ Used across todos, notes, documents, and archive modules.
 """
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 from pydantic.alias_generators import to_camel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime, date
 
 from app.models.enums import ProjectStatus, TaskPriority
@@ -152,3 +152,63 @@ class ProjectDuplicateResponse(CamelCaseModel):
     name: str
     items_copied: int = 0
     message: str
+
+
+# Reorder & Link/Unlink DTOs
+class ProjectDocumentsReorderRequest(CamelCaseModel):
+    document_uuids: List[str]
+    if_unmodified_since: Optional[datetime] = None
+
+
+class ProjectDocumentsLinkRequest(CamelCaseModel):
+    document_uuids: List[str]
+
+
+class ProjectDocumentUnlinkRequest(CamelCaseModel):
+    document_uuid: str
+
+
+class DocumentDeletePreflightResponse(CamelCaseModel):
+    """Response for document delete preflight check"""
+    can_delete: bool = Field(..., description="Whether the document can be deleted")
+    link_count: int = Field(..., description="Number of projects this document is linked to")
+    linked_projects: List[str] = Field(..., description="List of project names this document is linked to")
+    warning_message: Optional[str] = Field(None, description="Warning message if document is linked elsewhere")
+
+
+class NoteDeletePreflightResponse(CamelCaseModel):
+    """Response for note delete preflight check"""
+    can_delete: bool = Field(..., description="Whether the note can be deleted")
+    link_count: int = Field(..., description="Number of projects this note is linked to")
+    linked_projects: List[str] = Field(..., description="List of project names this note is linked to")
+    warning_message: Optional[str] = Field(None, description="Warning message if note is linked elsewhere")
+
+
+class TodoDeletePreflightResponse(CamelCaseModel):
+    """Response for todo delete preflight check"""
+    can_delete: bool = Field(..., description="Whether the todo can be deleted")
+    link_count: int = Field(..., description="Number of projects this todo is linked to")
+    linked_projects: List[str] = Field(..., description="List of project names this todo is linked to")
+    warning_message: Optional[str] = Field(None, description="Warning message if todo is linked elsewhere")
+
+
+class UnifiedDeletePreflightResponse(CamelCaseModel):
+    """Unified response for any item delete preflight check"""
+    can_delete: bool = Field(..., description="Whether the item can be deleted")
+    link_count: int = Field(..., description="Total number of links across all relationship types")
+    linked_items: Dict[str, Dict[str, Any]] = Field(..., description="Detailed breakdown of linked items by type")
+    warning_message: Optional[str] = Field(None, description="Human-readable warning message")
+
+
+class ProjectSectionReorderRequest(CamelCaseModel):
+    """Request for reordering sections within a project"""
+    section_types: List[str] = Field(..., description="Ordered list of section types (e.g., ['documents', 'notes', 'todos'])")
+    
+    @field_validator('section_types')
+    def validate_section_types(cls, v):
+        valid_types = {'documents', 'notes', 'todos'}
+        if not all(section in valid_types for section in v):
+            raise ValueError(f"Invalid section type. Must be one of: {valid_types}")
+        if len(v) != len(set(v)):
+            raise ValueError("Section types must be unique")
+        return v

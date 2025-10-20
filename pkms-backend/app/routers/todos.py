@@ -1,109 +1,42 @@
 """
 Todo Management Router for PKMS
 
-Handles all todo-related endpoints including CRUD operations,
-subtasks, and todo management.
+Thin router that delegates all business logic to TodoCRUDService and TodoWorkflowService.
+Handles only HTTP concerns: request/response mapping, authentication, error handling.
+
+Refactored to follow "thin router, thick service" architecture pattern.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, delete, func, case
-from app.schemas.todo import TodoCreate, TodoUpdate, TodoResponse
-from app.schemas.project import ProjectBadge
-from typing import List, Optional, Dict, Any
-from datetime import datetime, date
-from sqlalchemy.orm import selectinload
+from typing import List, Optional
+from datetime import date
 import logging
 
-from app.config import NEPAL_TZ
+from app.database import get_db
+from app.models.user import User
+from app.auth.dependencies import get_current_user
+from app.schemas.todo import TodoCreate, TodoUpdate, TodoResponse
+from app.services.todo_crud_service import todo_crud_service
+from app.services.todo_workflow_service import todo_workflow_service
 
 logger = logging.getLogger(__name__)
-
-from app.database import get_db
-from app.models.todo import Todo
-from app.models.tag import Tag
-from app.models.user import User
-from app.models.associations import todo_projects
-from app.models.enums import ModuleType, TodoStatus, TaskPriority
-from app.models.tag_associations import todo_tags
-from app.auth.dependencies import get_current_user
-from app.services.tag_service import tag_service
-from app.services.project_service import project_service
-from app.services.search_service import search_service
-from app.routers.dashboard import invalidate_user_dashboard_cache
-
 router = APIRouter()
 
 
-# Helper Functions
-def _convert_todo_to_response(todo: Todo, project_badges: Optional[List[ProjectBadge]] = None) -> TodoResponse:
-    """Convert Todo model to TodoResponse with relational tags."""
-    badges = project_badges or []
-    return TodoResponse(
-        uuid=todo.uuid,
-        title=todo.title,
-        description=todo.description,
-        status=todo.status,
-        priority=todo.priority,
-        is_archived=todo.is_archived,
-        is_favorite=todo.is_favorite,
-        is_exclusive_mode=todo.is_exclusive_mode,
-        start_date=todo.start_date,
-        due_date=todo.due_date,
-        created_at=todo.created_at,
-        updated_at=todo.updated_at,
-        completed_at=todo.completed_at,
-        tags=[t.name for t in todo.tag_objs] if todo.tag_objs else [],
-        projects=badges
-    )
-
-
-async def _get_project_counts(db: AsyncSession, project_uuid: str) -> tuple[int, int]:
-    """Get todo count and completed count for a project using shared service."""
-    from app.services.dashboard_stats_service import dashboard_stats_service
-    return await dashboard_stats_service.get_project_todo_counts(db, project_uuid)
-
-
-# Todo Endpoints
 @router.post("/", response_model=TodoResponse)
 async def create_todo(
     todo_data: TodoCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a new todo."""
+    """Create a new todo"""
     try:
-        payload = todo_data.model_dump()
-        project_ids = payload.pop("project_ids", []) or []
-        
-        # Create todo
-        todo = Todo(**payload, created_by=current_user.uuid)
-        db.add(todo)
-        await db.flush()  # Get UUID for associations
-        
-        # Handle project associations
-        if project_ids:
-            await project_service.handle_associations(db, todo, project_ids, current_user.uuid, todo_projects, "todo_uuid")
-        
-        # Handle tags
-        tags = payload.get("tags", [])
-        if tags:
-            await tag_service.handle_tags(db, todo, tags, current_user.uuid, ModuleType.TODOS, todo_tags)
-        
-        # Index in search
-        await search_service.index_item(db, todo, 'todo')
-        await db.commit()
-        
-        # Build project badges
-        project_badges = await project_service.build_badges(db, todo.uuid, todo.is_exclusive_mode, todo_projects, "todo_uuid")
-        
-        logger.info(f"Todo created: {todo.title}")
-        return _convert_todo_to_response(todo, project_badges)
-        
+        return await todo_crud_service.create_todo(db, current_user.uuid, todo_data)
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Error creating todo")
-        await db.rollback()
+        logger.exception(f"Error creating todo for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create todo: {str(e)}"
@@ -112,73 +45,30 @@ async def create_todo(
 
 @router.get("/", response_model=List[TodoResponse])
 async def list_todos(
-    status: Optional[str] = None,
-    is_archived: Optional[bool] = None,
-    is_favorite: Optional[bool] = None,
-    priority: Optional[str] = None,
-    due_date: Optional[date] = None,
-    tag: Optional[str] = None,
-    include_subtasks: Optional[bool] = True,
+    status: Optional[str] = Query(None, description="Filter by status"),
+    priority: Optional[str] = Query(None, description="Filter by priority"),
+    project_uuid: Optional[str] = Query(None, description="Filter by project UUID"),
+    is_favorite: Optional[bool] = Query(None, description="Filter by favorite status"),
+    is_archived: Optional[bool] = Query(None, description="Filter by archived status"),
+    due_date_from: Optional[date] = Query(None, description="Filter by due date from"),
+    due_date_to: Optional[date] = Query(None, description="Filter by due date to"),
+    search: Optional[str] = Query(None, description="Search in title and description"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of todos to return"),
+    offset: int = Query(0, ge=0, description="Number of todos to skip"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List all todos for the current user."""
+    """List todos with filters and pagination"""
     try:
-        # Build base query
-        query = select(Todo).where(
-            and_(
-                Todo.created_by == current_user.uuid,
-                Todo.is_deleted.is_(False)
-            )
+        return await todo_crud_service.list_todos(
+            db, current_user.uuid, status, priority, project_uuid, 
+            is_favorite, is_archived, due_date_from, due_date_to, 
+            search, limit, offset
         )
-        
-        # Apply filters
-        if status:
-            try:
-                status_enum = TodoStatus(status)
-                query = query.where(Todo.status == status_enum)
-            except ValueError:
-                raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
-        
-        if is_archived is not None:
-            query = query.where(Todo.is_archived.is_(is_archived))
-        
-        if is_favorite is not None:
-            query = query.where(Todo.is_favorite.is_(is_favorite))
-        
-        if priority:
-            try:
-                priority_enum = TaskPriority(priority)
-                query = query.where(Todo.priority == priority_enum)
-            except ValueError:
-                raise HTTPException(status_code=400, detail=f"Invalid priority: {priority}")
-        
-        if due_date:
-            query = query.where(Todo.due_date == due_date)
-        
-        if tag:
-            query = query.join(todo_tags).join(Tag).where(Tag.name == tag)
-        
-        # Filter out subtasks if not requested
-        if not include_subtasks:
-            query = query.where(Todo.parent_uuid.is_(None))
-        
-        # Execute query
-        result = await db.execute(query.order_by(Todo.order_index, Todo.created_at.desc()))
-        todos = result.scalars().all()
-        
-        # Build responses with project badges
-        responses = []
-        for todo in todos:
-            project_badges = await project_service.build_badges(db, todo.uuid, todo.is_exclusive_mode, todo_projects, "todo_uuid")
-            responses.append(_convert_todo_to_response(todo, project_badges))
-        
-        return responses
-        
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Error listing todos")
+        logger.exception(f"Error listing todos for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list todos: {str(e)}"
@@ -191,104 +81,53 @@ async def get_todo(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get a single todo by UUID."""
-    result = await db.execute(
-        select(Todo).options(
-            selectinload(Todo.tag_objs),
-            selectinload(Todo.projects)
-        ).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
-    )
-    todo = result.scalar_one_or_none()
-    
-    if not todo:
-        raise HTTPException(status_code=404, detail="Todo not found")
-    
-    # Build project badges
-    project_badges = await project_service.build_badges(db, todo.uuid, todo.is_exclusive_mode, todo_projects, "todo_uuid")
-    
-    return _convert_todo_to_response(todo, project_badges)
+    """Get single todo with all related data"""
+    try:
+        return await todo_crud_service.get_todo(db, current_user.uuid, todo_uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting todo {todo_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get todo: {str(e)}"
+        )
 
 
 @router.put("/{todo_uuid}", response_model=TodoResponse)
 async def update_todo(
     todo_uuid: str,
-    todo_data: TodoUpdate,
+    update_data: TodoUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Update an existing todo."""
+    """Update todo with validation and status management"""
     try:
-        result = await db.execute(
-            select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
-        )
-        todo = result.scalar_one_or_none()
-        
-        if not todo:
-            raise HTTPException(status_code=404, detail="Todo not found")
-        
-        update_data = todo_data.model_dump(exclude_unset=True)
-        
-        # Handle projects if provided
-        if "project_ids" in update_data:
-            await project_service.handle_associations(db, todo, update_data.pop("project_ids"), current_user.uuid, todo_projects, "todo_uuid")
-        
-        # Handle tags if provided
-        if "tags" in update_data:
-            await tag_service.handle_tags(db, todo, update_data["tags"], current_user.uuid, ModuleType.TODOS, todo_tags)
-        
-        # Update todo fields
-        for key, value in update_data.items():
-            if key not in ["project_ids", "tags"]:  # Skip already handled fields
-                setattr(todo, key, value)
-        
-        # Index in search
-        await search_service.index_item(db, todo, 'todo')
-        await db.commit()
-        
-        # Build project badges
-        project_badges = await project_service.build_badges(db, todo.uuid, todo.is_exclusive_mode, todo_projects, "todo_uuid")
-        
-        logger.info(f"Todo updated: {todo.title}")
-        return _convert_todo_to_response(todo, project_badges)
-        
+        return await todo_crud_service.update_todo(db, current_user.uuid, todo_uuid, update_data)
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Error updating todo")
-        await db.rollback()
+        logger.exception(f"Error updating todo {todo_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update todo: {str(e)}"
         )
 
 
-@router.delete("/{todo_uuid}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{todo_uuid}")
 async def delete_todo(
     todo_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete a todo (soft delete)."""
+    """Delete todo and all associated data"""
     try:
-        result = await db.execute(
-            select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
-        )
-        todo = result.scalar_one_or_none()
-        
-        if not todo:
-            raise HTTPException(status_code=404, detail="Todo not found")
-        
-        # Soft delete
-        todo.is_deleted = True
-        await db.commit()
-        
-        logger.info(f"Todo deleted: {todo.title}")
-        
+        await todo_crud_service.delete_todo(db, current_user.uuid, todo_uuid)
+        return {"message": "Todo deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Error deleting todo")
-        await db.rollback()
+        logger.exception(f"Error deleting todo {todo_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete todo: {str(e)}"
@@ -302,205 +141,162 @@ async def update_todo_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Update todo status."""
+    """Update todo status with proper validation"""
     try:
-        # Validate status
-        valid_statuses = [status.value for status in TodoStatus]
-        if status_value not in valid_statuses:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid status. Valid values: {', '.join(valid_statuses)}"
-            )
-        
-        result = await db.execute(
-            select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
-        )
-        todo = result.scalar_one_or_none()
-        
-        if not todo:
-            raise HTTPException(status_code=404, detail="Todo not found")
-        
-        # Convert string to enum
-        todo_status = TodoStatus(status_value)
-        
-        # Update status
-        todo.status = todo_status
-        
-        # Handle completed_at timestamp
-        if todo_status == TodoStatus.DONE:
-            todo.completed_at = datetime.now(NEPAL_TZ)
-        else:
-            todo.completed_at = None
-        
-        # Index in search
-        await search_service.index_item(db, todo, 'todo')
-        await db.commit()
-        
-        # Build project badges
-        project_badges = await project_service.build_badges(db, todo.uuid, todo.is_exclusive_mode, todo_projects, "todo_uuid")
-        
-        logger.info(f"Todo status updated: {todo.title} -> {todo_status}")
-        return _convert_todo_to_response(todo, project_badges)
-        
+        return await todo_crud_service.update_todo_status(db, current_user.uuid, todo_uuid, status_value)
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Error updating todo status")
-        await db.rollback()
+        logger.exception(f"Error updating todo status {todo_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update todo status: {str(e)}"
         )
 
 
-@router.patch("/{todo_uuid}/complete", response_model=TodoResponse)
+@router.post("/{todo_uuid}/complete", response_model=TodoResponse)
 async def complete_todo(
     todo_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Mark todo as completed by setting status to 'done'."""
-    return await update_todo_status(todo_uuid, TodoStatus.DONE.value, current_user, db)
-
-
-@router.get("/{todo_uuid}/subtasks", response_model=List[TodoResponse])
-async def get_subtasks(
-    todo_uuid: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get all subtasks for a todo."""
+    """Mark todo as completed"""
     try:
-        # Verify parent todo exists and belongs to user
-        parent_result = await db.execute(
-            select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
-        )
-        parent_todo = parent_result.scalar_one_or_none()
-        
-        if not parent_todo:
-            raise HTTPException(status_code=404, detail="Parent todo not found")
-        
-        # Get subtasks
-        result = await db.execute(
-            select(Todo).where(
-                and_(
-                    Todo.parent_uuid == todo_uuid,
-                    Todo.created_by == current_user.uuid,
-                    Todo.is_deleted.is_(False)
-                )
-            ).order_by(Todo.order_index, Todo.created_at)
-        )
-        subtasks = result.scalars().all()
-        
-        # Build responses with project badges
-        responses = []
-        for subtask in subtasks:
-            project_badges = await project_service.build_badges(db, subtask.uuid, subtask.is_exclusive_mode, todo_projects, "todo_uuid")
-            responses.append(_convert_todo_to_response(subtask, project_badges))
-        
-        return responses
-        
+        return await todo_crud_service.complete_todo(db, current_user.uuid, todo_uuid)
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Error getting subtasks")
+        logger.exception(f"Error completing todo {todo_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get subtasks: {str(e)}"
+            detail=f"Failed to complete todo: {str(e)}"
         )
 
 
-@router.post("/{todo_uuid}/subtasks", response_model=TodoResponse)
-async def create_subtask(
-    todo_uuid: str,
-    subtask_data: TodoCreate,
+# Workflow endpoints
+@router.get("/workflow/overdue", response_model=List[TodoResponse])
+async def get_overdue_todos(
+    days_overdue: int = Query(0, ge=0, description="Number of days overdue (0 = all overdue)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a subtask for a todo."""
+    """Get todos that are overdue"""
     try:
-        # Verify parent todo exists and belongs to user
-        parent_result = await db.execute(
-            select(Todo).where(and_(Todo.uuid == todo_uuid, Todo.created_by == current_user.uuid))
-        )
-        parent_todo = parent_result.scalar_one_or_none()
-        
-        if not parent_todo:
-            raise HTTPException(status_code=404, detail="Parent todo not found")
-        
-        # Create subtask
-        payload = subtask_data.model_dump()
-        payload["parent_uuid"] = todo_uuid
-        payload["todo_type"] = "subtask"
-        
-        subtask = Todo(**payload, created_by=current_user.uuid)
-        db.add(subtask)
-        await db.flush()  # Get UUID for associations
-        
-        # Handle project associations (inherit from parent)
-        if parent_todo.projects:
-            project_ids = [p.uuid for p in parent_todo.projects]
-            await project_service.handle_associations(db, subtask, project_ids, current_user.uuid, todo_projects, "todo_uuid")
-        
-        # Handle tags
-        tags = payload.get("tags", [])
-        if tags:
-            await tag_service.handle_tags(db, subtask, tags, current_user.uuid, ModuleType.TODOS, todo_tags)
-        
-        # Index in search
-        await search_service.index_item(db, subtask, 'todo')
-        await db.commit()
-        
-        # Build project badges
-        project_badges = await project_service.build_badges(db, subtask.uuid, subtask.is_exclusive_mode, todo_projects, "todo_uuid")
-        
-        logger.info(f"Subtask created: {subtask.title} for {parent_todo.title}")
-        return _convert_todo_to_response(subtask, project_badges)
-        
+        return await todo_workflow_service.get_overdue_todos(db, current_user.uuid, days_overdue)
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Error creating subtask")
-        await db.rollback()
+        logger.exception(f"Error getting overdue todos for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create subtask: {str(e)}"
+            detail=f"Failed to get overdue todos: {str(e)}"
         )
 
 
-# Stats Endpoints
-@router.get("/stats/summary")
+@router.get("/workflow/upcoming", response_model=List[TodoResponse])
+async def get_upcoming_todos(
+    days_ahead: int = Query(7, ge=1, le=30, description="Number of days to look ahead"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get todos that are due in the next N days"""
+    try:
+        return await todo_workflow_service.get_upcoming_todos(db, current_user.uuid, days_ahead)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting upcoming todos for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get upcoming todos: {str(e)}"
+        )
+
+
+@router.get("/workflow/high-priority", response_model=List[TodoResponse])
+async def get_high_priority_todos(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get high priority todos that are not completed"""
+    try:
+        return await todo_workflow_service.get_high_priority_todos(db, current_user.uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting high priority todos for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get high priority todos: {str(e)}"
+        )
+
+
+@router.get("/workflow/analytics/completion")
+async def get_completion_analytics(
+    days: int = Query(30, ge=7, le=365, description="Number of days to analyze"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get completion analytics for the user"""
+    try:
+        return await todo_workflow_service.get_completion_analytics(db, current_user.uuid, days)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting completion analytics for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get completion analytics: {str(e)}"
+        )
+
+
+@router.get("/workflow/insights")
+async def get_productivity_insights(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get productivity insights and recommendations"""
+    try:
+        return await todo_workflow_service.get_productivity_insights(db, current_user.uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting productivity insights for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get productivity insights: {str(e)}"
+        )
+
+
+@router.post("/workflow/auto-update")
+async def auto_update_overdue_todos(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Automatically update overdue todos (e.g., change priority)"""
+    try:
+        return await todo_workflow_service.auto_update_overdue_todos(db, current_user.uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error auto-updating overdue todos for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to auto-update overdue todos: {str(e)}"
+        )
+
+
+@router.get("/stats")
 async def get_todo_stats(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get todo statistics summary using shared dashboard stats service."""
+    """Get todo statistics for user"""
     try:
-        from app.services.dashboard_stats_service import dashboard_stats_service
-        
-        # Use shared service to avoid duplication
-        stats = await dashboard_stats_service.get_todo_stats(db, current_user.uuid)
-        
-        # Calculate completion rate
-        total = stats.get("total", 0)
-        completed = stats.get("done", 0)
-        completion_rate = (completed / total * 100) if total > 0 else 0
-        
-        return {
-            "total": total,
-            "completed": completed,
-            "pending": stats.get("pending", 0),
-            "in_progress": stats.get("in_progress", 0),
-            "blocked": stats.get("blocked", 0),
-            "overdue": stats.get("overdue", 0),
-            "due_today": stats.get("due_today", 0),
-            "completed_today": stats.get("completed_today", 0),
-            "within_time": stats.get("within_time", 0),
-            "completion_rate": completion_rate
-        }
-        
+        return await todo_crud_service.get_todo_stats(db, current_user.uuid)
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception("Error getting todo stats")
+        logger.exception(f"Error getting todo stats for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get todo stats: {str(e)}"

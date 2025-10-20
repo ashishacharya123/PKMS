@@ -9,7 +9,7 @@ Handles:
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, and_, func
+from sqlalchemy import select, delete, and_, func, update
 from sqlalchemy.orm import selectinload
 from typing import List, Optional, Type
 from fastapi import HTTPException
@@ -373,6 +373,217 @@ class ProjectService:
             return path
         # allow leading "/" as virtual root under data_dir
         return (get_data_dir() / p.lstrip("/")).resolve()
+
+    async def reorder_documents(
+        self,
+        db: AsyncSession,
+        project_uuid: str,
+        user_uuid: str,
+        document_uuids: List[str],
+        if_unmodified_since: Optional[str] = None
+    ):
+        """Reorder documents within a project (atomic)."""
+        # Verify project ownership
+        project_result = await db.execute(
+            select(Project).where(
+                and_(
+                    Project.uuid == project_uuid,
+                    Project.created_by == user_uuid
+                )
+            )
+        )
+        project = project_result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Optional optimistic locking
+        if if_unmodified_since:
+            from datetime import datetime
+            try:
+                since = datetime.fromisoformat(if_unmodified_since.replace('Z', '+00:00'))
+                if project.updated_at <= since:
+                    raise HTTPException(status_code=412, detail="Project was modified")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid if_unmodified_since format")
+
+        # Verify all documents exist and are linked to this project
+        existing_result = await db.execute(
+            select(document_projects.c.document_uuid)
+            .where(document_projects.c.project_uuid == project_uuid)
+        )
+        existing_uuids = {row[0] for row in existing_result.fetchall()}
+
+        if set(document_uuids) != existing_uuids:
+            raise HTTPException(
+                status_code=400,
+                detail="Document list must match existing project documents exactly"
+            )
+
+        # Atomic reorder: update sort_order for all documents
+        for idx, doc_uuid in enumerate(document_uuids):
+            await db.execute(
+                update(document_projects)
+                .where(
+                    and_(
+                        document_projects.c.project_uuid == project_uuid,
+                        document_projects.c.document_uuid == doc_uuid
+                    )
+                )
+                .values(sort_order=idx)
+            )
+
+        # Update project timestamp
+        project.updated_at = func.now()
+        await db.commit()
+
+    async def link_documents(
+        self,
+        db: AsyncSession,
+        project_uuid: str,
+        user_uuid: str,
+        document_uuids: List[str]
+    ):
+        """Link existing documents to a project (append at end)."""
+        # Verify project ownership
+        project_result = await db.execute(
+            select(Project).where(
+                and_(
+                    Project.uuid == project_uuid,
+                    Project.created_by == user_uuid
+                )
+            )
+        )
+        project = project_result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Verify documents exist and user owns them
+        docs_result = await db.execute(
+            select(Document).where(
+                and_(
+                    Document.uuid.in_(document_uuids),
+                    Document.created_by == user_uuid,
+                    Document.is_deleted.is_(False)
+                )
+            )
+        )
+        owned_docs = {doc.uuid for doc in docs_result.scalars().all()}
+        invalid_uuids = set(document_uuids) - owned_docs
+        if invalid_uuids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid or inaccessible document UUIDs: {list(invalid_uuids)}"
+            )
+
+        # Get current max sort_order
+        max_order_result = await db.execute(
+            select(func.max(document_projects.c.sort_order))
+            .where(document_projects.c.project_uuid == project_uuid)
+        )
+        max_order = max_order_result.scalar() or -1
+
+        # Link documents (skip if already linked)
+        for idx, doc_uuid in enumerate(document_uuids):
+            # Check if already linked
+            existing_result = await db.execute(
+                select(document_projects.c.id)
+                .where(
+                    and_(
+                        document_projects.c.project_uuid == project_uuid,
+                        document_projects.c.document_uuid == doc_uuid
+                    )
+                )
+            )
+            if existing_result.scalar_one_or_none():
+                continue  # Skip already linked
+
+            await db.execute(
+                document_projects.insert().values(
+                    project_uuid=project_uuid,
+                    document_uuid=doc_uuid,
+                    sort_order=max_order + 1 + idx
+                )
+            )
+
+        await db.commit()
+
+    async def unlink_document(
+        self,
+        db: AsyncSession,
+        project_uuid: str,
+        user_uuid: str,
+        document_uuid: str
+    ):
+        """Unlink a document from a project."""
+        # Verify project ownership
+        project_result = await db.execute(
+            select(Project).where(
+                and_(
+                    Project.uuid == project_uuid,
+                    Project.created_by == user_uuid
+                )
+            )
+        )
+        project = project_result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        # Remove association
+        result = await db.execute(
+            delete(document_projects).where(
+                and_(
+                    document_projects.c.project_uuid == project_uuid,
+                    document_projects.c.document_uuid == document_uuid
+                )
+            )
+        )
+
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Document not linked to project")
+
+        await db.commit()
+
+    # Preflight methods removed - use unified LinkCountService instead
+    # See: app/services/link_count_service.py
+
+    async def reorder_sections(
+        self,
+        db: AsyncSession,
+        project_uuid: str,
+        user_uuid: str,
+        section_types: List[str]
+    ):
+        """Reorder sections within a project (atomic)."""
+        # Verify project exists and user owns it
+        project = await db.get(Project, project_uuid)
+        if not project or project.created_by != user_uuid:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+        # Validate section types
+        valid_types = {'documents', 'notes', 'todos'}
+        if not all(section in valid_types for section in section_types):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid section type. Must be one of: {valid_types}")
+        
+        if len(section_types) != len(set(section_types)):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Section types must be unique")
+
+        # Delete existing section order
+        from app.models.project import ProjectSectionOrder
+        delete_query = delete(ProjectSectionOrder).where(
+            ProjectSectionOrder.project_uuid == project_uuid
+        )
+        await db.execute(delete_query)
+
+        # Insert new section order
+        for sort_order, section_type in enumerate(section_types):
+            new_section_order = ProjectSectionOrder(
+                project_uuid=project_uuid,
+                section_type=section_type,
+                sort_order=sort_order
+            )
+            db.add(new_section_order)
+
+        await db.commit()
 
 
 # Create singleton instance

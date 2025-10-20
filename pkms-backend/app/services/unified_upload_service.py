@@ -292,3 +292,7 @@ class UnifiedUploadService:
             else:
                 break
         return "/".join(path_parts)
+
+
+# Global instance
+unified_upload_service = UnifiedUploadService()

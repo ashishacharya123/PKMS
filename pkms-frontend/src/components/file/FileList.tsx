@@ -1,31 +1,34 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Download, Trash2, Image, FileText, Mic, Video } from 'lucide-react';
+import { Play, Pause, Download, Trash2, Image, FileText, Mic, Video, Unlink } from 'lucide-react';
 import { apiService } from '../../services/api';
 
-interface MediaFile {
+interface FileItem {
   uuid: string;
   filename: string;
   original_name: string;
   mime_type: string;
   file_size: number;
   description?: string;
-  display_order: number;
   created_at: string;
   media_type?: string;
 }
 
-interface MediaListProps {
-  files: MediaFile[];
+interface FileListProps {
+  files: FileItem[];
   onDelete: (fileId: string) => void;
-  module: 'notes' | 'diary' | 'documents' | 'archive';
+  onUnlink?: (fileId: string) => void; // For project context
+  module: 'notes' | 'diary' | 'documents' | 'archive' | 'projects';
   className?: string;
+  showUnlink?: boolean; // Show unlink action instead of delete
 }
 
-export const MediaList: React.FC<MediaListProps> = ({
+export const FileList: React.FC<FileListProps> = ({
   files,
   onDelete,
+  onUnlink,
   module,
-  className = ''
+  className = '',
+  showUnlink = false
 }) => {
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -89,7 +92,7 @@ export const MediaList: React.FC<MediaListProps> = ({
     setPlayingAudio(null);
   };
 
-  const handlePlayAudio = async (file: MediaFile) => {
+  const handlePlayAudio = async (file: FileItem) => {
     if (playingAudio === file.uuid) {
       cleanupAudio();
       return;
@@ -125,7 +128,7 @@ export const MediaList: React.FC<MediaListProps> = ({
     }
   };
 
-  const handleDownload = async (file: MediaFile) => {
+  const handleDownload = async (file: FileItem) => {
     try {
       const downloadUrl = getDownloadUrl(module, file.uuid);
       const response = await apiService.get(downloadUrl, {
@@ -162,9 +165,16 @@ export const MediaList: React.FC<MediaListProps> = ({
     }
   };
 
-  const sortedFiles = [...files].sort((a, b) => a.display_order - b.display_order);
+  const handleUnlink = async (fileId: string) => {
+    if (window.confirm('Are you sure you want to unlink this file from the project?')) {
+      if (onUnlink) {
+        onUnlink(fileId);
+      }
+    }
+  };
 
-  if (sortedFiles.length === 0) {
+  // Files are already ordered by server - no local sorting needed
+  if (files.length === 0) {
     return (
       <div className={`text-center py-8 text-gray-500 ${className}`}>
         <p className="text-sm">No attachments yet</p>
@@ -175,7 +185,7 @@ export const MediaList: React.FC<MediaListProps> = ({
 
   return (
     <div className={`space-y-2 ${className}`}>
-      {sortedFiles.map((file) => (
+      {files.map((file) => (
         <div
           key={file.uuid}
           className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
@@ -223,13 +233,23 @@ export const MediaList: React.FC<MediaListProps> = ({
               <Download className="w-4 h-4" />
             </button>
             
-            <button
-              onClick={() => handleDelete(file.uuid)}
-              className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-              title="Delete"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            {showUnlink ? (
+              <button
+                onClick={() => handleUnlink(file.uuid)}
+                className="p-1 text-gray-400 hover:text-orange-600 transition-colors"
+                title="Unlink from project"
+              >
+                <Unlink className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                onClick={() => handleDelete(file.uuid)}
+                className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                title="Delete"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       ))}
@@ -239,4 +259,4 @@ export const MediaList: React.FC<MediaListProps> = ({
   );
 };
 
-export default MediaList;
+export default FileList;

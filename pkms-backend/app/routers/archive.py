@@ -1,14 +1,18 @@
 """
 Archive Router
 Handles hierarchical file and folder organization with enhanced security
+Refactored to use service layer for better maintainability
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_, desc, delete, text, update
-from sqlalchemy.orm import selectinload
-import uuid as uuid_lib
+from typing import List, Optional, Dict, Any
+import logging
+
+from app.database import get_db
+from app.models.user import User
+from app.auth.dependencies import get_current_user
 from app.schemas.archive import (
     FolderCreate,
     FolderUpdate,
@@ -20,703 +24,99 @@ from app.schemas.archive import (
     BulkMoveRequest,
     CommitUploadRequest,
 )
-from typing import List, Optional, Dict, Any
-import asyncio
-from datetime import datetime
-from app.config import NEPAL_TZ
-from pathlib import Path
-import uuid as uuid_lib
-import json
-import aiofiles
-# import magic  # Temporarily disabled due to Windows segfault
-import logging
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-from io import BytesIO
-from functools import lru_cache, wraps
-import time
-
+from app.services.archive_folder_service import archive_folder_service
+from app.services.archive_item_service import archive_item_service
 from app.services.chunk_service import chunk_manager
-from app.services.unified_upload_service import unified_upload_service
-from app.services.chunk_service import ChunkUploadStatus
-
-# Path generation utilities for hybrid UUID/name-based system
-async def get_filesystem_path(folder_uuid: str, db: AsyncSession, created_by: Optional[str] = None) -> str:
-    """Build UUID-based path for actual file storage"""
-    if not folder_uuid:
-        return "/"
-    
-    # Get the folder
-    cond = (ArchiveFolder.uuid == folder_uuid)
-    if created_by:
-        cond = and_(cond, ArchiveFolder.created_by == created_by)
-    result = await db.execute(select(ArchiveFolder).where(cond))
-    folder = result.scalar_one_or_none()
-    
-    if not folder:
-        return "/"
-    
-    # Build path by traversing up the hierarchy using UUIDs
-    path_parts = [folder.uuid]
-    current_parent = folder.parent_uuid
-    visited = {folder.uuid}  # Track visited folders to detect cycles
-    
-    while current_parent:
-        if current_parent in visited:
-            logger.error(f"Cycle detected in folder hierarchy: {current_parent}")
-            break
-        visited.add(current_parent)
-        
-        parent_cond = (ArchiveFolder.uuid == current_parent)
-        if created_by:
-            parent_cond = and_(parent_cond, ArchiveFolder.created_by == created_by)
-        parent_result = await db.execute(select(ArchiveFolder).where(parent_cond))
-        parent_folder = parent_result.scalar_one_or_none()
-        
-        if not parent_folder:
-            break
-            
-        path_parts.insert(0, parent_folder.uuid)
-        current_parent = parent_folder.parent_uuid
-    
-    return "/" + "/".join(path_parts) + "/"
-
-async def get_display_path(folder_uuid: str, db: AsyncSession, created_by: Optional[str] = None) -> str:
-    """Build name-based path for user display"""
-    if not folder_uuid:
-        return "/"
-    
-    # Get the folder
-    cond = (ArchiveFolder.uuid == folder_uuid)
-    if created_by:
-        cond = and_(cond, ArchiveFolder.created_by == created_by)
-    result = await db.execute(select(ArchiveFolder).where(cond))
-    folder = result.scalar_one_or_none()
-    
-    if not folder:
-        return "/"
-    
-    # Build path by traversing up the hierarchy using names
-    path_parts = [folder.name]
-    current_parent = folder.parent_uuid
-    visited = {folder.uuid}  # Track visited folders to detect cycles
-    
-    while current_parent:
-        if current_parent in visited:
-            logger.error(f"Cycle detected in folder hierarchy: {current_parent}")
-            break
-        visited.add(current_parent)
-        
-        parent_cond = (ArchiveFolder.uuid == current_parent)
-        if created_by:
-            parent_cond = and_(parent_cond, ArchiveFolder.created_by == created_by)
-        parent_result = await db.execute(select(ArchiveFolder).where(parent_cond))
-        parent_folder = parent_result.scalar_one_or_none()
-        
-        if not parent_folder:
-            break
-            
-        path_parts.insert(0, parent_folder.name)
-        current_parent = parent_folder.parent_uuid
-    
-    return "/" + "/".join(path_parts) + "/"
-
-async def validate_folder_name(name: str, parent_uuid: Optional[str], created_by: str, db: AsyncSession, exclude_uuid: Optional[str] = None) -> None:
-    """Validate folder name is unique at the same level"""
-    # Sanitize folder name
-    sanitized_name = name.strip()
-    if not sanitized_name:
-        raise HTTPException(status_code=400, detail="Folder name cannot be empty")
-    
-    # Check for invalid characters
-    invalid_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
-    if any(char in sanitized_name for char in invalid_chars):
-        raise HTTPException(status_code=400, detail=f"Folder name contains invalid characters: {invalid_chars}")
-    
-    # Check for duplicate names at same level
-    query = select(ArchiveFolder).where(
-        and_(
-            func.lower(ArchiveFolder.name) == func.lower(sanitized_name),
-            ArchiveFolder.parent_uuid == parent_uuid,
-            ArchiveFolder.created_by == created_by
-        )
-    )
-    
-    # Exclude current folder when updating
-    if exclude_uuid:
-        query = query.where(ArchiveFolder.uuid != exclude_uuid)
-    
-    existing = await db.execute(query)
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Folder name already exists at this level")
-
-# Lightweight imports for file processing with multi-step fallback
-try:
-    import imagesize  # Lightweight image dimensions (1MB vs 100MB Pillow)
-except ImportError:
-    imagesize = None
-
-try:
-    import filetype  # File type detection with dimensions (2MB)
-except ImportError:
-    filetype = None
-
-try:
-    import pypdf  # Lightweight PDF metadata (5MB vs 50MB PyMuPDF)
-except ImportError:
-    pypdf = None
-
-try:
-    from tinytag import TinyTag  # Lightweight metadata extraction (1MB vs 30MB docx)
-except ImportError:
-    TinyTag = None
-
-# Heavy packages (fallback if lightweight unavailable)
-try:
-    import fitz  # PyMuPDF for PDF processing
-except ImportError:
-    fitz = None
-
-try:
-    from docx import Document as DocxDocument  # python-docx for DOCX processing
-except ImportError:
-    DocxDocument = None
-
-try:
-    from PIL import Image  # Pillow (heavy fallback)
-except ImportError:
-    Image = None
-
-from app.database import get_db
-from app.config import settings, get_data_dir, get_file_storage_dir, NEPAL_TZ
-from app.models.archive import ArchiveFolder, ArchiveItem
-from app.models.tag_associations import archive_item_tags
-from app.models.tag import Tag
-from app.models.user import User
-from app.auth.dependencies import get_current_user
-from app.services.tag_service import tag_service
-from app.services.search_service import search_service
-# from app.services.ai_service import analyze_content, is_ai_enabled
-from app.utils.security import (
-    sanitize_folder_name,
-    sanitize_filename,
-    sanitize_search_query,
-    sanitize_description,
-    sanitize_tags,
-    sanitize_json_metadata,
-    validate_file_size,
-    validate_uuid_format,
-    sanitize_text_input
-)
-from app.services.file_detection import file_detector
-from app.models.enums import ModuleType
-
-router = APIRouter()
-
-# Initialize rate limiter for file uploads
-limiter = Limiter(key_func=get_remote_address)
 
 logger = logging.getLogger(__name__)
+router = APIRouter()
 
-# Simple cache decorator for folder operations
-def folder_cache(maxsize: int = 128):
-    """Simple LRU cache decorator for folder and file listing operations.
-    
-    Caches folder listings to reduce database load when repeatedly viewing
-    the same folders. Cache is per-user and respects query parameters.
-    """
-    def decorator(func):
-        # Create a simple cache key from created_by and critical parameters
-        def cache_key(*args, **kwargs):
-            # Extract created_by from current_user parameter
-            created_by = None
-            if 'current_user' in kwargs:
-                created_by = getattr(kwargs['current_user'], 'uuid', None)
-            
-            # Extract key parameters that affect results
-            key_parts = [created_by]
-            for param in ['parent_uuid', 'root_uuid', 'archived', 'search']:
-                if param in kwargs:
-                    key_parts.append((param, kwargs[param]))
-            
-            return tuple(key_parts)
-        
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            # Generate cache key
-            key = cache_key(*args, **kwargs)
-            
-            # For async functions, we can't use lru_cache directly
-            # So we'll use a simple manual cache instead
-            if not hasattr(wrapper, '_cache'):
-                wrapper._cache = {}
-                wrapper._cache_times = {}
-            
-            cache_timeout = 120  # 120 seconds cache (invalidated on writes)
-            now = time.time()
-            
-            # Check if we have a valid cached result
-            if key in wrapper._cache:
-                cached_time = wrapper._cache_times.get(key, 0)
-                if now - cached_time < cache_timeout:
-                    return wrapper._cache[key]
-            
-            # Cache miss or expired - call the actual function
-            result = await func(*args, **kwargs)
-            
-            # Store in cache
-            wrapper._cache[key] = result
-            wrapper._cache_times[key] = now
-            
-            # Simple cache cleanup - remove oldest entries if cache gets too big
-            if len(wrapper._cache) > maxsize:
-                oldest_key = min(wrapper._cache_times.keys(), 
-                               key=lambda k: wrapper._cache_times[k])
-                del wrapper._cache[oldest_key]
-                del wrapper._cache_times[oldest_key]
-            
-            return result
-        
-        # Add cache control methods
-        wrapper.cache_clear = lambda: (
-            setattr(wrapper, '_cache', {}),
-            setattr(wrapper, '_cache_times', {})
-        )
-        
-        return wrapper
-    
-    return decorator
 
-# Constants
-MAX_FOLDER_NAME_LENGTH = 255
-MAX_FOLDER_DESCRIPTION_LENGTH = 1000
-MAX_FILE_SIZE = settings.max_file_size  # 50MB from config
-
-# Valid MIME types for file uploads
-VALID_MIME_TYPES = {
-    "application/pdf": ".pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
-    "application/msword": ".doc",
-    "text/plain": ".txt",
-    "text/markdown": ".md",
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/gif": ".gif",
-    "image/webp": ".webp",
-    "audio/mpeg": ".mp3",
-    "audio/wav": ".wav",
-    "audio/ogg": ".ogg",
-    "video/mp4": ".mp4",
-    "video/webm": ".webm",
-    "application/zip": ".zip",
-    "application/x-tar": ".tar",
-    "application/gzip": ".gz",
-    "application/json": ".json",
-    "application/xml": ".xml",
-    "text/csv": ".csv",
-    "application/vnd.ms-excel": ".xls",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx"
-}
-
-# Pydantic models are now in app/schemas/archive.py
-
-# Folder Management Endpoints
-
+# Folder endpoints
 @router.post("/folders", response_model=FolderResponse)
 async def create_folder(
     folder_data: FolderCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a new archive folder with enhanced security validation and duplicate prevention"""
-    
+    """Create a new folder"""
     try:
-        # Check for duplicate folder name in same location
-        duplicate_check = await db.execute(
-            select(ArchiveFolder).where(
-                and_(
-                    ArchiveFolder.parent_uuid == folder_data.parent_uuid,
-                    func.lower(ArchiveFolder.name) == func.lower(folder_data.name),
-                    ArchiveFolder.created_by == current_user.uuid
-                    # Archive folders don't use is_archived flag - all are active by being in archive
-                )
-            )
-        )
-        existing_folder = duplicate_check.scalar_one_or_none()
-        
-        if existing_folder:
-            location = "root" if not folder_data.parent_uuid else f"folder '{existing_folder.parent.name}'"
-            raise HTTPException(
-                status_code=409,
-                detail=f"Folder '{folder_data.name}' already exists in {location}. Please choose a different name."
-            )
-        
-        # Validate parent folder exists and belongs to user
-        if folder_data.parent_uuid:
-            parent_result = await db.execute(
-                select(ArchiveFolder).where(
-                    and_(
-                        ArchiveFolder.uuid == folder_data.parent_uuid,
-                        ArchiveFolder.created_by == current_user.uuid
-                    )
-                )
-            )
-            parent = parent_result.scalar_one_or_none()
-            if not parent:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Parent folder not found"
-                )
-        
-        # Validate folder name is unique at this level
-        await validate_folder_name(folder_data.name, folder_data.parent_uuid, current_user.uuid, db)
-
-        # Calculate depth from parent
-        folder_depth = 0
-        if folder_data.parent_uuid:
-            parent_query = select(ArchiveFolder.depth).where(
-                and_(ArchiveFolder.uuid == folder_data.parent_uuid,
-                     ArchiveFolder.created_by == current_user.uuid)
-            )
-            parent_result = await db.execute(parent_query)
-            parent_depth = parent_result.scalar()
-            if parent_depth is not None:
-                folder_depth = parent_depth + 1
-
-        # Create new folder with proper depth calculation
-        folder = ArchiveFolder(
-            name=folder_data.name.strip(),
-            description=folder_data.description,
-            parent_uuid=folder_data.parent_uuid,
-            depth=folder_depth,
-            created_by=current_user.uuid
-        )
-        
-        db.add(folder)
-        await db.commit()
-        await db.refresh(folder)
-        
-        logger.info(f"SUCCESS: Created folder '{folder.name}' for user {current_user.username}")
-        
-        # Clear cache after folder creation
-        list_folders.cache_clear()
-        get_folder_tree.cache_clear()
-        
-        return await _get_folder_with_stats(db, folder.uuid, current_user.uuid)
-        
+        return await archive_folder_service.create_folder(db, current_user.uuid, folder_data)
     except HTTPException:
-        # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
-        logger.error(f"ERROR: Error creating folder: {str(e)}")
-        await db.rollback()
+        logger.exception(f"Error creating folder for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create folder. Please try again."
+            detail=f"Failed to create folder: {str(e)}"
         )
+
 
 @router.get("/folders", response_model=List[FolderResponse])
-@folder_cache()
 async def list_folders(
-    parent_uuid: Optional[str] = Query(None),
-    archived: Optional[bool] = Query(False),
-    search: Optional[str] = Query(None),
+    parent_uuid: Optional[str] = Query(None, description="Parent folder UUID"),
+    search: Optional[str] = Query(None, description="Search term for folder names"),
+    is_favorite: Optional[bool] = Query(None, description="Filter by favorite status"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of folders to return"),
+    offset: int = Query(0, ge=0, description="Number of folders to skip"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List folders with FTS5 search on name/description and enhanced security/error handling."""
-    from sqlalchemy import text
+    """List folders with filters and pagination"""
     try:
-        # Validate parent UUID if provided (simplified for single user)
-        if parent_uuid:
-            parent_uuid = validate_uuid_format(parent_uuid)
-            # Verify parent folder exists (no user check needed for single user)
-            parent_result = await db.execute(
-                select(ArchiveFolder).where(ArchiveFolder.uuid == parent_uuid)
-            )
-            if not parent_result.scalar_one_or_none():
-                raise HTTPException(
-                    status_code=404,
-                    detail="Parent folder not found"
-                )
-        # Sanitize search query if provided
-        if search:
-            search = sanitize_search_query(search)
-            # Use unified FTS5 search
-            fts_results = await search_service.search(db, current_user.uuid, search, item_types=["archive_folder"], limit=100)
-            if not fts_results:
-                return []
-            # Extract UUIDs from FTS results
-            uuid_list = [r["uuid"] for r in fts_results if r["type"] == "archive_folder"]
-            if not uuid_list:
-                return []
-            # Fetch full rows, preserving FTS5 order
-            query = select(ArchiveFolder).where(ArchiveFolder.uuid.in_(uuid_list))
-            if parent_uuid is not None:
-                query = query.where(ArchiveFolder.parent_uuid == parent_uuid)
-            # Archive folders don't use is_archived flag - all are active by being in archive
-            query = query.order_by(ArchiveFolder.name)
-            result = await db.execute(query)
-            folders = result.scalars().all()
-            folder_map = {f.uuid: f for f in folders}
-
-            # Batch-load folder stats to avoid N+1 queries
-            folder_uuids = [f.uuid for f in folders]
-            # Pre-compute counts with grouped queries
-            item_counts = {
-                r[0]: r[1] for r in (await db.execute(
-                    select(ArchiveItem.folder_uuid, func.count(ArchiveItem.uuid))
-                    .where(and_(ArchiveItem.folder_uuid.in_(folder_uuids), ArchiveItem.created_by == current_user.uuid))
-                    .group_by(ArchiveItem.folder_uuid)
-                )).all()
-            }
-            sub_counts = {
-                r[0]: r[1] for r in (await db.execute(
-                    select(ArchiveFolder.parent_uuid, func.count(ArchiveFolder.uuid))
-                    .where(and_(ArchiveFolder.parent_uuid.in_(folder_uuids), ArchiveFolder.created_by == current_user.uuid))
-                    .group_by(ArchiveFolder.parent_uuid)
-                )).all()
-            }
-            sizes = {
-                r[0]: r[1] or 0 for r in (await db.execute(
-                    select(ArchiveItem.folder_uuid, func.sum(ArchiveItem.file_size))
-                    .where(and_(ArchiveItem.folder_uuid.in_(folder_uuids), ArchiveItem.created_by == current_user.uuid))
-                    .group_by(ArchiveItem.folder_uuid)
-                )).all()
-            }
-
-            folder_responses = []
-            for folder in folders:
-                display_path = await get_display_path(folder.uuid, db, current_user.uuid)
-                filesystem_path = await get_filesystem_path(folder.uuid, db, current_user.uuid)
-                folder_responses.append(FolderResponse(
-                    uuid=folder.uuid,
-                    name=folder.name,
-                    description=folder.description,
-                    parent_uuid=folder.parent_uuid,
-                    path=display_path,
-                    display_path=display_path,
-                    filesystem_path=filesystem_path,
-                    depth=folder.depth,
-                    created_at=folder.created_at,
-                    updated_at=folder.updated_at,
-                    item_count=item_counts.get(folder.uuid, 0),
-                    subfolder_count=sub_counts.get(folder.uuid, 0),
-                    total_size=sizes.get(folder.uuid, 0),
-                ))
-            return folder_responses
-        else:
-            # Build query (simplified for single user)
-            query = select(ArchiveFolder)
-            query = query.where(
-                and_(
-                    ArchiveFolder.parent_uuid == parent_uuid,
-                    ArchiveFolder.created_by == current_user.uuid
-                )
-            )
-            # Archive folders don't use is_archived flag - all are active by being in archive
-            query = query.order_by(ArchiveFolder.name)
-            result = await db.execute(query)
-            folders = result.scalars().all()
-        # Batch-load folder stats to avoid N+1
-        folder_uuids = [f.uuid for f in folders]
-        # Pre-compute counts with grouped queries
-        item_counts = {
-            r[0]: r[1] for r in (await db.execute(
-                select(ArchiveItem.folder_uuid, func.count(ArchiveItem.uuid))
-                .where(and_(ArchiveItem.folder_uuid.in_(folder_uuids), ArchiveItem.created_by == current_user.uuid))
-                .group_by(ArchiveItem.folder_uuid)
-            )).all()
-        }
-        sub_counts = {
-            r[0]: r[1] for r in (await db.execute(
-                select(ArchiveFolder.parent_uuid, func.count(ArchiveFolder.uuid))
-                .where(and_(ArchiveFolder.parent_uuid.in_(folder_uuids), ArchiveFolder.created_by == current_user.uuid))
-                .group_by(ArchiveFolder.parent_uuid)
-            )).all()
-        }
-        sizes = {
-            r[0]: r[1] or 0 for r in (await db.execute(
-                select(ArchiveItem.folder_uuid, func.sum(ArchiveItem.file_size))
-                .where(and_(ArchiveItem.folder_uuid.in_(folder_uuids), ArchiveItem.created_by == current_user.uuid))
-                .group_by(ArchiveItem.folder_uuid)
-            )).all()
-        }
-        folder_responses = []
-        for folder in folders:
-            display_path = await get_display_path(folder.uuid, db, current_user.uuid)
-            filesystem_path = await get_filesystem_path(folder.uuid, db, current_user.uuid)
-            folder_responses.append(FolderResponse(
-                uuid=folder.uuid,
-                name=folder.name,
-                description=folder.description,
-                parent_uuid=folder.parent_uuid,
-                path=display_path,
-                display_path=display_path,
-                filesystem_path=filesystem_path,
-                depth=folder.depth,
-                created_at=folder.created_at,
-                updated_at=folder.updated_at,
-                item_count=item_counts.get(folder.uuid, 0),
-                subfolder_count=sub_counts.get(folder.uuid, 0),
-                total_size=sizes.get(folder.uuid, 0),
-            ))
-        return folder_responses
+        return await archive_folder_service.list_folders(
+            db, current_user.uuid, parent_uuid, search, is_favorite, limit, offset
+        )
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"ERROR: Error listing folders: {str(e)}")
+        logger.exception(f"Error listing folders for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve folders. Please try again."
+            detail=f"Failed to list folders: {str(e)}"
         )
 
+
 @router.get("/folders/tree", response_model=List[FolderTree])
-@folder_cache()
 async def get_folder_tree(
-    root_uuid: Optional[str] = Query(None),
-    archived: Optional[bool] = Query(False),
-    search: Optional[str] = Query(None),
+    parent_uuid: Optional[str] = Query(None, description="Root folder UUID for tree"),
+    max_depth: Optional[int] = Query(None, ge=1, le=10, description="Maximum tree depth"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get hierarchical folder tree structure, or flat FTS5 search results if search is provided."""
-    from sqlalchemy import text
-    if search:
-        # Use unified FTS5 search for folders
-        search = sanitize_search_query(search)
-        fts_results = await search_service.search(db, current_user.uuid, search, item_types=["archive_folder"], limit=100)
-        if not fts_results:
-            return []
-        # Extract UUIDs from FTS results
-        uuid_list = [r["uuid"] for r in fts_results if r["type"] == "archive_folder"]
-        if not uuid_list:
-            return []
-        # Fetch full rows, preserving FTS5 order
-        query = select(ArchiveFolder).where(ArchiveFolder.uuid.in_(uuid_list))
-        # Archive folders don't use is_archived flag - all are active by being in archive
-        result = await db.execute(query)
-        folders = result.scalars().all()
-        folder_map = {f.uuid: f for f in folders}
-        folder_trees = []
-        for uuid in uuid_list:
-            if uuid in folder_map:
-                folder_response = await _get_folder_with_stats(db, uuid, current_user.uuid)
-                folder_trees.append(FolderTree(folder=folder_response, children=[], items=[]))
-        return folder_trees
-    else:
-        async def build_tree(parent_uuid: Optional[str]) -> List[FolderTree]:
-            # Get folders for this parent
-            folder_query = select(ArchiveFolder).where(
-                and_(
-                    ArchiveFolder.created_by == current_user.uuid,
-                    ArchiveFolder.parent_uuid == parent_uuid
-                )
-            )
-            folder_result = await db.execute(folder_query.order_by(ArchiveFolder.name))
-            folders = folder_result.scalars().all()
-            if not folders:
-                return []
+    """Get folder tree structure with lazy loading support"""
+    try:
+        return await archive_folder_service.get_folder_tree(
+            db, current_user.uuid, parent_uuid, max_depth
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting folder tree for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get folder tree: {str(e)}"
+        )
 
-            folder_uuids = [f.uuid for f in folders]
 
-            # Batch counts and sizes for these folders
-            item_counts = {
-                r[0]: r[1] for r in (await db.execute(
-                    select(ArchiveItem.folder_uuid, func.count(ArchiveItem.uuid))
-                    .where(and_(ArchiveItem.folder_uuid.in_(folder_uuids), ArchiveItem.created_by == current_user.uuid))
-                    .group_by(ArchiveItem.folder_uuid)
-                )).all()
-            }
-            sub_counts = {
-                r[0]: r[1] for r in (await db.execute(
-                    select(ArchiveFolder.parent_uuid, func.count(ArchiveFolder.uuid))
-                    .where(and_(ArchiveFolder.parent_uuid.in_(folder_uuids), ArchiveFolder.created_by == current_user.uuid))
-                    .group_by(ArchiveFolder.parent_uuid)
-                )).all()
-            }
-            sizes = {
-                r[0]: r[1] or 0 for r in (await db.execute(
-                    select(ArchiveItem.folder_uuid, func.sum(ArchiveItem.file_size))
-                    .where(and_(ArchiveItem.folder_uuid.in_(folder_uuids), ArchiveItem.created_by == current_user.uuid))
-                    .group_by(ArchiveItem.folder_uuid)
-                )).all()
-            }
-
-            # Build item summaries per folder (still per-folder, but single query each ordered by name)
-            tree: List[FolderTree] = []
-            for folder in folders:
-                display_path = await get_display_path(folder.uuid, db, current_user.uuid)
-                filesystem_path = await get_filesystem_path(folder.uuid, db, current_user.uuid)
-                folder_response = FolderResponse(
-                    uuid=folder.uuid,
-                    name=folder.name,
-                    description=folder.description,
-                    parent_uuid=folder.parent_uuid,
-                    path=display_path,
-                    display_path=display_path,
-                    filesystem_path=filesystem_path,
-                    depth=folder.depth,
-                    created_at=folder.created_at,
-                    updated_at=folder.updated_at,
-                    item_count=item_counts.get(folder.uuid, 0),
-                    subfolder_count=sub_counts.get(folder.uuid, 0),
-                    total_size=sizes.get(folder.uuid, 0),
-                )
-
-                items_query = select(ArchiveItem).where(
-                    and_(
-                        ArchiveItem.folder_uuid == folder.uuid,
-                        ArchiveItem.created_by == current_user.uuid
-                    )
-                )
-                items_result = await db.execute(items_query.order_by(ArchiveItem.name))
-                items = items_result.scalars().all()
-                item_summaries = [await _get_item_summary(db, it.uuid) for it in items]
-
-                # Recursively build children
-                children = await build_tree(f.uuid)
-
-                tree.append(FolderTree(
-                    folder=folder_response,
-                    children=children,
-                    items=item_summaries
-                ))
-
-            return tree
-        return await build_tree(root_uuid)
-
-@router.get("/folders/{folder_uuid}/breadcrumb", response_model=List[FolderResponse])
+@router.get("/folders/{folder_uuid}/breadcrumb", response_model=List[Dict[str, str]])
 async def get_folder_breadcrumb(
     folder_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get the breadcrumb trail for a specific folder."""
-    breadcrumb = []
-    current_folder_uuid = folder_uuid
-
-    while current_folder_uuid:
-        folder_query = select(ArchiveFolder).where(
-            ArchiveFolder.uuid == current_folder_uuid,
-            ArchiveFolder.created_by == current_user.uuid
+    """Get folder breadcrumb path for navigation"""
+    try:
+        return await archive_folder_service.get_breadcrumb(db, current_user.uuid, folder_uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting breadcrumb for folder {folder_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get breadcrumb: {str(e)}"
         )
-        result = await db.execute(folder_query)
-        folder = result.scalar_one_or_none()
 
-        if not folder:
-            # This can happen if a parent in the chain is not found
-            # or doesn't belong to the user. Stop here.
-            break
-        
-        # This uses an internal helper, but it's efficient
-        folder_response = await _get_folder_with_stats(db, folder.uuid, current_user.uuid)
-        breadcrumb.append(folder_response)
-        
-        current_folder_uuid = folder.parent_uuid
-
-    # The breadcrumb is built from child to parent, so reverse it
-    return breadcrumb[::-1]
 
 @router.get("/folders/{folder_uuid}", response_model=FolderResponse)
 async def get_folder(
@@ -724,559 +124,145 @@ async def get_folder(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get folder details (simplified for single user)"""
-    folder_uuid = validate_uuid_format(folder_uuid)
-    res = await db.execute(
-        select(ArchiveFolder.uuid).where(
-            and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.created_by == current_user.uuid)
+    """Get single folder with stats"""
+    try:
+        return await archive_folder_service.get_folder(db, current_user.uuid, folder_uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting folder {folder_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get folder: {str(e)}"
         )
-    )
-    if not res.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="Folder not found")
-    return await _get_folder_with_stats(db, folder_uuid, current_user.uuid)
+
 
 @router.put("/folders/{folder_uuid}", response_model=FolderResponse)
 async def update_folder(
     folder_uuid: str,
-    folder_data: FolderUpdate,
+    update_data: FolderUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Update folder (simplified for single user)"""
-    
+    """Update folder"""
     try:
-        folder_uuid = validate_uuid_format(folder_uuid)
-        
-        # Get folder with ownership check
-        result = await db.execute(
-            select(ArchiveFolder).where(
-                and_(
-                    ArchiveFolder.uuid == folder_uuid,
-                    ArchiveFolder.created_by == current_user.uuid
-                )
-            )
+        return await archive_folder_service.update_folder(
+            db, current_user.uuid, folder_uuid, update_data
         )
-        folder = result.scalar_one_or_none()
-        
-        if not folder:
-            raise HTTPException(status_code=404, detail="Folder not found")
-        
-        # Update folder fields
-        if folder_data.name is not None:
-            folder.name = folder_data.name
-        if folder_data.description is not None:
-            folder.description = folder_data.description
-        
-        await db.commit()
-        await db.refresh(folder)
-        
-        # Clear cache after folder update
-        list_folders.cache_clear()
-        get_folder_tree.cache_clear()
-        
-        return await _get_folder_with_stats(db, folder.uuid, current_user.uuid)
-        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"ERROR: Error updating folder: {str(e)}")
-        await db.rollback()
+        logger.exception(f"Error updating folder {folder_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update folder. Please try again."
+            detail=f"Failed to update folder: {str(e)}"
         )
 
-async def _get_all_items_in_folder(db: AsyncSession, folder_uuid: str, created_by: str) -> List[ArchiveItem]:
-    items = []
-    
-    # Get items in the current folder
-    item_result = await db.execute(
-        select(ArchiveItem).where(
-            and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == created_by)
-        )
-    )
-    items.extend(item_result.scalars().all())
-    
-    # Get subfolders
-    subfolder_result = await db.execute(
-        select(ArchiveFolder).where(
-            and_(ArchiveFolder.parent_uuid == folder_uuid, ArchiveFolder.created_by == created_by)
-        )
-    )
-    subfolders = subfolder_result.scalars().all()
-    
-    # Recursively get items from subfolders
-    for subfolder in subfolders:
-        items.extend(await _get_all_items_in_folder(db, subfolder.uuid, created_by))
-        
-    return items
 
 @router.delete("/folders/{folder_uuid}")
 async def delete_folder(
     folder_uuid: str,
-    force: bool = Query(False, description="Force delete non-empty folder"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete folder (simplified for single user)"""
-    
+    """Delete folder and all contents"""
     try:
-        folder_uuid = validate_uuid_format(folder_uuid)
-        
-        # Get folder (simplified for single user)
-        result = await db.execute(
-            select(ArchiveFolder)
-            .options(selectinload(ArchiveFolder.tag_objs))
-            .where(and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.created_by == current_user.uuid))
-        )
-        folder = result.scalar_one_or_none()
-        
-        if not folder:
-            raise HTTPException(status_code=404, detail="Folder not found")
-        
-        if force:
-            # Get all items in the folder and its subfolders
-            items_to_delete = await _get_all_items_in_folder(db, folder_uuid, current_user.uuid)
-            
-            # Collect all file paths for deletion AFTER successful DB commit
-            file_paths_to_delete = []
-            thumbnail_paths_to_delete = []
-            
-            for item in items_to_delete:
-                if item.file_path:
-                    file_paths_to_delete.append(item.file_path)
-                thumb_path = getattr(item, "thumbnail_path", None)
-                if thumb_path:
-                    thumbnail_paths_to_delete.append(thumb_path)
-
-        else:
-            # Check if folder has contents
-            subfolder_result = await db.execute(
-                select(func.count(ArchiveFolder.uuid)).where(
-                    and_(ArchiveFolder.parent_uuid == folder_uuid, ArchiveFolder.created_by == current_user.uuid)
-                )
-            )
-            subfolder_count = subfolder_result.scalar()
-            
-            item_result = await db.execute(
-                select(func.count(ArchiveItem.uuid)).where(
-                    and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == current_user.uuid)
-                )
-            )
-            item_count = item_result.scalar()
-            
-            if subfolder_count > 0 or item_count > 0:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Folder is not empty. Use force=true to delete non-empty folder."
-                )
-        
-        # Store parent UUID before deleting folder
-        parent_uuid = folder.parent_uuid
-
-        # Decrement tag usage counts BEFORE deleting folder
-        await tag_service.decrement_tags_on_delete(db, folder)
-
-        # Delete folder and all contents (CASCADE handles this atomically)
-        await db.delete(folder)
-        await db.commit()
-
-        # Update derived columns for parent folder AFTER successful delete
-        if parent_uuid:
-            await _update_folder_derived_columns(db, parent_uuid, current_user.uuid)
-        
-        # Only delete files AFTER successful DB commit to maintain consistency
-        if force and 'file_paths_to_delete' in locals():
-            for file_path in file_paths_to_delete:
-                try:
-                    if Path(file_path).exists():
-                        Path(file_path).unlink()
-                        logger.info(f"Deleted file: {file_path}")
-                except Exception as e:
-                    logger.warning(f"WARNING: Failed to delete file {file_path}: {str(e)}")
-            
-            for thumb_path in thumbnail_paths_to_delete:
-                try:
-                    if Path(thumb_path).exists():
-                        Path(thumb_path).unlink()
-                        logger.info(f"Deleted thumbnail: {thumb_path}")
-                except Exception as e:
-                    logger.warning(f"WARNING: Failed to delete thumbnail {thumb_path}: {str(e)}")
-        
-        logger.info(f"DELETED: Deleted folder '{folder.name}' for user {current_user.username}")
-        
-        # Clear cache after folder deletion
-        list_folders.cache_clear()
-        get_folder_tree.cache_clear()
-        
+        await archive_folder_service.delete_folder(db, current_user.uuid, folder_uuid)
         return {"message": "Folder deleted successfully"}
-        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"ERROR: Error deleting folder: {str(e)}")
-        await db.rollback()
+        logger.exception(f"Error deleting folder {folder_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete folder. Please try again."
+            detail=f"Failed to delete folder: {str(e)}"
         )
-
-# ---------------------------
-# Bulk operations
-# ---------------------------
-
 
 
 @router.post("/bulk/move")
 async def bulk_move_items(
-    payload: BulkMoveRequest,
+    move_request: BulkMoveRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Move many items to a different folder in one transaction.
-
-    Accepts a JSON body:
-    {
-      "items": ["item-uuid-1", "item-uuid-2"],
-      "target_folder": "folder-uuid"
-    }
-    """
-
-    # Validate destination folder exists
-    tgt = await db.execute(
-        select(ArchiveFolder).where(
-            and_(
-                ArchiveFolder.uuid == payload.target_folder,
-                ArchiveFolder.created_by == current_user.uuid
-            )
-        )
-    )
-    target_folder_obj = tgt.scalar_one_or_none()
-    if not target_folder_obj:
-        raise HTTPException(status_code=404, detail="Target folder not found")
-
-    # Fetch all items to move - ensure they belong to user
-    result = await db.execute(
-        select(ArchiveItem).where(
-            and_(ArchiveItem.uuid.in_(payload.items), ArchiveItem.created_by == current_user.uuid)
-        )
-    )
-    items_to_move = result.scalars().all()
-
-    if len(items_to_move) != len(payload.items):
-        missing = set(payload.items) - {it.uuid for it in items_to_move}
-        raise HTTPException(status_code=404, detail={"message": "Some items not found", "missing": list(missing)})
-
-    # Track affected folders for derived column updates
-    affected_folders = set()
-
-    # Update folder_uuid for each item
-    for item in items_to_move:
-        affected_folders.add(item.folder_uuid)  # Source folder
-        item.folder_uuid = payload.target_folder
-
-    affected_folders.add(payload.target_folder)  # Target folder
-
-    await db.commit()
-
-    # Update derived columns for all affected folders
-    for folder_uuid in affected_folders:
-        await _update_folder_derived_columns(db, folder_uuid, current_user.uuid)
-
-    return {"moved": len(items_to_move), "target_folder": payload.target_folder}
-
-# Item Management Endpoints
-
-@router.post("/folders/{folder_uuid}/items", response_model=ItemResponse)
-@limiter.limit("10/minute")  # Rate limit file uploads to 10 per minute
-async def upload_item(
-    folder_uuid: str,
-    request: Request,  # Required for rate limiting - moved before optional params
-    file: UploadFile = File(...),
-    name: Optional[str] = Form(None),
-    description: Optional[str] = Form(None),
-    tags: Optional[str] = Form(None),  # JSON string of tag list
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Upload a new item to a folder with enhanced security and validation"""
-    
+    """Move multiple items to new folder"""
     try:
-        # Validate folder UUID format
-        folder_uuid = validate_uuid_format(folder_uuid)
-        
-        # Verify folder exists (simplified for single user)
-        result = await db.execute(
-            select(ArchiveFolder).where(
-                and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.created_by == current_user.uuid)
-            )
+        result = await archive_folder_service.bulk_move_items(
+            db, current_user.uuid, move_request
         )
-        folder = result.scalar_one_or_none()
-        if not folder:
-            raise HTTPException(status_code=404, detail="Folder not found")
-        
-        # Validate file is provided
-        if not file or not file.filename:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No file provided"
-            )
-        
-        # Read file content and validate size first
-        file_content = await file.read()
-        file_size = len(file_content)
-        
-        # Validate file size using security function
-        validate_file_size(file_size, MAX_FILE_SIZE)
-        
-        # Reset file pointer for further processing
-        await file.seek(0)
-        
-        # Detect MIME type from content (more secure than trusting filename)
-        # mime_type = magic.from_buffer(file_content[:2048], mime=True)
-        # Temporarily use file extension-based detection due to magic segfault
-        import mimetypes
-        mime_type, _ = mimetypes.guess_type(file.filename)
-        if not mime_type:
-            mime_type = "application/octet-stream"
-        
-        # Validate MIME type
-        if mime_type not in VALID_MIME_TYPES:
-            raise HTTPException(
-                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail=f"Unsupported file type: {mime_type}. Supported types: {', '.join(VALID_MIME_TYPES.values())}"
-            )
-        
-        # Sanitize and validate inputs
-        original_filename = sanitize_filename(file.filename)
-        item_name = sanitize_filename(name) if name else Path(original_filename).stem
-        item_description = sanitize_description(description) if description else None
-        
-        # Check for duplicate file name in same folder
-        duplicate_check = await db.execute(
-            select(ArchiveItem).where(
-                and_(
-                    ArchiveItem.folder_uuid == folder_uuid,
-                    func.lower(ArchiveItem.name) == func.lower(item_name),
-                    ArchiveItem.created_by == current_user.uuid
-                    # Archive items don't need archived filtering - they're all active in archive
-                )
-            )
-        )
-        existing_file = duplicate_check.scalar_one_or_none()
-        
-        if existing_file:
-            raise HTTPException(
-                status_code=409,
-                detail=f"File '{item_name}' already exists in this folder. Please rename the file or choose a different folder."
-            )
-        
-        # Parse and sanitize tags
-        tag_list = []
-        if tags:
-            try:
-                parsed_tags = json.loads(tags)
-                if isinstance(parsed_tags, list):
-                    tag_list = sanitize_tags(parsed_tags)
-            except json.JSONDecodeError:
-                # If JSON parsing fails, treat as single tag
-                tag_list = sanitize_tags([tags])
-        
-        # Generate safe filename for storage
-        file_extension = VALID_MIME_TYPES[mime_type]
-        stored_filename = f"{uuid_lib.uuid4()}{file_extension}"
-        
-        # Create storage directory using UUID-based path hierarchy
-        filesystem_path = await get_filesystem_path(folder_uuid, db, current_user.uuid)
-        storage_dir = Path(get_file_storage_dir()) / "archive" / filesystem_path.strip("/")
-        storage_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save file to TEMPORARY location first
-        temp_file_path = storage_dir / f"temp_{stored_filename}"
-        final_file_path = storage_dir / stored_filename
-        try:
-            async with aiofiles.open(temp_file_path, 'wb') as f:
-                await f.write(file_content)
-        except Exception as e:
-            logger.error(f"ERROR: Failed to save file: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to save file to storage"
-            )
-        
-        # AI analysis for smart tagging (with error handling)
-        ai_tags = []
-        # TODO: Re-enable AI analysis when available
-        # if is_ai_enabled() and extracted_text:
-        #     try:
-        #         analysis = await analyze_content(extracted_text, "archive")
-        #         ai_tags = analysis.get("tags", [])
-        #         # Sanitize AI-generated tags
-        #         ai_tags = sanitize_tags(ai_tags)
-        #     except Exception as e:
-        #         logger.warning(f"WARNING: AI analysis failed: {str(e)}")
-        #         # Continue without AI tags
-        
-        # Combine tags (user tags take precedence)
-        all_tags = list(set(tag_list + ai_tags))
-        
-        # Create item using shared helper
-        item = await _create_archive_item(
-            db=db,
-            file_path=final_file_path,  # Use final path for DB record
-            folder_uuid=folder_uuid,
-            original_filename=original_filename,
-            stored_filename=stored_filename,
-            mime_type=mime_type,
-            file_size=file_size,
-            created_by=current_user.uuid,
-            name=item_name,
-            description=item_description,
-            tags=all_tags
-        )
-        
-        # CRITICAL FIX: Move file to final location BEFORE DB commit
-        try:
-            # Ensure destination directory exists
-            final_file_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Perform atomic move operation
-            temp_file_path.rename(final_file_path)
-            
-            # Verify file exists and is writable
-            if not final_file_path.exists():
-                raise Exception("File move completed but destination file does not exist")
-            
-            logger.info(f"SUCCESS: File moved to final location: {final_file_path}")
-            
-        except Exception as move_error:
-            logger.error(f"ERROR: Failed to move file to final location: {move_error}")
-            # Clean up temp file
-            try:
-                if temp_file_path.exists():
-                    temp_file_path.unlink()
-            except Exception:
-                pass
-            # Rollback database transaction
-            await db.rollback()
-            raise HTTPException(status_code=500, detail="Failed to finalize file storage")
-        
-        # Only commit DB after successful file move
-        await db.commit()
-        await db.refresh(item)
-
-        # Index in search and persist
-        try:
-            await search_service.index_item(db, item, 'archive_item')
-            await db.commit()
-        except Exception:
-            # Best-effort: don't fail the request if indexing fails
-            logger.exception("Indexing failed for archive_item %s", item.uuid)
-        
-        # (Already indexed above with commit)
-        
-        logger.info(f"SUCCESS: Uploaded file '{original_filename}' to folder '{folder.name}' for user {current_user.username}")
-        
-        return await _get_item_with_relations(db, item.uuid)
-        
+        return result
     except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        # Clean up temp file on HTTP exception
-        try:
-            if 'temp_file_path' in locals() and temp_file_path.exists():
-                temp_file_path.unlink()
-        except Exception:
-            pass
         raise
     except Exception as e:
-        logger.error(f"ERROR: Error uploading file: {str(e)}")
-        await db.rollback()
-        # Clean up temp file on DB rollback
-        try:
-            if 'temp_file_path' in locals() and temp_file_path.exists():
-                temp_file_path.unlink()
-        except Exception:
-            pass
-        
-        
+        logger.exception(f"Error bulk moving items for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to upload file. Please try again."
+            detail=f"Failed to move items: {str(e)}"
         )
+
+
+# Item endpoints
+@router.post("/folders/{folder_uuid}/items", response_model=ItemResponse)
+async def create_item_in_folder(
+    folder_uuid: str,
+    name: str = Form(...),
+    description: Optional[str] = Form(None),
+    files: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create items in folder by uploading files"""
+    try:
+        results = await archive_item_service.upload_files(
+            db, current_user.uuid, folder_uuid, files
+        )
+        
+        # Return first successful upload
+        for result in results:
+            if result["success"]:
+                return await archive_item_service.get_item(db, current_user.uuid, result["item_uuid"])
+        
+        # If no successful uploads
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No files were uploaded successfully"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error creating items in folder {folder_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create items: {str(e)}"
+        )
+
 
 @router.get("/folders/{folder_uuid}/items", response_model=List[ItemSummary])
 async def list_folder_items(
     folder_uuid: str,
-    archived: Optional[bool] = Query(False),
-    search: Optional[str] = Query(None),
-    mime_type: Optional[str] = Query(None),
-    tag: Optional[str] = Query(None),
-    limit: int = Query(50, le=100),
-    offset: int = Query(0, ge=0),
+    search: Optional[str] = Query(None, description="Search term for item names"),
+    mime_type: Optional[str] = Query(None, description="Filter by MIME type"),
+    is_favorite: Optional[bool] = Query(None, description="Filter by favorite status"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of items to return"),
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List items in folder"""
-    
-    # Verify folder access
-    folder_result = await db.execute(
-        select(ArchiveFolder).where(
-            and_(
-                ArchiveFolder.uuid == folder_uuid,
-                ArchiveFolder.created_by == current_user.uuid
-            )
+    """List items in folder with filters and pagination"""
+    try:
+        items = await archive_item_service.list_folder_items(
+            db, current_user.uuid, folder_uuid, search, mime_type, is_favorite, limit, offset
         )
-    )
-    if not folder_result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="Folder not found")
-    
-    # Build query
-    query = select(ArchiveItem).where(
-        and_(
-            ArchiveItem.folder_uuid == folder_uuid,
-            ArchiveItem.created_by == current_user.uuid
+        return [ItemSummary.from_orm(item) for item in items]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error listing items in folder {folder_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list items: {str(e)}"
         )
-    )
-    
-    # Filters
-    # Archive items don't need archived filtering - they're all active in archive
-    
-    if search:
-        search_term = f"%{search}%"
-        query = query.where(
-            or_(
-                ArchiveItem.name.ilike(search_term),
-                ArchiveItem.original_filename.ilike(search_term)
-            )
-        )
-    
-    if mime_type:
-        if mime_type.endswith('/'):
-            query = query.where(ArchiveItem.mime_type.like(f"{mime_type}%"))
-        else:
-            query = query.where(ArchiveItem.mime_type == mime_type)
-    
-    if tag:
-        # Join with correct association table for archive items and enforce user scoping
-        query = (
-            query.join(archive_item_tags, archive_item_tags.c.item_uuid == ArchiveItem.uuid)
-                 .join(Tag, and_(Tag.uuid == archive_item_tags.c.tag_uuid, Tag.created_by == current_user.uuid))
-                 .where(Tag.name == tag)
-        )
-    
-    # Pagination and ordering
-    query = query.order_by(desc(ArchiveItem.updated_at)).offset(offset).limit(limit)
-    
-    result = await db.execute(query)
-    items = result.scalars().all()
-    
-    # Convert to summaries
-    summaries = []
-    for item in items:
-        summary = await _get_item_summary(db, item.uuid)
-        summaries.append(summary)
-    
-    return summaries
+
 
 @router.get("/items/{item_uuid}", response_model=ItemResponse)
 async def get_item(
@@ -1284,100 +270,40 @@ async def get_item(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get item details (simplified for single user)"""
-    item_uuid = validate_uuid_format(item_uuid)
-    res = await db.execute(
-        select(ArchiveItem.uuid).where(
-            and_(ArchiveItem.uuid == item_uuid, ArchiveItem.created_by == current_user.uuid)
+    """Get single item"""
+    try:
+        return await archive_item_service.get_item(db, current_user.uuid, item_uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting item {item_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get item: {str(e)}"
         )
-    )
-    if not res.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="Item not found")
-    return await _get_item_with_relations(db, item_uuid)
+
 
 @router.put("/items/{item_uuid}", response_model=ItemResponse)
 async def update_item(
     item_uuid: str,
-    item_data: ItemUpdate,
+    update_data: ItemUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Update item (simplified for single user)"""
-    
+    """Update item"""
     try:
-        item_uuid = validate_uuid_format(item_uuid)
-        
-        # Get item with ownership check
-        result = await db.execute(
-            select(ArchiveItem).where(
-                and_(
-                    ArchiveItem.uuid == item_uuid,
-                    ArchiveItem.created_by == current_user.uuid
-                )
-            )
+        return await archive_item_service.update_item(
+            db, current_user.uuid, item_uuid, update_data
         )
-        item = result.scalar_one_or_none()
-        
-        if not item:
-            raise HTTPException(status_code=404, detail="Item not found")
-        
-        # Track folder changes for derived column updates
-        old_folder_uuid = item.folder_uuid
-        new_folder_uuid = item_data.folder_uuid if item_data.folder_uuid is not None else old_folder_uuid
-
-        # Validate folder if changing
-        if item_data.folder_uuid and item_data.folder_uuid != item.folder_uuid:
-            folder_result = await db.execute(
-                select(ArchiveFolder).where(
-                    and_(
-                        ArchiveFolder.uuid == item_data.folder_uuid,
-                        ArchiveFolder.created_by == current_user.uuid
-                    )
-                )
-            )
-            if not folder_result.scalar_one_or_none():
-                raise HTTPException(status_code=404, detail="Target folder not found")
-
-        # Update item fields
-        if item_data.name is not None:
-            item.name = item_data.name
-        if item_data.description is not None:
-            item.description = item_data.description
-        if item_data.folder_uuid is not None:
-            item.folder_uuid = item_data.folder_uuid
-        if item_data.is_favorite is not None:
-            item.is_favorite = item_data.is_favorite
-
-        # Handle tags
-        if item_data.tags is not None:
-            await tag_service.handle_tags(db, item, item_data.tags, current_user.uuid, ModuleType.ARCHIVE_ITEMS, archive_item_tags)
-
-        await db.commit()
-
-        # Update derived columns for affected folders if folder changed
-        if old_folder_uuid != new_folder_uuid:
-            await _update_folder_derived_columns(db, old_folder_uuid, current_user.uuid)
-            await _update_folder_derived_columns(db, new_folder_uuid, current_user.uuid)
-        await db.refresh(item)
-        
-        # Index in search with correct type and persist
-        try:
-            await search_service.index_item(db, item, 'archive_item')
-            await db.commit()
-        except Exception:
-            logger.exception("Indexing failed for archive_item %s", item.uuid)
-        
-        return await _get_item_with_relations(db, item.uuid)
-        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"ERROR: Error updating item: {str(e)}")
-        await db.rollback()
+        logger.exception(f"Error updating item {item_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update item. Please try again."
+            detail=f"Failed to update item: {str(e)}"
         )
+
 
 @router.delete("/items/{item_uuid}")
 async def delete_item(
@@ -1385,995 +311,108 @@ async def delete_item(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete item (simplified for single user)"""
-    
+    """Delete item"""
     try:
-        item_uuid = validate_uuid_format(item_uuid)
-        
-        # Get item with ownership check
-        result = await db.execute(
-            select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(
-                and_(
-                    ArchiveItem.uuid == item_uuid,
-                    ArchiveItem.created_by == current_user.uuid
-                )
-            )
-        )
-        item = result.scalar_one_or_none()
-        
-        if not item:
-            raise HTTPException(status_code=404, detail="Item not found or access denied")
-        
-        # Store file paths and folder UUID before deleting the item
-        file_path_to_delete = item.file_path
-        thumb_path_to_delete = getattr(item, "thumbnail_path", None)
-        folder_uuid = item.folder_uuid
-
-        # Decrement tag usage counts BEFORE deleting item
-        await tag_service.decrement_tags_on_delete(db, item)
-
-        # Remove from search index BEFORE deleting item
-        await search_service.remove_item(db, item_uuid)
-
-        # Delete item from database
-        await db.delete(item)
-        await db.commit()
-
-        # Update derived columns for parent folder AFTER successful delete
-        if folder_uuid:
-            await _update_folder_derived_columns(db, folder_uuid, current_user.uuid)
-        
-        # Delete file from storage AFTER successful DB commit
-        if file_path_to_delete and Path(file_path_to_delete).exists():
-            try:
-                Path(file_path_to_delete).unlink()
-            except Exception as e:
-                logger.warning(f"WARNING: Failed to delete file: {str(e)}")
-        
-        if thumb_path_to_delete and Path(thumb_path_to_delete).exists():
-            try:
-                Path(thumb_path_to_delete).unlink()
-            except Exception as e:
-                logger.warning(f"WARNING: Failed to delete thumbnail: {str(e)}")
-
-        logger.info(f"DELETED: Deleted item '{item.name}' for user {current_user.username}")
-        
+        await archive_item_service.delete_item(db, current_user.uuid, item_uuid)
         return {"message": "Item deleted successfully"}
-        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"ERROR: Error deleting item: {str(e)}")
-        await db.rollback()
+        logger.exception(f"Error deleting item {item_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete item. Please try again."
+            detail=f"Failed to delete item: {str(e)}"
         )
 
 
-# Search Endpoints
-
-@router.get("/search", response_model=List[ItemResponse])
+@router.get("/search", response_model=List[ItemSummary])
 async def search_items(
-    query: str,
-    folder_uuid: Optional[str] = None,
-    mime_type: Optional[str] = None,
-    tag: Optional[str] = None,
-    include_archived: bool = False,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """Search for items with FTS5 (name, filename, description, metadata, tags) and filter by tag/mime type."""
-    from sqlalchemy import text
-    try:
-        # Use unified FTS5 search
-        search_query = sanitize_search_query(query)
-        fts_results = await search_service.search(
-            db, current_user.uuid, search_query,
-            item_types=["archive_item"], limit=page*page_size
-        )
-        # Paginate locally since search doesn't support offset
-        start = (page - 1) * page_size
-        fts_results = fts_results[start:start + page_size]
-        if not fts_results:
-            return []
-        # Extract UUIDs from FTS results
-        uuid_list = [r["uuid"] for r in fts_results if r["type"] == "archive_item"]
-        if not uuid_list:
-            return []
-        # Fetch full rows, preserving FTS5 order
-        item_query = (
-            select(ArchiveItem)
-            .options(selectinload(ArchiveItem.tag_objs))
-            .where(and_(ArchiveItem.uuid.in_(uuid_list), ArchiveItem.created_by == current_user.uuid))
-        )
-        # Archive items don't need archived filtering - they're all active in archive
-        if folder_uuid:
-            item_query = item_query.where(ArchiveItem.folder_uuid == folder_uuid)
-        # Filter by mime_type after FTS5
-        if mime_type:
-            if mime_type.endswith('/'):
-                item_query = item_query.where(ArchiveItem.mime_type.like(f"{mime_type}%"))
-            else:
-                item_query = item_query.where(ArchiveItem.mime_type == mime_type)
-        item_result = await db.execute(item_query)
-        items = item_result.scalars().all()
-        # Map uuid to item for FTS5 order
-        item_map = {item.uuid: item for item in items}
-        item_responses = []
-        for uuid in uuid_list:
-            if uuid in item_map:
-                item_response = await _get_item_with_relations(db, uuid)
-                item_responses.append(item_response)
-        logger.info(f"SEARCH: FTS5 Search completed: '{query}' - {len(item_responses)} results for user {current_user.username}")
-        return item_responses
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"ERROR: FTS5 search error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Search failed. Please try again."
-        )
-
-# Helper functions
-
-async def _get_folder_with_stats(db: AsyncSession, folder_uuid: str, created_by: str) -> FolderResponse:
-    """Get folder with statistics (simplified for single user)"""
-    
-    # Get folder
-    result = await db.execute(
-        select(ArchiveFolder).where(
-            and_(ArchiveFolder.uuid == folder_uuid, ArchiveFolder.created_by == created_by)
-        )
-    )
-    folder = result.scalar_one_or_none()
-    
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
-    
-    # Get item count
-    item_count_result = await db.execute(
-        select(func.count(ArchiveItem.uuid)).where(
-            and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == created_by)
-            # Archive items don't use is_archived flag - all are active by being in archive
-        )
-    )
-    item_count = item_count_result.scalar() or 0
-    
-    # Get subfolder count
-    subfolder_count_result = await db.execute(
-        select(func.count(ArchiveFolder.uuid)).where(
-            and_(ArchiveFolder.parent_uuid == folder_uuid, ArchiveFolder.created_by == created_by)
-            # Archive folders don't use is_archived flag - all are active by being in archive
-        )
-    )
-    subfolder_count = subfolder_count_result.scalar() or 0
-    
-    # Get total size
-    size_result = await db.execute(
-        select(func.sum(ArchiveItem.file_size)).where(
-            and_(ArchiveItem.folder_uuid == folder_uuid, ArchiveItem.created_by == created_by)
-            # Archive items don't use is_archived flag - all are active by being in archive
-        )
-    )
-    total_size = size_result.scalar() or 0
-    
-    # Generate both path types dynamically
-    display_path = await get_display_path(folder.uuid, db, created_by)
-    filesystem_path = await get_filesystem_path(folder.uuid, db, created_by)
-    
-    return FolderResponse(
-        uuid=folder.uuid,
-        name=folder.name,
-        description=folder.description,
-        parent_uuid=folder.parent_uuid,
-        path=display_path,  # Use display path for consistency
-        display_path=display_path,  # Human-readable path
-        filesystem_path=filesystem_path,  # UUID-based path for debugging
-        depth=folder.depth,
-        created_at=folder.created_at,
-        updated_at=folder.updated_at,
-        item_count=item_count,
-        subfolder_count=subfolder_count,
-        total_size=total_size
-    )
-
-
-async def _get_item_with_relations(db: AsyncSession, item_uuid: str) -> ItemResponse:
-    """Get item with all relationships (simplified for single user)"""
-    
-    # Get item with tags
-    result = await db.execute(
-        select(ArchiveItem)
-        .options(selectinload(ArchiveItem.tag_objs))
-        .where(ArchiveItem.uuid == item_uuid)
-    )
-    item = result.scalar_one_or_none()
-    
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
-    
-    # Parse metadata
-    metadata = {}
-    if item.metadata_json:
-        try:
-            metadata = json.loads(item.metadata_json)
-        except json.JSONDecodeError:
-            logger.warning(f"Invalid JSON metadata for item {item_uuid}")
-    
-    # Get tag names
-    tag_names = [tag.name for tag in item.tag_objs]
-    
-    return ItemResponse(
-        uuid=item.uuid,
-        name=item.name,
-        description=item.description,
-        folder_uuid=item.folder_uuid,
-        original_filename=item.original_filename,
-        stored_filename=item.stored_filename,
-        file_path=item.file_path,
-        mime_type=item.mime_type,
-        file_size=item.file_size,
-        metadata=metadata,
-        thumbnail_path=item.thumbnail_path,
-        is_favorite=item.is_favorite,
-        created_at=item.created_at,
-        updated_at=item.updated_at,
-        tags=tag_names
-    )
-
-
-async def _get_item_summary(db: AsyncSession, item_uuid: str) -> ItemSummary:
-    """Get item summary (simplified for single user)"""
-    
-    # Get item with tags
-    result = await db.execute(
-        select(ArchiveItem)
-        .options(selectinload(ArchiveItem.tag_objs))
-        .where(ArchiveItem.uuid == item_uuid)
-    )
-    item = result.scalar_one_or_none()
-    
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
-    
-    # Get tag names
-    tag_names = [tag.name for tag in item.tag_objs]
-    
-    # Create preview (placeholder for now)
-    preview = ""
-    
-    return ItemSummary(
-        uuid=item.uuid,
-        name=item.name,
-        folder_uuid=item.folder_uuid,
-        original_filename=item.original_filename,
-        mime_type=item.mime_type,
-        file_size=item.file_size,
-        is_favorite=item.is_favorite,
-        created_at=item.created_at,
-        updated_at=item.updated_at,
-        tags=tag_names,
-        preview=preview
-    )
-
-    # Using centralized tag_service for tag handling
-
-# --- START: COPIED FROM documents.py router ---
-
-# Text extraction functionality removed as requested
-
-async def _extract_metadata(file_path: Path, mime_type: str, original_name: str) -> Dict[str, Any]:
-    """Extract metadata from file with multi-step lightweight fallback"""
-    # Basic metadata
-    metadata = {
-        "original_name": original_name,
-        "mime_type": mime_type,
-        "size": file_path.stat().st_size
-    }
-
-    # IMAGE METADATA - Multi-step fallback
-    if mime_type.startswith('image/'):
-        # Step 1: Try imagesize (1MB - ultra lightweight)
-        if imagesize:
-            try:
-                width, height = imagesize.get(file_path)
-                if width and height:
-                    metadata.update({
-                        "width": width,
-                        "height": height,
-                        "extraction_method": "imagesize (lightweight)"
-                    })
-            except Exception as e:
-                logger.debug(f"imagesize extraction failed: {e}")
-
-        # Step 2: Try filetype (2MB - format detection only)
-        if filetype and "format" not in metadata:
-            try:
-                kind = filetype.guess(file_path)
-                if kind and kind.extension:
-                    metadata.update({
-                        "format": kind.extension.replace('.', '').upper(),
-                        "extraction_method": "filetype (format detection)"
-                    })
-            except Exception as e:
-                logger.debug(f"filetype extraction failed: {e}")
-
-        # Step 3: Try Pillow (100MB - heavy fallback)
-        if Image and ("width" not in metadata or "height" not in metadata):
-            try:
-                with Image.open(file_path) as img:
-                    metadata.update({
-                        "width": img.width,
-                        "height": img.height,
-                        "format": img.format,
-                        "mode": img.mode,
-                        "extraction_method": "PIL (heavy fallback)"
-                    })
-            except ImportError:
-                pass  # PIL not installed
-            except Exception as e:
-                logger.debug(f"PIL extraction failed: {e}")
-
-    # PDF METADATA - Multi-step fallback
-    elif mime_type == 'application/pdf':
-        # Step 1: Try pypdf (5MB - lightweight)
-        if pypdf:
-            try:
-                with open(file_path, 'rb') as f:
-                    reader = pypdf.PdfReader(f)
-                    metadata.update({
-                        "page_count": len(reader.pages),
-                        "pdf_metadata": dict(reader.metadata or {}),
-                        "extraction_method": "pypdf (lightweight)"
-                    })
-            except Exception as e:
-                logger.debug(f"pypdf extraction failed: {e}")
-
-        # Step 2: Try PyMuPDF (50MB - heavy fallback)
-        if fitz and "page_count" not in metadata:
-            try:
-                with fitz.open(file_path) as doc:
-                    metadata.update({
-                        "page_count": doc.page_count,
-                        "pdf_metadata": doc.metadata,
-                        "extraction_method": "PyMuPDF (heavy fallback)"
-                    })
-            except Exception as e:
-                logger.debug(f"PyMuPDF extraction failed: {e}")
-
-    # DOCUMENT METADATA - Multi-step fallback
-    elif mime_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']:
-        # Step 1: Try TinyTag (1MB - ultra lightweight)
-        if TinyTag:
-            try:
-                tag = TinyTag.get(file_path)
-                if tag:
-                    metadata.update({
-                        "title": tag.title,
-                        "author": tag.artist,  # TinyTag uses artist for author
-                        "duration": tag.duration,
-                        "extraction_method": "TinyTag (lightweight)"
-                    })
-            except Exception as e:
-                logger.debug(f"TinyTag extraction failed: {e}")
-
-        # Step 2: Try python-docx (30MB - heavy fallback)
-        if DocxDocument and "title" not in metadata:
-            try:
-                doc = DocxDocument(file_path)
-                core_props = doc.core_properties
-                metadata.update({
-                    "title": core_props.title or "",
-                    "author": core_props.author or "",
-                    "created": str(core_props.created) if core_props.created else "",
-                    "modified": str(core_props.modified) if core_props.modified else "",
-                    "extraction_method": "python-docx (heavy fallback)"
-                })
-            except Exception as e:
-                logger.debug(f"python-docx extraction failed: {e}")
-
-    # AUDIO METADATA - Use TinyTag if available
-    elif mime_type.startswith('audio/'):
-        if TinyTag:
-            try:
-                tag = TinyTag.get(file_path)
-                if tag:
-                    metadata.update({
-                        "title": tag.title,
-                        "artist": tag.artist,
-                        "album": tag.album,
-                        "duration": tag.duration,
-                        "year": tag.year,
-                        "extraction_method": "TinyTag (lightweight)"
-                    })
-            except Exception as e:
-                logger.debug(f"TinyTag audio extraction failed: {e}")
-
-    return metadata
-
-# --- END: COPIED FROM documents.py router ---
-
-
-async def _update_folder_derived_columns(db: AsyncSession, folder_uuid: str, created_by: str):
-    """
-    Update derived columns (item_count and total_size) for a folder.
-
-    This function should be called whenever items are added, removed, or moved
-    to maintain consistency of derived data.
-    """
-    try:
-        # Count items in the folder
-        item_count_result = await db.execute(
-            select(func.count(ArchiveItem.uuid))
-            .where(and_(
-                ArchiveItem.folder_uuid == folder_uuid,
-                ArchiveItem.created_by == created_by,
-                ArchiveItem.is_deleted == False
-            ))
-        )
-        item_count = item_count_result.scalar() or 0
-
-        # Sum file sizes in the folder
-        total_size_result = await db.execute(
-            select(func.sum(ArchiveItem.file_size))
-            .where(and_(
-                ArchiveItem.folder_uuid == folder_uuid,
-                ArchiveItem.created_by == created_by,
-                ArchiveItem.is_deleted == False
-            ))
-        )
-        total_size = total_size_result.scalar() or 0
-
-        # Update the folder
-        await db.execute(
-            update(ArchiveFolder)
-            .where(and_(
-                ArchiveFolder.uuid == folder_uuid,
-                ArchiveFolder.created_by == created_by
-            ))
-            .values(
-                item_count=item_count,
-                total_size=total_size,
-                updated_at=nepal_now()
-            )
-        )
-
-        logger.debug(f"Updated derived columns for folder {folder_uuid}: {item_count} items, {total_size} bytes")
-
-    except Exception as e:
-        logger.error(f"Failed to update derived columns for folder {folder_uuid}: {str(e)}")
-        # Don't raise - this is a maintenance operation that shouldn't break the main flow
-
-
-async def _create_archive_item(
-    db: AsyncSession,
-    file_path: Path,
-    folder_uuid: str,
-    original_filename: str,
-    stored_filename: str,
-    mime_type: str,
-    file_size: int,
-    created_by: str,
-    name: Optional[str] = None,
-    description: Optional[str] = None,
-    tags: Optional[List[str]] = None,
-    additional_metadata: Optional[Dict[str, Any]] = None
-) -> ArchiveItem:
-    """
-    Shared helper function to create archive items with consistent logic
-    
-    This centralizes the file processing, text extraction, metadata generation,
-    and tag handling to ensure consistency across all upload endpoints.
-    """
-    
-    try:
-        # Generate metadata
-        metadata = {}
-        try:
-            metadata = await _extract_metadata(file_path, mime_type, original_filename)
-            # Add any additional metadata
-            if additional_metadata:
-                metadata.update(additional_metadata)
-            metadata = sanitize_json_metadata(metadata)
-        except Exception as e:
-            logger.warning(f"WARNING: Metadata extraction failed: {str(e)}")
-            metadata = additional_metadata or {}
-        
-        # Create item name
-        item_name = sanitize_filename(name) if name else Path(original_filename).stem
-        item_description = sanitize_description(description) if description else None
-        
-        # Create archive item
-        item = ArchiveItem(
-            name=item_name,
-            description=item_description,
-            folder_uuid=folder_uuid,
-            original_filename=original_filename,
-            stored_filename=stored_filename,
-            file_path=str(file_path),
-            mime_type=mime_type,
-            file_size=file_size,
-            metadata_json=json.dumps(metadata),
-            created_by=created_by
-        )
-        
-        db.add(item)
-        await db.flush()  # Get the UUID for tag handling
-        
-        # Handle tags if provided
-        if tags:
-            try:
-                from app.models.tag_associations import archive_item_tags
-                await tag_service.handle_tags(db, item, tags, created_by, ModuleType.ARCHIVE_ITEMS, archive_item_tags)
-            except Exception as e:
-                logger.warning(f"WARNING: Tag handling failed: {str(e)}")
-
-        # Update derived columns for parent folder
-        await _update_folder_derived_columns(db, folder_uuid, created_by)
-
-        return item
-        
-    except Exception as e:
-        logger.error(f"ERROR: Error creating archive item: {str(e)}")
-        raise
-
-@router.post("/upload")
-async def upload_files(
-    files: List[UploadFile] = File(...),
-    folder_uuid: Optional[str] = Form(None),
-    description: Optional[str] = Form(None),
-    tags: Optional[str] = Form(None),
+    q: str = Query(..., description="Search query"),
+    folder_uuid: Optional[str] = Query(None, description="Limit search to specific folder"),
+    mime_type: Optional[str] = Query(None, description="Filter by MIME type"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of results"),
+    offset: int = Query(0, ge=0, description="Number of results to skip"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Upload multiple files to the archive"""
-    
-    logger.info(f"UPLOAD: Starting upload of {len(files)} files to folder {folder_uuid}")
-    
+    """Search items across archive"""
     try:
-        # Verify folder exists if specified
-        if folder_uuid:
-            folder_query = select(ArchiveFolder).where(
-                and_(
-                    ArchiveFolder.uuid == folder_uuid,
-                    ArchiveFolder.created_by == current_user.uuid
-                )
-            )
-            folder_result = await db.execute(folder_query)
-            folder = folder_result.scalar_one_or_none()
-            if not folder:
-                raise HTTPException(status_code=404, detail="Folder not found")
-        
-        # Parse tags for later use with TagService
-        tag_names = []
-        if tags:
-            tag_names = [tag.strip() for tag in tags.split(",") if tag.strip()]
-        
-        uploaded_files = []
-        temp_file_paths = []  # Track temp paths for cleanup
-        
-        for file in files:
-            try:
-                # Validate file input
-                if not file or not file.filename:
-                    logger.warning(f"WARNING: Skipping invalid file in bulk upload")
-                    continue
-                    
-                # Validate file size
-                file_content = await file.read()
-                file_size = len(file_content)
-                
-                try:
-                    validate_file_size(file_size, MAX_FILE_SIZE)
-                except Exception as e:
-                    logger.warning(f"WARNING: Skipping file '{file.filename}' due to size validation: {str(e)}")
-                    continue
-                
-                # Generate unique filename
-                file_uuid = str(uuid_lib.uuid4())
-                file_extension = Path(file.filename).suffix
-                safe_filename = f"{file_uuid}{file_extension}"
-                
-                # Create storage directory using UUID-based path hierarchy
-                if folder_uuid:
-                    filesystem_path = await get_filesystem_path(folder_uuid, db, current_user.uuid)
-                    storage_dir = Path(get_file_storage_dir()) / "archive" / filesystem_path.strip("/")
-                else:
-                    # If no folder specified, use a default "unorganized" folder
-                    storage_dir = Path(get_file_storage_dir()) / "archive" / "unorganized"
-                storage_dir.mkdir(parents=True, exist_ok=True)
-                
-                temp_file_path = storage_dir / f"temp_{safe_filename}"
-                final_file_path = storage_dir / safe_filename
-                
-                # Detect file type using our enhanced service
-                try:
-                    detection_result = await file_detector.detect_file_type(
-                        file_path=None,  # Use file_content instead of client path
-                        file_content=file_content
-                    )
-                except Exception as e:
-                    logger.warning(f"WARNING: File detection failed for '{file.filename}': {str(e)}")
-                    # Use fallback detection
-                    import mimetypes
-                    mime_type, _ = mimetypes.guess_type(file.filename)
-                    detection_result = {
-                        "mime_type": mime_type or "application/octet-stream",
-                        "confidence": "low",
-                        "detection_method": "fallback"
-                    }
-                
-                # Validate MIME type
-                if detection_result["mime_type"] not in VALID_MIME_TYPES:
-                    logger.warning(f"WARNING: Skipping file '{file.filename}' due to unsupported MIME type: {detection_result['mime_type']}")
-                    continue
-                
-                # Save file to TEMPORARY location with error handling
-                try:
-                    async with aiofiles.open(temp_file_path, 'wb') as f:
-                        await f.write(file_content)
-                    # Track temp path for later cleanup
-                    temp_file_paths.append((temp_file_path, final_file_path))
-                except Exception as e:
-                    logger.error(f"ERROR: Failed to save file '{file.filename}': {str(e)}")
-                    continue
-                
-                # Create archive item using shared helper
-                additional_metadata = {
-                    "upload_info": {
-                        "original_name": file.filename,
-                        "upload_date": datetime.now(NEPAL_TZ).isoformat(),
-                        "file_detection": detection_result
-                    }
-                }
-                
-                # Extract tag names for the shared helper
-                # Use the parsed tag_names directly
-                
-                archive_item = await _create_archive_item(
-                    db=db,
-                    file_path=temp_file_path,  # Use temp path initially
-                    folder_uuid=folder_uuid,
-                    original_filename=file.filename,
-                    stored_filename=safe_filename,
-                    mime_type=detection_result["mime_type"],
-                    file_size=len(file_content),
-                    created_by=current_user.uuid,
-                    name=Path(file.filename).stem,
-                    description=description,
-                    tags=tag_names,
-                    additional_metadata=additional_metadata
-                )
-                
-                # Note: archive_item.uuid is set by the shared helper
-                
-                uploaded_files.append({
-                    "uuid": archive_item.uuid,
-                    "name": archive_item.name,
-                    "filename": archive_item.original_filename,
-                    "mime_type": archive_item.mime_type,
-                    "file_size": archive_item.file_size,
-                    "detection_info": detection_result
-                })
-                
-                logger.info(f"SUCCESS: Uploaded file: {file.filename} -> {safe_filename}")
-                
-            except Exception as e:
-                logger.error(f"ERROR: Failed to upload file {file.filename}: {e}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to upload file {file.filename}"
-                )
-        
-        # Move all temp files to final locations BEFORE DB commit
-        for temp_path, final_path in temp_file_paths:
-            try:
-                exists = await asyncio.to_thread(temp_path.exists)
-                if exists:
-                    await asyncio.to_thread(temp_path.rename, final_path)
-                    logger.info(f"SUCCESS: File moved to final location: {final_path}")
-                    # Update DB record to point to final path
-                    try:
-                        await db.execute(
-                            update(ArchiveItem)
-                            .where(ArchiveItem.file_path == str(temp_path))
-                            .values(file_path=str(final_path))
-                        )
-                    except Exception as db_error:
-                        logger.error(f"ERROR: Failed to update database record for file path: {db_error}")
-                        raise Exception(f"Database update failed: {str(db_error)}")
-                else:
-                    logger.warning(f"WARNING: Temp file not found: {temp_path}")
-                    raise Exception(f"Temp file missing: {temp_path}")
-            except Exception as move_error:
-                logger.error(f"ERROR: Failed to move file to final location: {move_error}")
-                # Rollback and cleanup on any file move failure
-                await db.rollback()
-                for tp, fp in temp_file_paths:
-                    try:
-                        if await asyncio.to_thread(tp.exists):
-                            await asyncio.to_thread(tp.unlink)
-                    except Exception:
-                        pass
-                raise HTTPException(status_code=500, detail="Failed to finalize file storage")
-        
-        # Only commit after all files are moved successfully
-        await db.commit()
-
-        # Index created items for search visibility
-        try:
-            if uploaded_files:
-                uuids = [f["uuid"] for f in uploaded_files]
-                res = await db.execute(select(ArchiveItem).where(ArchiveItem.uuid.in_(uuids)))
-                for it in res.scalars():
-                    await search_service.index_item(db, it, 'archive_item')
-                await db.commit()
-        except Exception:
-            logger.exception("Indexing failed for bulk uploaded archive_items")
-
-        logger.info(f"COMPLETED: Successfully uploaded {len(uploaded_files)} files")
-
-        return {
-            "message": f"Successfully uploaded {len(uploaded_files)} files",
-            "files": uploaded_files,
-            "total_files": len(uploaded_files)
-        }
-        
+        return await archive_item_service.search_items(
+            db, current_user.uuid, q, folder_uuid, mime_type, limit, offset
+        )
     except HTTPException:
-        await db.rollback()
-        # Clean up all temp and final files on HTTP exception
-        for temp_path, final_path in temp_file_paths:
-            try:
-                if temp_path.exists():
-                    temp_path.unlink()
-                if final_path.exists():
-                    final_path.unlink()
-            except Exception:
-                pass
         raise
     except Exception as e:
-        await db.rollback()
-        # Clean up all temp and final files on DB rollback
-        for temp_path, final_path in temp_file_paths:
-            try:
-                if temp_path.exists():
-                    temp_path.unlink()
-                if final_path.exists():
-                    final_path.unlink()
-            except Exception:
-                pass
-        logger.error(f"ERROR: Archive upload failed: {e}")
-        raise HTTPException(status_code=500, detail="Upload failed") 
+        logger.exception(f"Error searching items for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to search items: {str(e)}"
+        )
 
+
+# Upload endpoints
+@router.post("/upload")
+async def upload_files(
+    folder_uuid: Optional[str] = Form(None),
+    files: List[UploadFile] = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Upload multiple files"""
+    try:
+        results = await archive_item_service.upload_files(
+            db, current_user.uuid, folder_uuid, files
+        )
+        return {"results": results}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error uploading files for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload files: {str(e)}"
+        )
 
 
 @router.post("/upload/commit", response_model=ItemResponse)
-async def commit_uploaded_file(
-    payload: CommitUploadRequest,
+async def commit_upload(
+    commit_request: CommitUploadRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Finalize a previously chunk-uploaded file: move it to the archive folder and create DB record.
-
-    Uses the file commit consistency service for atomic operations and orphan prevention.
-    """
+    """Commit chunked upload and create archive item"""
     try:
-        # Validate payload
-        if not payload.file_id:
-            raise HTTPException(status_code=400, detail="file_id is required")
-        if not payload.folder_uuid:
-            raise HTTPException(status_code=400, detail="folder_uuid is required")
-        
-        # Commit upload through unified upload service
-        archive_item = await unified_upload_service.commit_upload(
-            db=db,
-            upload_id=payload.file_id,
-            module="archive",
-            created_by=current_user.uuid,
-            metadata={
-                "name": payload.name,
-                "description": payload.description,
-                "folder_uuid": payload.folder_uuid
-            }
+        return await archive_item_service.commit_upload(
+            db, current_user.uuid, commit_request
         )
-
-        # Index in search (DB already committed by service)
-        await search_service.index_item(db, archive_item, 'archive_item')
-
-        logger.info(f"Archive file committed successfully: {archive_item.uuid}")
-        return ItemResponse(
-            uuid=archive_item.uuid,
-            name=archive_item.name,
-            description=archive_item.description,
-            original_filename=archive_item.original_filename,
-            stored_filename=archive_item.stored_filename,
-            file_size=archive_item.file_size,
-            mime_type=archive_item.mime_type,
-            folder_uuid=archive_item.folder_uuid,
-            created_at=archive_item.created_at,
-            updated_at=archive_item.updated_at
-        )
-        
     except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        await db.rollback()
         raise
     except Exception as e:
-        logger.error(f"ERROR: Error committing chunked upload: {str(e)}")
-        await db.rollback()
-        
+        logger.exception(f"Error committing upload {commit_request.upload_id}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to commit chunked upload. Please try again."
-        )
-
-# Test endpoint for FTS integration debugging
-@router.get("/debug/fts-status")
-async def debug_fts_status(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Debug endpoint to check FTS integration status for archive items"""
-    try:
-        # Check if FTS tables exist and have data
-        result = await db.execute(text("""
-            SELECT COUNT(*) as archive_items_count 
-            FROM archive_items 
-            WHERE created_by = :created_by
-        """), {"created_by": current_user.uuid})
-        archive_items_count = result.scalar()
-        
-        # Check FTS table
-        try:
-            fts_result = await db.execute(text("""
-                SELECT COUNT(*) as fts_count 
-                FROM fts_content 
-                WHERE created_by = :created_by AND item_type = 'archive_item'
-            """), {"created_by": current_user.uuid})
-            fts_count = fts_result.scalar()
-        except Exception as e:
-            fts_count = f"Error: {str(e)}"
-        
-        # Test a simple search
-        try:
-            search_result = await search_service.search(db, current_user.uuid, "test", item_types=["archive_item"], limit=5)
-            search_working = True
-            search_results_count = len(search_result)
-        except Exception as e:
-            search_working = False
-            search_results_count = f"Error: {str(e)}"
-
-        return {
-            "archive_items_count": archive_items_count,
-            "fts_items_count": fts_count,
-            "fts_search_working": search_working,
-            "test_search_results": search_results_count,
-            "fts_tables_initialized": "unified_fts5_enabled"
-        }
-        
-    except Exception as e:
-        logger.error(f"ERROR: FTS debug check failed: {str(e)}")
-        return {
-            "error": str(e),
-            "archive_items_count": 0,
-            "fts_items_count": 0,
-            "fts_search_working": False,
-            "test_search_results": 0,
-            "fts_tables_initialized": False
-        }
-
-
-# Additional endpoints for file/folder management
-
-@router.patch("/folders/{folder_uuid}/rename")
-async def rename_folder(
-    folder_uuid: str,
-    request: Request,
-    new_name: str = Form(...),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Rename a folder"""
-    try:
-        # Get the folder
-        result = await db.execute(
-            select(ArchiveFolder).where(
-                and_(
-                    ArchiveFolder.uuid == folder_uuid,
-                    ArchiveFolder.created_by == current_user.uuid
-                )
-            )
-        )
-        folder = result.scalar_one_or_none()
-        
-        if not folder:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Folder not found"
-            )
-        
-        # Validate new folder name is unique at this level
-        await validate_folder_name(new_name, folder.parent_uuid, current_user.uuid, db, exclude_uuid=folder.uuid)
-        
-        # Update the folder name
-        folder.name = new_name.strip()
-        folder.updated_at = datetime.now(NEPAL_TZ)
-        
-        await db.commit()
-        await db.refresh(folder)
-        
-        return {"success": True, "message": "Folder renamed successfully"}
-        
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Error renaming folder {folder_uuid}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to rename folder"
+            detail=f"Failed to commit upload: {str(e)}"
         )
 
 
-@router.patch("/items/{item_uuid}/rename")
-async def rename_item(
+# Download endpoints
+@router.get("/items/{item_uuid}/download")
+async def download_item(
     item_uuid: str,
-    request: Request,
-    new_name: str = Form(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Rename a file/item"""
+    """Download single item"""
     try:
-        # Get the item
-        result = await db.execute(
-            select(ArchiveItem).where(
-                and_(
-                    ArchiveItem.uuid == item_uuid,
-                    ArchiveItem.created_by == current_user.uuid
-                )
-            )
-        )
-        item = result.scalar_one_or_none()
-        
-        if not item:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Item not found"
-            )
-        
-        # Update the item name with uniqueness check within folder
-        proposed = new_name.strip()
-        dup = await db.execute(
-            select(ArchiveItem).where(
-                and_(
-                    ArchiveItem.folder_uuid == item.folder_uuid,
-                    func.lower(ArchiveItem.name) == func.lower(proposed),
-                    ArchiveItem.created_by == current_user.uuid,
-                    ArchiveItem.uuid != item.uuid
-                )
-            )
-        )
-        if dup.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail=f"File '{proposed}' already exists in this folder.")
-        item.name = proposed
-        item.updated_at = datetime.now(NEPAL_TZ)
-        
-        await db.commit()
-        await db.refresh(item)
-        
-        return {"success": True, "message": "Item renamed successfully"}
-        
+        return await archive_item_service.download_item(db, current_user.uuid, item_uuid)
+    except HTTPException:
+        raise
     except Exception as e:
-        await db.rollback()
-        logger.error(f"Error renaming item {item_uuid}: {str(e)}")
+        logger.exception(f"Error downloading item {item_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to rename item"
+            detail=f"Failed to download item: {str(e)}"
         )
-
 
 
 @router.get("/folders/{folder_uuid}/download")
@@ -2382,32 +421,81 @@ async def download_folder(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Download a folder as a ZIP file"""
+    """Download folder as ZIP"""
     try:
-        # Get the folder
-        result = await db.execute(
-            select(ArchiveFolder).where(
-                and_(
-                    ArchiveFolder.uuid == folder_uuid,
-                    ArchiveFolder.created_by == current_user.uuid
-                )
-            )
+        return await archive_folder_service.download_folder(
+            db, current_user.uuid, folder_uuid
         )
-        folder = result.scalar_one_or_none()
-        
-        if not folder:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Folder not found"
-            )
-        
-        # For now, return a placeholder response
-        # TODO: Implement actual ZIP creation
-        return {"success": True, "message": "Folder download functionality coming soon"}
-        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error downloading folder {folder_uuid}: {str(e)}")
+        logger.exception(f"Error downloading folder {folder_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to download folder"
+            detail=f"Failed to download folder: {str(e)}"
+        )
+
+
+# Debug endpoints
+@router.get("/debug/fts-status")
+async def get_fts_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get full-text search status (debug endpoint)"""
+    try:
+        # TODO: Implement FTS status check
+        return {"status": "FTS not implemented yet"}
+    except Exception as e:
+        logger.exception(f"Error getting FTS status")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get FTS status: {str(e)}"
+        )
+
+
+# Legacy endpoints for backward compatibility
+@router.patch("/folders/{folder_uuid}/rename")
+async def rename_folder(
+    folder_uuid: str,
+    name: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Rename folder (legacy endpoint)"""
+    try:
+        update_data = FolderUpdate(name=name)
+        return await archive_folder_service.update_folder(
+            db, current_user.uuid, folder_uuid, update_data
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error renaming folder {folder_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to rename folder: {str(e)}"
+        )
+
+
+@router.patch("/items/{item_uuid}/rename")
+async def rename_item(
+    item_uuid: str,
+    name: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Rename item (legacy endpoint)"""
+    try:
+        update_data = ItemUpdate(name=name)
+        return await archive_item_service.update_item(
+            db, current_user.uuid, item_uuid, update_data
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error renaming item {item_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to rename item: {str(e)}"
         )

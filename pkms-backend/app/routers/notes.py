@@ -1,204 +1,55 @@
 """
 Notes Router with File Attachment Support
+
+Thin router that delegates all business logic to NoteCRUDService and NoteContentService.
+Handles only HTTP concerns: request/response mapping, authentication, error handling.
+
+Refactored to follow "thin router, thick service" architecture pattern.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, text, delete
-from sqlalchemy.orm import selectinload
-import uuid as uuid_lib
-from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFileResponse, CommitNoteFileRequest
-from app.schemas.project import ProjectBadge
-from typing import List, Optional, Dict, Any
-from datetime import datetime
-from pathlib import Path
-import asyncio
-import json
+from typing import List, Optional
 import logging
-import uuid as uuid_lib
 
 from app.database import get_db
-from app.config import get_data_dir, get_file_storage_dir
-from app.models.note import Note, NoteFile
 from app.models.user import User
-from app.models.tag import Tag
-from app.models.tag_associations import note_tags
-from app.models.project import Project
-from app.models.associations import note_projects
 from app.auth.dependencies import get_current_user
-from app.utils.security import sanitize_text_input, sanitize_tags
+from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFileResponse, CommitNoteFileRequest
+from app.services.note_crud_service import note_crud_service
+from app.services.note_content_service import note_content_service
 from app.services.chunk_service import chunk_manager
-from app.services.file_detection import FileTypeDetectionService
-from app.services.tag_service import tag_service
-from app.services.project_service import project_service
-from app.services.unified_upload_service import unified_upload_service
-from app.services.search_service import search_service
-from app.models.enums import ModuleType
-from app.routers.dashboard import invalidate_user_dashboard_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["notes"])
 
-# Initialize file type detection service
-file_detector = FileTypeDetectionService()
-
-
-# --- Helper Functions ---
-
-
-async def _process_note_links(db: AsyncSession, note: Note, content: str, created_by: str):
-    """Extract and process links from note content."""
-    import re
-    
-    # SECURITY: Use safer URL pattern to prevent ReDoS attacks
-    # Simplified pattern that avoids catastrophic backtracking
-    url_pattern = r'https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?:/[^\s]*)?'
-    urls = re.findall(url_pattern, content)
-    
-    for url in urls:
-        existing_link = await db.execute(
-            select(Link).where(and_(Link.url == url, Link.created_by == created_by))
-        )
-        
-        if not existing_link.scalar_one_or_none():
-            link = Link(
-                title=f"Link from note: {note.title}",
-                url=url,
-                description=f"Found in note '{note.title}'",
-                created_by=created_by
-            )
-            db.add(link)
-
-async def _get_note_with_relations(db: AsyncSession, note_uuid: str, created_by: str) -> NoteResponse:
-    """Get note with all related data."""
-    result = await db.execute(
-        select(Note)
-        .options(selectinload(Note.tag_objs), selectinload(Note.files))
-        .where(and_(Note.uuid == note_uuid, Note.created_by == created_by))
-    )
-    note = result.scalar_one_or_none()
-    
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
-    
-    # Build project badges via service
-    project_badges = await project_service.build_badges(db, note.uuid, note.is_exclusive_mode, note_projects, "note_uuid")
-    
-    return _convert_note_to_response(note, project_badges)
-
-
-def _convert_note_to_response(note: Note, project_badges: Optional[List[ProjectBadge]] = None) -> NoteResponse:
-    """Convert Note model to NoteResponse."""
-    badges = project_badges or []
-    return NoteResponse(
-        uuid=note.uuid,
-        title=note.title,
-        content=note.content,
-        file_count=note.file_count,
-        thumbnail_path=note.thumbnail_path,
-        is_favorite=note.is_favorite,
-        is_archived=note.is_archived,
-        is_exclusive_mode=note.is_exclusive_mode,
-        created_at=note.created_at,
-        updated_at=note.updated_at,
-        tags=[t.name for t in note.tag_objs] if note.tag_objs else [],
-        projects=badges
-    )
-
-# --- Note Endpoints ---
 
 @router.get("/", response_model=List[NoteSummary])
 async def list_notes(
-    archived: bool = Query(False),
-    search: Optional[str] = Query(None),
-    tag: Optional[str] = Query(None),
-    has_files: Optional[bool] = Query(None, description="Filter notes with file attachments"),
-    is_favorite: Optional[bool] = Query(None),
-    limit: int = Query(50, le=100),
-    offset: int = Query(0, ge=0),
+    search: Optional[str] = Query(None, description="Search term for note content"),
+    tags: Optional[List[str]] = Query(None, description="Filter by tag names"),
+    is_favorite: Optional[bool] = Query(None, description="Filter by favorite status"),
+    project_uuid: Optional[str] = Query(None, description="Filter by project UUID"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of notes to return"),
+    offset: int = Query(0, ge=0, description="Number of notes to skip"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    List notes with filtering and pagination. Uses FTS5 for text search.
-    
-    Exclusive mode filtering:
-    - Items with is_exclusive_mode=True are HIDDEN from main list (only in project dashboards)
-    - Items with is_exclusive_mode=False are ALWAYS shown (linked mode)
-    """
-    
-    if search:
-        # Use unified FTS5 search with native offset
-        from app.utils.security import sanitize_search_query
-        search_query = sanitize_search_query(search)
-        fts_results = await search_service.search(
-            db, current_user.uuid, search_query, item_types=["note"], limit=limit, offset=offset
+    """List notes with filters and pagination"""
+    try:
+        return await note_crud_service.list_notes(
+            db, current_user.uuid, search, tags, is_favorite, project_uuid, limit, offset
         )
-        note_results = [r for r in fts_results if r["type"] == "note"]
-        note_uuids = [r["uuid"] for r in note_results]
-        if not note_uuids:
-            return []
-        # Fetch notes by UUIDs, preserving FTS5 order
-        query = select(Note).options(selectinload(Note.tag_objs)).where(
-            and_(
-                Note.created_by == current_user.uuid,
-                Note.is_archived == archived,
-                Note.uuid.in_(note_uuids),
-                Note.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
-            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error listing notes for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list notes: {str(e)}"
         )
-        if tag:
-            query = query.join(Note.tag_objs).where(Tag.name == tag)
-        if has_files is not None:
-            query = query.where(Note.file_count > 0 if has_files else Note.file_count == 0)
-        if is_favorite is not None:
-            query = query.where(Note.is_favorite == is_favorite)
-        result = await db.execute(query)
-        notes = result.scalars().unique().all()
-        # Order notes by FTS5 relevance
-        notes_by_uuid = {n.uuid: n for n in notes}
-        ordered_notes = [notes_by_uuid[nuid] for nuid in note_uuids if nuid in notes_by_uuid]
-    else:
-        # Fallback to regular query
-        query = select(Note).options(selectinload(Note.tag_objs)).where(
-            and_(
-                Note.created_by == current_user.uuid,
-                Note.is_archived == archived,
-                Note.is_exclusive_mode.is_(False)  # Only show linked (non-exclusive) items
-            )
-        )
-        if tag:
-            query = query.join(Note.tag_objs).where(Tag.name == tag)
-        if has_files is not None:
-            query = query.where(Note.file_count > 0 if has_files else Note.file_count == 0)
-        if is_favorite is not None:
-            query = query.where(Note.is_favorite == is_favorite)
-        query = query.order_by(Note.is_favorite.desc(), Note.updated_at.desc()).offset(offset).limit(limit)
-        result = await db.execute(query)
-        ordered_notes = result.scalars().unique().all()
-    summaries = []
-    for note in ordered_notes:
-        # SECURITY: Safe content preview with null check
-        preview = ""
-        if note.content:
-            preview = note.content[:200] + "..." if len(note.content) > 200 else note.content
-        project_badges = await project_service.build_badges(db, note.uuid, note.is_exclusive_mode, note_projects, "note_uuid")
-        summary = NoteSummary(
-            uuid=note.uuid,
-            title=note.title,
-            file_count=note.file_count,
-            is_favorite=note.is_favorite,
-            is_archived=note.is_archived,
-            is_exclusive_mode=note.is_exclusive_mode,
-            created_at=note.created_at,
-            updated_at=note.updated_at,
-            tags=[t.name for t in note.tag_objs] if note.tag_objs else [],
-            preview=preview,
-            projects=project_badges
-        )
-        summaries.append(summary)
-    return summaries
+
 
 @router.post("/", response_model=NoteResponse)
 async def create_note(
@@ -206,66 +57,18 @@ async def create_note(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Create a new note with optional project linkage."""
+    """Create a new note with content processing"""
     try:
-        # SECURITY: Sanitize user input to prevent XSS attacks
-        sanitized_title = sanitize_text_input(note_data.title, 200)
-        sanitized_content = sanitize_text_input(note_data.content, 100000)  # 100KB limit
-        
-        # Calculate content size in bytes
-        content_size = len(sanitized_content.encode('utf-8'))
-        
-        note = Note(
-            title=sanitized_title,
-            content=sanitized_content,
-            size_bytes=content_size,
-            is_exclusive_mode=note_data.is_exclusive_mode or False,
-            created_by=current_user.uuid
-        )
-        db.add(note)
-        await db.flush()
-        
-        # Handle tags
-        if note_data.tags:
-            # SECURITY: Sanitize tags to prevent XSS injection
-            sanitized_tags = sanitize_tags(note_data.tags)
-            await tag_service.handle_tags(db, note, sanitized_tags, current_user.uuid, ModuleType.NOTES, note_tags)
-        
-        # Handle projects
-        if note_data.project_ids:
-            await project_service.handle_associations(db, note, note_data.project_ids, current_user.uuid, note_projects, "note_uuid")
-        
-        # Process links in sanitized content
-        await _process_note_links(db, note, sanitized_content, current_user.uuid)
-        
-        await db.commit()
-        
-        # Reload note with tags to avoid lazy loading issues in response conversion
-        result = await db.execute(
-            select(Note).options(selectinload(Note.tag_objs)).where(
-                Note.uuid == note.uuid
-            )
-        )
-        note_with_tags = result.scalar_one()
-        
-        # Index in search and persist
-        await search_service.index_item(db, note_with_tags, 'note')
-        await db.commit()
-
-        # Invalidate dashboard cache for this user
-        invalidate_user_dashboard_cache(current_user.uuid, "note_created")
-
-        # Build project badges
-        project_badges = await project_service.build_badges(db, note_with_tags.uuid, note_with_tags.is_exclusive_mode, note_projects, "note_uuid")
-
-        return _convert_note_to_response(note_with_tags, project_badges)
+        return await note_crud_service.create_note(db, current_user.uuid, note_data)
+    except HTTPException:
+        raise
     except Exception as e:
-        await db.rollback()
-        logger.exception("Error creating note")
+        logger.exception(f"Error creating note for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create note: {str(e)}"
         )
+
 
 @router.get("/{note_uuid}", response_model=NoteResponse)
 async def get_note(
@@ -273,193 +76,78 @@ async def get_note(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get a specific note by UUID."""
-    return await _get_note_with_relations(db, note_uuid, current_user.uuid)
+    """Get single note with all related data"""
+    try:
+        return await note_crud_service.get_note_with_relations(db, note_uuid, current_user.uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting note {note_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get note: {str(e)}"
+        )
+
 
 @router.put("/{note_uuid}", response_model=NoteResponse)
 async def update_note(
     note_uuid: str,
-    note_data: NoteUpdate,
+    update_data: NoteUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Update an existing note."""
-    result = await db.execute(
-        select(Note).options(selectinload(Note.tag_objs)).where(
-            and_(Note.uuid == note_uuid, Note.created_by == current_user.uuid)
+    """Update note with content processing"""
+    try:
+        return await note_crud_service.update_note(db, current_user.uuid, note_uuid, update_data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error updating note {note_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update note: {str(e)}"
         )
-    )
-    note = result.scalar_one_or_none()
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
 
-    update_data = note_data.model_dump(exclude_unset=True)
-    
-    # Handle tags if provided
-    if "tags" in update_data:
-        # SECURITY: Sanitize tags to prevent XSS injection
-        raw_tags = update_data.pop("tags")
-        sanitized_tags = sanitize_tags(raw_tags)
-        await tag_service.handle_tags(db, note, sanitized_tags, current_user.uuid, ModuleType.NOTES, note_tags)
 
-    # Handle projects if provided
-    if "project_ids" in update_data:
-        await project_service.handle_associations(db, note, update_data.pop("project_ids"), current_user.uuid, note_projects, "note_uuid")
-
-    # SECURITY: Validate and sanitize update fields
-    content_updated = False
-    for key, value in update_data.items():
-        if key in ['title', 'content'] and value is not None:
-            if key == 'title':
-                if not value or len(value.strip()) == 0:
-                    raise HTTPException(status_code=400, detail="Title cannot be empty")
-                value = sanitize_text_input(value, 200)
-            elif key == 'content':
-                value = sanitize_text_input(value, 100000)  # 100KB limit
-                content_updated = True
-        setattr(note, key, value)
-
-    # Update size_bytes if content was modified
-    if content_updated:
-        note.size_bytes = len(note.content.encode('utf-8'))
-
-    # Process links if content was updated
-    if note_data.content:
-        await _process_note_links(db, note, note.content, current_user.uuid)
-
-    await db.commit()
-
-    # Invalidate dashboard cache for this user
-    invalidate_user_dashboard_cache(current_user.uuid, "note_updated")
-
-    # Reload note with tags to avoid lazy loading issues in response conversion
-    result = await db.execute(
-        select(Note).options(selectinload(Note.tag_objs)).where(
-            Note.uuid == note.uuid
-        )
-    )
-    note_with_tags = result.scalar_one()
-    
-    # Index in search and persist
-    await search_service.index_item(db, note_with_tags, 'note')
-    await db.commit()
-    
-    # Build project badges
-    project_badges = await project_service.build_badges(db, note_with_tags.uuid, note_with_tags.is_exclusive_mode, note_projects, "note_uuid")
-    
-    return _convert_note_to_response(note_with_tags, project_badges)
-
-@router.delete("/{note_uuid}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{note_uuid}")
 async def delete_note(
     note_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete a note and its associated files."""
-    result = await db.execute(
-        select(Note).options(selectinload(Note.files), selectinload(Note.tag_objs)).where(
-            and_(Note.uuid == note_uuid, Note.created_by == current_user.uuid)
-        )
-    )
-    note = result.scalar_one_or_none()
-    if not note:
-        logger.warning(f"Attempted to delete non-existent note with UUID: {note_uuid} for user: {current_user.uuid}")
-        raise HTTPException(status_code=404, detail="Note not found")
-
-    logger.info(f"Attempting to delete note with UUID: {note_uuid} for user: {current_user.uuid}")
-
-    # Store file paths before deleting the note with path validation
-    base_dir = get_file_storage_dir()
-    base_resolved = base_dir.resolve()
-    files_to_delete: list[Path] = []
-    for nf in note.files:
-        try:
-            p = (base_dir / nf.file_path).resolve()
-            if str(p).startswith(str(base_resolved)):
-                files_to_delete.append(p)
-            else:
-                logger.warning("Skipping file outside storage dir: %s", p)
-        except Exception:
-            logger.exception("Invalid file path for note file: %s", nf.file_path)
-
+    """Delete note and all associated data"""
     try:
-        # Decrement tag usage counts BEFORE deleting note (associations will cascade)
-        await tag_service.decrement_tags_on_delete(db, note)
-
-        # Remove from search index BEFORE deleting note
-        await search_service.remove_item(db, note_uuid)
-
-        # Delete note (cascade will handle note_tags associations automatically)
-        logger.info(f"Deleting note record with UUID: {note_uuid} from the database.")
-        await db.delete(note)
-        await db.commit()
-        logger.info(f"Successfully deleted note with UUID: {note_uuid}")
-
-        # Invalidate dashboard cache for this user
-        invalidate_user_dashboard_cache(current_user.uuid, "note_deleted")
-
-        # Delete associated files from disk AFTER successful DB commit
-        if files_to_delete:
-            logger.info("Deleting %d associated files for note UUID: %s", len(files_to_delete), note_uuid)
-            for file_path in files_to_delete:
-                try:
-                    exists = await asyncio.to_thread(file_path.exists)
-                    if exists:
-                        await asyncio.to_thread(file_path.unlink)
-                        logger.info("Deleted note file: %s", file_path)
-                    else:
-                        logger.warning("File not found, cannot delete: %s", file_path)
-                except Exception:
-                    logger.exception("Could not delete file %s", file_path)
-        
-    except Exception as e:
-        await db.rollback()
-        logger.exception(f"Failed to delete note with UUID: {note_uuid}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete note due to an internal error: {str(e)}")
-
-@router.patch("/{note_uuid}/archive", response_model=NoteResponse)
-async def archive_note(
-    note_uuid: str,
-    archive: bool = True,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Archive or unarchive a note"""
-    try:
-        # Get note
-        result = await db.execute(
-            select(Note).where(and_(Note.uuid == note_uuid, Note.created_by == current_user.uuid))
-        )
-        note = result.scalar_one_or_none()
-        if not note:
-            raise HTTPException(status_code=404, detail="Note not found")
-        
-        # Update archive status
-        note.is_archived = archive
-        await db.commit()
-        await db.refresh(note)
-        
-        action = "archived" if archive else "unarchived"
-        logger.info(f"Successfully {action} note '{note.title}' for user {current_user.username}")
-        
-        # Invalidate dashboard cache
-        invalidate_user_dashboard_cache(current_user.uuid, f"note_{action}")
-        
-        # Include project badges for consistency
-        project_badges = await project_service.build_badges(db, note.uuid, note.is_exclusive_mode, note_projects, "note_uuid")
-        return _convert_note_to_response(note, project_badges)
-        
+        await note_crud_service.delete_note(db, current_user.uuid, note_uuid)
+        return {"message": "Note deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
-        await db.rollback()
-        logger.exception("Error archiving note")
+        logger.exception(f"Error deleting note {note_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to archive note. Please try again."
+            detail=f"Failed to delete note: {str(e)}"
         )
 
-# --- File Attachment Endpoints ---
+
+@router.post("/{note_uuid}/archive")
+async def archive_note(
+    note_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Archive note (soft delete)"""
+    try:
+        await note_crud_service.archive_note(db, current_user.uuid, note_uuid)
+        return {"message": "Note archived successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error archiving note {note_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to archive note: {str(e)}"
+        )
+
 
 @router.get("/{note_uuid}/files", response_model=List[NoteFileResponse])
 async def get_note_files(
@@ -467,82 +155,80 @@ async def get_note_files(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all files attached to a note."""
-    # First get the note to verify it exists and belongs to user
-    note_result = await db.execute(
-        select(Note).where(
-            and_(Note.uuid == note_uuid, Note.created_by == current_user.uuid)
+    """Get all files attached to a note"""
+    try:
+        return await note_crud_service.get_note_files(db, current_user.uuid, note_uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting files for note {note_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get note files: {str(e)}"
         )
-    )
-    note = note_result.scalar_one_or_none()
-    if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
 
-    # Get files using note UUID
-    files_result = await db.execute(
-        select(NoteFile).where(NoteFile.note_uuid == note.uuid).order_by(NoteFile.created_at.desc())
-    )
-    files = files_result.scalars().all()
-    
-    return [
-        NoteFileResponse(
-            uuid=f.uuid,
-            note_uuid=f.note_uuid,
-            filename=f.filename,
-            original_name=f.original_name,
-            file_size=f.file_size,
-            mime_type=f.mime_type,
-            description=f.description,
-            created_at=f.created_at
-        )
-        for f in files
-    ]
 
-@router.post("/files/upload/commit", response_model=NoteFileResponse)
-async def commit_note_file_upload(
-    payload: CommitNoteFileRequest,
+@router.post("/{note_uuid}/files/upload")
+async def upload_note_file(
+    note_uuid: str,
+    files: List[UploadFile] = File(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Finalize a previously chunk-uploaded file and attach it to a note.
-
-    Uses the file commit consistency service for atomic operations and orphan prevention.
-    """
+    """Upload files to a note using chunked upload"""
     try:
-        # Commit upload through unified upload service
-        note_file = await unified_upload_service.commit_upload(
-            db=db,
-            upload_id=payload.file_id,
-            module="notes",
-            created_by=current_user.uuid,
-            metadata={
-                "note_uuid": payload.note_uuid,
-                "original_name": payload.original_name,
-                "description": payload.description,
-                "display_order": payload.display_order if hasattr(payload, 'display_order') else 0
-            }
-        )
-
-        logger.info(f"Note file committed successfully: {note_file.filename}")
-
-        return NoteFileResponse(
-            uuid=note_file.uuid,
-            note_uuid=note_file.note_uuid,
-            filename=note_file.filename,
-            original_name=note_file.original_name,
-            file_size=note_file.file_size,
-            mime_type=note_file.mime_type,
-            description=note_file.description,
-            created_at=note_file.created_at
-        )
-
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error committing note file upload")
+        # Start chunked upload for each file
+        upload_ids = []
+        for file in files:
+            if not file.filename:
+                continue
+            
+            # Start chunked upload
+            upload_result = await chunk_manager.start_upload(
+                filename=file.filename,
+                file_size=file.size or 0,
+                user_uuid=current_user.uuid,
+                module="note"
+            )
+            
+            if upload_result["success"]:
+                upload_ids.append(upload_result["upload_id"])
+        
+        return {
+            "message": "Upload started successfully",
+            "upload_ids": upload_ids,
+            "instructions": "Use the upload_ids with the chunk upload endpoints to complete the upload"
+        }
+    except Exception as e:
+        logger.exception(f"Error starting file upload for note {note_uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to commit note file upload"
+            detail=f"Failed to start file upload: {str(e)}"
+        )
+
+
+@router.post("/{note_uuid}/files/commit", response_model=NoteFileResponse)
+async def commit_note_file_upload(
+    note_uuid: str,
+    commit_request: CommitNoteFileRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Commit chunked file upload and attach to note"""
+    try:
+        # Set the note_uuid in the commit request
+        commit_request.note_uuid = note_uuid
+        
+        return await note_crud_service.commit_note_file_upload(
+            db, current_user.uuid, commit_request
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error committing file upload for note {note_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to commit file upload: {str(e)}"
         )
 
 
@@ -552,53 +238,67 @@ async def delete_note_file(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete a note file attachment."""
-    result = await db.execute(
-        select(NoteFile)
-        .join(Note)
-        .where(
-            and_(
-                NoteFile.uuid == file_uuid,
-                Note.created_by == current_user.uuid
-            )
-        )
-    )
-    note_file = result.scalar_one_or_none()
-    if not note_file:
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    note_uuid = note_file.note_uuid
-    
-    # Delete the physical file
+    """Delete a file attached to a note"""
     try:
-        base_storage_dir = get_file_storage_dir()
-        base_storage_resolved = base_storage_dir.resolve()
-        file_path = (base_storage_dir / note_file.file_path).resolve()
-        if not str(file_path).startswith(str(base_storage_resolved)):
-            logger.warning("Refusing to delete file outside storage dir: %s", file_path)
-        else:
-            if await asyncio.to_thread(file_path.exists):
-                await asyncio.to_thread(file_path.unlink)
-                logger.info("Deleted note file: %s", file_path)
-    except Exception:
-        logger.exception("Could not delete file %s", note_file.file_path)
-    
-    # Delete the database record
-    await db.delete(note_file)
-    
-    # Update note file count
-    file_count_result = await db.execute(
-        select(func.count(NoteFile.uuid)).where(NoteFile.note_uuid == note_uuid)
-    )
-    new_file_count = file_count_result.scalar() or 0
-    
-    note_result = await db.execute(select(Note).where(Note.uuid == note_uuid))
-    note = note_result.scalar_one_or_none()
-    if note:
-        note.file_count = new_file_count
-    
-    await db.commit()
-    
-    return {"message": "File deleted successfully"}
+        await note_crud_service.delete_note_file(db, current_user.uuid, file_uuid)
+        return {"message": "File deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error deleting file {file_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete file: {str(e)}"
+        )
 
- 
+
+@router.post("/{note_uuid}/analyze")
+async def analyze_note_content(
+    note_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Analyze note content for insights and statistics"""
+    try:
+        # Get note first
+        note_response = await note_crud_service.get_note_with_relations(db, note_uuid, current_user.uuid)
+        
+        # Analyze content
+        analysis = await note_content_service.process_note_content(
+            db, note_response, note_response.content, current_user.uuid
+        )
+        
+        return {
+            "note_uuid": note_uuid,
+            "analysis": analysis,
+            "statistics": note_content_service.get_content_statistics(note_response.content)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error analyzing note {note_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze note content: {str(e)}"
+        )
+
+
+@router.post("/validate-content")
+async def validate_note_content(
+    content: str = Form(...),
+    current_user: User = Depends(get_current_user)
+):
+    """Validate note content for quality and security"""
+    try:
+        validation = note_content_service.validate_content(content)
+        return {
+            "validation": validation,
+            "preview": note_content_service.extract_preview(content),
+            "statistics": note_content_service.get_content_statistics(content)
+        }
+    except Exception as e:
+        logger.exception("Error validating note content")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to validate content: {str(e)}"
+        )

@@ -1,14 +1,14 @@
 import React, { useState, useRef } from 'react';
 import { Plus, Mic, Upload, X, Play, Pause, Square } from 'lucide-react';
 
-interface MediaUploadProps {
-  module: 'notes' | 'diary' | 'documents' | 'archive';
+interface FileUploadProps {
+  module: 'notes' | 'diary' | 'documents' | 'archive' | 'projects';
   onUpload: (file: File, metadata: any) => void;
   defaultFilename?: string;
   className?: string;
 }
 
-export const MediaUpload: React.FC<MediaUploadProps> = ({
+export const FileUpload: React.FC<FileUploadProps> = ({
   module,
   onUpload,
   defaultFilename = '',
@@ -22,7 +22,6 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [filename, setFilename] = useState(defaultFilename);
   const [description, setDescription] = useState('');
-  const [displayOrder, setDisplayOrder] = useState(0);
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +53,6 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
     setAudioUrl(null);
     setFilename(defaultFilename);
     setDescription('');
-    setDisplayOrder(0);
     setDragActive(false);
     setSelectedFile(null);
     setError(null);
@@ -143,7 +141,6 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
       const metadata = {
         filename: filename || 'recording',
         description: description || `Voice recording (${Math.floor(duration / 60)}:${(duration % 60).toString().padStart(2, '0')})`,
-        display_order: displayOrder,
         media_type: 'voice',
         original_name: file.name,
         mime_type: 'audio/webm',
@@ -197,7 +194,6 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
       const metadata = {
         filename: filename.trim(),
         description: description.trim() || undefined,
-        display_order: displayOrder,
         media_type: getMediaType(selectedFile.type),
         original_name: selectedFile.name,
         mime_type: selectedFile.type,
@@ -391,20 +387,6 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
                       placeholder="Enter description"
                     />
                   </div>
-
-                  {/* Display Order */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Display Order
-                    </label>
-                    <input
-                      type="number"
-                      value={displayOrder}
-                      onChange={(e) => setDisplayOrder(parseInt(e.target.value) || 0)}
-                      min="0"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
                 </div>
               )}
 
@@ -494,19 +476,6 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
                           placeholder="Enter description"
                         />
                       </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Display Order
-                        </label>
-                        <input
-                          type="number"
-                          value={displayOrder}
-                          onChange={(e) => setDisplayOrder(parseInt(e.target.value) || 0)}
-                          min="0"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
                     </div>
                   )}
                 </div>
@@ -555,4 +524,4 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
   );
 };
 
-export default MediaUpload;
+export default FileUpload;

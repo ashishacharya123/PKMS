@@ -1,35 +1,38 @@
 import React, { useState } from 'react';
-import MediaUpload from './MediaUpload';
-import MediaList from './MediaList';
+import FileUpload from './FileUpload';
+import FileList from './FileList';
 
-interface MediaFile {
+interface FileItem {
   uuid: string;
   filename: string;
   original_name: string;
   mime_type: string;
   file_size: number;
   description?: string;
-  display_order: number;
   created_at: string;
   media_type?: string;
 }
 
-interface MediaSectionProps {
-  module: 'notes' | 'diary' | 'documents' | 'archive';
-  entityId: string; // note_uuid, entry_id, etc.
-  files: MediaFile[];
-  onFilesUpdate: (files: MediaFile[]) => void;
+interface FileSectionProps {
+  module: 'notes' | 'diary' | 'documents' | 'archive' | 'projects';
+  entityId: string; // note_uuid, entry_id, project_uuid, etc.
+  files: FileItem[];
+  onFilesUpdate: (files: FileItem[]) => void;
   defaultFilename?: string;
   className?: string;
+  showUnlink?: boolean; // For project context
+  onUnlink?: (fileId: string) => void; // For project context
 }
 
-export const MediaSection: React.FC<MediaSectionProps> = ({
+export const FileSection: React.FC<FileSectionProps> = ({
   module,
   entityId,
   files,
   onFilesUpdate,
   defaultFilename = '',
-  className = ''
+  className = '',
+  showUnlink = false,
+  onUnlink
 }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -105,6 +108,9 @@ export const MediaSection: React.FC<MediaSectionProps> = ({
         return '/api/v1/documents/commit-document-upload';
       case 'archive':
         return '/api/v1/archive/commit-uploaded-file';
+      case 'projects':
+        // For projects, we might link existing documents instead of uploading new ones
+        return '/api/v1/documents/commit-document-upload';
       default:
         throw new Error(`Unknown module: ${module}`);
     }
@@ -120,6 +126,8 @@ export const MediaSection: React.FC<MediaSectionProps> = ({
         return {}; // Documents don't need entity ID
       case 'archive':
         return { folder_uuid: entityId };
+      case 'projects':
+        return {}; // For projects, we might link existing documents
       default:
         return {};
     }
@@ -129,9 +137,12 @@ export const MediaSection: React.FC<MediaSectionProps> = ({
     onFilesUpdate(files.filter(f => f.uuid !== fileId));
   };
 
-  const handleDownload = (file: MediaFile) => {
-    // MediaList component handles the actual download
-    console.log('Download requested for:', file.original_name);
+  const handleUnlink = (fileId: string) => {
+    if (onUnlink) {
+      onUnlink(fileId);
+    }
+    // Remove from local list
+    onFilesUpdate(files.filter(f => f.uuid !== fileId));
   };
 
   return (
@@ -139,12 +150,25 @@ export const MediaSection: React.FC<MediaSectionProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-medium text-gray-900">Attachments</h3>
-        <MediaUpload
-          module={module}
-          onUpload={handleUpload}
-          defaultFilename={defaultFilename}
-          className="text-sm"
-        />
+        <div className="flex items-center space-x-2">
+          {module === 'projects' && (
+            <button
+              onClick={() => {
+                // TODO: Open "Attach Existing" modal
+                console.log('Open attach existing modal');
+              }}
+              className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+            >
+              Attach Existing
+            </button>
+          )}
+          <FileUpload
+            module={module}
+            onUpload={handleUpload}
+            defaultFilename={defaultFilename}
+            className="text-sm"
+          />
+        </div>
       </div>
 
       {/* Upload Progress */}
@@ -168,14 +192,15 @@ export const MediaSection: React.FC<MediaSectionProps> = ({
       )}
 
       {/* Files List */}
-      <MediaList
+      <FileList
         files={files}
         onDelete={handleDelete}
-        onDownload={handleDownload}
+        onUnlink={showUnlink ? handleUnlink : undefined}
         module={module}
+        showUnlink={showUnlink}
       />
     </div>
   );
 };
 
-export default MediaSection;
+export default FileSection;

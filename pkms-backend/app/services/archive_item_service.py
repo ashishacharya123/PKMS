@@ -1,0 +1,578 @@
+"""
+Archive Item Service
+Handles item CRUD operations, file operations, and metadata extraction
+"""
+
+import uuid
+import json
+import os
+from pathlib import Path
+from typing import Optional, List, Dict, Any
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_, or_, func, update, delete
+from fastapi import HTTPException, status, UploadFile
+from fastapi.responses import FileResponse
+import logging
+import aiofiles
+from datetime import datetime
+
+from app.models.archive import ArchiveFolder, ArchiveItem
+from app.schemas.archive import ItemUpdate, ItemResponse, ItemSummary, CommitUploadRequest
+from app.services.archive_path_service import archive_path_service
+from app.services.chunk_service import chunk_manager
+from app.services.unified_upload_service import unified_upload_service
+
+logger = logging.getLogger(__name__)
+
+
+class ArchiveItemService:
+    """Service for handling archive item operations"""
+    
+    def __init__(self):
+        self.path_service = archive_path_service
+    
+    async def create_item(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        name: str,
+        description: Optional[str],
+        folder_uuid: Optional[str],
+        original_filename: str,
+        stored_filename: str,
+        file_path: str,
+        file_size: int,
+        mime_type: str,
+        metadata_json: Optional[Dict[str, Any]] = None
+    ) -> ItemResponse:
+        """Create archive item"""
+        # Validate folder exists if specified
+        if folder_uuid:
+            folder_result = await db.execute(
+                select(ArchiveFolder).where(
+                    and_(
+                        ArchiveFolder.uuid == folder_uuid,
+                        ArchiveFolder.created_by == user_uuid,
+                        ArchiveFolder.is_deleted == False
+                    )
+                )
+            )
+            folder = folder_result.scalar_one_or_none()
+            if not folder:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Folder not found"
+                )
+        
+        # Create item
+        item = ArchiveItem(
+            uuid=str(uuid.uuid4()),
+            name=name,
+            description=description,
+            original_filename=original_filename,
+            stored_filename=stored_filename,
+            file_path=file_path,
+            file_size=file_size,
+            mime_type=mime_type,
+            folder_uuid=folder_uuid,
+            created_by=user_uuid,
+            metadata_json=json.dumps(metadata_json or {})
+        )
+        
+        db.add(item)
+        await db.commit()
+        await db.refresh(item)
+        
+        # Update folder stats
+        if folder_uuid:
+            await self._update_folder_stats(db, user_uuid, folder_uuid)
+        
+        return ItemResponse.from_orm(item)
+    
+    async def list_folder_items(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        folder_uuid: Optional[str] = None,
+        search: Optional[str] = None,
+        mime_type: Optional[str] = None,
+        is_favorite: Optional[bool] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[ItemResponse]:
+        """List items in folder with filters and pagination"""
+        cond = and_(
+            ArchiveItem.created_by == user_uuid,
+            ArchiveItem.is_deleted == False
+        )
+        
+        if folder_uuid is not None:
+            cond = and_(cond, ArchiveItem.folder_uuid == folder_uuid)
+        
+        if search:
+            cond = and_(cond, ArchiveItem.name.ilike(f"%{search}%"))
+        
+        if mime_type:
+            cond = and_(cond, ArchiveItem.mime_type.ilike(f"%{mime_type}%"))
+        
+        if is_favorite is not None:
+            cond = and_(cond, ArchiveItem.is_favorite == is_favorite)
+        
+        result = await db.execute(
+            select(ArchiveItem)
+            .where(cond)
+            .order_by(ArchiveItem.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        items = result.scalars().all()
+        
+        return [ItemResponse.from_orm(item) for item in items]
+    
+    async def get_item(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        item_uuid: str
+    ) -> ItemResponse:
+        """Get single item"""
+        result = await db.execute(
+            select(ArchiveItem)
+            .where(
+                and_(
+                    ArchiveItem.uuid == item_uuid,
+                    ArchiveItem.created_by == user_uuid,
+                    ArchiveItem.is_deleted == False
+                )
+            )
+        )
+        item = result.scalar_one_or_none()
+        
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Item not found"
+            )
+        
+        return ItemResponse.from_orm(item)
+    
+    async def update_item(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        item_uuid: str, 
+        update_data: ItemUpdate
+    ) -> ItemResponse:
+        """Update item"""
+        # Get existing item
+        result = await db.execute(
+            select(ArchiveItem).where(
+                and_(
+                    ArchiveItem.uuid == item_uuid,
+                    ArchiveItem.created_by == user_uuid,
+                    ArchiveItem.is_deleted == False
+                )
+            )
+        )
+        item = result.scalar_one_or_none()
+        
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Item not found"
+            )
+        
+        old_folder_uuid = item.folder_uuid
+        
+        # Update fields
+        if update_data.name is not None:
+            item.name = update_data.name
+        
+        if update_data.description is not None:
+            item.description = update_data.description
+        
+        if update_data.is_favorite is not None:
+            item.is_favorite = update_data.is_favorite
+        
+        if update_data.folder_uuid is not None:
+            # Validate new folder exists
+            if update_data.folder_uuid:
+                folder_result = await db.execute(
+                    select(ArchiveFolder).where(
+                        and_(
+                            ArchiveFolder.uuid == update_data.folder_uuid,
+                            ArchiveFolder.created_by == user_uuid,
+                            ArchiveFolder.is_deleted == False
+                        )
+                    )
+                )
+                folder = folder_result.scalar_one_or_none()
+                if not folder:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Folder not found"
+                    )
+            
+            item.folder_uuid = update_data.folder_uuid
+        
+        await db.commit()
+        await db.refresh(item)
+        
+        # Update folder stats for old and new folders
+        if old_folder_uuid != item.folder_uuid:
+            if old_folder_uuid:
+                await self._update_folder_stats(db, user_uuid, old_folder_uuid)
+            if item.folder_uuid:
+                await self._update_folder_stats(db, user_uuid, item.folder_uuid)
+        
+        return ItemResponse.from_orm(item)
+    
+    async def delete_item(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        item_uuid: str
+    ) -> None:
+        """Delete item (soft delete)"""
+        # Get item
+        result = await db.execute(
+            select(ArchiveItem).where(
+                and_(
+                    ArchiveItem.uuid == item_uuid,
+                    ArchiveItem.created_by == user_uuid,
+                    ArchiveItem.is_deleted == False
+                )
+            )
+        )
+        item = result.scalar_one_or_none()
+        
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Item not found"
+            )
+        
+        folder_uuid = item.folder_uuid
+        
+        # Soft delete item
+        await db.execute(
+            update(ArchiveItem)
+            .where(ArchiveItem.uuid == item_uuid)
+            .values(is_deleted=True)
+        )
+        
+        await db.commit()
+        
+        # Update folder stats
+        if folder_uuid:
+            await self._update_folder_stats(db, user_uuid, folder_uuid)
+    
+    async def search_items(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        query: str,
+        folder_uuid: Optional[str] = None,
+        mime_type: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[ItemSummary]:
+        """Search items across archive"""
+        cond = and_(
+            ArchiveItem.created_by == user_uuid,
+            ArchiveItem.is_deleted == False,
+            or_(
+                ArchiveItem.name.ilike(f"%{query}%"),
+                ArchiveItem.description.ilike(f"%{query}%"),
+                ArchiveItem.original_filename.ilike(f"%{query}%")
+            )
+        )
+        
+        if folder_uuid is not None:
+            cond = and_(cond, ArchiveItem.folder_uuid == folder_uuid)
+        
+        if mime_type:
+            cond = and_(cond, ArchiveItem.mime_type.ilike(f"%{mime_type}%"))
+        
+        result = await db.execute(
+            select(ArchiveItem)
+            .where(cond)
+            .order_by(ArchiveItem.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        items = result.scalars().all()
+        
+        return [ItemSummary.from_orm(item) for item in items]
+    
+    async def upload_files(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        folder_uuid: Optional[str],
+        files: List[UploadFile]
+    ) -> List[Dict[str, Any]]:
+        """Handle file uploads using unified upload service"""
+        results = []
+        
+        for file in files:
+            try:
+                # Validate file
+                if not file.filename:
+                    results.append({
+                        "filename": "unknown",
+                        "success": False,
+                        "error": "No filename provided"
+                    })
+                    continue
+                
+                # Sanitize filename
+                sanitized_filename = self.path_service.sanitize_filename(file.filename)
+                
+                # Use unified upload service
+                upload_result = await unified_upload_service.upload_file(
+                    file=file,
+                    user_uuid=user_uuid,
+                    module_type="archive",
+                    folder_uuid=folder_uuid
+                )
+                
+                if upload_result["success"]:
+                    # Create archive item
+                    item = await self.create_item(
+                        db=db,
+                        user_uuid=user_uuid,
+                        name=upload_result["name"],
+                        description=None,
+                        folder_uuid=folder_uuid,
+                        original_filename=file.filename,
+                        stored_filename=upload_result["stored_filename"],
+                        file_path=upload_result["file_path"],
+                        file_size=upload_result["file_size"],
+                        mime_type=upload_result["mime_type"],
+                        metadata_json=upload_result.get("metadata", {})
+                    )
+                    
+                    results.append({
+                        "filename": file.filename,
+                        "success": True,
+                        "item_uuid": item.uuid,
+                        "item_name": item.name
+                    })
+                else:
+                    results.append({
+                        "filename": file.filename,
+                        "success": False,
+                        "error": upload_result.get("error", "Upload failed")
+                    })
+            
+            except Exception as e:
+                logger.error(f"Error uploading file {file.filename}: {e}")
+                results.append({
+                    "filename": file.filename,
+                    "success": False,
+                    "error": str(e)
+                })
+        
+        return results
+    
+    async def commit_upload(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        commit_request: CommitUploadRequest
+    ) -> ItemResponse:
+        """Commit chunked upload and create archive item"""
+        try:
+            # Commit the upload
+            commit_result = await chunk_manager.commit_upload(
+                upload_id=commit_request.upload_id,
+                user_uuid=user_uuid
+            )
+            
+            if not commit_result["success"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Upload commit failed: {commit_result.get('error', 'Unknown error')}"
+                )
+            
+            # Validate folder exists if specified
+            if commit_request.folder_uuid:
+                folder_result = await db.execute(
+                    select(ArchiveFolder).where(
+                        and_(
+                            ArchiveFolder.uuid == commit_request.folder_uuid,
+                            ArchiveFolder.created_by == user_uuid,
+                            ArchiveFolder.is_deleted == False
+                        )
+                    )
+                )
+                folder = folder_result.scalar_one_or_none()
+                if not folder:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Folder not found"
+                    )
+            
+            # Create archive item
+            item = await self.create_item(
+                db=db,
+                user_uuid=user_uuid,
+                name=commit_request.name or commit_result["original_filename"],
+                description=commit_request.description,
+                folder_uuid=commit_request.folder_uuid,
+                original_filename=commit_result["original_filename"],
+                stored_filename=commit_result["stored_filename"],
+                file_path=commit_result["file_path"],
+                file_size=commit_result["file_size"],
+                mime_type=commit_result["mime_type"],
+                metadata_json=commit_result.get("metadata", {})
+            )
+            
+            return item
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error committing upload {commit_request.upload_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to commit upload: {str(e)}"
+            )
+    
+    async def download_item(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        item_uuid: str
+    ) -> FileResponse:
+        """Download single item (direct file response)"""
+        # Get item
+        result = await db.execute(
+            select(ArchiveItem).where(
+                and_(
+                    ArchiveItem.uuid == item_uuid,
+                    ArchiveItem.created_by == user_uuid,
+                    ArchiveItem.is_deleted == False
+                )
+            )
+        )
+        item = result.scalar_one_or_none()
+        
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Item not found"
+            )
+        
+        # Check if file exists
+        file_path = Path(item.file_path)
+        if not file_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="File not found on disk"
+            )
+        
+        return FileResponse(
+            path=str(file_path),
+            filename=item.original_filename,
+            media_type=item.mime_type
+        )
+    
+    async def extract_metadata(
+        self, 
+        file_path: str, 
+        mime_type: str
+    ) -> Dict[str, Any]:
+        """Extract metadata from file"""
+        metadata = {
+            "mime_type": mime_type,
+            "extracted_at": datetime.utcnow().isoformat()
+        }
+        
+        try:
+            # Get file stats
+            file_stat = os.stat(file_path)
+            metadata.update({
+                "file_size": file_stat.st_size,
+                "created_at": datetime.fromtimestamp(file_stat.st_ctime).isoformat(),
+                "modified_at": datetime.fromtimestamp(file_stat.st_mtime).isoformat()
+            })
+            
+            # TODO: Add more metadata extraction based on file type
+            # - Image: dimensions, EXIF data
+            # - Video: duration, resolution, codec
+            # - Audio: duration, bitrate, codec
+            # - Document: page count, author, title
+            # - Archive: file count, compression type
+            
+            # For now, just basic file info
+            if mime_type.startswith('image/'):
+                metadata["type"] = "image"
+            elif mime_type.startswith('video/'):
+                metadata["type"] = "video"
+            elif mime_type.startswith('audio/'):
+                metadata["type"] = "audio"
+            elif mime_type.startswith('text/'):
+                metadata["type"] = "text"
+            elif mime_type in ['application/pdf']:
+                metadata["type"] = "document"
+            elif mime_type in ['application/zip', 'application/x-rar-compressed']:
+                metadata["type"] = "archive"
+            else:
+                metadata["type"] = "other"
+        
+        except Exception as e:
+            logger.error(f"Error extracting metadata from {file_path}: {e}")
+            metadata["error"] = str(e)
+        
+        return metadata
+    
+    async def _update_folder_stats(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        folder_uuid: str
+    ) -> None:
+        """Update folder statistics (item_count, total_size)"""
+        # Count items in this folder
+        item_count_result = await db.execute(
+            select(func.count(ArchiveItem.uuid))
+            .where(
+                and_(
+                    ArchiveItem.folder_uuid == folder_uuid,
+                    ArchiveItem.created_by == user_uuid,
+                    ArchiveItem.is_deleted == False
+                )
+            )
+        )
+        item_count = item_count_result.scalar() or 0
+        
+        # Sum file sizes in this folder
+        total_size_result = await db.execute(
+            select(func.coalesce(func.sum(ArchiveItem.file_size), 0))
+            .where(
+                and_(
+                    ArchiveItem.folder_uuid == folder_uuid,
+                    ArchiveItem.created_by == user_uuid,
+                    ArchiveItem.is_deleted == False
+                )
+            )
+        )
+        total_size = total_size_result.scalar() or 0
+        
+        # Update folder
+        await db.execute(
+            update(ArchiveFolder)
+            .where(
+                and_(
+                    ArchiveFolder.uuid == folder_uuid,
+                    ArchiveFolder.created_by == user_uuid
+                )
+            )
+            .values(item_count=item_count, total_size=total_size)
+        )
+
+
+# Global instance
+archive_item_service = ArchiveItemService()

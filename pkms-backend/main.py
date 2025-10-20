@@ -35,10 +35,12 @@ from app.routers import (
     tags,
     testing_router,
     advanced_fuzzy,
+    delete_preflight,
 )
 from app.routers import unified_uploads, unified_downloads
 from app.routers.search import router as search_endpoints_router
 from app.services.chunk_service import chunk_manager
+from app.middleware.query_monitoring import QueryMonitoringMiddleware
 
 # Import database initialization
 from app.database import init_db, close_db, get_db_session
@@ -160,7 +162,11 @@ app.add_middleware(
     expose_headers=["*"]  # Expose all headers
 )
 
-# 2. Query-string sanitisation (defence-in-depth)
+# 2. Query monitoring for N+1 detection (development only)
+if settings.environment in ["development", "staging"]:
+    app.add_middleware(QueryMonitoringMiddleware, query_threshold=10, enabled=True)
+
+# 3. Query-string sanitisation (defence-in-depth)
 from app.middleware.sanitization import SanitizationMiddleware
 app.add_middleware(SanitizationMiddleware)
 
@@ -181,6 +187,7 @@ app.include_router(unified_uploads.router)
 app.include_router(unified_downloads.router)
 app.include_router(testing_router, prefix="/api/v1/testing")
 app.include_router(advanced_fuzzy.router, prefix="/api/v1")  # Re-enabled for hybrid search
+app.include_router(delete_preflight.router, prefix="/api/v1/delete-preflight")  # Unified delete preflight
 
 # Add SlowAPI middleware for rate limiting
 

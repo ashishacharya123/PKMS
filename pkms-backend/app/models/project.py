@@ -58,10 +58,25 @@ class Project(Base):
     user = relationship("User", back_populates="projects", foreign_keys="Project.created_by")
     tag_objs = relationship("Tag", secondary=project_tags, back_populates="projects")
 
-    # Many-to-many relationships
-    notes = relationship("Note", secondary=note_projects, back_populates="projects")
-    documents_multi = relationship("Document", secondary=document_projects, back_populates="projects")
-    todos_multi = relationship("Todo", secondary=todo_projects, back_populates="projects")
+    # Many-to-many relationships (ordered via association sort_order)
+    notes = relationship(
+        "Note",
+        secondary=note_projects,
+        back_populates="projects",
+        order_by=note_projects.c.sort_order
+    )
+    documents_multi = relationship(
+        "Document",
+        secondary=document_projects,
+        back_populates="projects",
+        order_by=document_projects.c.sort_order
+    )
+    todos_multi = relationship(
+        "Todo",
+        secondary=todo_projects,
+        back_populates="projects",
+        order_by=todo_projects.c.sort_order
+    )
 
     def duplicate(self, session, name_suffix="Copy", include_associated_items=False):
         """
@@ -176,6 +191,19 @@ class Project(Base):
 
     def __repr__(self):
         return f"<Project(uuid={self.uuid}, name='{self.name}', status='{self.status}')>"
+
+
+class ProjectSectionOrder(Base):
+    """Model for ordering sections within a project"""
+    
+    __tablename__ = 'project_section_order'
+    
+    project_uuid = Column(String(36), ForeignKey('projects.uuid', ondelete='CASCADE'), primary_key=True)
+    section_type = Column(Text, primary_key=True)  # enforce values in app: 'documents','notes','todos'
+    sort_order = Column(Integer, nullable=False)
+    
+    def __repr__(self):
+        return f"<ProjectSectionOrder(project_uuid={self.project_uuid}, section_type='{self.section_type}', sort_order={self.sort_order})>"
 
 
 # FTS5 trigger function (would be created in database migration)
