@@ -46,10 +46,10 @@ export default function DiaryViewPage() {
         // Load first photo if any exists
         try {
           const full = await diaryService.getEntry(entry.uuid);
-          const mediaList = await diaryService.getEntryMedia(full.uuid);
+          const mediaList = await diaryService.getEntryFiles(full.uuid);
           const firstPhoto = (mediaList || []).find((m: any) => m.media_type === 'photo');
           if (firstPhoto) {
-            const blob = await diaryService.downloadMedia(firstPhoto.uuid);
+            const blob = await diaryService.downloadFile(firstPhoto.uuid);
             const url = URL.createObjectURL(blob);
             setPhotoUrl(url);
           } else {

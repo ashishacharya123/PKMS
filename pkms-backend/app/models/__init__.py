@@ -9,10 +9,11 @@ from .project import Project
 from .diary import DiaryEntry, DiaryDailyMetadata
 from .archive import ArchiveFolder, ArchiveItem
 from .tag import Tag
+from .config import AppConfig
 
 __all__ = [
     "User", "Session",
     "Note", "NoteFile", "Document", "Todo", "Project",
     "DiaryEntry", "DiaryDailyMetadata", "ArchiveFolder", "ArchiveItem",
-    "Tag"
+    "Tag", "AppConfig"
 ]

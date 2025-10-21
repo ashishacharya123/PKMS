@@ -2872,7 +2872,15 @@ async def get_diary_table_details(
         sample_result = await db.execute(sample_query, {"created_by": current_user.uuid, "limit": 5})
         sample_entries = []
         
-        weather_labels = {0: "Clear", 1: "Partly Cloudy", 2: "Cloudy", 3: "Rain", 4: "Storm", 5: "Snow", 6: "Scorching Sun"}
+        weather_labels = {
+            0: "Freezing (0-5°C)", 
+            1: "Cold (5-10°C)", 
+            2: "Cool (10-15°C)", 
+            3: "Mild (15-20°C)", 
+            4: "Warm (20-25°C)", 
+            5: "Hot (25-35°C)", 
+            6: "Scorching (35°C+)"  # Birgunj summer! 🔥
+        }
         
         for m in sample_result.mappings():
             sample_entries.append({
@@ -2993,13 +3001,13 @@ async def get_diary_table_details(
                 "diary_daily_metadata_columns": ["uuid","created_by","date","nepali_date","day_of_week","metrics_json","created_at","updated_at"]
             },
             "weather_code_mapping": {
-                "0": "Clear",
-                "1": "Partly Cloudy",
-                "2": "Cloudy",
-                "3": "Rain",
-                "4": "Storm",
-                "5": "Snow",
-                "6": "Scorching Sun"
+                "0": "Freezing (0-5°C)",
+                "1": "Cold (5-10°C)", 
+                "2": "Cool (10-15°C)",
+                "3": "Mild (15-20°C)",
+                "4": "Warm (20-25°C)",
+                "5": "Hot (25-35°C)",
+                "6": "Scorching (35°C+)"  # Birgunj summer! 🔥
             },
             "timestamp": datetime.now(NEPAL_TZ).isoformat()
         }

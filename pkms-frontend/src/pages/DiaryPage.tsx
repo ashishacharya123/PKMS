@@ -65,9 +65,8 @@ import EncryptionStatus from '../components/diary/EncryptionStatus';
 import { AdvancedDiarySearch } from '../components/diary/AdvancedDiarySearch';
 import DiarySearch from '../components/diary/DiarySearch';
 import { KeyboardShortcutsHelp, KeyboardShortcutsButton } from '../components/diary/KeyboardShortcutsHelp';
-import { DailyMetricsPanel } from '../components/diary/DailyMetricsPanel';
+import { UnifiedHabitTracker } from '../components/diary/UnifiedHabitTracker';
 import { HistoricalEntries } from '../components/diary/HistoricalEntries';
-import { HabitTracker } from '../components/diary/HabitTracker';
 import { HabitAnalytics } from '../components/diary/HabitAnalytics';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
@@ -202,8 +201,7 @@ export function DiaryPage() {
   const [photoStatus, setPhotoStatus] = useState<string>('');
   // const [isDailyMetadataLoading, setIsDailyMetadataLoading] = useState(false); // Unused
   // const [hasMissingSnapshot, setHasMissingSnapshot] = useState(false); // Unused
-  const [wellnessHasMissing, setWellnessHasMissing] = useState(true);
-  const [wellnessIsLoading, setWellnessIsLoading] = useState(false);
+  // Removed wellness status state - no longer needed with UnifiedHabitTracker
 
   const form = useForm<DiaryFormValues>({
     initialValues: initialFormValues,
@@ -647,7 +645,7 @@ export function DiaryPage() {
       setIsUploadingPhoto(true);
       setPhotoStatus('Uploading...');
       const full = await diaryService.getEntry(form.values.uuid);
-      await diaryService.uploadMedia(full.uuid, photoFile, 'photo', undefined, (p) => setPhotoStatus(p.status));
+      await diaryService.uploadFile(full.uuid, photoFile, 'photo', undefined, undefined, (p: any) => setPhotoStatus(p.status));
       setPhotoFile(null);
       setPhotoStatus('Complete');
       notifications.show({ title: 'Photo Uploaded', message: 'Image attached to entry', color: 'green' });
@@ -791,11 +789,7 @@ export function DiaryPage() {
   // and incorrectly tried to load weather_code/location from daily metrics
   // (weather and location are entry-specific, not from daily snapshot)
 
-  // Memoized callback for wellness status changes
-  const handleWellnessStatusChange = useCallback((hasMissing: boolean, isLoading: boolean) => {
-    setWellnessHasMissing(hasMissing);
-    setWellnessIsLoading(isLoading);
-  }, []);
+  // Removed handleWellnessStatusChange - no longer needed with UnifiedHabitTracker
 
   return (
     <Container size="xl" py="lg">
@@ -874,12 +868,8 @@ export function DiaryPage() {
                   <Text fw={600} size="md">🎯 Habit Tracker</Text>
                 </Accordion.Control>
                 <Accordion.Panel>
-                  <HabitTracker
-                    selectedDate={selectedDate}
-                    onStatusChange={(hasChanges, isLoading) => {
-                      // Handle habit tracker status changes if needed
-                      console.log('Habit tracker status:', { hasChanges, isLoading });
-                    }}
+                  <UnifiedHabitTracker 
+                    selectedDate={selectedDate} 
                   />
                 </Accordion.Panel>
               </Accordion.Item>
@@ -910,13 +900,6 @@ export function DiaryPage() {
                   <div>
                     <Group gap="xs">
                       <Text fw={600} size="md">💪 Daily Wellness Tracker</Text>
-                      {wellnessIsLoading ? (
-                        <Loader size="xs" />
-                      ) : wellnessHasMissing ? (
-                        <Badge color="yellow" size="sm" variant="light">No Metadata for Today</Badge>
-                      ) : (
-                        <Badge color="green" size="sm" variant="light">✓ Tracked</Badge>
-                      )}
                     </Group>
                     <Text size="xs" c="dimmed">
                       Today: {format(new Date(), 'MMMM d, yyyy')}
@@ -924,8 +907,8 @@ export function DiaryPage() {
                   </div>
                 </Accordion.Control>
                 <Accordion.Panel>
-                  <DailyMetricsPanel
-                    onStatusChange={handleWellnessStatusChange}
+                  <UnifiedHabitTracker 
+                    selectedDate={selectedDate} 
                   />
                 </Accordion.Panel>
               </Accordion.Item>

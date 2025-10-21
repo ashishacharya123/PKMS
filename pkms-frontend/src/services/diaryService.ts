@@ -372,6 +372,43 @@ class DiaryService {
     return response.data;
   }
 
+  // --- Advanced Analytics Methods ---
+  
+  async getWorkLifeBalance(days: number = 30): Promise<any> {
+    const response = await apiService.get(
+      `${this.baseUrl}/analytics/work-life-balance?days=${days}`
+    );
+    return response.data;
+  }
+
+  async getFinancialWellness(days: number = 60): Promise<any> {
+    const response = await apiService.get(
+      `${this.baseUrl}/analytics/financial-wellness?days=${days}`
+    );
+    return response.data;
+  }
+
+  async getWeeklyPatterns(days: number = 90): Promise<any> {
+    const response = await apiService.get(
+      `${this.baseUrl}/analytics/weekly-patterns?days=${days}`
+    );
+    return response.data;
+  }
+
+  async getTemperatureMood(days: number = 60): Promise<any> {
+    const response = await apiService.get(
+      `${this.baseUrl}/analytics/temperature-mood?days=${days}`
+    );
+    return response.data;
+  }
+
+  async getWritingTherapy(days: number = 90): Promise<any> {
+    const response = await apiService.get(
+      `${this.baseUrl}/analytics/writing-therapy?days=${days}`
+    );
+    return response.data;
+  }
+
   async getHabitStreak(habitKey: string, endDate?: string): Promise<number> {
     const url = endDate
       ? `${this.baseUrl}/habits/${habitKey}/streak?end_date=${endDate}`
@@ -379,6 +416,87 @@ class DiaryService {
 
     const response = await apiService.get<{ streak: number }>(url);
     return response.data.streak;
+  }
+
+  // --- DRY Unified Habit Configuration & Tracking Methods ---
+
+  async getHabitConfig(habitType: 'default' | 'defined'): Promise<any[]> {
+    const response = await apiService.get<any[]>(
+      `${this.baseUrl}/habits/${habitType}/config`
+    );
+    return response.data;
+  }
+
+  async saveHabitConfig(
+    habitType: 'default' | 'defined', 
+    config: any[]
+  ): Promise<void> {
+    await apiService.post(
+      `${this.baseUrl}/habits/${habitType}/config`,
+      config
+    );
+  }
+
+  async addHabitToConfig(
+    habitType: 'default' | 'defined',
+    name: string,
+    unit: string,
+    goalType?: string,
+    targetQuantity?: number
+  ): Promise<any> {
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('unit', unit);
+    if (goalType) formData.append('goal_type', goalType);
+    if (targetQuantity !== undefined) formData.append('target_quantity', targetQuantity.toString());
+
+    const response = await apiService.post(
+      `${this.baseUrl}/habits/${habitType}/config/add`,
+      formData
+    );
+    return response.data;
+  }
+
+  async updateHabitInConfig(
+    habitType: 'default' | 'defined',
+    habitId: string,
+    updates: Record<string, any>
+  ): Promise<void> {
+    await apiService.put(
+      `${this.baseUrl}/habits/${habitType}/config/${habitId}`,
+      updates
+    );
+  }
+
+  async deleteHabitFromConfig(
+    habitType: 'default' | 'defined',
+    habitId: string
+  ): Promise<void> {
+    await apiService.delete(
+      `${this.baseUrl}/habits/${habitType}/config/${habitId}`
+    );
+  }
+
+  async updateDailyHabits(
+    habitType: 'default' | 'defined',
+    date: string,
+    data: Record<string, number>
+  ): Promise<any> {
+    const response = await apiService.post(
+      `${this.baseUrl}/daily-metadata/${date}/habits/${habitType}`,
+      data
+    );
+    return response.data;
+  }
+
+  async getDailyHabits(
+    habitType: 'default' | 'defined',
+    date: string
+  ): Promise<any[]> {
+    const response = await apiService.get<any[]>(
+      `${this.baseUrl}/daily-metadata/${date}/habits/${habitType}`
+    );
+    return response.data;
   }
 }
 

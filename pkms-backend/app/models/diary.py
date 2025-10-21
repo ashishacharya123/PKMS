@@ -81,8 +81,8 @@ class DiaryDailyMetadata(Base):
     daily_income = Column(Integer, nullable=True, default=0)
     daily_expense = Column(Integer, nullable=True, default=0)
     is_office_day = Column(Boolean, nullable=True, default=False)
-    metrics_json = Column(Text, nullable=False, default='{}')
-    habits_json = Column(Text, nullable=False, default='{}')
+    default_habits_json = Column(Text, nullable=False, default='[]')  # RENAMED from metrics_json
+    defined_habits_json = Column(Text, nullable=False, default='[]')  # RENAMED from habits_json
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
 

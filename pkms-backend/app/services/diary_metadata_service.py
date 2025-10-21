@@ -8,7 +8,7 @@ import logging
 import json
 import calendar
 import time
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Literal
 from datetime import datetime, date, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, extract
@@ -1374,6 +1374,174 @@ class DiaryMetadataService:
                 "first_tracked": {},
                 "last_updated": None
             }
+
+
+    # DRY: Unified update method for BOTH types
+    @staticmethod
+    async def update_daily_tracking(
+        db: AsyncSession,
+        user_uuid: str,
+        target_date: date,
+        config_type: Literal["default_habits", "defined_habits"],
+        column_name: str,  # "default_habits_json" or "defined_habits_json"
+        tracking_data: dict,
+        calculate_streaks: bool = False
+    ) -> dict:
+        """
+        Unified method for updating both default and defined habits.
+        Works for both types - DRY principle!
+        """
+        from app.services.habit_config_service import habit_config_service
+        
+        snapshot = await DiaryMetadataService.get_or_create_daily_metadata(
+            db=db, user_uuid=user_uuid, entry_date=target_date
+        )
+        
+        # Get config for validation
+        config = await habit_config_service.get_config(db, user_uuid, config_type)
+        
+        # For defined habits, filter by isActive
+        if config_type == "defined_habits":
+            valid_items = {item["habitId"]: item for item in config if item.get("isActive", False)}
+        else:
+            valid_items = {item["habitId"]: item for item in config}
+        
+        # Build daily log
+        daily_log = [
+            {"habitId": habit_id, "loggedQuantity": quantity}
+            for habit_id, quantity in tracking_data.items()
+            if habit_id in valid_items
+        ]
+        
+        # Save to appropriate column
+        setattr(snapshot, column_name, json.dumps(daily_log))
+        await db.commit()
+        await db.refresh(snapshot)
+        
+        result = {"data": tracking_data}
+        
+        # Calculate streaks only for defined_habits
+        if calculate_streaks and config_type == "defined_habits":
+            streaks = {}
+            for habit_id in tracking_data.keys():
+                if habit_id in valid_items:
+                    streak = await DiaryMetadataService.calculate_habit_streak(
+                        db, user_uuid, habit_id, target_date, config_type, column_name
+                    )
+                    streaks[habit_id] = streak
+            result["streaks"] = streaks
+        
+        return result
+
+    # DRY: Unified streak calculation for both types
+    @staticmethod
+    async def calculate_habit_streak(
+        db: AsyncSession,
+        user_uuid: str,
+        habit_id: str,
+        end_date: date,
+        config_type: Literal["default_habits", "defined_habits"],
+        column_name: str
+    ) -> int:
+        """
+        Calculate streak - works for both types!
+        Checks if habit has goalType to determine if streak applies.
+        """
+        from app.services.habit_config_service import habit_config_service
+        from app.services.unified_cache_service import dashboard_cache
+        
+        # Cache key
+        cache_key = f"habit_streak_{user_uuid}_{habit_id}_{end_date.isoformat()}"
+        cached = dashboard_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
+        # Get habit definition
+        config = await habit_config_service.get_config(db, user_uuid, config_type)
+        habit_config = next((h for h in config if h["habitId"] == habit_id), None)
+        
+        if not habit_config:
+            return 0
+        
+        # Check if habit has goals (only defined_habits)
+        if "goalType" not in habit_config:
+            return 0  # No streak for default habits
+        
+        goal_type = habit_config["goalType"]
+        target = habit_config.get("targetQuantity", 0)
+        
+        streak = 0
+        check_date = end_date
+        
+        while True:
+            daily_metadata = await DiaryMetadataService.get_daily_metadata(db, user_uuid, check_date)
+            
+            if not daily_metadata:
+                break
+            
+            # Get data from appropriate column
+            column_data = getattr(daily_metadata, column_name, None)
+            if not column_data:
+                break
+            
+            try:
+                daily_log = json.loads(column_data)
+                habit_entry = next((h for h in daily_log if h["habitId"] == habit_id), None)
+                
+                if not habit_entry:
+                    break
+                
+                quantity = habit_entry.get("loggedQuantity", 0)
+                
+                # Check success based on goal
+                success = (
+                    (goal_type == "atLeast" and quantity >= target) or
+                    (goal_type == "atMost" and quantity <= target)
+                )
+                
+                if success:
+                    streak += 1
+                    check_date -= timedelta(days=1)
+                else:
+                    break
+            except (json.JSONDecodeError, KeyError):
+                break
+        
+        dashboard_cache.set(cache_key, streak, ttl=300)
+        return streak
+
+    # DRY: Convenience wrappers that call unified method
+    @staticmethod
+    async def update_default_habits(
+        db: AsyncSession,
+        user_uuid: str,
+        target_date: date,
+        data: dict
+    ) -> dict:
+        """Convenience wrapper for default habits"""
+        return await DiaryMetadataService.update_daily_tracking(
+            db, user_uuid, target_date,
+            config_type="default_habits",
+            column_name="default_habits_json",
+            tracking_data=data,
+            calculate_streaks=False  # No streaks for defaults
+        )
+
+    @staticmethod
+    async def update_defined_habits(
+        db: AsyncSession,
+        user_uuid: str,
+        target_date: date,
+        data: dict
+    ) -> dict:
+        """Convenience wrapper for defined habits"""
+        return await DiaryMetadataService.update_daily_tracking(
+            db, user_uuid, target_date,
+            config_type="defined_habits",
+            column_name="defined_habits_json",
+            tracking_data=data,
+            calculate_streaks=True  # Calculate streaks!
+        )
 
 
 # Global instance

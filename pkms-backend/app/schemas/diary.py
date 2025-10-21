@@ -5,13 +5,13 @@ from datetime import datetime, date
 import json
 
 WEATHER_CODE_LABELS = {
-    0: "clear",
-    1: "partly_cloudy",
-    2: "cloudy",
-    3: "rain",
-    4: "storm",
-    5: "snow",
-    6: "scorching_sun",
+    0: "freezing_0_5c",
+    1: "cold_5_10c", 
+    2: "cool_10_15c",
+    3: "mild_15_20c",
+    4: "warm_20_25c",
+    5: "hot_25_35c",
+    6: "scorching_35c_plus",
 }
 
 

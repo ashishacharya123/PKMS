@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date, timedelta
 import logging
+import json
 
 from app.database import get_db
 from app.models.user import User
@@ -43,6 +44,7 @@ from app.services.diary_session_service import diary_session_service
 from app.services.diary_metadata_service import diary_metadata_service
 from app.services.diary_crud_service import diary_crud_service
 from app.services.diary_document_service import diary_document_service
+from app.services.daily_insights_service import DailyInsightsService
 
 logger = logging.getLogger(__name__)
 
@@ -852,3 +854,206 @@ async def get_diary_entry_documents(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get documents: {str(e)}"
         )
+
+
+# --- DRY Unified Habit Configuration & Tracking Endpoints ---
+
+@router.get("/habits/{habit_type}/config")
+async def get_habit_config(
+    habit_type: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get config for either default or defined habits"""
+    from app.services.habit_config_service import habit_config_service
+    
+    if habit_type not in ["default", "defined"]:
+        raise HTTPException(status_code=400, detail="habit_type must be 'default' or 'defined'")
+    
+    config_type = f"{habit_type}_habits"
+    return await habit_config_service.get_config(db, current_user.uuid, config_type)
+
+@router.post("/habits/{habit_type}/config")
+async def save_habit_config(
+    habit_type: str,
+    config: List[Dict[str, Any]],
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Save config for either type"""
+    from app.services.habit_config_service import habit_config_service
+    
+    if habit_type not in ["default", "defined"]:
+        raise HTTPException(status_code=400, detail="habit_type must be 'default' or 'defined'")
+    
+    config_type = f"{habit_type}_habits"
+    await habit_config_service.save_config(db, current_user.uuid, config_type, config)
+    return {"message": "Config saved"}
+
+@router.post("/habits/{habit_type}/config/add")
+async def add_habit_to_config(
+    habit_type: str,
+    name: str = Form(...),
+    unit: str = Form(...),
+    goal_type: Optional[str] = Form(None),
+    target_quantity: Optional[float] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Add a new habit to config"""
+    from app.services.habit_config_service import habit_config_service
+    
+    if habit_type not in ["default", "defined"]:
+        raise HTTPException(status_code=400, detail="habit_type must be 'default' or 'defined'")
+    
+    config_type = f"{habit_type}_habits"
+    return await habit_config_service.add_item(
+        db, current_user.uuid, config_type, name, unit, goal_type, target_quantity
+    )
+
+@router.put("/habits/{habit_type}/config/{habit_id}")
+async def update_habit_in_config(
+    habit_type: str,
+    habit_id: str,
+    updates: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update an existing habit in config"""
+    from app.services.habit_config_service import habit_config_service
+    
+    if habit_type not in ["default", "defined"]:
+        raise HTTPException(status_code=400, detail="habit_type must be 'default' or 'defined'")
+    
+    config_type = f"{habit_type}_habits"
+    await habit_config_service.update_item(db, current_user.uuid, config_type, habit_id, updates)
+    return {"message": "Habit updated"}
+
+@router.delete("/habits/{habit_type}/config/{habit_id}")
+async def delete_habit_from_config(
+    habit_type: str,
+    habit_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete or deactivate a habit from config"""
+    from app.services.habit_config_service import habit_config_service
+    
+    if habit_type not in ["default", "defined"]:
+        raise HTTPException(status_code=400, detail="habit_type must be 'default' or 'defined'")
+    
+    config_type = f"{habit_type}_habits"
+    await habit_config_service.delete_item(db, current_user.uuid, config_type, habit_id)
+    return {"message": "Habit deleted"}
+
+@router.post("/daily-metadata/{target_date}/habits/{habit_type}")
+async def update_daily_habits(
+    target_date: str,
+    habit_type: str,
+    data: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update daily tracking for either type"""
+    if habit_type not in ["default", "defined"]:
+        raise HTTPException(status_code=400, detail="habit_type must be 'default' or 'defined'")
+    
+    try:
+        date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    if habit_type == "default":
+        return await diary_metadata_service.update_default_habits(
+            db, current_user.uuid, date_obj, data
+        )
+    else:
+        return await diary_metadata_service.update_defined_habits(
+            db, current_user.uuid, date_obj, data
+        )
+
+@router.get("/daily-metadata/{target_date}/habits/{habit_type}")
+async def get_daily_habits(
+    target_date: str,
+    habit_type: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get daily tracking data for either type"""
+    if habit_type not in ["default", "defined"]:
+        raise HTTPException(status_code=400, detail="habit_type must be 'default' or 'defined'")
+    
+    try:
+        date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    # Get daily metadata
+    daily_metadata = await diary_metadata_service.get_daily_metadata(db, current_user.uuid, date_obj)
+    
+    if not daily_metadata:
+        return []
+    
+    # Get data from appropriate column
+    column_name = f"{habit_type}_habits_json"
+    column_data = getattr(daily_metadata, column_name, None)
+    
+    if not column_data:
+        return []
+    
+    try:
+        return json.loads(column_data)
+    except json.JSONDecodeError:
+        return []
+
+
+# === ADVANCED ANALYTICS ENDPOINTS ===
+
+@router.get("/analytics/work-life-balance")
+async def get_work_life_balance(
+    days: int = Query(30, ge=7, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get work-life balance analytics"""
+    return await DailyInsightsService.get_work_life_balance(db, current_user.uuid, days)
+
+
+@router.get("/analytics/financial-wellness")
+async def get_financial_wellness(
+    days: int = Query(60, ge=7, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get financial wellness correlation analytics"""
+    return await DailyInsightsService.get_financial_wellness_correlation(db, current_user.uuid, days)
+
+
+@router.get("/analytics/weekly-patterns")
+async def get_weekly_patterns(
+    days: int = Query(90, ge=7, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get weekly rhythm analysis"""
+    return await DailyInsightsService.get_weekly_rhythm_analysis(db, current_user.uuid, days)
+
+
+@router.get("/analytics/temperature-mood")
+async def get_temperature_mood(
+    days: int = Query(60, ge=7, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get temperature-mood correlation analytics"""
+    return await DailyInsightsService.get_temperature_mood_correlation(db, current_user.uuid, days)
+
+
+@router.get("/analytics/writing-therapy")
+async def get_writing_therapy(
+    days: int = Query(90, ge=7, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get writing therapy insights (mood vs content length)"""
+    return await DailyInsightsService.get_writing_therapy_insights(db, current_user.uuid, days)
