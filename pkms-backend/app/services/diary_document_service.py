@@ -67,8 +67,8 @@ class DiaryDocumentService:
             if not document_uuids:
                 return
             
-            # Remove duplicates to prevent sort_order gaps
-            unique_document_uuids = list(set(document_uuids))
+            # Remove duplicates while preserving order
+            unique_document_uuids = list(dict.fromkeys(document_uuids))
             if len(unique_document_uuids) != len(document_uuids):
                 logger.warning(f"Duplicate document UUIDs detected and removed: {len(document_uuids) - len(unique_document_uuids)} duplicates")
             
@@ -120,13 +120,13 @@ class DiaryDocumentService:
                     )
                 )
             
-            await db.commit()
-            
             # Update diary entry file count
             await self._update_diary_entry_file_count(db, diary_entry_uuid)
             
             # Invalidate dashboard cache
             dashboard_service.invalidate_user_cache(user_uuid, "diary_documents_linked")
+            
+            await db.commit()
         
         except HTTPException:
             # Re-raise HTTP exceptions without rollback (they're expected)
@@ -184,13 +184,13 @@ class DiaryDocumentService:
                 detail=f"Document {document_uuid} not linked to diary entry {diary_entry_uuid}"
             )
         
-        await db.commit()
-        
         # Update diary entry file count
         await self._update_diary_entry_file_count(db, diary_entry_uuid)
         
         # Invalidate dashboard cache
         dashboard_service.invalidate_user_cache(user_uuid, "diary_document_unlinked")
+        
+        await db.commit()
 
     async def reorder_diary_documents(
         self, db: AsyncSession, user_uuid: str, diary_entry_uuid: str, document_uuids: List[str]

@@ -1010,9 +1010,14 @@ async def test_diary_encryption(
             entry_data["content_file_path"] = sample_entry.content_file_path
             entry_data["file_hash"] = sample_entry.file_hash
             
-            # DiaryFile model removed - diary files now use Document + document_diary
-            # Media count is now handled via document_diary association
-            media_count = media_result.scalar()
+            # Count documents attached to this diary entry via document_diary association
+            from ..models.associations import document_diary
+            media_result = await db.execute(
+                select(func.count())
+                .select_from(document_diary)
+                .where(document_diary.c.diary_entry_uuid == sample_entry.uuid)
+            )
+            media_count = media_result.scalar() or 0
             
             return {
                 "status": "success",
@@ -1072,9 +1077,9 @@ async def file_sanity_check(
     
     try:
         add_message(f"FILE: Ensuring directory exists: {temp_dir}")
-        add_message(f"INFO: Preparing to test file: {filename}")
-        add_message(f"STATS: Test content size: {len(test_content.encode('utf-8'))} bytes")
-        
+        logger.debug("File test: Preparing to test file %s", filename)
+        logger.debug("File test: Test content size: %d bytes", len(test_content.encode('utf-8')))
+
         # Test: Create and Write
         add_message("ACTION: Starting CREATE/WRITE operation...")
         start_time = time.perf_counter()
@@ -1094,7 +1099,7 @@ async def file_sanity_check(
         add_message(f"SUCCESS: WRITE successful: {len(test_content.encode('utf-8'))} bytes written in {write_time:.2f}ms")
         
         # Test: Read
-        add_message("READ: Starting READ operation...")
+        add_message("ACTION: Starting READ operation...")
         start_time = time.perf_counter()
         read_content = file_path.read_text(encoding='utf-8')
         read_time = (time.perf_counter() - start_time) * 1000
@@ -1113,7 +1118,7 @@ async def file_sanity_check(
             add_message(f"ERROR: READ failed: Content mismatch (expected {len(test_content)} chars, got {len(read_content)} chars)")
         
         # Test: File exists and size
-        add_message("INFO: Checking file STAT information...")
+        add_message("ACTION: Checking file STAT information...")
         file_exists = file_path.exists()
         if file_exists:
             file_stat = file_path.stat()
@@ -1353,7 +1358,7 @@ async def _test_documents_crud(db: AsyncSession, user: User, cleanup_list: list,
             "title": f"TEST_DOC_{test_id}",
             "filename": f"TEST_DOC_{test_id}.txt",
             "original_name": f"Original_Test_Document_{test_id}.txt",
-            "file_path": f"/test_storage/crud_test_{test_id}.txt",
+            "file_path": str(get_data_dir() / "test_storage" / f"crud_test_{test_id}.txt"),
             "file_size": 1024,
             "mime_type": "text/plain",
             "description": f"Test document content for CRUD testing - ID: {test_id}",
@@ -2309,7 +2314,7 @@ sqlite3 data/pkm_metadata.db ".recover" | sqlite3 recovered.db
 sqlite3 data/pkm_metadata.db ".mode insert" ".output recovery.sql" "SELECT * FROM users;"
 
 # Foreign key check
-sqlite3 data/pkm_metadata.db "PRAGMA foreign_key_check;\"
+sqlite3 data/pkm_metadata.db "PRAGMA foreign_key_check;"
 """
                 }
             }
@@ -2335,7 +2340,7 @@ echo "TOKEN_HERE" | cut -d. -f2 | base64 -d | jq .
 python3 -c "
 import sqlite3
 conn = sqlite3.connect('data/pkm_metadata.db')
-sessions = conn.execute('SELECT id, created_by, created_at, expires_at FROM sessions ORDER BY created_at DESC LIMIT 10').fetchall()
+sessions = conn.execute('SELECT session_token, created_by, created_at, expires_at FROM sessions ORDER BY created_at DESC LIMIT 10').fetchall()
 print('Recent sessions:')
 for session in sessions:
     print(f'Session {session[0]}: User {session[1]}, Created: {session[2]}, Expires: {session[3]}')
@@ -2819,20 +2824,19 @@ async def get_diary_table_details(
         entries_result = await db.execute(entries_query, {"created_by": current_user.uuid})
         entries_stats = entries_result.fetchone()
         
-        # Get media table info
-        media_query = text("""
-            SELECT COUNT(*) as total_media,
-                   COUNT(DISTINCT m.diary_entry_uuid) as entries_with_media,
-                   COUNT(CASE WHEN file_type = 'photo' THEN 1 END) as photos,
-                   COUNT(CASE WHEN file_type = 'voice' THEN 1 END) as voice_recordings,
-                   COUNT(CASE WHEN file_type = 'video' THEN 1 END) as videos,
-                   SUM(file_size) as total_media_size,
-                   AVG(file_size) as avg_media_size
-            FROM diary_media m
-            JOIN diary_entries e ON e.uuid = m.diary_entry_uuid
-            WHERE e.created_by = :created_by
-        """)
-        media_result = await db.execute(media_query, {"created_by": current_user.uuid})
+        # Get document attachments via document_diary association
+        from ..models.associations import document_diary
+        media_query = select(
+            func.count().label('total_media'),
+            func.count(func.distinct(document_diary.c.diary_entry_uuid)).label('entries_with_media'),
+            func.sum(Document.file_size).label('total_media_size'),
+            func.avg(Document.file_size).label('avg_media_size')
+        ).select_from(document_diary).join(
+            Document, document_diary.c.document_uuid == Document.uuid
+        ).join(
+            DiaryEntry, document_diary.c.diary_entry_uuid == DiaryEntry.uuid
+        ).where(DiaryEntry.created_by == current_user.uuid)
+        media_result = await db.execute(media_query)
         media_stats = media_result.fetchone()
         
         # Get daily metadata table info
@@ -2896,32 +2900,33 @@ async def get_diary_table_details(
                 }
             })
         
-        # Get sample media entries
-        sample_media_query = text("""
-            SELECT m.uuid, m.diary_entry_uuid, m.mime_type, m.file_size, m.file_type,
-                   m.created_at,
-                   LENGTH(m.filename) as filename_length,
-                   LENGTH(m.file_path) as filepath_length
-            FROM diary_media m
-            JOIN diary_entries e ON e.uuid = m.diary_entry_uuid
-            WHERE e.created_by = :created_by
-            ORDER BY created_at DESC
-            LIMIT 3
-        """)
-        sample_media_result = await db.execute(sample_media_query, {"created_by": current_user.uuid})
+        # Get sample documents attached to diary entries
+        from ..models.associations import document_diary
+        sample_media_query = (
+            select(Document.uuid, document_diary.c.diary_entry_uuid,
+                   Document.mime_type, Document.file_size, Document.created_at,
+                   func.length(Document.filename).label('filename_length'),
+                   func.length(Document.file_path).label('filepath_length'))
+            .select_from(document_diary)
+            .join(Document, document_diary.c.document_uuid == Document.uuid)
+            .join(DiaryEntry, document_diary.c.diary_entry_uuid == DiaryEntry.uuid)
+            .where(DiaryEntry.created_by == current_user.uuid)
+            .order_by(Document.created_at.desc())
+            .limit(3)
+        )
+        sample_media_result = await db.execute(sample_media_query)
         sample_media = []
-        
+
         for row in sample_media_result:
             sample_media.append({
                 "uuid": row[0],
                 "diary_entry_uuid": row[1],
                 "mime_type": row[2],
                 "size_mb": round((row[3] or 0) / (1024 * 1024), 2),
-                "file_type": row[4],
-                "created_at": str(row[5]),
+                "created_at": str(row[4]),
                 "file_path_lengths": {
-                    "filename_length": row[6],
-                    "filepath_length": row[7]
+                    "filename_length": row[5],
+                    "filepath_length": row[6]
                 }
             })
         
@@ -2967,18 +2972,12 @@ async def get_diary_table_details(
             "diary_media": {
                 "total_media": media_stats[0] if media_stats else 0,
                 "entries_with_media": media_stats[1] if media_stats else 0,
-                "media_breakdown": {
-                    "photos": media_stats[2] if media_stats else 0,
-                    "voice_recordings": media_stats[3] if media_stats else 0,
-                    "videos": media_stats[4] if media_stats else 0
-                },
                 "storage": {
-                    "total_size_mb": round(media_stats[5] / (1024 * 1024), 2) if media_stats and media_stats[5] else 0,
-                    "average_size_mb": round(media_stats[6] / (1024 * 1024), 2) if media_stats and media_stats[6] else 0
+                    "total_size_mb": round(media_stats[2] / (1024 * 1024), 2) if media_stats and media_stats[2] else 0,
+                    "average_size_mb": round(media_stats[3] / (1024 * 1024), 2) if media_stats and media_stats[3] else 0
                 },
-            # Remove or compute separately if a duration field exists
-            # "media_with_duration": media_stats[7] if media_stats else 0
-        },
+                "note": "File type breakdown (photos/voice/videos) no longer available after diary_media removal"
+            },
             "sample_entries": sample_entries,
             "sample_media": sample_media,
             "fts_tables": fts_tables,
@@ -3032,10 +3031,10 @@ async def get_session_status(
                 "status": "no_active_session",
                 "message": "No active session found",
                 "created_by": current_user.uuid,
-                "timestamp": nepal_now().isoformat()
+                "timestamp": datetime.now(NEPAL_TZ).isoformat()
             }
         
-        now = nepal_now()
+        now = datetime.now(NEPAL_TZ)
         time_until_expiry = session.expires_at - now
         time_since_created = now - session.created_at
         time_since_activity = now - session.last_activity if session.last_activity else None

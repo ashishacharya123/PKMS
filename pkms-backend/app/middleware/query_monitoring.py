@@ -13,8 +13,12 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
+from contextvars import ContextVar
 
 logger = logging.getLogger(__name__)
+
+# Module-level flag to prevent duplicate listener attachment
+_listener_attached = False
 
 
 class QueryMonitoringMiddleware(BaseHTTPMiddleware):
@@ -34,22 +38,26 @@ class QueryMonitoringMiddleware(BaseHTTPMiddleware):
     
     def _setup_event_listeners(self):
         """Setup SQLAlchemy event listeners for automatic query tracking."""
+        global _listener_attached
+        
         if not self.enabled:
             return
+        
+        if _listener_attached:
+            return  # Listener already attached by another instance
             
         # Import here to avoid circular imports
         from app.database import engine
         
-        # Use thread-local storage to track queries per request
-        import threading
-        self._thread_local = threading.local()
+        # Use contextvars for async-safe per-request storage
+        self._request_context: ContextVar = ContextVar('query_monitoring_request', default=None)
         
         @event.listens_for(engine.sync_engine, "before_cursor_execute")
-        def receive_before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+        def receive_before_cursor_execute(_conn, _cursor, statement, parameters, _context, _executemany):
             """Automatically track all SQL queries."""
-            # Check if we have request state in thread local
-            if hasattr(self._thread_local, 'request_state'):
-                request_state = self._thread_local.request_state
+            # Check if we have request state in context
+            request_state = self._request_context.get()
+            if request_state is not None:
                 if hasattr(request_state, 'query_count'):
                     request_state.query_count += 1
                     request_state.queries.append({
@@ -57,6 +65,8 @@ class QueryMonitoringMiddleware(BaseHTTPMiddleware):
                         'parameters': str(parameters)[:100] if parameters else None,
                         'timestamp': time.time()
                     })
+        
+        _listener_attached = True
     
     async def dispatch(self, request: Request, call_next):
         """Monitor request for database query patterns."""
@@ -68,15 +78,16 @@ class QueryMonitoringMiddleware(BaseHTTPMiddleware):
         request.state.query_count = 0
         request.state.queries = []
         
-        # Set thread local state for event listener access
-        if hasattr(self, '_thread_local'):
-            self._thread_local.request_state = request.state
-        
-        # Track request start time
-        start_time = time.time()
-        
-        # Process request
-        response = await call_next(request)
+        # Set context var for event listener access
+        token = self._request_context.set(request.state)
+        try:
+            # Track request start time
+            start_time = time.time()
+            
+            # Process request
+            response = await call_next(request)
+        finally:
+            self._request_context.reset(token)
         
         # Calculate request duration
         duration = time.time() - start_time
@@ -112,14 +123,15 @@ class QueryMonitoringMiddleware(BaseHTTPMiddleware):
     # Removed: track_query method - now using automatic SQLAlchemy event listeners
 
 
+import os
+
 # Global instance for query tracking
+_is_production = os.getenv("ENVIRONMENT", "development").lower() == "production"
+
 query_monitor = QueryMonitoringMiddleware(
     app=None,  # Will be set when middleware is added
     query_threshold=10,  # Alert if more than 10 queries
-    enabled=True  # Set to False in production
+    enabled=not _is_production  # Automatically disabled in production
 )
 
 
-def track_query(query: str, params: Any = None):
-    """Convenience function to track queries from services."""
-    query_monitor.track_query(query, params)

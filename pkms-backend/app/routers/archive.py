@@ -45,7 +45,7 @@ async def create_folder(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error creating folder for user {current_user.uuid}")
+        logger.exception("Error creating folder for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create folder: {str(e)}"
@@ -70,7 +70,7 @@ async def list_folders(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error listing folders for user {current_user.uuid}")
+        logger.exception("Error listing folders for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list folders: {str(e)}"
@@ -92,7 +92,7 @@ async def get_folder_tree(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error getting folder tree for user {current_user.uuid}")
+        logger.exception("Error getting folder tree for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get folder tree: {str(e)}"
@@ -111,7 +111,7 @@ async def get_folder_breadcrumb(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error getting breadcrumb for folder {folder_uuid}")
+        logger.exception("Error getting breadcrumb for folder %s", folder_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get breadcrumb: {str(e)}"
@@ -130,7 +130,7 @@ async def get_folder(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error getting folder {folder_uuid}")
+        logger.exception("Error getting folder %s", folder_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get folder: {str(e)}"
@@ -152,7 +152,7 @@ async def update_folder(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error updating folder {folder_uuid}")
+        logger.exception("Error updating folder %s", folder_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update folder: {str(e)}"
@@ -172,7 +172,7 @@ async def delete_folder(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error deleting folder {folder_uuid}")
+        logger.exception("Error deleting folder %s", folder_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete folder: {str(e)}"
@@ -194,7 +194,7 @@ async def bulk_move_items(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error bulk moving items for user {current_user.uuid}")
+        logger.exception("Error bulk moving items for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to move items: {str(e)}"
@@ -230,14 +230,14 @@ async def create_item_in_folder(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error creating items in folder {folder_uuid}")
+        logger.exception("Error creating items in folder %s", folder_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create items: {str(e)}"
+            detail="Failed to create items"
         )
 
 
-@router.get("/folders/{folder_uuid}/items", response_model=List[ItemSummary])
+@router.get("/folders/{folder_uuid}/items", response_model=List[ItemResponse])
 async def list_folder_items(
     folder_uuid: str,
     search: Optional[str] = Query(None, description="Search term for item names"),
@@ -257,7 +257,7 @@ async def list_folder_items(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error listing items in folder {folder_uuid}")
+        logger.exception("Error listing items in folder %s", folder_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list items: {str(e)}"
@@ -276,7 +276,7 @@ async def get_item(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error getting item {item_uuid}")
+        logger.exception("Error getting item %s", item_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get item: {str(e)}"
@@ -298,7 +298,7 @@ async def update_item(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error updating item {item_uuid}")
+        logger.exception("Error updating item %s", item_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update item: {str(e)}"
@@ -318,7 +318,7 @@ async def delete_item(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error deleting item {item_uuid}")
+        logger.exception("Error deleting item %s", item_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete item: {str(e)}"
@@ -343,7 +343,7 @@ async def search_items(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error searching items for user {current_user.uuid}")
+        logger.exception("Error searching items for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to search items: {str(e)}"
@@ -367,7 +367,7 @@ async def upload_files(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error uploading files for user {current_user.uuid}")
+        logger.exception("Error uploading files for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to upload files: {str(e)}"
@@ -408,7 +408,7 @@ async def download_item(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error downloading item {item_uuid}")
+        logger.exception("Error downloading item %s", item_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to download item: {str(e)}"
@@ -429,7 +429,7 @@ async def download_folder(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error downloading folder {folder_uuid}")
+        logger.exception("Error downloading folder %s", folder_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to download folder: {str(e)}"
@@ -447,10 +447,10 @@ async def get_fts_status(
         # TODO: Implement FTS status check
         return {"status": "FTS not implemented yet"}
     except Exception as e:
-        logger.exception(f"Error getting FTS status")
+        logger.exception("Error getting FTS status")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get FTS status: {str(e)}"
+            detail="Failed to get FTS status"
         )
 
 
@@ -471,7 +471,7 @@ async def rename_folder(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error renaming folder {folder_uuid}")
+        logger.exception("Error renaming folder %s", folder_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to rename folder: {str(e)}"
@@ -494,7 +494,7 @@ async def rename_item(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error renaming item {item_uuid}")
+        logger.exception("Error renaming item %s", item_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to rename item: {str(e)}"

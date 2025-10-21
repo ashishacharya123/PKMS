@@ -127,7 +127,7 @@ class ArchiveItemService:
         )
         items = result.scalars().all()
         
-        return [ItemResponse.from_orm(item) for item in items]
+        return [ItemResponse.model_validate(item) for item in items]
     
     async def get_item(
         self, 
@@ -303,7 +303,7 @@ class ArchiveItemService:
         )
         items = result.scalars().all()
         
-        return [ItemSummary.from_orm(item) for item in items]
+        return [ItemSummary.model_validate(item) for item in items]
     
     async def upload_files(
         self, 
@@ -387,58 +387,26 @@ class ArchiveItemService:
                 upload_id=commit_request.file_id,
                 module="archive",
                 created_by=user_uuid,
-                metadata=commit_request.dict() if hasattr(commit_request, 'dict') else {}
+                metadata=commit_request.model_dump(exclude_none=True)
             )
-            
-            if not commit_result["success"]:
+
+            if not commit_result:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Upload commit failed: {commit_result.get('error', 'Unknown error')}"
+                    detail="Upload commit failed"
                 )
             
-            # Validate folder exists if specified
-            if commit_request.folder_uuid:
-                folder_result = await db.execute(
-                    select(ArchiveFolder).where(
-                        and_(
-                            ArchiveFolder.uuid == commit_request.folder_uuid,
-                            ArchiveFolder.created_by == user_uuid,
-                            ArchiveFolder.is_deleted.is_(False)
-                        )
-                    )
-                )
-                folder = folder_result.scalar_one_or_none()
-                if not folder:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail="Folder not found"
-                    )
-            
-            # Create archive item
-            item = await self.create_item(
-                db=db,
-                user_uuid=user_uuid,
-                name=commit_request.name or commit_result["original_filename"],
-                description=commit_request.description,
-                folder_uuid=commit_request.folder_uuid,
-                original_filename=commit_result["original_filename"],
-                stored_filename=commit_result["stored_filename"],
-                file_path=commit_result["file_path"],
-                file_size=commit_result["file_size"],
-                mime_type=commit_result["mime_type"],
-                metadata_json=commit_result.get("metadata", {})
-            )
-            
-            return item
+            # unified service already created the ArchiveItem; return it
+            return ItemResponse.model_validate(commit_result)
             
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"Error committing upload {commit_request.file_id}: {e}")
+            logger.exception("Error committing upload %s", commit_request.file_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to commit upload: {str(e)}"
-            )
+                detail="Failed to commit upload"
+            ) from e
     
     async def download_item(
         self, 
@@ -523,7 +491,7 @@ class ArchiveItemService:
                 metadata["type"] = "other"
         
         except Exception as e:
-            logger.error(f"Error extracting metadata from {file_path}: {e}")
+            logger.exception("Error extracting metadata from %s", file_path)
             metadata["error"] = str(e)
         
         return metadata

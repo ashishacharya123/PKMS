@@ -93,7 +93,7 @@ class ArchiveFolderService:
             name=sanitized_name,
             description=folder_data.description,
             parent_uuid=folder_data.parent_uuid,
-            is_favorite=folder_data.is_favorite or False,
+            is_favorite=getattr(folder_data, 'is_favorite', False),
             depth=depth,
             created_by=user_uuid
         )

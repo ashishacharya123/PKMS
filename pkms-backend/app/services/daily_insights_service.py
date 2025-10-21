@@ -28,8 +28,8 @@ class DailyInsightsService:
             
             # Get office vs home day data
             office_query = select(
-                func.avg(DiaryDailyMetadata.daily_income).label('avg_income'),
-                func.avg(DiaryDailyMetadata.daily_expense).label('avg_expense'),
+                func.coalesce(func.avg(DiaryDailyMetadata.daily_income), 0).label('avg_income'),
+                func.coalesce(func.avg(DiaryDailyMetadata.daily_expense), 0).label('avg_expense'),
                 func.count().label('total_days')
             ).where(
                 and_(
@@ -40,8 +40,8 @@ class DailyInsightsService:
             )
             
             home_query = select(
-                func.avg(DiaryDailyMetadata.daily_income).label('avg_income'),
-                func.avg(DiaryDailyMetadata.daily_expense).label('avg_expense'),
+                func.coalesce(func.avg(DiaryDailyMetadata.daily_income), 0).label('avg_income'),
+                func.coalesce(func.avg(DiaryDailyMetadata.daily_expense), 0).label('avg_expense'),
                 func.count().label('total_days')
             ).where(
                 and_(
@@ -88,17 +88,24 @@ class DailyInsightsService:
                 else:
                     home_mood = row.avg_mood
             
+            office_days_total = int(office_data.total_days) if office_data else 0
+            office_avg_income = float(office_data.avg_income or 0) if office_data else 0.0
+            office_avg_expense = float(office_data.avg_expense or 0) if office_data else 0.0
+            home_days_total = int(home_data.total_days) if home_data else 0
+            home_avg_income = float(home_data.avg_income or 0) if home_data else 0.0
+            home_avg_expense = float(home_data.avg_expense or 0) if home_data else 0.0
+
             return {
                 "office_days": {
-                    "total_days": office_data.total_days or 0,
-                    "avg_income": float(office_data.avg_income or 0),
-                    "avg_expense": float(office_data.avg_expense or 0),
+                    "total_days": office_days_total,
+                    "avg_income": office_avg_income,
+                    "avg_expense": office_avg_expense,
                     "avg_mood": float(office_mood or 0)
                 },
                 "home_days": {
-                    "total_days": home_data.total_days or 0,
-                    "avg_income": float(home_data.avg_income or 0),
-                    "avg_expense": float(home_data.avg_expense or 0),
+                    "total_days": home_days_total,
+                    "avg_income": home_avg_income,
+                    "avg_expense": home_avg_expense,
                     "avg_mood": float(home_mood or 0)
                 },
                 "analysis_period": f"{days} days",
@@ -188,8 +195,8 @@ class DailyInsightsService:
             weekly_query = select(
                 DiaryDailyMetadata.day_of_week,
                 func.avg(DiaryEntry.mood).label('avg_mood'),
-                func.avg(DiaryDailyMetadata.daily_income).label('avg_income'),
-                func.avg(DiaryDailyMetadata.daily_expense).label('avg_expense'),
+                func.coalesce(func.avg(DiaryDailyMetadata.daily_income), 0).label('avg_income'),
+                func.coalesce(func.avg(DiaryDailyMetadata.daily_expense), 0).label('avg_expense'),
                 func.count().label('total_entries')
             ).join(
                 DiaryEntry,
@@ -336,7 +343,9 @@ class DailyInsightsService:
                 insights.append("You seem happier on office days - work might be energizing!")
         
         if office_data and home_data:
-            if office_data.avg_expense > home_data.avg_expense * 1.5:
+            off_exp = float(office_data.avg_expense or 0)
+            home_exp = float(home_data.avg_expense or 0)
+            if off_exp > home_exp * 1.5:
                 insights.append("Office days have much higher expenses - consider cost optimization")
         
         return insights

@@ -7,10 +7,9 @@ across all upload modules while allowing module-specific extensions.
 This eliminates schema duplication and provides a unified interface for upload requests.
 """
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, UUID4
 from pydantic.alias_generators import to_camel
-from pydantic.types import UUID4
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime
 
 from app.utils.security import sanitize_tags
@@ -43,25 +42,9 @@ class DocumentCommitUploadRequest(BaseCommitUploadRequest):
     """Extended schema for document uploads."""
     title: str = Field(..., min_length=1, max_length=255, description="Document title")
     project_ids: List[UUID4] = Field(default_factory=list, description="Project UUIDs to link this document to")
-    is_project_exclusive: Optional[bool] = Field(False, description="If True, document is exclusive to projects and deleted when any project is deleted")
+    is_project_exclusive: bool = Field(False, description="If True, document is exclusive to projects and deleted when any project is deleted")
 
-    @field_validator('project_ids', mode='before')
-    def validate_project_ids(cls, v):
-        if not v:
-            return []
-        # Convert strings to UUID4 objects and validate
-        validated_ids = []
-        for pid in v:
-            if isinstance(pid, str):
-                try:
-                    validated_ids.append(UUID4(pid))
-                except ValueError:
-                    raise ValueError(f"Invalid UUID4 format: {pid}")
-            elif isinstance(pid, UUID4):
-                validated_ids.append(pid)
-            else:
-                raise ValueError("project_ids must contain valid UUID4 strings")
-        return validated_ids
+    # Pydantic v2 coerces list[str|UUID] → list[UUID4]; no custom validator needed
 
 
 class NoteCommitUploadRequest(BaseCommitUploadRequest):
@@ -78,14 +61,9 @@ class ArchiveCommitUploadRequest(BaseCommitUploadRequest):
 class DiaryCommitUploadRequest(BaseCommitUploadRequest):
     """Extended schema for diary file uploads."""
     entry_id: UUID4 = Field(..., description="UUID of the diary entry")
-    file_type: str = Field(..., description="File type: photo, video, voice")
+    file_type: Literal["photo", "video", "voice"] = Field(..., description="File type")
 
-    @field_validator('file_type', mode='before')
-    def validate_file_type(cls, v):
-        valid_types = ["photo", "video", "voice"]
-        if v not in valid_types:
-            raise ValueError(f"file_type must be one of: {valid_types}")
-        return v
+    # Validator no longer needed; Literal enforces allowed values
 
 
 class UploadStatusResponse(CamelCaseModel):

@@ -210,8 +210,6 @@ class DiaryCRUDService:
             uuid=entry.uuid,
             date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
             title=entry.title,
-            encrypted_blob="",  # SECURITY: Never return decrypted content in responses
-            encryption_iv=entry.encryption_iv,
             mood=entry.mood,
             weather_code=entry.weather_code,
             location=entry.location,
@@ -327,7 +325,7 @@ class DiaryCRUDService:
             if mood:
                 entry_query = entry_query.where(DiaryEntry.mood == mood)
             if day_of_week is not None:
-                entry_query = entry_query.where(DiaryEntry.day_of_week == day_of_week)
+                entry_query = entry_query.where(daily_metadata_alias.day_of_week == day_of_week)
             if templates is True:
                 entry_query = entry_query.where(DiaryEntry.is_template.is_(True))
             elif templates is False:
@@ -356,10 +354,9 @@ class DiaryCRUDService:
                         from_template_id=r.from_template_id,
                         created_at=r.created_at,
                         file_count=r.file_count,
-                        encrypted_blob="",  # SECURITY: Never return decrypted content
-                        encryption_iv="",
                         tags=tag_map.get(uuid, []),
                         content_length=r.content_length,
+                        content_available=r.content_length > 0,
                     )
                     summaries.append(summary)
             return summaries
@@ -405,7 +402,7 @@ class DiaryCRUDService:
             if mood:
                 query = query.where(DiaryEntry.mood == mood)
             if day_of_week is not None:
-                query = query.where(DiaryEntry.day_of_week == day_of_week)
+                query = query.where(daily_metadata_alias.day_of_week == day_of_week)
             if templates is True:
                 query = query.where(DiaryEntry.is_template.is_(True))
             elif templates is False:
@@ -430,10 +427,9 @@ class DiaryCRUDService:
                     from_template_id=row.from_template_id,
                     created_at=row.created_at,
                     file_count=row.file_count,
-                    encrypted_blob="",  # SECURITY: Never return decrypted content
-                    encryption_iv="",
                     tags=tag_map.get(row.uuid, []),
                     content_length=row.content_length,
+                    content_available=row.content_length > 0,
                 )
                 summaries.append(summary)
             return summaries
@@ -457,12 +453,7 @@ class DiaryCRUDService:
         Returns:
             List of DiaryEntryResponse with decrypted content
         """
-        # Check if diary is unlocked
-        if not diary_key:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Diary is locked. Please unlock diary first."
-            )
+        # No decryption in list responses; return metadata-only
         
         # Query entries for the specific date
         query = (
@@ -520,6 +511,7 @@ class DiaryCRUDService:
                 file_count=entry.file_count,
                 tags=tags,
                 content_length=entry.content_length,
+                content_available=entry.content_length > 0,
             )
             responses.append(response)
         
@@ -613,6 +605,7 @@ class DiaryCRUDService:
             file_count=entry.file_count,
             tags=tags,
             content_length=entry.content_length,
+            content_available=bool(diary_key),
         )
         return response
     
@@ -641,7 +634,24 @@ class DiaryCRUDService:
             entries = await DiaryCRUDService.get_entries_by_date(db, user_uuid, entry_date, diary_key=b"")
             if not entries:
                 raise HTTPException(status_code=404, detail=f"No diary entry found for date {entry_date}")
-            return entries[0]  # Return first entry for the date
+            e = entries[0]
+            return DiaryEntrySummary(
+                uuid=e.uuid,
+                date=e.date,
+                title=e.title,
+                mood=e.mood,
+                weather_code=e.weather_code,
+                location=e.location,
+                daily_metrics=e.daily_metrics,
+                nepali_date=e.nepali_date,
+                is_template=e.is_template,
+                from_template_id=e.from_template_id,
+                created_at=e.created_at,
+                file_count=e.file_count,
+                tags=e.tags,
+                content_length=e.content_length,
+                content_available=False,
+            )
         except ValueError:
             # Not a date, try as UUID
             pass
@@ -765,16 +775,21 @@ class DiaryCRUDService:
             entry.encryption_iv = updates.encryption_iv
             entry.file_hash = file_result["file_hash"]
             entry.encryption_tag = file_result.get("tag_b64")
-            entry.content_length = len(base64.b64decode(updates.encrypted_blob))
+            if updates.content_length is not None:
+                entry.content_length = updates.content_length
             
             await db.commit()
             
             # Move to final location
             try:
-                temp_file_path.rename(final_file_path)
-            except Exception as e:
-                logger.error(f"Failed to move updated diary file: {e}")
-                raise HTTPException(status_code=500, detail="Failed to move updated diary entry file to final storage location")
+                import os
+                os.replace(temp_file_path, final_file_path)
+            except Exception as move_error:
+                logger.exception("Failed to move updated diary file")
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to move updated diary entry file to final storage location"
+                ) from move_error
         
         # Update daily metadata if provided
         if (updates.daily_metrics is not None or 
@@ -846,7 +861,7 @@ class DiaryCRUDService:
         await db.commit()
         
         # Remove from search index
-        await search_service.remove_item(db, entry.uuid, 'diary')
+        await search_service.remove_item(db, entry.uuid)
         await db.commit()
 
     # Habit tracking methods - integrating with diary workflow

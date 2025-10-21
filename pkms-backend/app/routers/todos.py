@@ -68,10 +68,10 @@ async def list_todos(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error listing todos for user {current_user.uuid}")
+        logger.exception("Error listing todos for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list todos: {str(e)}"
+            detail="Failed to list todos"
         )
 
 
@@ -87,10 +87,10 @@ async def get_todo(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error getting todo {todo_uuid}")
+        logger.exception("Error getting todo %s", todo_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get todo: {str(e)}"
+            detail="Failed to get todo"
         )
 
 
@@ -107,10 +107,10 @@ async def update_todo(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error updating todo {todo_uuid}")
+        logger.exception("Error updating todo %s", todo_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update todo: {str(e)}"
+            detail="Failed to update todo"
         )
 
 
@@ -127,10 +127,10 @@ async def delete_todo(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error deleting todo {todo_uuid}")
+        logger.exception("Error deleting todo %s", todo_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete todo: {str(e)}"
+            detail="Failed to delete todo"
         )
 
 
@@ -147,10 +147,10 @@ async def update_todo_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error updating todo status {todo_uuid}")
+        logger.exception("Error updating todo status %s", todo_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update todo status: {str(e)}"
+            detail="Failed to update todo status"
         )
 
 
@@ -166,10 +166,10 @@ async def complete_todo(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error completing todo {todo_uuid}")
+        logger.exception("Error completing todo %s", todo_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to complete todo: {str(e)}"
+            detail="Failed to complete todo"
         )
 
 
@@ -186,10 +186,10 @@ async def get_overdue_todos(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error getting overdue todos for user {current_user.uuid}")
+        logger.exception("Error getting overdue todos for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get overdue todos: {str(e)}"
+            detail="Failed to get overdue todos"
         )
 
 
@@ -205,10 +205,10 @@ async def get_upcoming_todos(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error getting upcoming todos for user {current_user.uuid}")
+        logger.exception("Error getting upcoming todos for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get upcoming todos: {str(e)}"
+            detail="Failed to get upcoming todos"
         )
 
 
@@ -223,10 +223,10 @@ async def get_high_priority_todos(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error getting high priority todos for user {current_user.uuid}")
+        logger.exception("Error getting high priority todos for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get high priority todos: {str(e)}"
+            detail="Failed to get high priority todos"
         )
 
 
@@ -242,10 +242,10 @@ async def get_completion_analytics(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error getting completion analytics for user {current_user.uuid}")
+        logger.exception("Error getting completion analytics for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get completion analytics: {str(e)}"
+            detail="Failed to get completion analytics"
         )
 
 
@@ -260,10 +260,10 @@ async def get_productivity_insights(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error getting productivity insights for user {current_user.uuid}")
+        logger.exception("Error getting productivity insights for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get productivity insights: {str(e)}"
+            detail="Failed to get productivity insights"
         )
 
 
@@ -278,10 +278,10 @@ async def auto_update_overdue_todos(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error auto-updating overdue todos for user {current_user.uuid}")
+        logger.exception("Error auto-updating overdue todos for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to auto-update overdue todos: {str(e)}"
+            detail="Failed to auto-update overdue todos"
         )
 
 
@@ -296,8 +296,8 @@ async def get_todo_stats(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error getting todo stats for user {current_user.uuid}")
+        logger.exception("Error getting todo stats for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get todo stats: {str(e)}"
+            detail="Failed to get todo stats"
         )

@@ -1360,9 +1360,9 @@ class DiaryMetadataService:
         non_zero_days = 0
 
         for record in records:
-            if record.habits_json:
+            if record.defined_habits_json:
                 try:
-                    habits = json.loads(record.habits_json)
+                    habits = json.loads(record.defined_habits_json)
                     habit_value = habits.get("habits", {}).get(habit_key, 0)
                     streaks = habits.get("streaks", {}).get(habit_key, 0)
 
@@ -1380,12 +1380,12 @@ class DiaryMetadataService:
                     continue
 
         # Current streak (from today's record)
-        today_metadata = await DiaryMetadataService.get_daily_metadata(
+        today_metadata = await DiaryMetadataService._get_model_by_date(
             db, user_uuid, end_date
         )
-        if today_metadata and today_metadata.habits_json:
+        if today_metadata and today_metadata.defined_habits_json:
             try:
-                today_habits = json.loads(today_metadata.habits_json)
+                today_habits = json.loads(today_metadata.defined_habits_json)
                 current_streak = today_habits.get("streaks", {}).get(habit_key, 0)
             except json.JSONDecodeError:
                 pass
@@ -1402,9 +1402,9 @@ class DiaryMetadataService:
             second_count = 0
 
             for i, record in enumerate(sorted_records):
-                if record.habits_json:
+                if record.defined_habits_json:
                     try:
-                        habits = json.loads(record.habits_json)
+                        habits = json.loads(record.defined_habits_json)
                         value = habits.get("habits", {}).get(habit_key, 0)
 
                         if i < mid_point:
@@ -1701,7 +1701,7 @@ class DiaryMetadataService:
         check_date = end_date
         
         while True:
-            daily_metadata = await DiaryMetadataService.get_daily_metadata(db, user_uuid, check_date)
+            daily_metadata = await DiaryMetadataService._get_model_by_date(db, user_uuid, check_date)
             
             if not daily_metadata:
                 break

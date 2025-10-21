@@ -7,7 +7,7 @@ Refactored from dashboard.py router to follow "thin router, thick service" patte
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Final
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, and_
 
@@ -22,6 +22,7 @@ from app.models.archive import ArchiveFolder, ArchiveItem
 from app.schemas.dashboard import DashboardStats, ModuleActivity, QuickStats
 from app.services.unified_cache_service import dashboard_cache
 
+CACHE_TTL_SECONDS: Final[int] = 120
 logger = logging.getLogger(__name__)
 
 
@@ -72,7 +73,7 @@ class DashboardService:
         )
         
         # Cache the result
-        self.cache.set(cache_key, stats, ttl_seconds=120)
+        self.cache.set(cache_key, stats, ttl_seconds=CACHE_TTL_SECONDS)
         return stats
     
     async def get_recent_activity(
@@ -114,7 +115,7 @@ class DashboardService:
         )
         
         # Cache the result
-        self.cache.set(cache_key, activity, ttl_seconds=120)
+        self.cache.set(cache_key, activity, ttl_seconds=CACHE_TTL_SECONDS)
         return activity
     
     async def get_quick_stats(
@@ -177,7 +178,7 @@ class DashboardService:
         )
         
         # Cache the result
-        self.cache.set(cache_key, quick_stats, ttl_seconds=120)
+        self.cache.set(cache_key, quick_stats, ttl_seconds=CACHE_TTL_SECONDS)
         return quick_stats
     
     async def _calculate_storage(

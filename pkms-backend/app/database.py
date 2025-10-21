@@ -5,6 +5,7 @@ SQLAlchemy async setup with session management
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.engine import make_url
 from sqlalchemy import event, text, inspect
 from contextlib import asynccontextmanager
 import logging
@@ -44,7 +45,7 @@ engine_kwargs = {
         else {"check_same_thread": False, "timeout": 20} if db_url.startswith("sqlite") else {}
     ),
 }
-if db_url.endswith(":memory:"):
+    if sqlite_aiosqlite and make_url(db_url).database == ":memory:":
     # StaticPool ensures the same in-memory DB across connections
     engine_kwargs["poolclass"] = StaticPool
 engine = create_async_engine(db_url, **engine_kwargs)
@@ -239,8 +240,9 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_mood ON diary_entries(mood);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_location ON diary_entries(location);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_is_template_date ON diary_entries(created_by, is_template, date DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_media_entry_uuid ON diary_media(diary_entry_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_media_created_by ON diary_media(created_by);",
+                # Diary media now links via document_diary association
+                "CREATE INDEX IF NOT EXISTS idx_document_diary_entry_uuid ON document_diary(diary_entry_uuid);",
+                "CREATE INDEX IF NOT EXISTS idx_document_diary_document_uuid ON document_diary(document_uuid);",
                 
                 # Archive indexes
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_created_by ON archive_folders(created_by);",
@@ -274,8 +276,7 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_archive_item_tags_tag_uuid ON archive_item_tags(tag_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folder_tags_folder_uuid ON archive_folder_tags(folder_uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folder_tags_tag_uuid ON archive_folder_tags(tag_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_link_tags_link_uuid ON link_tags(link_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_link_tags_tag_uuid ON link_tags(tag_uuid);",
+                # link_tags table removed with Links module; indexes deleted
             ]
             
             created_count = 0
@@ -314,7 +315,7 @@ async def init_db():
                 # Note: We don't populate existing data here to avoid slowing down startup
                 # Data will be indexed on-demand through the search_service
 
-            except Exception as e:
+            except Exception:
                 # TODO: Narrow exception type; broad catch is temporary during recovery
                 logger.exception("ERROR: FTS5 initialization error")
                 logger.warning("WARNING: Search functionality will be limited")
