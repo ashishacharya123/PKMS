@@ -7,7 +7,7 @@ export interface ProjectBadge {
   uuid: string | null;
   name: string;
   color: string;
-  isExclusive: boolean;
+  isProjectExclusive: boolean;
   isDeleted: boolean;
 }
 
@@ -53,10 +53,10 @@ export const ProjectBadges: React.FC<ProjectBadgesProps> = ({
                 {project.isDeleted && (
                   <Text size="xs" c="dimmed">Deleted Project</Text>
                 )}
-                {project.isExclusive && !project.isDeleted && (
+                {project.isProjectExclusive && !project.isDeleted && (
                   <Text size="xs" c="orange">Exclusive Mode</Text>
                 )}
-                {!project.isExclusive && !project.isDeleted && (
+                {!project.isProjectExclusive && !project.isDeleted && (
                   <Text size="xs" c="blue">Linked Mode</Text>
                 )}
               </div>
@@ -75,7 +75,7 @@ export const ProjectBadges: React.FC<ProjectBadgesProps> = ({
               leftSection={
                 project.isDeleted ? (
                   <IconTrash size={12} />
-                ) : project.isExclusive ? (
+                ) : project.isProjectExclusive ? (
                   <IconLock size={12} />
                 ) : (
                   <IconLink size={12} />

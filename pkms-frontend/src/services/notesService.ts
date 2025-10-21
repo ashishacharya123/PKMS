@@ -12,7 +12,7 @@ export interface ProjectBadge {
   uuid: string | null;  // null if project is deleted (snapshot)
   name: string;
   color: string;
-  isExclusive: boolean;
+  isProjectExclusive: boolean;
   isDeleted: boolean;  // True if project was deleted (using snapshot name)
 }
 

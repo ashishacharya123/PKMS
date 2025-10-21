@@ -1,0 +1,76 @@
+[33mcommit 81880ae3ccc783720c407f7cbfbc5f1abce495a4[m
+Author: ashishacharya123 <ashishacharya95@gmail.com>
+Date:   Tue Oct 21 00:41:47 2025 +0545
+
+    feat: Complete DiaryFile cleanup and implement comprehensive habit tracker
+    
+    ## 🧹 Major Cleanup: DiaryFile Architecture Migration
+    
+    ### Database & Models
+    - Remove DiaryFile model entirely from diary.py
+    - Add document_diary association table for diary file management
+    - Update Document model with is_diary_exclusive flag
+    - Rename is_exclusive_mode to is_project_exclusive across all models
+    - Add is_todo_exclusive flag for subtask exclusivity
+    - Add composite indexes for common query patterns
+    - Remove redundant columns (estimated_days, actual_days, end_date)
+    - Add search_vector to Project model for FTS5
+    
+    ### Backend Services Refactoring
+    - Update dashboard_service.py: storage calculation now uses document_diary + Document
+    - Update diary_metadata_service.py: file count queries use document_diary association
+    - Update unified_upload_service.py: remove DiaryFile-specific logic
+    - Update link_count_service.py: remove DiaryFile handling
+    - Update diary_crud_service.py: remove DiaryFile methods, add document association methods
+    - Create diary_document_service.py: handle document-diary associations with ordering
+    - Update all CRUD services to use SharedUtilitiesService for common operations
+    
+    ### Schema & API Updates
+    - Remove DiaryFileResponse, DiaryFileUpload, CommitDiaryFileRequest schemas
+    - Update schemas/__init__.py: remove DiaryFile exports
+    - Update diary router: replace DiaryFile endpoints with document association endpoints
+    - Add project section reordering endpoints
+    - Update all schemas to use is_project_exclusive instead of is_exclusive_mode
+    
+    ### Frontend Architecture
+    - Update diaryService.ts: use Document + document_diary for file management
+    - Set is_diary_exclusive: true for diary files to hide from main document list
+    - Maintain client-side encryption/decryption for diary files
+    - Update file terminology from "media" to "file" consistently
+    
+    ## 🎯 Habit Tracker Implementation (Complete)
+    
+    ### Backend Implementation
+    - Add habits_json column to DiaryDailyMetadata model
+    - Implement comprehensive habit tracking in diary_metadata_service.py:
+      - update_daily_habits() with automatic streak calculation
+      - get_habit_analytics() with comprehensive analytics
+      - get_habit_insights() with personalized recommendations
+      - calculate_habit_streak() for individual habit streaks
+      - get_active_habit_keys() for recent habit tracking
+    - Add 6 new habit endpoints to diary router:
+      - POST /daily-metadata/{date}/habits - Update habits
+      - GET /daily-metadata/{date}/habits - Get habits for date
+      - GET /habits/analytics - Comprehensive analytics
+      - GET /habits/active - Active habits list
+      - GET /habits/insights - Personalized insights
+      - GET /habits/{habit_key}/streak - Individual streak calculation
+    
+    ### Frontend Implementation
+    - Create HabitTracker.tsx (438 lines): Full CRUD with custom habits, streak display
+    - Create HabitAnalytics.tsx (642 lines): Radar charts, bar charts, timeline views
+    - Add habit methods to diaryService.ts: updateHabitsForDay, getHabitAnalytics, etc.
+    - Integrate habit components into DiaryPage.tsx with accordion panels
+    - Add comprehensive TypeScript types for HabitData, HabitAnalytics, HabitInsights
+    
+    ## 🧹 Code Cleanup & Optimization
+    
+    ### Removed Unused Files
+    - Delete diary_recovered.py and diary_f250fd3_broken.py backup files
+    - Remove note_content_service.py (357 lines of over-engineered analysis)
+    - Remove /analyze and /validate-content endpoints from notes router
+    - Move essential utilities (extract_preview, validate_content_length) to note_crud_service.py
+    
+    ### Service Consolidation
+    - Create SharedUtilitiesService: consolidate duplicated utility methods
+    - Remove duplicated _batch_get_project_b
