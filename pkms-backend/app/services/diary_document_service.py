@@ -39,78 +39,106 @@ class DiaryDocumentService:
             diary_entry_uuid: Diary entry UUID
             document_uuids: List of document UUIDs to link
         """
-        # Verify diary entry exists and belongs to user
-        entry_result = await db.execute(
-            select(DiaryEntry).where(
-                and_(
-                    DiaryEntry.uuid == diary_entry_uuid,
-                    DiaryEntry.created_by == user_uuid,
-                    DiaryEntry.is_deleted.is_(False)
+        try:
+            # Verify diary entry exists and belongs to user
+            entry_result = await db.execute(
+                select(DiaryEntry).where(
+                    and_(
+                        DiaryEntry.uuid == diary_entry_uuid,
+                        DiaryEntry.created_by == user_uuid,
+                        DiaryEntry.is_deleted.is_(False)
+                    )
                 )
             )
-        )
-        if not entry_result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Diary entry {diary_entry_uuid} not found"
+            if not entry_result.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Diary entry {diary_entry_uuid} not found"
+                )
+
+            # Get current max sort_order for this diary entry
+            max_order_result = await db.execute(
+                select(func.max(document_diary.c.sort_order))
+                .where(document_diary.c.diary_entry_uuid == diary_entry_uuid)
             )
+            max_order = max_order_result.scalar() or -1
 
-        # Get current max sort_order for this diary entry
-        max_order_result = await db.execute(
-            select(func.max(document_diary.c.sort_order))
-            .where(document_diary.c.diary_entry_uuid == diary_entry_uuid)
-        )
-        max_order = max_order_result.scalar() or -1
-
-        # Link each document
-        for index, document_uuid in enumerate(document_uuids):
-            # Verify document exists and belongs to user
-            doc_result = await db.execute(
-                select(Document).where(
+            # Batch-load and validate all documents in a single query
+            if not document_uuids:
+                return
+            
+            # Remove duplicates to prevent sort_order gaps
+            unique_document_uuids = list(set(document_uuids))
+            if len(unique_document_uuids) != len(document_uuids):
+                logger.warning(f"Duplicate document UUIDs detected and removed: {len(document_uuids) - len(unique_document_uuids)} duplicates")
+            
+            # Batch verify all documents exist and belong to user
+            docs_result = await db.execute(
+                select(Document.uuid).where(
                     and_(
-                        Document.uuid == document_uuid,
+                        Document.uuid.in_(unique_document_uuids),
                         Document.created_by == user_uuid,
                         Document.is_deleted.is_(False)
                     )
                 )
             )
-            if not doc_result.scalar_one_or_none():
+            existing_doc_uuids = {row[0] for row in docs_result.fetchall()}
+            
+            # Check for missing documents
+            missing_uuids = set(unique_document_uuids) - existing_doc_uuids
+            if missing_uuids:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, 
-                    detail=f"Document {document_uuid} not found"
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Documents not found: {', '.join(missing_uuids)}"
                 )
             
-            # Check if already linked
-            existing_result = await db.execute(
-                select(document_diary.c.id)
+            # Batch check existing associations
+            existing_assocs_result = await db.execute(
+                select(document_diary.c.document_uuid)
                 .where(
                     and_(
                         document_diary.c.diary_entry_uuid == diary_entry_uuid,
-                        document_diary.c.document_uuid == document_uuid
+                        document_diary.c.document_uuid.in_(unique_document_uuids)
                     )
                 )
             )
-            if existing_result.scalar_one_or_none():
-                continue  # Skip already linked
+            already_linked_uuids = {row[0] for row in existing_assocs_result.fetchall()}
             
-            # Insert association
-            await db.execute(
-                document_diary.insert().values(
-                    document_uuid=document_uuid,
-                    diary_entry_uuid=diary_entry_uuid,
-                    sort_order=max_order + index + 1,
-                    created_at=datetime.now(NEPAL_TZ),
-                    updated_at=datetime.now(NEPAL_TZ)
+            # Filter out already linked documents
+            new_document_uuids = [uuid for uuid in unique_document_uuids if uuid not in already_linked_uuids]
+            
+            # Link each new document
+            for index, document_uuid in enumerate(new_document_uuids):
+                # Insert association
+                await db.execute(
+                    document_diary.insert().values(
+                        document_uuid=document_uuid,
+                        diary_entry_uuid=diary_entry_uuid,
+                        sort_order=max_order + index + 1,
+                        created_at=datetime.now(NEPAL_TZ),
+                        updated_at=datetime.now(NEPAL_TZ)
+                    )
                 )
-            )
+            
+            await db.commit()
+            
+            # Update diary entry file count
+            await self._update_diary_entry_file_count(db, diary_entry_uuid)
+            
+            # Invalidate dashboard cache
+            dashboard_service.invalidate_user_cache(user_uuid, "diary_documents_linked")
         
-        await db.commit()
-        
-        # Update diary entry file count
-        await self._update_diary_entry_file_count(db, diary_entry_uuid)
-        
-        # Invalidate dashboard cache
-        dashboard_service.invalidate_user_cache(user_uuid, "diary_documents_linked")
+        except HTTPException:
+            # Re-raise HTTP exceptions without rollback (they're expected)
+            raise
+        except Exception as e:
+            # Rollback on unexpected errors to leave session clean
+            await db.rollback()
+            logger.exception(f"Unexpected error linking documents to diary entry {diary_entry_uuid}: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to link documents to diary entry"
+            ) from e
 
     async def unlink_document_from_diary_entry(
         self, db: AsyncSession, user_uuid: str, diary_entry_uuid: str, document_uuid: str

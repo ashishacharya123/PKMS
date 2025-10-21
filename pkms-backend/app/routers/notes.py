@@ -185,7 +185,7 @@ async def upload_note_file(
             # Start chunked upload
             upload_result = await chunk_manager.start_upload(
                 filename=file.filename,
-                file_size=file.size or 0,
+                file_size=getattr(file, "size", 0) or 0,
                 user_uuid=current_user.uuid,
                 module="note"
             )
@@ -216,7 +216,7 @@ async def commit_note_file_upload(
     """Commit chunked file upload and attach to note"""
     try:
         # Set the note_uuid in the commit request
-        commit_request.note_uuid = note_uuid
+        commit_request = commit_request.model_copy(update={"note_uuid": note_uuid})
         
         return await note_crud_service.commit_note_file_upload(
             db, current_user.uuid, commit_request
@@ -224,11 +224,11 @@ async def commit_note_file_upload(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error committing file upload for note {note_uuid}")
+        logger.exception("Error committing file upload for note %s", note_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to commit file upload: {str(e)}"
-        )
+            detail="Failed to commit file upload"
+        ) from e
 
 
 @router.delete("/files/{file_uuid}")

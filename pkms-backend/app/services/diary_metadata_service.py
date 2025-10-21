@@ -37,6 +37,20 @@ logger = logging.getLogger(__name__)
 
 
 class DiaryMetadataService:
+    @staticmethod
+    async def _get_model_by_date(
+        db: AsyncSession, user_uuid: str, day: date
+    ) -> Optional[DiaryDailyMetadata]:
+        """Internal: fetch DiaryDailyMetadata model by day."""
+        result = await db.execute(
+            select(DiaryDailyMetadata).where(
+                and_(
+                    DiaryDailyMetadata.created_by == user_uuid,
+                    func.date(DiaryDailyMetadata.date) == day,
+                )
+            )
+        )
+        return result.scalar_one_or_none()
     """
     Service for diary metadata operations including daily metadata,
     calendar data, mood/wellness statistics, and weekly highlights.
@@ -79,7 +93,7 @@ class DiaryMetadataService:
     async def get_or_create_daily_metadata(
         db: AsyncSession,
         user_uuid: str,
-        entry_date: datetime,
+        entry_date: date | datetime,
         nepali_date: Optional[str],
         metrics: Dict[str, Any],
         daily_income: Optional[int] = None,
@@ -103,25 +117,27 @@ class DiaryMetadataService:
         Returns:
             DiaryDailyMetadata instance
         """
+        # Normalize to date for stable comparisons
+        entry_day = entry_date.date() if isinstance(entry_date, datetime) else entry_date
         result = await db.execute(
             select(DiaryDailyMetadata).where(
                 and_(
                     DiaryDailyMetadata.created_by == user_uuid,
-                    DiaryDailyMetadata.date == entry_date.date()
+                    func.date(DiaryDailyMetadata.date) == entry_day
                 )
             )
         )
         snapshot = result.scalar_one_or_none()
         
         if snapshot:
-            # Merge metrics (existing + new)
+            # Merge default habits/metrics (existing + new)
             existing = {}
             try:
-                existing = json.loads(snapshot.metrics_json or "{}")
+                existing = json.loads(snapshot.default_habits_json or "{}")
             except Exception:
                 existing = {}
             merged = {**existing, **(metrics or {})}
-            snapshot.metrics_json = json.dumps(merged)
+            snapshot.default_habits_json = json.dumps(merged)
             snapshot.nepali_date = nepali_date or snapshot.nepali_date
             if daily_income is not None:
                 snapshot.daily_income = daily_income
@@ -136,9 +152,9 @@ class DiaryMetadataService:
         # Create new snapshot
         snapshot = DiaryDailyMetadata(
             created_by=user_uuid,
-            date=entry_date.date(),
+            date=entry_day,
             nepali_date=nepali_date,
-            metrics_json=json.dumps(metrics or {}),
+            default_habits_json=json.dumps(metrics or {}),
             daily_income=daily_income or 0,
             daily_expense=daily_expense or 0,
             is_office_day=is_office_day or False,
@@ -150,7 +166,7 @@ class DiaryMetadataService:
     @staticmethod
     def format_daily_metadata(snapshot: DiaryDailyMetadata) -> DiaryDailyMetadataResponse:
         """Format daily metadata model to response schema."""
-        metrics = json.loads(snapshot.metrics_json) if snapshot.metrics_json else {}
+        metrics = json.loads(snapshot.default_habits_json) if snapshot.default_habits_json else {}
         return DiaryDailyMetadataResponse(
             date=snapshot.date.date() if isinstance(snapshot.date, datetime) else snapshot.date,
             nepali_date=snapshot.nepali_date,
@@ -208,7 +224,7 @@ class DiaryMetadataService:
                     DiaryEntry.created_by == user_uuid,
                     extract('year', DiaryEntry.date) == year,
                     extract('month', DiaryEntry.date) == month,
-                    DiaryEntry.is_template == False
+                    DiaryEntry.is_template.is_(False)
                 )
             )
             .group_by(func.date(DiaryEntry.date))
@@ -318,7 +334,7 @@ class DiaryMetadataService:
             WellnessStats with comprehensive analytics
         """
         # Calculate date range
-        end_date = datetime.now().date()
+        end_date = datetime.now(NEPAL_TZ).date()
         start_date = end_date - timedelta(days=days - 1)
         
         # Query all diary entries in range with mood
@@ -346,7 +362,7 @@ class DiaryMetadataService:
         for record in metadata_records:
             date_str = record.date.strftime("%Y-%m-%d")
             try:
-                metrics = json.loads(record.metrics_json) if record.metrics_json else {}
+                metrics = json.loads(record.default_habits_json) if record.default_habits_json else {}
             except json.JSONDecodeError:
                 metrics = {}
             daily_data[date_str] = {"metrics": metrics, "mood": None}
@@ -362,25 +378,21 @@ class DiaryMetadataService:
         # Initialize aggregators
         mood_values = []
         sleep_values = []
-        exercise_days = 0
-        exercise_minutes = []
-        screen_time_values = []
-        energy_values = []
         stress_values = []
-        water_values = []
+        exercise_values = []
+        meditation_values = []
+        screen_time_values = []
+        exercise_days = 0
         meditation_days = 0
-        gratitude_days = 0
-        social_days = 0
         sleep_quality_days = 0
         
         # Trends
         mood_trend = []
         sleep_trend = []
-        exercise_trend = []
-        screen_time_trend = []
-        energy_trend = []
         stress_trend = []
-        hydration_trend = []
+        exercise_trend = []
+        meditation_trend = []
+        screen_time_trend = []
         
         # Correlation data
         mood_sleep_pairs = []
@@ -403,31 +415,46 @@ class DiaryMetadataService:
             else:
                 mood_trend.append(WellnessTrendPoint(date=date_str, value=None))
             
-            # Sleep
-            sleep_duration = metrics.get("sleep_duration")
-            if sleep_duration is not None:
-                sleep_values.append(sleep_duration)
-                sleep_trend.append(WellnessTrendPoint(date=date_str, value=float(sleep_duration)))
-                if sleep_duration >= 7:
+            # Default habits tracking (using actual field names)
+            sleep = metrics.get("sleep")
+            if sleep is not None:
+                sleep_values.append(sleep)
+                sleep_trend.append(WellnessTrendPoint(date=date_str, value=float(sleep)))
+                if sleep >= 7:
                     sleep_quality_days += 1
                 # For correlation
                 if mood is not None:
-                    mood_sleep_pairs.append({"mood": float(mood), "sleep": float(sleep_duration)})
+                    mood_sleep_pairs.append({"mood": float(mood), "sleep": float(sleep)})
             else:
                 sleep_trend.append(WellnessTrendPoint(date=date_str, value=None))
             
+            # Stress
+            stress = metrics.get("stress")
+            if stress is not None:
+                stress_values.append(stress)
+                stress_trend.append(WellnessTrendPoint(date=date_str, value=float(stress)))
+            else:
+                stress_trend.append(WellnessTrendPoint(date=date_str, value=None))
+            
             # Exercise
-            did_exercise = metrics.get("did_exercise", False)
-            exercise_minutes_val = metrics.get("exercise_minutes", 0) if did_exercise else 0
-            if did_exercise:
-                exercise_days += 1
-                if exercise_minutes_val:
-                    exercise_minutes.append(exercise_minutes_val)
-            exercise_trend.append(WellnessTrendPoint(
-                date=date_str,
-                value=float(exercise_minutes_val) if exercise_minutes_val else 0,
-                label="Yes" if did_exercise else "No"
-            ))
+            exercise = metrics.get("exercise")
+            if exercise is not None:
+                exercise_values.append(exercise)
+                exercise_trend.append(WellnessTrendPoint(date=date_str, value=float(exercise)))
+                if exercise > 0:
+                    exercise_days += 1
+            else:
+                exercise_trend.append(WellnessTrendPoint(date=date_str, value=None))
+            
+            # Meditation
+            meditation = metrics.get("meditation")
+            if meditation is not None:
+                meditation_values.append(meditation)
+                meditation_trend.append(WellnessTrendPoint(date=date_str, value=float(meditation)))
+                if meditation > 0:
+                    meditation_days += 1
+            else:
+                meditation_trend.append(WellnessTrendPoint(date=date_str, value=None))
             
             # Screen time
             screen_time = metrics.get("screen_time")
@@ -436,51 +463,19 @@ class DiaryMetadataService:
                 screen_time_trend.append(WellnessTrendPoint(date=date_str, value=float(screen_time)))
             else:
                 screen_time_trend.append(WellnessTrendPoint(date=date_str, value=None))
-            
-            # Energy
-            energy = metrics.get("energy_level")
-            if energy is not None:
-                energy_values.append(energy)
-                energy_trend.append(WellnessTrendPoint(date=date_str, value=float(energy)))
-            else:
-                energy_trend.append(WellnessTrendPoint(date=date_str, value=None))
-            
-            # Stress
-            stress = metrics.get("stress_level")
-            if stress is not None:
-                stress_values.append(stress)
-                stress_trend.append(WellnessTrendPoint(date=date_str, value=float(stress)))
-            else:
-                stress_trend.append(WellnessTrendPoint(date=date_str, value=None))
-            
-            # Water intake
-            water = metrics.get("water_intake")
-            if water is not None:
-                water_values.append(water)
-                hydration_trend.append(WellnessTrendPoint(date=date_str, value=float(water)))
-            else:
-                hydration_trend.append(WellnessTrendPoint(date=date_str, value=None))
-            
-            # Habits
-            if metrics.get("did_meditation"):
-                meditation_days += 1
-            if metrics.get("gratitude_practice"):
-                gratitude_days += 1
-            if metrics.get("social_interaction"):
-                social_days += 1
         
         # Calculate averages with proper floating point handling
         avg_mood = round(sum(mood_values) / len(mood_values), 2) if mood_values else None
         avg_sleep = round(sum(sleep_values) / len(sleep_values), 2) if sleep_values else None
-        avg_screen_time = round(sum(screen_time_values) / len(screen_time_values), 2) if screen_time_values else None
-        avg_energy = round(sum(energy_values) / len(energy_values), 2) if energy_values else None
         avg_stress = round(sum(stress_values) / len(stress_values), 2) if stress_values else None
-        avg_water = round(sum(water_values) / len(water_values), 2) if water_values else None
-        avg_exercise_minutes = round(sum(exercise_minutes) / len(exercise_minutes), 2) if exercise_minutes else None
+        avg_exercise = round(sum(exercise_values) / len(exercise_values), 2) if exercise_values else None
+        avg_meditation = round(sum(meditation_values) / len(meditation_values), 2) if meditation_values else None
+        avg_screen_time = round(sum(screen_time_values) / len(screen_time_values), 2) if screen_time_values else None
         
-        # Exercise frequency per week
-        weeks = days / 7.0
-        exercise_freq_per_week = exercise_days / weeks if weeks > 0 else 0
+        # Get defined habits summary
+        defined_habits_summary = await DiaryMetadataService._get_defined_habits_summary(
+            db, user_uuid, start_date, end_date
+        )
         
         # Calculate correlation coefficient (Pearson r) for mood vs sleep
         correlation_coefficient = None
@@ -494,15 +489,15 @@ class DiaryMetadataService:
                 sum_sleep = sum(sleeps)
                 sum_mood_sq = sum(m * m for m in moods)
                 sum_sleep_sq = sum(s * s for s in sleeps)
-                sum_mood_sleep = sum(m * s for m, s in zip(moods, sleeps))
+                sum_mood_sleep = sum(m * s for m, s in zip(moods, sleeps, strict=True))
                 
                 numerator = n * sum_mood_sleep - sum_mood * sum_sleep
                 denominator = ((n * sum_mood_sq - sum_mood ** 2) * (n * sum_sleep_sq - sum_sleep ** 2)) ** 0.5
                 
                 if denominator != 0:
                     correlation_coefficient = numerator / denominator
-            except Exception as e:
-                logger.warning(f"Failed to calculate correlation: {e}")
+            except Exception:
+                logger.exception("Failed to calculate correlation")
         
         # Calculate wellness score (0-100)
         score_components = {}
@@ -632,8 +627,45 @@ class DiaryMetadataService:
             })
         
         net_savings = total_income - total_expense
-        avg_daily_income = total_income / days if days > 0 else None
-        avg_daily_expense = total_expense / days if days > 0 else None
+        
+        # Calculate daily averages using multiple time periods
+        # Always calculate 30-day, 3-month, and 6-month averages for comparison
+        thirty_days_ago = datetime.now(NEPAL_TZ).date() - timedelta(days=29)  # 30 days total
+        three_months_ago = datetime.now(NEPAL_TZ).date() - timedelta(days=89)  # ~3 months
+        six_months_ago = datetime.now(NEPAL_TZ).date() - timedelta(days=179)  # ~6 months
+        
+        # 30-day averages (always calculated)
+        recent_metadata_30d = await DiaryMetadataService._get_metadata_in_date_range(
+            db, user_uuid, thirty_days_ago, end_date
+        )
+        recent_income_30d = sum(record.daily_income or 0 for record in recent_metadata_30d)
+        recent_expense_30d = sum(record.daily_expense or 0 for record in recent_metadata_30d)
+        avg_daily_income = recent_income_30d / 30.0 if recent_income_30d > 0 else None
+        avg_daily_expense = recent_expense_30d / 30.0 if recent_expense_30d > 0 else None
+        
+        # 3-month averages (only if we have enough data)
+        avg_daily_income_3m = None
+        avg_daily_expense_3m = None
+        if days >= 90:  # Only calculate if requested period is 3+ months
+            recent_metadata_3m = await DiaryMetadataService._get_metadata_in_date_range(
+                db, user_uuid, three_months_ago, end_date
+            )
+            recent_income_3m = sum(record.daily_income or 0 for record in recent_metadata_3m)
+            recent_expense_3m = sum(record.daily_expense or 0 for record in recent_metadata_3m)
+            avg_daily_income_3m = recent_income_3m / 90.0 if recent_income_3m > 0 else None
+            avg_daily_expense_3m = recent_expense_3m / 90.0 if recent_expense_3m > 0 else None
+        
+        # 6-month averages (only if we have enough data)
+        avg_daily_income_6m = None
+        avg_daily_expense_6m = None
+        if days >= 180:  # Only calculate if requested period is 6+ months
+            recent_metadata_6m = await DiaryMetadataService._get_metadata_in_date_range(
+                db, user_uuid, six_months_ago, end_date
+            )
+            recent_income_6m = sum(record.daily_income or 0 for record in recent_metadata_6m)
+            recent_expense_6m = sum(record.daily_expense or 0 for record in recent_metadata_6m)
+            avg_daily_income_6m = recent_income_6m / 180.0 if recent_income_6m > 0 else None
+            avg_daily_expense_6m = recent_expense_6m / 180.0 if recent_expense_6m > 0 else None
         
         # Add financial insights
         if net_savings > 0:
@@ -664,6 +696,35 @@ class DiaryMetadataService:
                     "metric": "financial"
                 })
         
+        # Long-term trend insights
+        if avg_daily_income and avg_daily_income_3m and avg_daily_income_6m:
+            if avg_daily_income > avg_daily_income_3m > avg_daily_income_6m:
+                insights.append({
+                    "type": "positive",
+                    "message": "Income is trending upward over the past 6 months! Great financial growth.",
+                    "metric": "financial_trend"
+                })
+            elif avg_daily_income < avg_daily_income_3m < avg_daily_income_6m:
+                insights.append({
+                    "type": "negative",
+                    "message": "Income has been declining over the past 6 months. Consider reviewing income sources.",
+                    "metric": "financial_trend"
+                })
+        
+        if avg_daily_expense and avg_daily_expense_3m and avg_daily_expense_6m:
+            if avg_daily_expense < avg_daily_expense_3m < avg_daily_expense_6m:
+                insights.append({
+                    "type": "positive",
+                    "message": "Expenses are trending downward over the past 6 months! Great cost management.",
+                    "metric": "financial_trend"
+                })
+            elif avg_daily_expense > avg_daily_expense_3m > avg_daily_expense_6m:
+                insights.append({
+                    "type": "negative",
+                    "message": "Expenses have been increasing over the past 6 months. Consider reviewing spending habits.",
+                    "metric": "financial_trend"
+                })
+        
         # Days with data
         days_with_data = len([d for d in daily_data.values() if d["metrics"] or d["mood"] is not None])
         
@@ -672,39 +733,196 @@ class DiaryMetadataService:
             period_end=end_date.strftime("%Y-%m-%d"),
             total_days=days,
             days_with_data=days_with_data,
-            wellness_score=round(overall_wellness_score, 1) if overall_wellness_score else None,
             average_mood=round(avg_mood, 2) if avg_mood else None,
-            average_sleep=round(avg_sleep, 1) if avg_sleep else None,
             mood_trend=mood_trend,
             mood_distribution=mood_distribution,
+            average_sleep=round(avg_sleep, 1) if avg_sleep else None,
             sleep_trend=sleep_trend,
-            sleep_quality_days=sleep_quality_days,
-            exercise_trend=exercise_trend,
-            days_exercised=exercise_days,
-            exercise_frequency_per_week=round(exercise_freq_per_week, 1),
-            average_exercise_minutes=round(avg_exercise_minutes, 1) if avg_exercise_minutes else None,
-            screen_time_trend=screen_time_trend,
-            average_screen_time=round(avg_screen_time, 1) if avg_screen_time else None,
-            energy_trend=energy_trend,
-            stress_trend=stress_trend,
-            average_energy=round(avg_energy, 1) if avg_energy else None,
             average_stress=round(avg_stress, 1) if avg_stress else None,
-            hydration_trend=hydration_trend,
-            average_water_intake=round(avg_water, 1) if avg_water else None,
-            meditation_days=meditation_days,
-            gratitude_days=gratitude_days,
-            social_interaction_days=social_days,
-            mood_sleep_correlation=mood_sleep_pairs,
-            correlation_coefficient=round(correlation_coefficient, 3) if correlation_coefficient else None,
-            wellness_components=score_components,
+            stress_trend=stress_trend,
+            average_exercise=round(avg_exercise, 1) if avg_exercise else None,
+            exercise_trend=exercise_trend,
+            average_meditation=round(avg_meditation, 1) if avg_meditation else None,
+            meditation_trend=meditation_trend,
+            average_screen_time=round(avg_screen_time, 1) if avg_screen_time else None,
+            screen_time_trend=screen_time_trend,
             financial_trend=financial_trend,
             total_income=round(total_income, 2),
             total_expense=round(total_expense, 2),
             net_savings=round(net_savings, 2),
             average_daily_income=round(avg_daily_income, 2) if avg_daily_income else None,
             average_daily_expense=round(avg_daily_expense, 2) if avg_daily_expense else None,
+            average_daily_income_3m=round(avg_daily_income_3m, 2) if avg_daily_income_3m else None,
+            average_daily_expense_3m=round(avg_daily_expense_3m, 2) if avg_daily_expense_3m else None,
+            average_daily_income_6m=round(avg_daily_income_6m, 2) if avg_daily_income_6m else None,
+            average_daily_expense_6m=round(avg_daily_expense_6m, 2) if avg_daily_expense_6m else None,
+            defined_habits_summary=defined_habits_summary,
             insights=insights
         )
+    
+    @staticmethod
+    async def _get_defined_habits_summary(
+        db: AsyncSession,
+        user_uuid: str,
+        start_date: date,
+        end_date: date
+    ) -> Dict[str, Any]:
+        """Get summary of defined habits for the period"""
+        try:
+            from app.services.habit_config_service import habit_config_service
+            
+            # Get user's defined habits config
+            defined_habits = await habit_config_service.get_config(db, user_uuid, "defined_habits")
+            if not defined_habits:
+                return {}
+            
+            # Get metadata records for the period
+            metadata_records = await DiaryMetadataService._get_metadata_in_date_range(
+                db, user_uuid, start_date, end_date
+            )
+            
+            # Aggregate defined habits data
+            habits_summary = {}
+            for habit in defined_habits:
+                habit_id = habit.get("habitId")
+                habit_name = habit.get("name", habit_id)
+                if not habit_id:
+                    continue
+                
+                values = []
+                days_tracked = 0
+                
+                for record in metadata_records:
+                    if record.defined_habits_json:
+                        try:
+                            habits_data = json.loads(record.defined_habits_json)
+                            habit_value = habits_data.get("habits", {}).get(habit_id)
+                            if habit_value is not None:
+                                values.append(habit_value)
+                                days_tracked += 1
+                        except json.JSONDecodeError:
+                            continue
+                
+                if values:
+                    habits_summary[habit_id] = {
+                        "name": habit_name,
+                        "unit": habit.get("unit", ""),
+                        "average": round(sum(values) / len(values), 2),
+                        "total": sum(values),
+                        "days_tracked": days_tracked,
+                        "goal_type": habit.get("goalType"),
+                        "target_quantity": habit.get("targetQuantity")
+                    }
+            
+            return habits_summary
+            
+        except Exception:
+            logger.exception("Error getting defined habits summary")
+            return {}
+    
+    @staticmethod
+    async def _get_wellness_data_for_period(
+        db: AsyncSession,
+        user_uuid: str,
+        start_date: date,
+        end_date: date
+    ) -> Dict[str, Any]:
+        """Get wellness data for a specific period"""
+        try:
+            # Get metadata records for the period
+            metadata_records = await DiaryMetadataService._get_metadata_in_date_range(
+                db, user_uuid, start_date, end_date
+            )
+            
+            # Get diary entries for mood data
+            entries_query = (
+                select(DiaryEntry)
+                .where(
+                    and_(
+                        DiaryEntry.created_by == user_uuid,
+                        func.date(DiaryEntry.date) >= start_date,
+                        func.date(DiaryEntry.date) <= end_date
+                    )
+                )
+                .order_by(DiaryEntry.date)
+            )
+            entries_result = await db.execute(entries_query)
+            entries = entries_result.scalars().all()
+            
+            # Aggregate wellness data
+            mood_values = []
+            sleep_values = []
+            stress_values = []
+            exercise_values = []
+            meditation_values = []
+            screen_time_values = []
+            
+            # Process each day
+            for single_date in (start_date + timedelta(n) for n in range((end_date - start_date).days + 1)):
+                date_str = single_date.strftime("%Y-%m-%d")
+                
+                # Find mood for this date
+                mood = None
+                for entry in entries:
+                    if entry.date.strftime("%Y-%m-%d") == date_str:
+                        mood = entry.mood
+                        break
+                
+                if mood is not None:
+                    mood_values.append(mood)
+                
+                # Find metrics for this date
+                metrics = {}
+                for record in metadata_records:
+                    if record.date.strftime("%Y-%m-%d") == date_str:
+                        try:
+                            metrics = json.loads(record.default_habits_json) if record.default_habits_json else {}
+                        except json.JSONDecodeError:
+                            metrics = {}
+                        break
+                
+                # Extract default habits
+                for habit_name in ["sleep", "stress", "exercise", "meditation", "screen_time"]:
+                    value = metrics.get(habit_name)
+                    if value is not None:
+                        if habit_name == "sleep":
+                            sleep_values.append(value)
+                        elif habit_name == "stress":
+                            stress_values.append(value)
+                        elif habit_name == "exercise":
+                            exercise_values.append(value)
+                        elif habit_name == "meditation":
+                            meditation_values.append(value)
+                        elif habit_name == "screen_time":
+                            screen_time_values.append(value)
+            
+            # Calculate 30-day daily averages for financial data
+            thirty_days_ago = datetime.now(NEPAL_TZ).date() - timedelta(days=29)  # 30 days total
+            recent_metadata = await DiaryMetadataService._get_metadata_in_date_range(
+                db, user_uuid, thirty_days_ago, end_date
+            )
+            
+            recent_income = sum(record.daily_income or 0 for record in recent_metadata)
+            recent_expense = sum(record.daily_expense or 0 for record in recent_metadata)
+            
+            avg_daily_income = recent_income / 30.0 if recent_income > 0 else None
+            avg_daily_expense = recent_expense / 30.0 if recent_expense > 0 else None
+            
+            # Calculate averages
+            return {
+                "average_mood": round(sum(mood_values) / len(mood_values), 2) if mood_values else None,
+                "average_sleep": round(sum(sleep_values) / len(sleep_values), 2) if sleep_values else None,
+                "average_stress": round(sum(stress_values) / len(stress_values), 2) if stress_values else None,
+                "average_exercise": round(sum(exercise_values) / len(exercise_values), 2) if exercise_values else None,
+                "average_meditation": round(sum(meditation_values) / len(meditation_values), 2) if meditation_values else None,
+                "average_screen_time": round(sum(screen_time_values) / len(screen_time_values), 2) if screen_time_values else None,
+                "average_daily_income": round(avg_daily_income, 2) if avg_daily_income else None,
+                "average_daily_expense": round(avg_daily_expense, 2) if avg_daily_expense else None,
+            }
+            
+        except Exception:
+            logger.exception("Error getting wellness data for period")
+            return {}
     
     @staticmethod
     async def get_weekly_highlights(
@@ -814,6 +1032,16 @@ class DiaryMetadataService:
             total_income += float(record.daily_income or 0)
             total_expense += float(record.daily_expense or 0)
         
+        # Get wellness data for the week
+        wellness_data = await DiaryMetadataService._get_wellness_data_for_period(
+            db, user_uuid, start_date, end_date
+        )
+        
+        # Get defined habits summary
+        defined_habits_summary = await DiaryMetadataService._get_defined_habits_summary(
+            db, user_uuid, start_date, end_date
+        )
+        
         highlights = WeeklyHighlights(
             period_start=start_date.strftime("%Y-%m-%d"),
             period_end=end_date.strftime("%Y-%m-%d"),
@@ -827,6 +1055,8 @@ class DiaryMetadataService:
             total_income=round(total_income, 2),
             total_expense=round(total_expense, 2),
             net_savings=round(total_income - total_expense, 2),
+            **wellness_data,
+            defined_habits_summary=defined_habits_summary
         )
         
         # Cache the result
@@ -857,8 +1087,8 @@ class DiaryMetadataService:
         """
         try:
             date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
-        except ValueError:
-            raise ValueError("Invalid date format. Expected YYYY-MM-DD")
+        except ValueError as err:
+            raise ValueError("Invalid date format. Expected YYYY-MM-DD") from err
         
         result = await db.execute(
             select(DiaryDailyMetadata)
@@ -927,7 +1157,7 @@ class DiaryMetadataService:
         user_uuid: str,
         target_date: date,
         habits_data: dict,
-        units: dict = None
+        units: Optional[dict] = None
     ) -> dict:
         """
         Update habits for specific day with automatic streak calculation.
@@ -952,17 +1182,17 @@ class DiaryMetadataService:
 
             # Get previous day's streaks for calculation
             previous_date = target_date - timedelta(days=1)
-            previous_metadata = await DiaryMetadataService.get_daily_metadata(
-                db, user_uuid, previous_date
+            previous_snapshot = await DiaryMetadataService._get_model_by_date(
+                db=db, user_uuid=user_uuid, day=previous_date
             )
 
             # Parse previous habits data
             previous_habits = {}
-            if previous_metadata and previous_metadata.habits_json:
+            if previous_snapshot and previous_snapshot.defined_habits_json:
                 try:
-                    previous_habits = json.loads(previous_metadata.habits_json)
+                    previous_habits = json.loads(previous_snapshot.defined_habits_json)
                 except json.JSONDecodeError:
-                    logger.warning(f"Invalid habits_json for user {user_uuid} on {previous_date}")
+                    logger.warning(f"Invalid defined_habits_json for user {user_uuid} on {previous_date}")
                     previous_habits = {}
 
             previous_streaks = previous_habits.get("streaks", {})
@@ -977,11 +1207,11 @@ class DiaryMetadataService:
 
             # Update first tracked dates for new habits
             current_habits = {}
-            if snapshot.habits_json:
+            if snapshot.defined_habits_json:
                 try:
-                    current_habits = json.loads(snapshot.habits_json)
+                    current_habits = json.loads(snapshot.defined_habits_json)
                 except json.JSONDecodeError:
-                    logger.warning(f"Invalid habits_json for user {user_uuid} on {target_date}")
+                    logger.warning(f"Invalid defined_habits_json for user {user_uuid} on {target_date}")
                     current_habits = {}
 
             first_tracked = current_habits.get("first_tracked", {})
@@ -989,7 +1219,7 @@ class DiaryMetadataService:
                 if habit_key not in first_tracked:
                     first_tracked[habit_key] = target_date.isoformat()
 
-            # Build updated habits_json
+            # Build updated defined_habits_json
             updated_habits_json = {
                 "habits": habits_data,
                 "streaks": new_streaks,
@@ -999,14 +1229,14 @@ class DiaryMetadataService:
             }
 
             # Update record
-            snapshot.habits_json = json.dumps(updated_habits_json)
+            snapshot.defined_habits_json = json.dumps(updated_habits_json)
             await db.commit()
             await db.refresh(snapshot)
 
             return updated_habits_json
 
-        except Exception as e:
-            logger.error(f"Error updating habits for user {user_uuid} on {target_date}: {e}")
+        except Exception:
+            logger.exception("Error updating habits for user %s on %s", user_uuid, target_date)
             await db.rollback()
             raise
 
@@ -1038,11 +1268,11 @@ class DiaryMetadataService:
                 db, user_uuid, check_date
             )
 
-            if not daily_metadata or not daily_metadata.habits_json:
+            if not daily_metadata or not daily_metadata.defined_habits_json:
                 break
 
             try:
-                habits_data = json.loads(daily_metadata.habits_json)
+                habits_data = json.loads(daily_metadata.defined_habits_json)
                 habit_values = habits_data.get("habits", {})
 
                 # Check if habit has non-zero value
@@ -1053,7 +1283,7 @@ class DiaryMetadataService:
                     break
 
             except json.JSONDecodeError:
-                logger.warning(f"Invalid habits_json for user {user_uuid} on {check_date}")
+                logger.warning(f"Invalid defined_habits_json for user {user_uuid} on {check_date}")
                 break
 
         return streak
@@ -1103,8 +1333,8 @@ class DiaryMetadataService:
 
             return analytics
 
-        except Exception as e:
-            logger.error(f"Error getting habit analytics for user {user_uuid}: {e}")
+        except Exception:
+            logger.exception("Error getting habit analytics for user %s", user_uuid)
             return {}
 
     @staticmethod
@@ -1240,8 +1470,8 @@ class DiaryMetadataService:
 
             return sorted(list(all_habits))
 
-        except Exception as e:
-            logger.error(f"Error getting active habits for user {user_uuid}: {e}")
+        except Exception:
+            logger.exception("Error getting active habits for user %s", user_uuid)
             return []
 
     @staticmethod
@@ -1325,8 +1555,8 @@ class DiaryMetadataService:
 
             return insights
 
-        except Exception as e:
-            logger.error(f"Error generating habit insights for user {user_uuid}: {e}")
+        except Exception:
+            logger.exception("Error generating habit insights for user %s", user_uuid)
             return []
 
     @staticmethod
@@ -1350,12 +1580,9 @@ class DiaryMetadataService:
             target_date = datetime.now(NEPAL_TZ).date()
 
         try:
-            daily_metadata = await DiaryMetadataService.get_daily_metadata(
-                db, user_uuid, target_date
-            )
-
-            if daily_metadata and daily_metadata.habits_json:
-                return json.loads(daily_metadata.habits_json)
+            snapshot = await DiaryMetadataService._get_model_by_date(db, user_uuid, target_date)
+            if snapshot and snapshot.habits_json:
+                return json.loads(snapshot.habits_json)
             else:
                 return {
                     "habits": {},
@@ -1365,8 +1592,8 @@ class DiaryMetadataService:
                     "last_updated": None
                 }
 
-        except Exception as e:
-            logger.error(f"Error getting today's habits for user {user_uuid}: {e}")
+        except Exception:
+            logger.exception("Error getting today's habits for user %s", user_uuid)
             return {
                 "habits": {},
                 "streaks": {},

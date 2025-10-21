@@ -62,7 +62,7 @@ class DocumentCRUDService:
                     "tags": payload.tags,
                     "project_ids": payload.project_ids,
                     "is_project_exclusive": payload.is_project_exclusive,
-                    "original_name": payload.original_name if hasattr(payload, 'original_name') else ""
+                    "is_diary_exclusive": payload.is_diary_exclusive,
                 }
             )
 
@@ -76,6 +76,7 @@ class DocumentCRUDService:
 
             # Index in search (DB already committed by service)
             await search_service.index_item(db, document_with_tags, 'document')
+            await db.commit()
 
             # OPTIMIZED: Use batch badge loading for single item to avoid N+1
             project_badges = await self._batch_get_project_badges(
@@ -382,35 +383,27 @@ class DocumentCRUDService:
         if not doc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
         
-        # Store file path before deleting the document
-        file_path_to_delete = get_file_storage_dir() / doc.file_path
-
         # Log archive status for clarity
         if doc.is_archived:
-            logger.info(f"Deleting archived document {document_uuid}")
+            logger.info(f"Soft-deleting archived document {document_uuid}")
         else:
-            logger.info(f"Deleting document {document_uuid} (not archived)")
+            logger.info(f"Soft-deleting document {document_uuid} (not archived)")
         
-        # Decrement tag usage counts BEFORE deleting document
+        # Decrement tag usage counts BEFORE soft deleting document
         await tag_service.decrement_tags_on_delete(db, doc)
 
-        # Remove from search index BEFORE deleting document
+        # Remove from search index BEFORE soft deleting document
         await search_service.remove_item(db, document_uuid)
-            
-        await db.delete(doc)
-        await db.commit()
         
-        # Delete the physical file AFTER successful DB commit
-        try:
-            await asyncio.to_thread(file_path_to_delete.unlink, missing_ok=True)
-            logger.info(f"Deleted document file: {file_path_to_delete}")
-        except Exception as e:
-            logger.warning(f"Could not delete file {file_path_to_delete}: {e}")
+        # Soft delete: set is_deleted flag instead of hard delete
+        doc.is_deleted = True
+        await db.add(doc)
+        await db.commit()
 
         # Invalidate dashboard cache
         dashboard_service.invalidate_user_cache(user_uuid, "document_deleted")
 
-        logger.info(f"Document {document_uuid} deleted successfully")
+        logger.info(f"Document {document_uuid} soft-deleted successfully")
 
     async def download_document(
         self, db: AsyncSession, user_uuid: str, document_uuid: str
@@ -461,6 +454,44 @@ class DocumentCRUDService:
             tags=[t.name for t in doc.tag_objs] if doc.tag_objs else [],
             projects=project_badges or []
         )
+
+    # Helper: batch-load project badges for items to avoid N+1
+    async def _batch_get_project_badges(
+        self,
+        db: AsyncSession,
+        item_uuids: List[str],
+        association_table,
+        item_uuid_field: str,
+    ) -> Dict[str, List[ProjectBadge]]:
+        if not item_uuids:
+            return {}
+        # Fetch all junctions for these items
+        junction_result = await db.execute(
+            select(association_table).where(getattr(association_table.c, item_uuid_field).in_(item_uuids))
+        )
+        junctions = junction_result.fetchall()
+        # Collect live project UUIDs
+        project_uuids = {j._mapping["project_uuid"] for j in junctions if j._mapping["project_uuid"]}
+        projects = []
+        if project_uuids:
+            proj_result = await db.execute(select(Project).where(Project.uuid.in_(project_uuids)))
+            projects = proj_result.scalars().all()
+        project_map = {p.uuid: p for p in projects}
+        # Group by item and build badges
+        out: Dict[str, List[ProjectBadge]] = {u: [] for u in item_uuids}
+        for j in junctions:
+            doc_uuid = j._mapping[item_uuid_field]
+            pj = j._mapping["project_uuid"]
+            if pj and pj in project_map:
+                p = project_map[pj]
+                out[doc_uuid].append(
+                    ProjectBadge(uuid=p.uuid, name=p.name, is_project_exclusive=j._mapping["is_project_exclusive"], is_deleted=False)
+                )
+            elif j._mapping.get("project_name_snapshot"):
+                out[doc_uuid].append(
+                    ProjectBadge(uuid=None, name=j._mapping["project_name_snapshot"], is_project_exclusive=j._mapping["is_project_exclusive"], is_deleted=True)
+                )
+        return out
 
 
 # Global instance

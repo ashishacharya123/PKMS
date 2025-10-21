@@ -4,9 +4,7 @@ Project Model for Organizing Work Items
 Projects can contain todos, documents, notes, and have tags for better organization.
 Supports FTS5 search and project duplication functionality.
 """
-import enum
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Date, Enum, Index
-from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 from datetime import datetime, date
@@ -43,7 +41,7 @@ class Project(Base):
 
     # Timeline
     start_date = Column(Date, nullable=True)
-    due_date = Column(Date, nullable=True)  # When project should be completed
+    due_date = Column(Date, nullable=True)   # When project should be completed
     completion_date = Column(DateTime(timezone=True), nullable=True)  # When project was actually completed
 
     # Audit trail
@@ -61,7 +59,7 @@ class Project(Base):
     )
 
     # Relationships
-    user = relationship("User", back_populates="projects", foreign_keys="Project.created_by")
+    user = relationship("User", back_populates="projects", foreign_keys=[created_by])
     tag_objs = relationship("Tag", secondary=project_tags, back_populates="projects")
 
     # Many-to-many relationships (ordered via association sort_order)
@@ -103,7 +101,6 @@ class Project(Base):
             status=self.status,
             sort_order=self.sort_order + 1,  # Place it after original
             start_date=self.start_date,
-            end_date=self.end_date,
             due_date=self.due_date,  # Include due date in duplication
             created_by=self.created_by,
             # Reset completion-related fields
@@ -191,8 +188,8 @@ class Project(Base):
             'note_count': note_count,
             'tag_count': len(self.tag_objs) if self.tag_objs else 0,
             'start_date': self.start_date,
-            'end_date': self.end_date,
-            'days_remaining': (self.end_date - date.today()).days if self.end_date and self.end_date > date.today() else None
+            'due_date': self.due_date,
+            'days_remaining': (self.due_date - date.today()).days if self.due_date and self.due_date > date.today() else None
         }
 
     def __repr__(self):

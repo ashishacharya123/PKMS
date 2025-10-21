@@ -53,7 +53,7 @@ class ArchiveItemService:
                     and_(
                         ArchiveFolder.uuid == folder_uuid,
                         ArchiveFolder.created_by == user_uuid,
-                        ArchiveFolder.is_deleted == False
+                        ArchiveFolder.is_deleted.is_(False)
                     )
                 )
             )
@@ -87,7 +87,7 @@ class ArchiveItemService:
         if folder_uuid:
             await self._update_folder_stats(db, user_uuid, folder_uuid)
         
-        return ItemResponse.from_orm(item)
+        return ItemResponse.model_validate(item)
     
     async def list_folder_items(
         self, 
@@ -103,7 +103,7 @@ class ArchiveItemService:
         """List items in folder with filters and pagination"""
         cond = and_(
             ArchiveItem.created_by == user_uuid,
-            ArchiveItem.is_deleted == False
+                        ArchiveItem.is_deleted.is_(False)
         )
         
         if folder_uuid is not None:
@@ -142,7 +142,7 @@ class ArchiveItemService:
                 and_(
                     ArchiveItem.uuid == item_uuid,
                     ArchiveItem.created_by == user_uuid,
-                    ArchiveItem.is_deleted == False
+                        ArchiveItem.is_deleted.is_(False)
                 )
             )
         )
@@ -154,7 +154,7 @@ class ArchiveItemService:
                 detail="Item not found"
             )
         
-        return ItemResponse.from_orm(item)
+        return ItemResponse.model_validate(item)
     
     async def update_item(
         self, 
@@ -170,7 +170,7 @@ class ArchiveItemService:
                 and_(
                     ArchiveItem.uuid == item_uuid,
                     ArchiveItem.created_by == user_uuid,
-                    ArchiveItem.is_deleted == False
+                        ArchiveItem.is_deleted.is_(False)
                 )
             )
         )
@@ -202,7 +202,7 @@ class ArchiveItemService:
                         and_(
                             ArchiveFolder.uuid == update_data.folder_uuid,
                             ArchiveFolder.created_by == user_uuid,
-                            ArchiveFolder.is_deleted == False
+                            ArchiveFolder.is_deleted.is_(False)
                         )
                     )
                 )
@@ -225,7 +225,7 @@ class ArchiveItemService:
             if item.folder_uuid:
                 await self._update_folder_stats(db, user_uuid, item.folder_uuid)
         
-        return ItemResponse.from_orm(item)
+        return ItemResponse.model_validate(item)
     
     async def delete_item(
         self, 
@@ -240,7 +240,7 @@ class ArchiveItemService:
                 and_(
                     ArchiveItem.uuid == item_uuid,
                     ArchiveItem.created_by == user_uuid,
-                    ArchiveItem.is_deleted == False
+                        ArchiveItem.is_deleted.is_(False)
                 )
             )
         )
@@ -280,7 +280,7 @@ class ArchiveItemService:
         """Search items across archive"""
         cond = and_(
             ArchiveItem.created_by == user_uuid,
-            ArchiveItem.is_deleted == False,
+                        ArchiveItem.is_deleted.is_(False),
             or_(
                 ArchiveItem.name.ilike(f"%{query}%"),
                 ArchiveItem.description.ilike(f"%{query}%"),
@@ -326,9 +326,6 @@ class ArchiveItemService:
                     })
                     continue
                 
-                # Sanitize filename
-                sanitized_filename = self.path_service.sanitize_filename(file.filename)
-                
                 # Use unified upload service
                 upload_result = await unified_upload_service.upload_file(
                     file=file,
@@ -367,7 +364,7 @@ class ArchiveItemService:
                     })
             
             except Exception as e:
-                logger.error(f"Error uploading file {file.filename}: {e}")
+                logger.exception("Error uploading file %s", file.filename)
                 results.append({
                     "filename": file.filename,
                     "success": False,
@@ -385,9 +382,12 @@ class ArchiveItemService:
         """Commit chunked upload and create archive item"""
         try:
             # Commit the upload
-            commit_result = await chunk_manager.commit_upload(
-                upload_id=commit_request.upload_id,
-                user_uuid=user_uuid
+            commit_result = await unified_upload_service.commit_upload(
+                db=db,
+                upload_id=commit_request.file_id,
+                module="archive",
+                created_by=user_uuid,
+                metadata=commit_request.dict() if hasattr(commit_request, 'dict') else {}
             )
             
             if not commit_result["success"]:
@@ -403,7 +403,7 @@ class ArchiveItemService:
                         and_(
                             ArchiveFolder.uuid == commit_request.folder_uuid,
                             ArchiveFolder.created_by == user_uuid,
-                            ArchiveFolder.is_deleted == False
+                            ArchiveFolder.is_deleted.is_(False)
                         )
                     )
                 )
@@ -434,7 +434,7 @@ class ArchiveItemService:
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"Error committing upload {commit_request.upload_id}: {e}")
+            logger.error(f"Error committing upload {commit_request.file_id}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to commit upload: {str(e)}"
@@ -453,7 +453,7 @@ class ArchiveItemService:
                 and_(
                     ArchiveItem.uuid == item_uuid,
                     ArchiveItem.created_by == user_uuid,
-                    ArchiveItem.is_deleted == False
+                        ArchiveItem.is_deleted.is_(False)
                 )
             )
         )
@@ -542,7 +542,7 @@ class ArchiveItemService:
                 and_(
                     ArchiveItem.folder_uuid == folder_uuid,
                     ArchiveItem.created_by == user_uuid,
-                    ArchiveItem.is_deleted == False
+                        ArchiveItem.is_deleted.is_(False)
                 )
             )
         )
@@ -555,7 +555,7 @@ class ArchiveItemService:
                 and_(
                     ArchiveItem.folder_uuid == folder_uuid,
                     ArchiveItem.created_by == user_uuid,
-                    ArchiveItem.is_deleted == False
+                        ArchiveItem.is_deleted.is_(False)
                 )
             )
         )

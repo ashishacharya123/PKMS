@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
+from pydantic.types import UUID4
 import logging
 
 from app.database import get_db
@@ -42,7 +43,7 @@ async def commit_document_upload(
         logger.exception(f"Error committing document upload for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to commit document upload: {str(e)}"
+            detail="Failed to commit document upload"
         )
 
 
@@ -72,13 +73,13 @@ async def list_documents(
         logger.exception(f"Error listing documents for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list documents: {str(e)}"
+            detail="Failed to list documents"
         )
 
 
 @router.get("/{document_uuid}", response_model=DocumentResponse)
 async def get_document(
-    document_uuid: str,
+    document_uuid: UUID4,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -91,13 +92,13 @@ async def get_document(
         logger.exception(f"Error getting document {document_uuid} for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve document: {str(e)}"
+            detail="Failed to retrieve document"
         )
 
 
 @router.put("/{document_uuid}", response_model=DocumentResponse)
 async def update_document(
-    document_uuid: str,
+    document_uuid: UUID4,
     document_data: DocumentUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -113,13 +114,13 @@ async def update_document(
         logger.exception(f"Error updating document {document_uuid} for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update document: {str(e)}"
+            detail="Failed to update document"
         )
 
 
 @router.delete("/{document_uuid}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
-    document_uuid: str,
+    document_uuid: UUID4,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -132,13 +133,13 @@ async def delete_document(
         logger.exception(f"Error deleting document {document_uuid} for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete document: {str(e)}"
+            detail="Failed to delete document"
         )
 
 
 @router.get("/{document_uuid}/download")
 async def download_document(
-    document_uuid: str,
+    document_uuid: UUID4,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -151,5 +152,5 @@ async def download_document(
         logger.exception(f"Error downloading document {document_uuid} for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to download document: {str(e)}"
+            detail="Failed to download document"
         )

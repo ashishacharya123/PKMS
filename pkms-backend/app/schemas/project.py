@@ -6,10 +6,13 @@ Used across todos, notes, documents, and archive modules.
 """
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 from pydantic.alias_generators import to_camel
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Annotated, Literal
 from datetime import datetime, date
 
 from app.models.enums import ProjectStatus, TaskPriority
+
+# Pydantic v2-compatible list constraints
+Tags = Annotated[List[str], Field(max_length=20)]
 
 
 class CamelCaseModel(BaseModel):
@@ -32,25 +35,14 @@ class ProjectCreate(CamelCaseModel):
     is_favorite: Optional[bool] = Field(default=False)
     progress_percentage: Optional[int] = Field(default=0, ge=0, le=100)
     start_date: Optional[date] = None
-    end_date: Optional[date] = None
     due_date: Optional[date] = None  # Professional project management feature
-    tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
-
-    @field_validator('end_date')
-    def validate_end_date(cls, v, info):
-        if v and 'start_date' in info.data and info.data['start_date']:
-            if v < info.data['start_date']:
-                raise ValueError('End date must be after start date')
-        return v
+    tags: Optional[Tags] = Field(default_factory=list)
 
     @field_validator('due_date')
     def validate_due_date(cls, v, info):
         if v and 'start_date' in info.data and info.data['start_date']:
             if v < info.data['start_date']:
                 raise ValueError('Due date must be after start date')
-        if v and 'end_date' in info.data and info.data['end_date']:
-            if v > info.data['end_date']:
-                raise ValueError('Due date must be before end date')
         return v
 
 
@@ -66,16 +58,22 @@ class ProjectUpdate(CamelCaseModel):
     is_favorite: Optional[bool] = None
     progress_percentage: Optional[int] = Field(None, ge=0, le=100)
     start_date: Optional[date] = None
-    end_date: Optional[date] = None
     due_date: Optional[date] = None  # Professional project management feature
     completion_date: Optional[datetime] = None  # When project was actually completed
-    tags: Optional[List[str]] = Field(None, max_items=20)
+    tags: Optional[Tags] = None
 
-    @field_validator('end_date')
-    def validate_end_date(cls, v, info):
+    @field_validator('completion_date')
+    def validate_completion_date(cls, v, info):
+        # If provided, completion_date cannot be before start_date
         if v and 'start_date' in info.data and info.data['start_date']:
-            if v < info.data['start_date']:
-                raise ValueError('End date must be after start date')
+            start = info.data['start_date']
+            try:
+                if v.date() < start:
+                    raise ValueError('Completion date must be on/after start date')
+            except Exception:
+                # If v has no date() (unlikely), fall back to direct compare when types match
+                if isinstance(v, datetime) and isinstance(start, datetime) and v < start:
+                    raise ValueError('Completion date must be on/after start date')
         return v
 
 
@@ -93,7 +91,6 @@ class ProjectResponse(CamelCaseModel):
     is_deleted: bool
     progress_percentage: int
     start_date: Optional[date]
-    end_date: Optional[date]
     due_date: Optional[date]  # Professional project management feature
     completion_date: Optional[datetime]  # When project was actually completed
     created_by: str
@@ -126,7 +123,7 @@ class ProjectSummary(CamelCaseModel):
     note_count: int
     tag_count: int
     start_date: Optional[date]
-    end_date: Optional[date]
+    due_date: Optional[date]
     days_remaining: Optional[int]
 
 
@@ -202,13 +199,11 @@ class UnifiedDeletePreflightResponse(CamelCaseModel):
 
 class ProjectSectionReorderRequest(CamelCaseModel):
     """Request for reordering sections within a project"""
-    section_types: List[str] = Field(..., description="Ordered list of section types (e.g., ['documents', 'notes', 'todos'])")
+    section_types: List[Literal["documents", "notes", "todos"]] = Field(..., description="Ordered list of section types")
     
     @field_validator('section_types')
     def validate_section_types(cls, v):
-        valid_types = {'documents', 'notes', 'todos'}
-        if not all(section in valid_types for section in v):
-            raise ValueError(f"Invalid section type. Must be one of: {valid_types}")
+        # Check for duplicates since Literal doesn't prevent duplicates
         if len(v) != len(set(v)):
             raise ValueError("Section types must be unique")
         return v

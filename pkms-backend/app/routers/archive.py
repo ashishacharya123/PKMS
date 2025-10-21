@@ -253,7 +253,7 @@ async def list_folder_items(
         items = await archive_item_service.list_folder_items(
             db, current_user.uuid, folder_uuid, search, mime_type, is_favorite, limit, offset
         )
-        return [ItemSummary.from_orm(item) for item in items]
+        return items  # Service already returns ItemResponse objects
     except HTTPException:
         raise
     except Exception as e:
@@ -388,11 +388,11 @@ async def commit_upload(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error committing upload {commit_request.upload_id}")
+        logger.exception("Error committing upload %s", commit_request.file_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to commit upload: {str(e)}"
-        )
+            detail="Failed to commit chunked upload. Please try again."
+        ) from e
 
 
 # Download endpoints

@@ -112,4 +112,4 @@ class UnifiedCommitResponse(CamelCaseModel):
     document_uuid: Optional[str] = None
     note_file_uuid: Optional[str] = None
     archive_item_uuid: Optional[str] = None
-    diary_media_uuid: Optional[str] = None
+    diary_file_uuid: Optional[str] = None

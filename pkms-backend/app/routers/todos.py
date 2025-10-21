@@ -7,7 +7,7 @@ Handles only HTTP concerns: request/response mapping, authentication, error hand
 Refactored to follow "thin router, thick service" architecture pattern.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from datetime import date
@@ -36,11 +36,11 @@ async def create_todo(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error creating todo for user {current_user.uuid}")
+        logger.exception("Error creating todo for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create todo: {str(e)}"
-        )
+            detail="Failed to create todo"
+        ) from e
 
 
 @router.get("/", response_model=List[TodoResponse])
@@ -137,7 +137,7 @@ async def delete_todo(
 @router.patch("/{todo_uuid}/status", response_model=TodoResponse)
 async def update_todo_status(
     todo_uuid: str,
-    status_value: str,
+    status_value: str = Body(..., embed=True, description="New status value"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):

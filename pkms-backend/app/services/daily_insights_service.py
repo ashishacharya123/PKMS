@@ -34,7 +34,7 @@ class DailyInsightsService:
             ).where(
                 and_(
                     DiaryDailyMetadata.created_by == user_uuid,
-                    DiaryDailyMetadata.is_office_day == True,
+                    DiaryDailyMetadata.is_office_day.is_(True),
                     DiaryDailyMetadata.date >= cutoff_date
                 )
             )
@@ -46,7 +46,7 @@ class DailyInsightsService:
             ).where(
                 and_(
                     DiaryDailyMetadata.created_by == user_uuid,
-                    DiaryDailyMetadata.is_office_day == False,
+                    DiaryDailyMetadata.is_office_day.is_(False),
                     DiaryDailyMetadata.date >= cutoff_date
                 )
             )
@@ -107,9 +107,9 @@ class DailyInsightsService:
                 )
             }
             
-        except Exception as e:
-            logger.error(f"Error in work_life_balance analysis: {e}")
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Error in work_life_balance analysis")
+            return {"error": "work_life_balance_failed"}
     
     @staticmethod
     async def get_financial_wellness_correlation(db: AsyncSession, user_uuid: str, days: int = 60) -> Dict[str, Any]:
@@ -174,9 +174,9 @@ class DailyInsightsService:
                 )
             }
             
-        except Exception as e:
-            logger.error(f"Error in financial wellness analysis: {e}")
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Error in financial wellness analysis")
+            return {"error": "financial_wellness_failed"}
     
     @staticmethod
     async def get_weekly_rhythm_analysis(db: AsyncSession, user_uuid: str, days: int = 90) -> Dict[str, Any]:
@@ -226,9 +226,9 @@ class DailyInsightsService:
                 "insights": DailyInsightsService._generate_weekly_insights(patterns)
             }
             
-        except Exception as e:
-            logger.error(f"Error in weekly rhythm analysis: {e}")
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Error in weekly rhythm analysis")
+            return {"error": "weekly_rhythm_failed"}
     
     @staticmethod
     async def get_temperature_mood_correlation(db: AsyncSession, user_uuid: str, days: int = 60) -> Dict[str, Any]:
@@ -278,9 +278,9 @@ class DailyInsightsService:
                 "insights": DailyInsightsService._generate_temperature_insights(temperature_mood)
             }
             
-        except Exception as e:
-            logger.error(f"Error in temperature mood analysis: {e}")
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Error in temperature mood analysis")
+            return {"error": "temperature_mood_failed"}
     
     @staticmethod
     async def get_writing_therapy_insights(db: AsyncSession, user_uuid: str, days: int = 90) -> Dict[str, Any]:
@@ -320,9 +320,9 @@ class DailyInsightsService:
                 "insights": DailyInsightsService._generate_writing_insights(mood_writing)
             }
             
-        except Exception as e:
-            logger.error(f"Error in writing therapy analysis: {e}")
-            return {"error": str(e)}
+        except Exception:
+            logger.exception("Error in writing therapy analysis")
+            return {"error": "writing_therapy_failed"}
     
     # Helper methods for generating insights
     @staticmethod

@@ -74,7 +74,7 @@ class ArchiveFolderService:
                     and_(
                         ArchiveFolder.uuid == folder_data.parent_uuid,
                         ArchiveFolder.created_by == user_uuid,
-                        ArchiveFolder.is_deleted == False
+                        ArchiveFolder.is_deleted.is_(False)
                     )
                 )
             )
@@ -118,7 +118,7 @@ class ArchiveFolderService:
         """List folders with filters and pagination"""
         cond = and_(
             ArchiveFolder.created_by == user_uuid,
-            ArchiveFolder.is_deleted == False
+            ArchiveFolder.is_deleted.is_(False)
         )
         
         if parent_uuid is not None:
@@ -144,10 +144,16 @@ class ArchiveFolderService:
             folder_uuids = [folder.uuid for folder in folders]
             folder_stats = await self._batch_get_folder_stats(db, user_uuid, folder_uuids)
             
+            # Batch subfolder counts
+            sub_counts = await self._batch_get_subfolder_counts(db, user_uuid, folder_uuids)
+            
             # Build responses with pre-loaded stats
             responses = []
             for folder in folders:
                 stats = folder_stats.get(folder.uuid, {"item_count": 0, "total_size": 0})
+                # Build display path from breadcrumb
+                breadcrumb = await self.path_service.get_folder_breadcrumb(folder.uuid, db, user_uuid)
+                path = "/".join([b["name"] for b in breadcrumb]) if breadcrumb else folder.name
                 response = FolderResponse(
                     uuid=folder.uuid,
                     name=folder.name,
@@ -155,6 +161,8 @@ class ArchiveFolderService:
                     parent_uuid=folder.parent_uuid,
                     is_favorite=folder.is_favorite,
                     depth=folder.depth,
+                    path=path,
+                    subfolder_count=sub_counts.get(folder.uuid, 0),
                     item_count=stats["item_count"],
                     total_size=stats["total_size"],
                     created_at=folder.created_at,
@@ -164,6 +172,25 @@ class ArchiveFolderService:
             return responses
         
         return []
+    
+    async def _batch_get_subfolder_counts(
+        self, db: AsyncSession, user_uuid: str, folder_uuids: List[str]
+    ) -> Dict[str, int]:
+        """Return count of direct subfolders per folder UUID."""
+        if not folder_uuids:
+            return {}
+        result = await db.execute(
+            select(ArchiveFolder.parent_uuid, func.count(ArchiveFolder.uuid))
+            .where(
+                and_(
+                    ArchiveFolder.parent_uuid.in_(folder_uuids),
+                    ArchiveFolder.created_by == user_uuid,
+                    ArchiveFolder.is_deleted.is_(False),
+                )
+            )
+            .group_by(ArchiveFolder.parent_uuid)
+        )
+        return {parent_uuid: cnt for parent_uuid, cnt in result.all()}
     
     async def get_folder_tree(
         self, 
@@ -192,7 +219,7 @@ class ArchiveFolderService:
                 and_(
                     ArchiveFolder.uuid == folder_uuid,
                     ArchiveFolder.created_by == user_uuid,
-                    ArchiveFolder.is_deleted == False
+                    ArchiveFolder.is_deleted.is_(False)
                 )
             )
         )
@@ -208,6 +235,11 @@ class ArchiveFolderService:
         folder_stats = await self._batch_get_folder_stats(db, user_uuid, [folder.uuid])
         stats = folder_stats.get(folder.uuid, {"item_count": 0, "total_size": 0})
         
+        # Compute subfolder_count and path
+        sub_counts = await self._batch_get_subfolder_counts(db, user_uuid, [folder.uuid])
+        breadcrumb = await self.path_service.get_folder_breadcrumb(folder.uuid, db, user_uuid)
+        path = "/".join([b["name"] for b in breadcrumb]) if breadcrumb else folder.name
+        
         return FolderResponse(
             uuid=folder.uuid,
             name=folder.name,
@@ -215,6 +247,8 @@ class ArchiveFolderService:
             parent_uuid=folder.parent_uuid,
             is_favorite=folder.is_favorite,
             depth=folder.depth,
+            path=path,
+            subfolder_count=sub_counts.get(folder.uuid, 0),
             item_count=stats["item_count"],
             total_size=stats["total_size"],
             created_at=folder.created_at,
@@ -235,7 +269,7 @@ class ArchiveFolderService:
                 and_(
                     ArchiveFolder.uuid == folder_uuid,
                     ArchiveFolder.created_by == user_uuid,
-                    ArchiveFolder.is_deleted == False
+                    ArchiveFolder.is_deleted.is_(False)
                 )
             )
         )
@@ -297,7 +331,7 @@ class ArchiveFolderService:
                         and_(
                             ArchiveFolder.uuid == update_data.parent_uuid,
                             ArchiveFolder.created_by == user_uuid,
-                            ArchiveFolder.is_deleted == False
+                            ArchiveFolder.is_deleted.is_(False)
                         )
                     )
                 )
@@ -319,7 +353,7 @@ class ArchiveFolderService:
         await db.commit()
         await db.refresh(folder)
         
-        return FolderResponse.from_orm(folder)
+        return await self.get_folder(db, user_uuid, folder.uuid)
     
     async def delete_folder(
         self, 
@@ -334,7 +368,7 @@ class ArchiveFolderService:
                 and_(
                     ArchiveFolder.uuid == folder_uuid,
                     ArchiveFolder.created_by == user_uuid,
-                    ArchiveFolder.is_deleted == False
+                    ArchiveFolder.is_deleted.is_(False)
                 )
             )
         )
@@ -401,7 +435,7 @@ class ArchiveFolderService:
                     and_(
                         ArchiveFolder.uuid == move_request.destination_folder_uuid,
                         ArchiveFolder.created_by == user_uuid,
-                        ArchiveFolder.is_deleted == False
+                        ArchiveFolder.is_deleted.is_(False)
                     )
                 )
             )
@@ -420,7 +454,7 @@ class ArchiveFolderService:
                     and_(
                         ArchiveFolder.uuid.in_(move_request.folder_uuids),
                         ArchiveFolder.created_by == user_uuid,
-                        ArchiveFolder.is_deleted == False
+                        ArchiveFolder.is_deleted.is_(False)
                     )
                 )
                 .values(parent_uuid=move_request.destination_folder_uuid)
@@ -434,7 +468,7 @@ class ArchiveFolderService:
                     and_(
                         ArchiveItem.uuid.in_(move_request.item_uuids),
                         ArchiveItem.created_by == user_uuid,
-                        ArchiveItem.is_deleted == False
+                        ArchiveItem.is_deleted.is_(False)
                     )
                 )
                 .values(folder_uuid=move_request.destination_folder_uuid)
@@ -560,15 +594,15 @@ class ArchiveFolderService:
                             zip_file.write(file_path, relative_path)
                         else:
                             logger.warning(f"File not found: {item.file_path}")
-                    except Exception as e:
-                        logger.error(f"Error adding file to ZIP: {e}")
+                    except Exception:
+                        logger.exception("Error adding file to ZIP")
         
         zip_buffer.seek(0)
         
         return StreamingResponse(
             io.BytesIO(zip_buffer.read()),
             media_type="application/zip",
-            headers={"Content-Disposition": f"attachment; filename=archive_folders.zip"}
+            headers={"Content-Disposition": "attachment; filename=archive_folders.zip"}
         )
     
     async def _update_descendant_depths(
@@ -583,7 +617,7 @@ class ArchiveFolderService:
             select(ArchiveFolder).where(
                 and_(
                     ArchiveFolder.parent_uuid == parent_uuid,
-                    ArchiveFolder.is_deleted == False
+                    ArchiveFolder.is_deleted.is_(False)
                 )
             )
         )
@@ -615,7 +649,7 @@ class ArchiveFolderService:
                 and_(
                     ArchiveFolder.parent_uuid == parent_uuid,
                     ArchiveFolder.created_by == user_uuid,
-                    ArchiveFolder.is_deleted == False
+                    ArchiveFolder.is_deleted.is_(False)
                 )
             )
         )
@@ -645,7 +679,7 @@ class ArchiveFolderService:
                 and_(
                     ArchiveItem.folder_uuid == folder_uuid,
                     ArchiveItem.created_by == user_uuid,
-                    ArchiveItem.is_deleted == False
+                    ArchiveItem.is_deleted.is_(False)
                 )
             )
         )
@@ -658,7 +692,7 @@ class ArchiveFolderService:
                 and_(
                     ArchiveItem.folder_uuid == folder_uuid,
                     ArchiveItem.created_by == user_uuid,
-                    ArchiveItem.is_deleted == False
+                    ArchiveItem.is_deleted.is_(False)
                 )
             )
         )
@@ -694,7 +728,7 @@ class ArchiveFolderService:
                 and_(
                     ArchiveItem.folder_uuid.in_(all_folder_uuids),
                     ArchiveItem.created_by == user_uuid,
-                    ArchiveItem.is_deleted == False
+                    ArchiveItem.is_deleted.is_(False)
                 )
             )
         )
@@ -718,7 +752,7 @@ class ArchiveFolderService:
                 and_(
                     ArchiveFolder.parent_uuid.in_(parent_uuids),
                     ArchiveFolder.created_by == user_uuid,
-                    ArchiveFolder.is_deleted == False
+                    ArchiveFolder.is_deleted.is_(False)
                 )
             )
         )
@@ -756,7 +790,7 @@ class ArchiveFolderService:
                 and_(
                     ArchiveItem.folder_uuid.in_(folder_uuids),
                     ArchiveItem.created_by == user_uuid,
-                    ArchiveItem.is_deleted == False
+                    ArchiveItem.is_deleted.is_(False)
                 )
             )
             .group_by(ArchiveItem.folder_uuid)

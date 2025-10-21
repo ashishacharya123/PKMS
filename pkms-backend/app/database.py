@@ -123,11 +123,11 @@ async def verify_table_schema(table_name: str) -> None:
                 {"name": table_name},
             )
             if result.fetchone():
-                logger.info(f"SUCCESS: Table '{table_name}' exists")
+                logger.info("SUCCESS: Table '%s' exists", table_name)
             else:
-                logger.warning(f"WARNING: Table '{table_name}' not found")
-    except Exception as e:
-        logger.exception(f"ERROR: Error verifying table '{table_name}'")
+                logger.warning("WARNING: Table '%s' not found", table_name)
+    except Exception:
+        logger.exception("ERROR: Error verifying table '%s'", table_name)
 
 
 async def init_db():
@@ -235,7 +235,6 @@ async def init_db():
                 # Diary indexes
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_created_by ON diary_entries(created_by);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_user_date ON diary_entries(created_by, date);",
-                "CREATE INDEX IF NOT EXISTS idx_diary_entries_day_of_week ON diary_entries(day_of_week);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_date ON diary_entries(date);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_mood ON diary_entries(mood);",
                 "CREATE INDEX IF NOT EXISTS idx_diary_entries_location ON diary_entries(location);",
@@ -260,7 +259,6 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_tags_created_by ON tags(created_by);",
                 "CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);",
                 "CREATE INDEX IF NOT EXISTS idx_tags_name_user ON tags(name, created_by);",
-                "CREATE INDEX IF NOT EXISTS idx_tags_module_type ON tags(module_type, name);",
                 "CREATE INDEX IF NOT EXISTS idx_tags_usage_count ON tags(usage_count DESC);",
                 
                 # Tag association indexes
@@ -318,7 +316,7 @@ async def init_db():
 
             except Exception as e:
                 # TODO: Narrow exception type; broad catch is temporary during recovery
-                logger.exception(f"ERROR: FTS5 initialization error: {e}")
+                logger.exception("ERROR: FTS5 initialization error")
                 logger.warning("WARNING: Search functionality will be limited")
         
         # Phase 5: Create essential data directories
@@ -366,8 +364,8 @@ async def init_db():
         logger.info("SUCCESS: PKMS Database is ready for use")
         logger.info("=" * 60)
         
-    except Exception as e:
-        logger.error(f"ERROR: Database initialization failed: {str(e)}")
+    except Exception:
+        logger.exception("ERROR: Database initialization failed")
         logger.error("This is a critical error - the application cannot start without a working database")
         raise
 

@@ -54,23 +54,22 @@ class DiarySessionService:
         Returns:
             Derived encryption key if session is valid, None otherwise
         """
-        expired_user = None
-        key: Optional[bytes] = None
+        expected_expires_at: float | None = None
         
         async with self._get_lock():
             session = self._sessions.get(user_uuid)
             if not session:
                 return None
-            if time.time() > session["expires_at"]:
-                expired_user = user_uuid
+            now = time.time()
+            if now > session["expires_at"]:
+                expected_expires_at = session["expires_at"]
             else:
-                key = session["key"]
+                return session["key"]
         
-        if expired_user:
-            await self.clear_session(expired_user)
+        if expected_expires_at is not None:
+            await self.clear_session(user_uuid, expected_expires_at=expected_expires_at)
             return None
-        
-        return key
+        return None
     
     async def store_password_in_session(self, user_uuid: str, password: str) -> None:
         """
@@ -96,7 +95,7 @@ class DiarySessionService:
             
             logger.info(f"Diary session created for user {user_uuid}, expires in {DIARY_SESSION_TIMEOUT}s")
     
-    async def clear_session(self, user_uuid: str) -> None:
+    async def clear_session(self, user_uuid: str, *, expected_expires_at: float | None = None) -> None:
         """
         Clear diary session and password from memory.
         
@@ -105,24 +104,29 @@ class DiarySessionService:
         
         Args:
             user_uuid: User's UUID
+            expected_expires_at: Only clear if session's expires_at matches this value
         """
         async with self._get_lock():
-            if user_uuid not in self._sessions:
+            session = self._sessions.get(user_uuid)
+            if not session:
                 return
-            
-            session = self._sessions[user_uuid]
+            if expected_expires_at is not None and session.get("expires_at") != expected_expires_at:
+                # Session was refreshed; do not clear a fresh session
+                return
             
             # Securely overwrite all sensitive data
             try:
-                # Overwrite key
-                if "key" in session and session["key"]:
-                    key_len = len(session["key"])
-                    session["key"] = b"\x00" * key_len
+                # Overwrite key (best-effort). Use mutable buffers for in-place zeroization.
+                key_buf = session.get("key")
+                if isinstance(key_buf, (bytearray, memoryview)):
+                    key_buf[:] = b"\x00" * len(key_buf)
+                session["key"] = None
                 
-                # Overwrite salt
-                if "salt" in session and session["salt"]:
-                    salt_len = len(session["salt"])
-                    session["salt"] = b"\x00" * salt_len
+                # Overwrite salt (best-effort)
+                salt_buf = session.get("salt")
+                if isinstance(salt_buf, (bytearray, memoryview)):
+                    salt_buf[:] = b"\x00" * len(salt_buf)
+                session["salt"] = None
                 
                 # Overwrite timestamp data
                 session["timestamp"] = 0.0
@@ -133,7 +137,7 @@ class DiarySessionService:
             
             # Remove from dictionary and force garbage collection
             del self._sessions[user_uuid]
-            logger.info(f"Diary session cleared for user {user_uuid}")
+            logger.info("Diary session cleared (user=%s*)", user_uuid[:8])
             
             # Force cleanup
             gc.collect()
@@ -192,16 +196,17 @@ class DiarySessionService:
                 
                 # Compute expired users under lock
                 async with self._get_lock():
-                    current_time = time.time()
+                    now = time.time()
                     expired_users = [
-                        user_uuid for user_uuid, session in self._sessions.items()
-                        if current_time > session["expires_at"]
+                        (user_uuid, session["expires_at"])
+                        for user_uuid, session in self._sessions.items()
+                        if now > session["expires_at"]
                     ]
                 
                 # Clear sessions outside of lock
-                for user_uuid in expired_users:
+                for user_uuid, expected_expires_at in expired_users:
                     try:
-                        await self.clear_session(user_uuid)
+                        await self.clear_session(user_uuid, expected_expires_at=expected_expires_at)
                     except Exception:
                         logger.exception("Error clearing session for user %s", user_uuid)
                 

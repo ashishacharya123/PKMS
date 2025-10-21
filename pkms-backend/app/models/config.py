@@ -6,9 +6,7 @@ from app.config import nepal_now
 class AppConfig(Base):
     """Centralized configuration storage for app-wide settings."""
     __tablename__ = "app_config"
-    __table_args__ = (
-        UniqueConstraint('created_by', 'config_name', name='uq_appconfig_user_configname'),
-    )
+    __table_args__ = ()
 
     config_name = Column(String(100), primary_key=True)  # e.g., 'default_habits', 'defined_habits'
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), primary_key=True, index=True)

@@ -108,7 +108,7 @@ async def commit_unified_upload(
         elif module == "archive":
             response_data["archive_item_uuid"] = record.uuid
         elif module == "diary":
-            response_data["diary_media_uuid"] = record.uuid
+            response_data["diary_file_uuid"] = record.uuid
 
         return UnifiedCommitResponse(**response_data)
 

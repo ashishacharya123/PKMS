@@ -139,9 +139,8 @@ class DiaryCRUDService:
             uuid=str(uuid_lib.uuid4()),
             date=entry_date,
             title=entry_data.title,
-            day_of_week=day_of_week,
             file_count=0,
-            content_length=len(base64.b64decode(entry_data.encrypted_blob)) if entry_data.encrypted_blob else 0,
+            content_length=entry_data.content_length or 0,
             content_file_path="",
             file_hash="",
             mood=entry_data.mood,
@@ -169,7 +168,7 @@ class DiaryCRUDService:
             original_extension="",
         )
         
-        entry.content_file_path = str(final_file_path)
+        entry.content_file_path = str(temp_file_path)  # update to final after successful move
         entry.file_hash = file_result["file_hash"]
         entry.encryption_tag = file_result.get("tag_b64")
         if entry_data.content_length is not None:
@@ -179,17 +178,20 @@ class DiaryCRUDService:
         
         # SECURITY: Move encrypted file to final location ONLY after successful DB commit
         try:
-            temp_file_path.rename(final_file_path)
+            import os
+            os.replace(temp_file_path, final_file_path)
+            entry.content_file_path = str(final_file_path)
+            await db.commit()
             logger.info(f"SUCCESS: Diary entry file moved to final location: {final_file_path}")
         except Exception as move_error:
-            logger.error(f"ERROR: Failed to move diary entry file to final location: {move_error}")
+            logger.exception("ERROR: Failed to move diary entry file to final location")
             # Clean up temp file
             try:
                 if await asyncio.to_thread(temp_file_path.exists):
                     await asyncio.to_thread(temp_file_path.unlink)
             except Exception:
                 pass
-            raise HTTPException(status_code=500, detail="Failed to move encrypted diary entry file to final storage location")
+            raise HTTPException(status_code=500, detail="Failed to move encrypted diary entry file to final storage location") from move_error
         
         await db.refresh(entry)
         
@@ -202,7 +204,7 @@ class DiaryCRUDService:
         await db.commit()
         
         tags = await DiaryCRUDService.get_entry_tags(db, entry.uuid)
-        daily_metrics = json.loads(daily_metadata.metrics_json) if daily_metadata and daily_metadata.metrics_json else {}
+        daily_metrics = json.loads(daily_metadata.default_habits_json) if daily_metadata and daily_metadata.default_habits_json else {}
         
         response = DiaryEntryResponse(
             uuid=entry.uuid,
@@ -298,7 +300,7 @@ class DiaryCRUDService:
                     DiaryEntry.created_at,
                     DiaryEntry.updated_at,
                     func.coalesce(file_count_subquery.c.file_count, 0).label("file_count"),
-                    daily_metadata_alias.metrics_json.label("metrics_json"),
+                    daily_metadata_alias.default_habits_json.label("default_habits_json"),
                     daily_metadata_alias.nepali_date.label("nepali_date"),
                     DiaryEntry.content_length,
                 )
@@ -348,7 +350,7 @@ class DiaryCRUDService:
                         mood=r.mood,
                         weather_code=r.weather_code,
                         location=r.location,
-                        daily_metrics=json.loads(r.metrics_json) if r.metrics_json else {},
+                        daily_metrics=json.loads(r.default_habits_json) if r.default_habits_json else {},
                         nepali_date=r.nepali_date,
                         is_template=r.is_template,
                         from_template_id=r.from_template_id,
@@ -376,7 +378,7 @@ class DiaryCRUDService:
                     DiaryEntry.created_at,
                     DiaryEntry.updated_at,
                     func.coalesce(file_count_subquery.c.file_count, 0).label("file_count"),
-                    daily_metadata_alias.metrics_json.label("metrics_json"),
+                    daily_metadata_alias.default_habits_json.label("default_habits_json"),
                     daily_metadata_alias.nepali_date.label("nepali_date"),
                     DiaryEntry.content_length,
                 )
@@ -422,7 +424,7 @@ class DiaryCRUDService:
                     mood=row.mood,
                     weather_code=row.weather_code,
                     location=row.location,
-                    daily_metrics=json.loads(row.metrics_json) if row.metrics_json else {},
+                    daily_metrics=json.loads(row.default_habits_json) if row.default_habits_json else {},
                     nepali_date=row.nepali_date,
                     is_template=row.is_template,
                     from_template_id=row.from_template_id,
@@ -503,8 +505,6 @@ class DiaryCRUDService:
                 uuid=entry.uuid,
                 date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
                 title=entry.title,
-                encrypted_blob="",  # SECURITY: Never return decrypted content in list responses
-                encryption_iv=entry.encryption_iv,
                 mood=entry.mood,
                 weather_code=entry.weather_code,
                 location=entry.location,
@@ -598,8 +598,6 @@ class DiaryCRUDService:
             uuid=entry.uuid,
             date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
             title=entry.title,
-            encrypted_blob="",  # SECURITY: Never return decrypted content in update responses
-            encryption_iv=entry.encryption_iv,
             mood=entry.mood,
             weather_code=entry.weather_code,
             location=entry.location,
@@ -623,7 +621,7 @@ class DiaryCRUDService:
         db: AsyncSession,
         user_uuid: str,
         entry_ref: str
-    ) -> DiaryEntryResponse:
+    ) -> DiaryEntrySummary:
         """
         Get a single diary entry by UUID or date without decrypted content (for security).
         
@@ -633,13 +631,14 @@ class DiaryCRUDService:
             entry_ref: Entry UUID or date string
             
         Returns:
-            DiaryEntryResponse without decrypted content
+            DiaryEntrySummary without decrypted content
         """
         # Try to parse as date first, then as UUID
         try:
             entry_date = datetime.strptime(entry_ref, "%Y-%m-%d").date()
             # Get entries by date and return the first one
-            entries = await DiaryCRUDService.get_entries_by_date(db, user_uuid, entry_date, None)
+            # fetch summaries without requiring diary_key (bypass gating)
+            entries = await DiaryCRUDService.get_entries_by_date(db, user_uuid, entry_date, diary_key=b"")
             if not entries:
                 raise HTTPException(status_code=404, detail=f"No diary entry found for date {entry_date}")
             return entries[0]  # Return first entry for the date
@@ -674,27 +673,22 @@ class DiaryCRUDService:
         # Get tags
         tags = await DiaryCRUDService.get_entry_tags(db, entry.uuid)
         
-        response = DiaryEntryResponse(
+        response = DiaryEntrySummary(
             uuid=entry.uuid,
             date=entry.date.date() if isinstance(entry.date, datetime) else entry.date,
             title=entry.title,
-            encrypted_blob="",  # SECURITY: Never return decrypted content
-            encryption_iv=entry.encryption_iv,
             mood=entry.mood,
             weather_code=entry.weather_code,
             location=entry.location,
             daily_metrics=daily_metadata.metrics if daily_metadata else {},
-            daily_income=daily_metadata.daily_income if daily_metadata else 0,
-            daily_expense=daily_metadata.daily_expense if daily_metadata else 0,
-            is_office_day=daily_metadata.is_office_day if daily_metadata else False,
             nepali_date=daily_metadata.nepali_date if daily_metadata else None,
             is_template=entry.is_template,
             from_template_id=entry.from_template_id,
             created_at=entry.created_at,
-            updated_at=entry.updated_at,
             file_count=entry.file_count,
             tags=tags,
             content_length=entry.content_length,
+            content_available=False,
         )
         return response
     
@@ -926,8 +920,8 @@ class DiaryCRUDService:
                 target_date=target_date
             )
 
-            if daily_metadata and daily_metadata.habits_json:
-                habits = json.loads(daily_metadata.habits_json)
+            if daily_metadata and daily_metadata.defined_habits_json:
+                habits = json.loads(daily_metadata.defined_habits_json)
                 logger.debug(f"Found {len(habits)} habits for {target_date}")
                 return habits
 

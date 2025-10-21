@@ -139,8 +139,9 @@ class FolderTree(CamelCaseModel):
     items: List[ItemSummary]
 
 class BulkMoveRequest(CamelCaseModel):
-    items: List[str] = Field(..., description="List of archive item UUIDs to move")
-    target_folder: str = Field(..., description="Destination folder UUID")
+    destination_folder_uuid: str = Field(..., description="Destination folder UUID")
+    folder_uuids: List[str] = Field(default_factory=list, description="List of folder UUIDs to move")
+    item_uuids: List[str] = Field(default_factory=list, description="List of item UUIDs to move")
 
 class CommitUploadRequest(CamelCaseModel):
     file_id: str

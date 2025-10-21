@@ -72,7 +72,7 @@ class DashboardService:
         )
         
         # Cache the result
-        self.cache.set(cache_key, stats)
+        self.cache.set(cache_key, stats, ttl_seconds=120)
         return stats
     
     async def get_recent_activity(
@@ -114,7 +114,7 @@ class DashboardService:
         )
         
         # Cache the result
-        self.cache.set(cache_key, activity)
+        self.cache.set(cache_key, activity, ttl_seconds=120)
         return activity
     
     async def get_quick_stats(
@@ -177,7 +177,7 @@ class DashboardService:
         )
         
         # Cache the result
-        self.cache.set(cache_key, quick_stats)
+        self.cache.set(cache_key, quick_stats, ttl_seconds=120)
         return quick_stats
     
     async def _calculate_storage(
@@ -194,35 +194,53 @@ class DashboardService:
         # Documents storage
         docs_bytes = await db.scalar(
             select(func.coalesce(func.sum(Document.file_size), 0))
-            .where(Document.created_by == user_uuid)
+            .where(
+                Document.created_by == user_uuid,
+                Document.is_deleted.is_(False),
+                Document.is_archived.is_(False),
+            )
         ) or 0
         
         # Archive storage
         archive_bytes = await db.scalar(
             select(func.coalesce(func.sum(ArchiveItem.file_size), 0))
-            .where(ArchiveItem.created_by == user_uuid)
+            .where(
+                ArchiveItem.created_by == user_uuid,
+                ArchiveItem.is_deleted.is_(False),
+            )
         ) or 0
         
         # Notes storage
         notes_bytes = await db.scalar(
             select(func.coalesce(func.sum(Note.size_bytes), 0))
-            .where(Note.created_by == user_uuid)
+            .where(
+                Note.created_by == user_uuid,
+                Note.is_deleted.is_(False),
+                Note.is_archived.is_(False),
+            )
         ) or 0
         
         # Diary media storage (via document_diary association)
         diary_media_bytes = await db.scalar(
             select(func.coalesce(func.sum(Document.file_size), 0))
-            .join(DiaryEntry, Document.uuid.in_(
-                select(document_diary.c.document_uuid)
-                .where(document_diary.c.diary_entry_uuid == DiaryEntry.uuid)
-            ))
-            .where(DiaryEntry.created_by == user_uuid)
+            .select_from(Document)
+            .join(document_diary, document_diary.c.document_uuid == Document.uuid)
+            .join(DiaryEntry, document_diary.c.diary_entry_uuid == DiaryEntry.uuid)
+            .where(
+                DiaryEntry.created_by == user_uuid,
+                DiaryEntry.is_deleted.is_(False),
+                Document.is_deleted.is_(False),
+                Document.is_archived.is_(False),
+            )
         ) or 0
         
         # Diary text storage (approximate from content length)
         diary_text_bytes = await db.scalar(
             select(func.coalesce(func.sum(DiaryEntry.content_length), 0))
-            .where(DiaryEntry.created_by == user_uuid)
+            .where(
+                DiaryEntry.created_by == user_uuid,
+                DiaryEntry.is_deleted.is_(False),
+            )
         ) or 0
         
         # Calculate totals
@@ -252,11 +270,8 @@ class DashboardService:
         Returns:
             Number of cache entries invalidated
         """
-        # Invalidate all cache entries for this user
-        count = self.cache.invalidate_pattern(f"{user_uuid}")
-        
-        # Also invalidate with prefixes
-        count += self.cache.invalidate_pattern(f"stats:{user_uuid}")
+        # Invalidate all cache entries for this user with specific prefixes
+        count = self.cache.invalidate_pattern(f"stats:{user_uuid}")
         count += self.cache.invalidate_pattern(f"activity:{user_uuid}")
         count += self.cache.invalidate_pattern(f"quick:{user_uuid}")
         

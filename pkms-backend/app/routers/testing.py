@@ -35,7 +35,7 @@ from ..models.archive import ArchiveFolder, ArchiveItem
 from ..models.tag import Tag
 # from ..models.link import Link  # Link model not implemented
 from ..auth.security import verify_password
-from ..config import NEPAL_TZ, get_data_dir
+from ..config import NEPAL_TZ, get_data_dir, nepal_now
 
 router = APIRouter(tags=["testing"])
 
@@ -78,10 +78,6 @@ async def get_database_stats(
                 if table_name == "users":
                     # For users table, don't filter by created_by
                     result = await db.execute(select(func.count()).select_from(model))
-                elif table_name == "diary_media":
-                    # DiaryFile model removed - diary files now use Document + document_diary
-                    # This endpoint is no longer applicable
-                    result = await db.execute(select(func.count()).select_from(DiaryEntry).where(DiaryEntry.created_by == current_user.uuid))
                 else:
                     # For other tables, filter by current user
                     result = await db.execute(
@@ -822,13 +818,8 @@ async def get_sample_rows(
             model = table_models[table]
             
             # Build query with user filtering
-            if table == "diary_media":
-                # DiaryFile model removed - diary files now use Document + document_diary
-                # This endpoint is no longer applicable
-                query = select(DiaryEntry).where(DiaryEntry.created_by == current_user.uuid).limit(limit)
-            else:
-                # For other tables, filter by current user
-                query = select(model).where(model.created_by == current_user.uuid).limit(limit)
+            # For other tables, filter by current user
+            query = select(model).where(model.created_by == current_user.uuid).limit(limit)
             
             result = await db.execute(query)
             rows = result.scalars().all()
@@ -1721,18 +1712,18 @@ async def _test_archive_crud(db: AsyncSession, user: User, cleanup_list: list, v
             
             # Update item
             item.name = f"UPDATED_TEST_ITEM_{test_id}"
-            item.extracted_text = f"Updated test content - ID: {test_id} - New Password: {new_test_password}"
+            item.description = f"Updated test content - ID: {test_id} - New Password: {new_test_password}"
             
             await db.flush()
             await db.refresh(folder)
             await db.refresh(item)
             
-            if (new_test_password in folder.description and 
-                new_test_password in item.extracted_text):
+            if (new_test_password in folder.description and
+                new_test_password in item.description):
                 add_operation("update", True, {
                     "updated_folder_name": folder.name,
                     "updated_item_name": item.name,
-                    "contains_new_password": new_test_password in item.extracted_text
+                    "contains_new_password": new_test_password in item.description
                 })
             else:
                 add_operation("update", False, error="Archive update verification failed")
@@ -2124,7 +2115,7 @@ curl -X GET http://localhost:8000/api/v1/testing/validation/data-integrity \\
 
 # Test resource monitoring
 curl -X GET http://localhost:8000/api/v1/testing/monitoring/resource-usage \\
-  -H "Authorization: Bearer $TOKEN\""""
+  -H "Authorization: Bearer $TOKEN" """
                 },
                 "database_deep_dive": {
                     "description": "Deep database analysis and repair",
@@ -2985,8 +2976,9 @@ async def get_diary_table_details(
                     "total_size_mb": round(media_stats[5] / (1024 * 1024), 2) if media_stats and media_stats[5] else 0,
                     "average_size_mb": round(media_stats[6] / (1024 * 1024), 2) if media_stats and media_stats[6] else 0
                 },
-                "media_with_duration": media_stats[7] if media_stats else 0
-            },
+            # Remove or compute separately if a duration field exists
+            # "media_with_duration": media_stats[7] if media_stats else 0
+        },
             "sample_entries": sample_entries,
             "sample_media": sample_media,
             "fts_tables": fts_tables,
@@ -3024,7 +3016,6 @@ async def get_session_status(
     try:
         from ..models.user import Session
         from datetime import datetime, timedelta
-from app.config import nepal_now
         
         # Get current user's active session
         session_result = await db.execute(
@@ -3385,10 +3376,10 @@ async def run_diary_migration(
         
         # Update day_of_week for existing entries
         log_message("DATE: Calculating day_of_week for existing entries...", "info")
-        result = await db.execute(text("SELECT id, date FROM diary_entries WHERE day_of_week IS NULL"))
+        result = await db.execute(text("SELECT uuid, date FROM diary_entries WHERE day_of_week IS NULL"))
         entries = result.fetchall()
-        
-        for entry_id, entry_date in entries:
+
+        for entry_uuid, entry_date in entries:
             if entry_date:
                 try:
                     if isinstance(entry_date, str):
@@ -3398,10 +3389,12 @@ async def run_diary_migration(
                     
                     day_of_week = parsed_date.weekday()  # 0=Monday, 6=Sunday
                     
-                    await db.execute(text("UPDATE diary_entries SET day_of_week = :dow WHERE id = :id"), 
-                                   {"dow": day_of_week, "id": entry_id})
+                    await db.execute(
+                        text("UPDATE diary_entries SET day_of_week = :dow WHERE uuid = :uuid"),
+                        {"dow": day_of_week, "uuid": entry_uuid},
+                    )
                 except Exception as e:
-                    log_message(f"  WARNING: Failed to update day_of_week for entry {entry_id}: {e}", "warning")
+                    log_message(f"  WARNING: Failed to update day_of_week for entry {entry_uuid}: {e}", "warning")
         
         # Update media_count for existing entries
         log_message("MEDIA: Calculating media_count for existing entries...", "info")
@@ -3422,27 +3415,25 @@ async def run_diary_migration(
         # Prefer uuid where present; fall back to legacy id
         # Note: encrypted_blob may exist only on legacy rows.
         result = await db.execute(text("""
-            SELECT
-                COALESCE(uuid, CAST(id AS TEXT)) AS entry_key,
-                encrypted_blob, encryption_iv, encryption_tag, date
+            SELECT uuid, id, encrypted_blob, encryption_iv, encryption_tag, date
             FROM diary_entries
             WHERE encrypted_blob IS NOT NULL
               AND (content_file_path IS NULL OR content_file_path = '')
         """))
         entries_to_migrate = result.fetchall()
-        
+
         log_message(f"  SEARCH: Found {len(entries_to_migrate)} entries to migrate", "info")
-        
+
         if entries_to_migrate:
             # Create directory structure
             from app.utils.diary_encryption import write_encrypted_file, compute_sha256
-            
+
             secure_dir = get_data_dir() / "secure" / "entries" / "text"
             secure_dir.mkdir(parents=True, exist_ok=True)
-            
+
             migrated_count = 0
             for entry in entries_to_migrate:
-                entry_key, encrypted_blob, iv, tag, entry_date = entry
+                entry_uuid, legacy_id, encrypted_blob, iv, tag, entry_date = entry
                 
                 try:
                     # Parse date for filename
@@ -3453,7 +3444,8 @@ async def run_diary_migration(
                     
                     # Generate readable filename
                     date_str = parsed_date.strftime("%Y-%m-%d")
-                    filename = f"{date_str}_diary_{entry_key}.dat"
+                    identifier = entry_uuid or legacy_id
+                    filename = f"{date_str}_diary_{identifier}.dat"
                     file_path = secure_dir / filename
                     
                     # Write encrypted data to file using the new format
@@ -3468,15 +3460,16 @@ async def run_diary_migration(
                     file_hash = compute_sha256(file_path)
                     
                     # Update database record
-                    await db.execute(text("""
-                        UPDATE diary_entries 
-                        SET content_file_path = :path, file_hash = :hash
-                        WHERE id = :id
-                    """), {
-                        "path": str(file_path),
-                        "hash": file_hash,
-                        "id": entry_id
-                    })
+                    if entry_uuid:
+                        await db.execute(
+                            text("UPDATE diary_entries SET content_file_path=:path, file_hash=:hash WHERE uuid=:uuid"),
+                            {"path": str(file_path), "hash": file_hash, "uuid": entry_uuid},
+                        )
+                    else:
+                        await db.execute(
+                            text("UPDATE diary_entries SET content_file_path=:path, file_hash=:hash WHERE id=:id"),
+                            {"path": str(file_path), "hash": file_hash, "id": legacy_id},
+                        )
                     
                     migrated_count += 1
                     
@@ -3484,7 +3477,7 @@ async def run_diary_migration(
                         log_message(f"  INFO: Migrated {migrated_count}/{len(entries_to_migrate)} entries...", "info")
                         
                 except Exception as e:
-                    log_message(f"  WARNING: Failed to migrate entry {entry_id}: {e}", "warning")
+                    log_message(f"  WARNING: Failed to migrate entry {entry_uuid or legacy_id}: {e}", "warning")
                     continue
             
             log_message(f"SUCCESS: Successfully migrated {migrated_count} diary entries", "info")
