@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
-import FileUpload from './FileUpload';
+import { Button, Group, Title, Progress, Alert } from '@mantine/core';
+import { IconUpload, IconLink } from '@tabler/icons-react';
+import { FileUploadModal } from './FileUploadModal';
+import { AudioRecorderModal } from './AudioRecorderModal';
 import FileList from './FileList';
 
 interface FileItem {
@@ -29,65 +32,75 @@ export const FileSection: React.FC<FileSectionProps> = ({
   entityId,
   files,
   onFilesUpdate,
-  defaultFilename = '',
   className = '',
   showUnlink = false,
   onUnlink
 }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [fileUploadModalOpened, setFileUploadModalOpened] = useState(false);
+  const [audioRecorderModalOpened, setAudioRecorderModalOpened] = useState(false);
 
-  const handleUpload = async (file: File, metadata: any) => {
+  const handleUpload = async (files: File[], metadata: any) => {
     setIsUploading(true);
     setUploadProgress(0);
 
     try {
-      // Step 1: Upload file using chunk service
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('metadata', JSON.stringify(metadata));
+      const newFiles = [];
+      
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setUploadProgress((i / files.length) * 50);
+        
+        // Step 1: Upload file using chunk service
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('metadata', JSON.stringify(metadata));
 
-      const uploadResponse = await fetch('/api/v1/uploads/chunk-upload', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        },
-        body: formData
-      });
+        const uploadResponse = await fetch('/api/v1/uploads/chunk-upload', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          },
+          body: formData
+        });
 
-      if (!uploadResponse.ok) {
-        throw new Error('Upload failed');
+        if (!uploadResponse.ok) {
+          throw new Error('Upload failed');
+        }
+
+        const { file_id } = await uploadResponse.json();
+        setUploadProgress(50 + (i / files.length) * 50);
+
+        // Step 2: Commit upload using module-specific endpoint
+        const commitEndpoint = getCommitEndpoint(module);
+        const commitPayload = {
+          file_id,
+          ...metadata,
+          ...getModuleSpecificPayload(module, entityId)
+        };
+
+        const commitResponse = await fetch(commitEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          },
+          body: JSON.stringify(commitPayload)
+        });
+
+        if (!commitResponse.ok) {
+          throw new Error('Commit failed');
+        }
+
+        const newFile = await commitResponse.json();
+        newFiles.push(newFile);
       }
 
-      const { file_id } = await uploadResponse.json();
-      setUploadProgress(50);
-
-      // Step 2: Commit upload using module-specific endpoint
-      const commitEndpoint = getCommitEndpoint(module);
-      const commitPayload = {
-        file_id,
-        ...metadata,
-        ...getModuleSpecificPayload(module, entityId)
-      };
-
-      const commitResponse = await fetch(commitEndpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        },
-        body: JSON.stringify(commitPayload)
-      });
-
-      if (!commitResponse.ok) {
-        throw new Error('Commit failed');
-      }
-
-      const newFile = await commitResponse.json();
       setUploadProgress(100);
 
       // Step 3: Update files list
-      onFilesUpdate([...files, newFile]);
+      onFilesUpdate([...files, ...newFiles]);
 
     } catch (error) {
       console.error('Upload error:', error);
@@ -145,50 +158,56 @@ export const FileSection: React.FC<FileSectionProps> = ({
     onFilesUpdate(files.filter(f => f.uuid !== fileId));
   };
 
+  const handleAudioSave = async (audioBlob: Blob, filename: string) => {
+    const audioFile = new File([audioBlob], filename, { type: 'audio/webm' });
+    await handleUpload([audioFile], { description: 'Audio recording' });
+    setAudioRecorderModalOpened(false);
+  };
+
   return (
-    <div className={`space-y-4 ${className}`}>
+    <div className={className}>
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-medium text-gray-900">Attachments</h3>
-        <div className="flex items-center space-x-2">
+      <Group justify="space-between" mb="md">
+        <Title order={4}>Attachments</Title>
+        <Group gap="xs">
           {module === 'projects' && (
-            <button
+            <Button
+              variant="outline"
+              size="sm"
+              leftSection={<IconLink size={16} />}
               onClick={() => {
                 // TODO: Open "Attach Existing" modal
                 console.log('Open attach existing modal');
               }}
-              className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
             >
               Attach Existing
-            </button>
+            </Button>
           )}
-          <FileUpload
-            module={module}
-            onUpload={handleUpload}
-            defaultFilename={defaultFilename}
-            className="text-sm"
-          />
-        </div>
-      </div>
+          <Button
+            variant="outline"
+            size="sm"
+            leftSection={<IconUpload size={16} />}
+            onClick={() => setFileUploadModalOpened(true)}
+          >
+            Upload Files
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            leftSection={<IconUpload size={16} />}
+            onClick={() => setAudioRecorderModalOpened(true)}
+          >
+            Record Audio
+          </Button>
+        </Group>
+      </Group>
 
       {/* Upload Progress */}
       {isUploading && (
-        <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-          <div className="flex items-center">
-            <div className="flex-1">
-              <div className="text-sm text-blue-700">Uploading...</div>
-              <div className="w-full bg-blue-200 rounded-full h-2 mt-1">
-                <div 
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
-            </div>
-            <div className="ml-3 text-sm text-blue-700">
-              {Math.round(uploadProgress)}%
-            </div>
-          </div>
-        </div>
+        <Alert color="blue" mb="md">
+          <Progress value={uploadProgress} size="sm" mb="xs" />
+          <div>Uploading... {Math.round(uploadProgress)}%</div>
+        </Alert>
       )}
 
       {/* Files List */}
@@ -198,6 +217,20 @@ export const FileSection: React.FC<FileSectionProps> = ({
         onUnlink={showUnlink ? handleUnlink : undefined}
         module={module}
         showUnlink={showUnlink}
+      />
+
+      {/* Modals */}
+      <FileUploadModal
+        opened={fileUploadModalOpened}
+        onClose={() => setFileUploadModalOpened(false)}
+        onUpload={handleUpload}
+        multiple={true}
+      />
+
+      <AudioRecorderModal
+        opened={audioRecorderModalOpened}
+        onClose={() => setAudioRecorderModalOpened(false)}
+        onSave={handleAudioSave}
       />
     </div>
   );

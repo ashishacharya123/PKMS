@@ -79,7 +79,7 @@ class UnifiedCalendarService {
       id: `todo-${todo.uuid}`,
       title: todo.title || 'Untitled Todo',
       description: todo.description || '',
-      date: todo.dueDate || todo.due_date ? new Date(todo.dueDate || todo.due_date) : new Date(todo.createdAt || todo.created_at),
+      date: todo.dueDate ? new Date(todo.dueDate) : new Date(todo.createdAt),
       type: 'todo',
       module: 'todos',
       priority: todo.priority || 'medium',
@@ -89,7 +89,7 @@ class UnifiedCalendarService {
       color: this.getPriorityColor(todo.priority || 'medium'),
       icon: '✓',
       metadata: {
-        dueDate: todo.dueDate || todo.due_date ? new Date(todo.dueDate || todo.due_date) : undefined,
+        dueDate: todo.dueDate ? new Date(todo.dueDate) : undefined,
         completedDate: todo.completedDate || todo.completed_at ? new Date(todo.completedDate || todo.completed_at) : undefined,
         projectId: todo.projectId || todo.project_id
       }

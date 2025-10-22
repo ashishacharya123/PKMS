@@ -15,6 +15,7 @@ import logging
 
 from app.services.chunk_service import chunk_manager, ChunkUploadStatus
 from app.services.file_detection import FileTypeDetectionService
+from app.services.thumbnail_service import thumbnail_service
 from app.config import get_data_dir, get_file_storage_dir
 from app.utils.security import sanitize_filename
 from sqlalchemy import select, and_, func
@@ -59,6 +60,9 @@ class UnifiedUploadService:
             
             await self._finalize_file(temp_path, final_path, record, db)
             
+            # Generate thumbnails after successful upload
+            await self._generate_thumbnails(final_path)
+            
             await chunk_manager.cleanup_upload(upload_id)
             
             return record
@@ -66,6 +70,20 @@ class UnifiedUploadService:
         except Exception as e:
             await self._cleanup_on_error(db, temp_path, assembled_path)
             raise
+    
+    async def _generate_thumbnails(self, file_path: Path):
+        """Generate thumbnails for uploaded file"""
+        try:
+            # Get thumbnail directory (same level as file storage)
+            thumbnail_dir = get_file_storage_dir() / "thumbnails"
+            
+            # Generate all thumbnail sizes
+            await thumbnail_service.generate_all_sizes(file_path, thumbnail_dir)
+            logger.info(f"Generated thumbnails for: {file_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to generate thumbnails for {file_path}: {e}")
+            # Don't fail the upload if thumbnail generation fails
 
     async def _locate_assembled_file(self, upload_id: str, created_by: str) -> Path:
         status_obj = await chunk_manager.get_upload_status(upload_id)

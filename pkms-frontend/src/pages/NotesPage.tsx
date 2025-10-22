@@ -9,11 +9,7 @@ import {
   Group,
   Stack,
   Button,
-  TextInput,
   Badge,
-  ActionIcon,
-  Menu,
-  // Skeleton,
   Alert,
   Pagination,
   Paper,
@@ -27,19 +23,12 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { ProjectBadges } from '../components/common/ProjectBadges';
 import {
   IconPlus,
-  IconSearch,
   IconFilter,
   IconSortAscending,
   IconSortDescending,
   IconArchive,
-  IconArchiveOff,
-  IconEdit,
-  IconTrash,
-  IconDots,
   // IconNotes,
   IconAlertTriangle,
-  IconStar,
-  IconStarFilled,
   IconFileText,
   IconHistory
 } from '@tabler/icons-react';
@@ -48,6 +37,8 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { useNotesStore } from '../stores/notesStore';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
+import { UnifiedSearchEmbedded } from '../components/search/UnifiedSearchEmbedded';
+import { ActionMenu } from '../components/common/ActionMenu';
 import { notesService } from '../services/notesService';
 
 type SortField = 'title' | 'created_at' | 'updated_at';
@@ -77,7 +68,7 @@ export function NotesPage() {
   const location = useLocation() as { state?: { highlightNoteId?: number } };
   
   // Local state
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery] = useState('');
   const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
   const [sortField, setSortField] = useState<SortField>('updated_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -237,12 +228,24 @@ export function NotesPage() {
               New Note
             </Button>
 
-            {/* Search */}
-            <TextInput
-              placeholder="Search notes..."
-              leftSection={<IconSearch size={16} />}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.currentTarget.value)}
+            {/* Unified Search */}
+            <UnifiedSearchEmbedded
+              initialQuery={searchQuery}
+              defaultModules={['notes']}
+              includeDiary={false}
+              showModuleSelector={false}
+              showSearchTypeToggle={false}
+              onResultClick={(result) => {
+                // Navigate to note or show in modal
+                notifications.show({
+                  title: 'Note Found',
+                  message: `Found note: ${result.title}`,
+                  color: 'blue'
+                });
+              }}
+              emptyMessage="No notes found. Try different search terms."
+              resultsPerPage={10}
+              showPagination={false}
             />
 
             {/* Filters */}
@@ -347,65 +350,44 @@ export function NotesPage() {
               renderMediumIcon={(note) => (
                 <Stack gap="xs" align="center" style={{ position: 'relative', width: '100%' }}>
                   <Group justify="flex-end" w="100%" gap={4} style={{ position: 'absolute', top: 0, right: 0, padding: 4 }}>
-                    <Menu shadow="md" width={200}>
-                      <Menu.Target>
-                        <ActionIcon variant="light" color="gray" size="sm" onClick={(e) => e.stopPropagation()}>
-                          <IconDots size={14} />
-                        </ActionIcon>
-                      </Menu.Target>
-                      <Menu.Dropdown onClick={(e) => e.stopPropagation()}>
-                        <Menu.Item 
-                          leftSection={note.is_favorite ? <IconStarFilled size={14} /> : <IconStar size={14} />}
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            try {
-                              await useNotesStore.getState().updateNote(note.uuid, { is_favorite: !note.is_favorite });
-                              notifications.show({ title: note.is_favorite ? 'Removed from Favorites' : 'Added to Favorites', message: '', color: 'pink' });
-                            } catch {
-                              notifications.show({ title: 'Action Failed', message: 'Could not update favorite', color: 'red' });
-                            }
-                          }}
-                        >
-                          {note.is_favorite ? 'Unfavorite' : 'Favorite'}
-                        </Menu.Item>
-                        <Menu.Item 
-                          leftSection={note.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            try {
-                              await notesService.updateNote(note.uuid, { is_archived: !note.is_archived });
-                              loadNotes(); // Reload notes after archive/unarchive
-                              notifications.show({ title: note.is_archived ? 'Note Unarchived' : 'Note Archived', message: '', color: 'green' });
-                            } catch {
-                              notifications.show({ title: 'Action Failed', message: 'Could not change archive status', color: 'red' });
-                            }
-                          }}
-                        >
-                          {note.is_archived ? 'Unarchive' : 'Archive'}
-                        </Menu.Item>
-                        <Menu.Item 
-                          leftSection={<IconEdit size={14} />}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            sessionStorage.setItem('notesScrollY', String(window.scrollY));
-                            navigate(`/notes/${note.uuid}`);
-                          }}
-                        >
-                          Edit
-                        </Menu.Item>
-                        <Menu.Divider />
-                        <Menu.Item 
-                          leftSection={<IconTrash size={14} />}
-                          color="red"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteNote(note.uuid, note.title);
-                          }}
-                        >
-                          Delete
-                        </Menu.Item>
-                      </Menu.Dropdown>
-                    </Menu>
+                    <ActionMenu
+                      onToggleFavorite={async () => {
+                        try {
+                          await useNotesStore.getState().updateNote(note.uuid, { is_favorite: !note.is_favorite });
+                          notifications.show({ title: note.is_favorite ? 'Removed from Favorites' : 'Added to Favorites', message: '', color: 'pink' });
+                        } catch {
+                          notifications.show({ title: 'Action Failed', message: 'Could not update favorite', color: 'red' });
+                        }
+                      }}
+                      onArchive={note.is_archived ? undefined : async () => {
+                        try {
+                          await notesService.updateNote(note.uuid, { is_archived: true });
+                          loadNotes();
+                          notifications.show({ title: 'Note Archived', message: '', color: 'green' });
+                        } catch {
+                          notifications.show({ title: 'Action Failed', message: 'Could not archive', color: 'red' });
+                        }
+                      }}
+                      onUnarchive={note.is_archived ? async () => {
+                        try {
+                          await notesService.updateNote(note.uuid, { is_archived: false });
+                          loadNotes();
+                          notifications.show({ title: 'Note Unarchived', message: '', color: 'green' });
+                        } catch {
+                          notifications.show({ title: 'Action Failed', message: 'Could not unarchive', color: 'red' });
+                        }
+                      } : undefined}
+                      onEdit={() => {
+                        sessionStorage.setItem('notesScrollY', String(window.scrollY));
+                        navigate(`/notes/${note.uuid}`);
+                      }}
+                      onDelete={() => handleDeleteNote(note.uuid, note.title)}
+                      isFavorite={note.is_favorite}
+                      isArchived={note.is_archived}
+                      variant="subtle"
+                      color="gray"
+                      size={14}
+                    />
                   </Group>
                   <Text size="xl">{getNoteIcon(note)}</Text>
                   <Group gap={4}>
@@ -508,72 +490,53 @@ export function NotesPage() {
                       </Text>
                     </Stack>
                   </Group>
-                  <Menu shadow="md" width={200}>
-                    <Menu.Target>
-                      <ActionIcon variant="subtle" color="gray" onClick={(e) => e.stopPropagation()}>
-                        <IconDots size={16} />
-                      </ActionIcon>
-                    </Menu.Target>
-                    <Menu.Dropdown>
-                      <Menu.Item 
-                        leftSection={note.is_favorite ? <IconStarFilled size={14} /> : <IconStar size={14} />}
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            await useNotesStore.getState().updateNote(note.uuid, { is_favorite: !note.is_favorite });
-                            notifications.show({ 
-                              title: note.is_favorite ? 'Removed from Favorites' : 'Added to Favorites', 
-                              message: '', 
-                              color: 'pink' 
-                            });
-                          } catch (err) {
-                            notifications.show({ title: 'Action Failed', message: 'Could not update favorite', color: 'red' });
-                          }
-                        }}
-                      >
-                        {note.is_favorite ? 'Unfavorite' : 'Favorite'}
-                      </Menu.Item>
-                      <Menu.Item 
-                        leftSection={<IconEdit size={14} />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/notes/${note.uuid}`);
-                        }}
-                      >
-                        Edit
-                      </Menu.Item>
-                      <Menu.Item 
-                        leftSection={note.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            await notesService.updateNote(note.uuid, { is_archived: !note.is_archived });
-                            loadNotes(); // Reload notes after archive/unarchive
-                            notifications.show({
-                              title: note.is_archived ? 'Note Unarchived' : 'Note Archived',
-                              message: `"${note.title}" has been ${note.is_archived ? 'unarchived' : 'archived'}`,
-                              color: 'green'
-                            });
-                          } catch (err) {
-                            notifications.show({ title: 'Action Failed', message: 'Could not change archive status', color: 'red' });
-                          }
-                        }}
-                      >
-                        {note.is_archived ? 'Unarchive' : 'Archive'}
-                      </Menu.Item>
-                      <Menu.Divider />
-                      <Menu.Item 
-                        leftSection={<IconTrash size={14} />}
-                        color="red"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteNote(note.uuid, note.title);
-                        }}
-                      >
-                        Delete
-                      </Menu.Item>
-                    </Menu.Dropdown>
-                  </Menu>
+                  <ActionMenu
+                    onToggleFavorite={async () => {
+                      try {
+                        await useNotesStore.getState().updateNote(note.uuid, { is_favorite: !note.is_favorite });
+                        notifications.show({ 
+                          title: note.is_favorite ? 'Removed from Favorites' : 'Added to Favorites', 
+                          message: '', 
+                          color: 'pink' 
+                        });
+                      } catch (err) {
+                        notifications.show({ title: 'Action Failed', message: 'Could not update favorite', color: 'red' });
+                      }
+                    }}
+                    onArchive={note.is_archived ? undefined : async () => {
+                      try {
+                        await notesService.updateNote(note.uuid, { is_archived: true });
+                        loadNotes();
+                        notifications.show({
+                          title: 'Note Archived',
+                          message: `"${note.title}" has been archived`,
+                          color: 'green'
+                        });
+                      } catch (err) {
+                        notifications.show({ title: 'Action Failed', message: 'Could not archive', color: 'red' });
+                      }
+                    }}
+                    onUnarchive={note.is_archived ? async () => {
+                      try {
+                        await notesService.updateNote(note.uuid, { is_archived: false });
+                        loadNotes();
+                        notifications.show({
+                          title: 'Note Unarchived',
+                          message: `"${note.title}" has been unarchived`,
+                          color: 'green'
+                        });
+                      } catch (err) {
+                        notifications.show({ title: 'Action Failed', message: 'Could not unarchive', color: 'red' });
+                      }
+                    } : undefined}
+                    onEdit={() => navigate(`/notes/${note.uuid}`)}
+                    onDelete={() => handleDeleteNote(note.uuid, note.title)}
+                    isFavorite={note.is_favorite}
+                    isArchived={note.is_archived}
+                    variant="subtle"
+                    color="gray"
+                    size={16}
+                  />
                 </Group>
               )}
               renderDetailColumns={(note) => [
@@ -644,60 +607,35 @@ export function NotesPage() {
                     </Badge>
                   )}
                 </Group>,
-                <Menu key="actions" shadow="md" width={200}>
-                  <Menu.Target>
-                    <ActionIcon variant="subtle" color="gray" size="sm" onClick={(e) => e.stopPropagation()}>
-                      <IconDots size={14} />
-                    </ActionIcon>
-                  </Menu.Target>
-                  <Menu.Dropdown>
-                    <Menu.Item 
-                      leftSection={note.is_favorite ? <IconStarFilled size={14} /> : <IconStar size={14} />}
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        try {
-                          await useNotesStore.getState().updateNote(note.uuid, { is_favorite: !note.is_favorite });
-                          loadNotes(); // Reload notes after favorite toggle
-                          notifications.show({ title: note.is_favorite ? 'Removed from Favorites' : 'Added to Favorites', message: '', color: 'pink' });
-                        } catch {}
-                      }}
-                    >
-                      {note.is_favorite ? 'Unfavorite' : 'Favorite'}
-                    </Menu.Item>
-                    <Menu.Item 
-                      leftSection={note.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        try {
-                          await notesService.updateNote(note.uuid, { is_archived: !note.is_archived });
-                          loadNotes(); // Reload notes after archive/unarchive
-                        } catch {}
-                      }}
-                    >
-                      {note.is_archived ? 'Unarchive' : 'Archive'}
-                    </Menu.Item>
-                    <Menu.Divider />
-                    <Menu.Item 
-                      leftSection={<IconEdit size={14} />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/notes/${note.uuid}`);
-                      }}
-                    >
-                      Edit
-                    </Menu.Item>
-                    <Menu.Item 
-                      leftSection={<IconTrash size={14} />}
-                      color="red"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteNote(note.uuid, note.title);
-                      }}
-                    >
-                      Delete
-                    </Menu.Item>
-                  </Menu.Dropdown>
-                </Menu>
+                <ActionMenu
+                  key="actions"
+                  onToggleFavorite={async () => {
+                    try {
+                      await useNotesStore.getState().updateNote(note.uuid, { is_favorite: !note.is_favorite });
+                      loadNotes();
+                      notifications.show({ title: note.is_favorite ? 'Removed from Favorites' : 'Added to Favorites', message: '', color: 'pink' });
+                    } catch {}
+                  }}
+                  onArchive={note.is_archived ? undefined : async () => {
+                    try {
+                      await notesService.updateNote(note.uuid, { is_archived: true });
+                      loadNotes();
+                    } catch {}
+                  }}
+                  onUnarchive={note.is_archived ? async () => {
+                    try {
+                      await notesService.updateNote(note.uuid, { is_archived: false });
+                      loadNotes();
+                    } catch {}
+                  } : undefined}
+                  onEdit={() => navigate(`/notes/${note.uuid}`)}
+                  onDelete={() => handleDeleteNote(note.uuid, note.title)}
+                  isFavorite={note.is_favorite}
+                  isArchived={note.is_archived}
+                  variant="subtle"
+                  color="gray"
+                  size={14}
+                />
               ]}
               detailHeaders={[
                 'Title', 

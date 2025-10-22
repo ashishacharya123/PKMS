@@ -35,22 +35,32 @@ class FolderCreate(CamelCaseModel):
         return validate_uuid_format(v)
 
 class FolderUpdate(CamelCaseModel):
+    # Optional updates - only include fields you want to change
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=1000)
+    is_favorite: Optional[bool] = None
+    parent_uuid: Optional[str] = None
 
     @validator('name')
     def validate_name(cls, v):
-        if v is None:
-            return v
-        from app.utils.security import sanitize_folder_name
-        return sanitize_folder_name(v)
+        if v is not None:
+            from app.utils.security import sanitize_folder_name
+            return sanitize_folder_name(v)
+        return v
 
     @validator('description')
     def validate_description(cls, v):
-        if v is None:
-            return v
-        from app.utils.security import sanitize_description
-        return sanitize_description(v)
+        if v is not None:
+            from app.utils.security import sanitize_description
+            return sanitize_description(v)
+        return v
+
+    @validator('parent_uuid')
+    def validate_parent_uuid(cls, v):
+        if v is not None:
+            from app.utils.security import validate_uuid_format
+            return validate_uuid_format(v)
+        return v
 
 class ItemUpdate(CamelCaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)

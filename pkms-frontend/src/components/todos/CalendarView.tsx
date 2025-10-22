@@ -46,8 +46,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     
     while (currentDateIter <= lastDisplayDay) {
       const dayTodos = todos.filter(todo => {
-        if (!todo.due_date) return false;
-        const todoDate = new Date(todo.due_date);
+        if (!todo.dueDate) return false;
+        const todoDate = new Date(todo.dueDate);
         return todoDate.getDate() === currentDateIter.getDate() &&
                todoDate.getMonth() === currentDateIter.getMonth() &&
                todoDate.getFullYear() === currentDateIter.getFullYear();

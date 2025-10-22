@@ -31,6 +31,7 @@ import {
   IconKey,
   IconRefresh,
   IconRotateClockwise,
+  IconImage,
 } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
 import dashboardService from '../../services/dashboardService';
@@ -38,6 +39,8 @@ import { TestingInterface } from './TestingInterface';
 import { BackupRestoreModal } from './BackupRestoreModal';
 import RecoveryViewModal from '../auth/RecoveryViewModal';
 import { apiService } from '../../services/api';
+import { notifications } from '@mantine/notifications';
+import { notifications } from '@mantine/notifications';
 
 interface NavigationItem {
   label: string;
@@ -328,6 +331,9 @@ export function Navigation({ collapsed = false }: NavigationProps) {
                 try {
                   if (reindexing) return;
                   setReindexing(true);
+                  // Ensure structures, then rebuild and reindex API
+                  await apiService.ensureFts();
+                  await apiService.rebuildFts();
                   await apiService.reindexSearchContent();
                   setUserMenuOpened(false);
                 } catch (e) {
@@ -336,6 +342,22 @@ export function Navigation({ collapsed = false }: NavigationProps) {
               }}
             >
               Re-index Content
+            </Menu.Item>
+
+            <Menu.Item
+              leftSection={<IconImage size={14} />}
+              onClick={async () => {
+                try {
+                  notifications.show({ id: 'thumb-build', title: 'Building Thumbnails', message: 'Scanning and generating missing thumbnails...', loading: true, autoClose: false });
+                  const res = await apiService.buildThumbnails('medium');
+                  notifications.update({ id: 'thumb-build', title: 'Thumbnails Built', message: `Created: ${res.created}, Existing: ${res.existing}, Failed: ${res.failed}`, color: 'green', loading: false, autoClose: 4000 });
+                  setUserMenuOpened(false);
+                } catch (e: any) {
+                  notifications.update({ id: 'thumb-build', title: 'Thumbnail Build Failed', message: e?.message || 'Unknown error', color: 'red', loading: false, autoClose: 5000 });
+                }
+              }}
+            >
+              Build Thumbnails
             </Menu.Item>
             
             <Menu.Item 

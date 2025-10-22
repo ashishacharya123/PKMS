@@ -19,12 +19,9 @@ export interface DiaryDailyMetrics {
   reading_time?: number;       // minutes
   social_interaction?: boolean;
   
-  // Financial (simple, NPR)
-  daily_income?: number;
-  daily_expense?: number;
+  // Financial fields moved to top-level (backend structure)
   
-  // Context
-  is_office_day?: boolean;
+  // Context fields moved to top-level (backend structure)
   
   custom_fields?: Record<string, any>;
 }
@@ -38,13 +35,13 @@ export interface DiaryDailyMetadata {
 }
 
 export const WEATHER_CODES = [
-  { value: 0, label: 'Clear' },
-  { value: 1, label: 'Partly Cloudy' },
-  { value: 2, label: 'Cloudy' },
-  { value: 3, label: 'Rain' },
-  { value: 4, label: 'Storm' },
-  { value: 5, label: 'Snow' },
-  { value: 6, label: 'Scorching Sun' },
+  { value: 0, label: 'Freezing (0-5°C)' },
+  { value: 1, label: 'Cold (5-10°C)' },
+  { value: 2, label: 'Cool (10-15°C)' },
+  { value: 3, label: 'Mild (15-20°C)' },
+  { value: 4, label: 'Warm (20-25°C)' },
+  { value: 5, label: 'Hot (25-35°C)' },
+  { value: 6, label: 'Scorching (35°C+)' },
 ] as const;
 
 export type WeatherCode = typeof WEATHER_CODES[number]['value'];
@@ -61,6 +58,10 @@ export interface DiaryEntry {
   weather_label?: string;
   location?: string;
   daily_metrics: DiaryDailyMetrics;
+  // Top-level financial fields (backend structure)
+  daily_income?: number;
+  daily_expense?: number;
+  is_office_day?: boolean;
   is_template?: boolean;
   from_template_id?: string | null;
   created_at: string;
@@ -80,6 +81,10 @@ export interface DiaryEntrySummary {
   weather_label?: string;
   location?: string;
   daily_metrics: DiaryDailyMetrics;
+  // Top-level financial fields (backend structure)
+  daily_income?: number;
+  daily_expense?: number;
+  is_office_day?: boolean;
   is_template?: boolean;
   from_template_id?: string | null;
   created_at: string;

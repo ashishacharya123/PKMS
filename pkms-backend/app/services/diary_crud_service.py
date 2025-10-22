@@ -891,10 +891,19 @@ class DiaryCRUDService:
         logger.info(f"Updating habits for user {user_uuid} on {target_date}")
 
         try:
+            # Convert ISO date string to date object
+            try:
+                parsed_date = date.fromisoformat(target_date)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid date format '{target_date}'. Expected YYYY-MM-DD format."
+                ) from e
+
             habits_result = await diary_metadata_service.update_daily_habits(
                 db=db,
                 user_uuid=user_uuid,
-                target_date=target_date,
+                target_date=parsed_date,
                 habits_data=habits_data,
                 units=units
             )

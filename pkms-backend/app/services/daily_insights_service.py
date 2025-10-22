@@ -219,7 +219,11 @@ class DailyInsightsService:
             patterns = {}
             
             for row in weekly_data:
-                day_name = day_names[row.day_of_week] if row.day_of_week is not None else "Unknown"
+                # Skip rows with invalid day_of_week to prevent contamination
+                if row.day_of_week is None:
+                    continue
+
+                day_name = day_names[row.day_of_week]
                 patterns[day_name] = {
                     "avg_mood": float(row.avg_mood or 0),
                     "avg_income": float(row.avg_income or 0),

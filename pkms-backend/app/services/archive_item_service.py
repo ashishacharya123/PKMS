@@ -18,6 +18,7 @@ from datetime import datetime
 
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.schemas.archive import ItemUpdate, ItemResponse, ItemSummary, CommitUploadRequest
+from app.services.archive_folder_service import archive_folder_service
 from app.services.archive_path_service import archive_path_service
 from app.services.chunk_service import chunk_manager
 from app.services.unified_upload_service import unified_upload_service
@@ -497,49 +498,14 @@ class ArchiveItemService:
         return metadata
     
     async def _update_folder_stats(
-        self, 
-        db: AsyncSession, 
-        user_uuid: str, 
+        self,
+        db: AsyncSession,
+        user_uuid: str,
         folder_uuid: str
     ) -> None:
-        """Update folder statistics (item_count, total_size)"""
-        # Count items in this folder
-        item_count_result = await db.execute(
-            select(func.count(ArchiveItem.uuid))
-            .where(
-                and_(
-                    ArchiveItem.folder_uuid == folder_uuid,
-                    ArchiveItem.created_by == user_uuid,
-                        ArchiveItem.is_deleted.is_(False)
-                )
-            )
-        )
-        item_count = item_count_result.scalar() or 0
-        
-        # Sum file sizes in this folder
-        total_size_result = await db.execute(
-            select(func.coalesce(func.sum(ArchiveItem.file_size), 0))
-            .where(
-                and_(
-                    ArchiveItem.folder_uuid == folder_uuid,
-                    ArchiveItem.created_by == user_uuid,
-                        ArchiveItem.is_deleted.is_(False)
-                )
-            )
-        )
-        total_size = total_size_result.scalar() or 0
-        
-        # Update folder
-        await db.execute(
-            update(ArchiveFolder)
-            .where(
-                and_(
-                    ArchiveFolder.uuid == folder_uuid,
-                    ArchiveFolder.created_by == user_uuid
-                )
-            )
-            .values(item_count=item_count, total_size=total_size)
-        )
+        """Update folder statistics (item_count, total_size) - delegates to archive_folder_service"""
+        # Delegate to the existing implementation in archive_folder_service to avoid duplication
+        await archive_folder_service._update_folder_stats(db, user_uuid, folder_uuid)
 
 
 # Global instance

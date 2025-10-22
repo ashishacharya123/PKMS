@@ -45,9 +45,11 @@ engine_kwargs = {
         else {"check_same_thread": False, "timeout": 20} if db_url.startswith("sqlite") else {}
     ),
 }
-    if sqlite_aiosqlite and make_url(db_url).database == ":memory:":
+
+if sqlite_aiosqlite and make_url(db_url).database == ":memory:":
     # StaticPool ensures the same in-memory DB across connections
     engine_kwargs["poolclass"] = StaticPool
+
 engine = create_async_engine(db_url, **engine_kwargs)
 
 # SQLite Foreign Key Event Listener
@@ -247,7 +249,6 @@ async def init_db():
                 # Archive indexes
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_created_by ON archive_folders(created_by);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_parent ON archive_folders(parent_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_archive_folders_path ON archive_folders(path);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_name ON archive_folders(name);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_archived ON archive_folders(is_archived);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_items_created_by ON archive_items(created_by);",

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { notesService, type Note, type NoteSummary, type CreateNoteRequest, type UpdateNoteRequest } from '../services/notesService';
+import { notesService } from '../services/notesService';
+import { Note, NoteSummary, CreateNoteRequest, UpdateNoteRequest } from '../types/note';
 
 interface NotesState {
   // Data

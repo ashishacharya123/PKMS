@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
+import { nepaliDateCache } from '../utils/nepaliDateCache';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -269,6 +270,8 @@ export function DashboardPage() {
   const [quick, setQuick] = useState<QuickStats | null>(null);
 
   useAuthenticatedEffect(() => {
+    // Pre-cache Nepali dates for dashboard (past 7 + today + next 3 days)
+    nepaliDateCache.preCacheDashboard();
     loadDashboardData();
   }, []);
 

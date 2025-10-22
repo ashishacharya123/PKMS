@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Box, Group, Text, Paper, Stack, Badge, ActionIcon, Menu, Progress, Tooltip } from '@mantine/core';
 import { IconDots, IconEdit, IconTrash, IconArchive, IconClock, IconUsers, IconWorld } from '@tabler/icons-react';
 import { Todo, TodoSummary, updateTodoStatus, reorderTodo } from '../../services/todosService';
@@ -42,6 +42,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
 }) => {
   const [lanes, setLanes] = useState<StatusLane[]>([]);
   const { draggedItem, handleDragStart, handleDragOver } = useDragAndDrop();
+  
+  // Keyboard navigation state
+  const [focusedTodo, setFocusedTodo] = useState<string | null>(null);
+  const [focusedLane, setFocusedLane] = useState<string | null>(null);
+  const todoRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
   // Organize todos into lanes
   useEffect(() => {
@@ -143,8 +148,82 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
   };
 
+  // Keyboard navigation handlers
+  const handleKeyDown = (e: React.KeyboardEvent, todo: Todo, laneId: string) => {
+    const currentLaneIndex = lanes.findIndex(lane => lane.id === laneId);
+    const currentTodoIndex = lanes[currentLaneIndex]?.todos.findIndex(t => t.uuid === todo.uuid) ?? -1;
+    
+    switch (e.key) {
+      case 'ArrowRight':
+        e.preventDefault();
+        // Move to next lane
+        if (currentLaneIndex < lanes.length - 1) {
+          const nextLane = lanes[currentLaneIndex + 1];
+          const targetTodoIndex = Math.min(currentTodoIndex, nextLane.todos.length - 1);
+          if (targetTodoIndex >= 0) {
+            const targetTodo = nextLane.todos[targetTodoIndex];
+            setFocusedTodo(targetTodo.uuid);
+            setFocusedLane(nextLane.id);
+            // Move todo to next lane
+            handleStatusChange(todo.uuid, nextLane.id, targetTodoIndex);
+          }
+        }
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        // Move to previous lane
+        if (currentLaneIndex > 0) {
+          const prevLane = lanes[currentLaneIndex - 1];
+          const targetTodoIndex = Math.min(currentTodoIndex, prevLane.todos.length - 1);
+          if (targetTodoIndex >= 0) {
+            const targetTodo = prevLane.todos[targetTodoIndex];
+            setFocusedTodo(targetTodo.uuid);
+            setFocusedLane(prevLane.id);
+            // Move todo to previous lane
+            handleStatusChange(todo.uuid, prevLane.id, targetTodoIndex);
+          }
+        }
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        // Move down within lane
+        if (currentTodoIndex < lanes[currentLaneIndex].todos.length - 1) {
+          const nextTodo = lanes[currentLaneIndex].todos[currentTodoIndex + 1];
+          setFocusedTodo(nextTodo.uuid);
+          // Reorder within lane
+          handleReorder(todo.uuid, currentTodoIndex + 1, laneId);
+        }
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        // Move up within lane
+        if (currentTodoIndex > 0) {
+          const prevTodo = lanes[currentLaneIndex].todos[currentTodoIndex - 1];
+          setFocusedTodo(prevTodo.uuid);
+          // Reorder within lane
+          handleReorder(todo.uuid, currentTodoIndex - 1, laneId);
+        }
+        break;
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        // Edit todo
+        if (onTodoEdit) {
+          onTodoEdit(todo);
+        }
+        break;
+      case 'Delete':
+        e.preventDefault();
+        // Delete todo
+        if (onTodoDelete) {
+          onTodoDelete(todo.uuid);
+        }
+        break;
+    }
+  };
+
   return (
-    <Box p="md">
+    <Box p="md" role="application" aria-label="Kanban Board">
       <Group gap="md" align="flex-start">
         {lanes.map((lane) => (
           <Paper
@@ -154,32 +233,45 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             style={{ minWidth: 300, flex: 1 }}
             onDragOver={(e) => onDragOver(e, lane.id)}
             onDrop={(e) => onDrop(e, lane.id)}
+            role="region"
+            aria-label={`${lane.title} lane with ${lane.todos.length} tasks`}
+            tabIndex={0}
+            onFocus={() => setFocusedLane(lane.id)}
           >
             <Group justify="space-between" mb="md">
               <Text fw={600} size="lg" c={lane.color}>
                 {lane.title}
               </Text>
-              <Badge variant="light" size="sm">
+              <Badge variant="light" size="sm" aria-label={`${lane.todos.length} tasks`}>
                 {lane.todos.length}
               </Badge>
             </Group>
 
-            <Stack gap="sm">
+            <Stack gap="sm" role="list" aria-label={`${lane.title} tasks`}>
               {lane.todos.map((todo, index) => (
                 <Paper
                   key={todo.uuid}
+                  ref={(el) => { todoRefs.current[todo.uuid] = el; }}
                   shadow="xs"
                   p="sm"
                   style={{ 
                     cursor: 'grab',
-                    borderLeft: `4px solid ${getPriorityColor(todo.priority)}`
+                    borderLeft: `4px solid ${getPriorityColor(todo.priority)}`,
+                    outline: focusedTodo === todo.uuid ? '2px solid #2196F3' : 'none',
+                    outlineOffset: '2px'
                   }}
                   draggable
+                  tabIndex={0}
+                  role="listitem"
+                  aria-label={`Task: ${todo.title}. Priority: ${todo.priority}. Status: ${lane.title}`}
                   onDragStart={(e) => handleDragStart(e, {
                     todoId: todo.uuid || '',
                     sourceStatus: lane.id,
                     sourceOrderIndex: index
                   })}
+                  onKeyDown={(e) => handleKeyDown(e, todo, lane.id)}
+                  onFocus={() => setFocusedTodo(todo.uuid)}
+                  onBlur={() => setFocusedTodo(null)}
                 >
                   <Group justify="space-between" align="flex-start">
                     <Box style={{ flex: 1 }}>
@@ -220,13 +312,13 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                         ))}
                       </Group>
 
-                      {todo.due_date && (
+                      {todo.dueDate && (
                         <Group gap="xs" align="center">
                           <Text size="xs" c="dimmed">
-                            Due: {new Date(todo.due_date).toLocaleDateString()}
+                            Due: {new Date(todo.dueDate).toLocaleDateString()}
                           </Text>
                           {(() => {
-                            const daysUntilDue = getDaysUntilDue(todo.due_date);
+                            const daysUntilDue = getDaysUntilDue(todo.dueDate);
                             if (daysUntilDue !== null) {
                               if (daysUntilDue < 0) {
                                 return <Badge size="xs" color="red">Overdue</Badge>;
@@ -242,10 +334,10 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                       )}
 
                       {/* NEW: Start Date Display */}
-                      {todo.start_date && (
+                      {todo.startDate && (
                         <Group gap="xs" align="center">
                           <Text size="xs" c="dimmed">
-                            Start: {new Date(todo.start_date).toLocaleDateString()}
+                            Start: {new Date(todo.startDate).toLocaleDateString()}
                           </Text>
                         </Group>
                       )}
@@ -265,26 +357,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                         </Box>
                       )}
 
-                      {/* NEW: Time Tracking */}
-                      {(todo.estimate_minutes || todo.actual_minutes) && (
-                        <Group gap="xs" align="center">
-                          <IconClock size={12} />
-                          {todo.estimate_minutes && (
-                            <Tooltip label="Estimated time">
-                              <Text size="xs" c="dimmed">
-                                Est: {Math.floor(todo.estimate_minutes / 60)}h {todo.estimate_minutes % 60}m
-                              </Text>
-                            </Tooltip>
-                          )}
-                          {todo.actual_minutes && (
-                            <Tooltip label="Actual time spent">
-                              <Text size="xs" c="dimmed">
-                                Actual: {Math.floor(todo.actual_minutes / 60)}h {todo.actual_minutes % 60}m
-                              </Text>
-                            </Tooltip>
-                          )}
-                        </Group>
-                      )}
+                      {/* Time tracking removed - backend no longer supports estimate_minutes */}
 
                       {/* NEW: Checklist Items */}
                       {todo.todo_type === 'checklist' && todo.checklist_items && todo.checklist_items.length > 0 && (
@@ -317,7 +390,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
 
                     <Menu>
                       <Menu.Target>
-                        <ActionIcon size="sm" variant="subtle">
+                        <ActionIcon 
+                          size="sm" 
+                          variant="subtle"
+                          aria-label={`More actions for task: ${todo.title}`}
+                        >
                           <IconDots size={14} />
                         </ActionIcon>
                       </Menu.Target>
@@ -361,9 +438,8 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                         }}
                         onSubtaskDelete={onSubtaskDelete || (() => {})}
                         onSubtaskEdit={onSubtaskEdit ? (subtask: TodoSummary) => onSubtaskEdit(subtask as any) : () => {}}
-                        onAddSubtask={(parentUuuuid: string) => {
-                          // Handle add subtask
-                          console.log('Add subtask to:', parentUuid);
+                        onAddSubtask={(parentUuid: string) => {
+                          // Handle add subtask - TODO: Implement subtask creation
                         }}
                       />
                     </Box>
@@ -374,6 +450,21 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           </Paper>
         ))}
       </Group>
+      
+      {/* ARIA Live Region for announcements */}
+      <div 
+        aria-live="polite" 
+        aria-atomic="true" 
+        style={{ 
+          position: 'absolute', 
+          left: '-10000px', 
+          width: '1px', 
+          height: '1px', 
+          overflow: 'hidden' 
+        }}
+      >
+        {focusedTodo && `Focused on task: ${lanes.find(lane => lane.todos.some(t => t.uuid === focusedTodo))?.todos.find(t => t.uuid === focusedTodo)?.title}`}
+      </div>
     </Box>
   );
 };

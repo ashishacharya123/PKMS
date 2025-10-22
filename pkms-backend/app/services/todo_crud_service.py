@@ -397,7 +397,7 @@ class TodoCRUDService:
         todo_uuid: str
     ) -> TodoResponse:
         """Mark todo as completed"""
-        return await self.update_todo_status(db, user_uuid, todo_uuid, TodoStatus.COMPLETED.value)
+        return await self.update_todo_status(db, user_uuid, todo_uuid, TodoStatus.DONE.value)
     
     async def get_todo_stats(
         self, 
@@ -454,10 +454,10 @@ class TodoCRUDService:
     
     async def _handle_status_change(self, todo: Todo, new_status: str) -> None:
         """Handle status change logic (completion dates, etc.)"""
-        if new_status == TodoStatus.COMPLETED.value:
+        if new_status == TodoStatus.DONE.value:
             if not todo.completed_at:
                 todo.completed_at = datetime.now(NEPAL_TZ)
-        elif todo.completed_at and new_status != TodoStatus.COMPLETED.value:
+        elif todo.completed_at and new_status != TodoStatus.DONE.value:
             # If changing from completed to another status, clear completion date
             todo.completed_at = None
     

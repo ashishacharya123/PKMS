@@ -223,6 +223,9 @@ class WellnessStats(CamelCaseModel):
     average_daily_expense_3m: Optional[float] = None
     average_daily_income_6m: Optional[float] = None
     average_daily_expense_6m: Optional[float] = None
+    # Overall wellness score (0-100)
+    overall_wellness_score: Optional[float] = None
+    score_components: Dict[str, float] = Field(default_factory=dict)
     # Defined habits summary (user-customizable)
     defined_habits_summary: Dict[str, Any] = Field(default_factory=dict)
     insights: List[Dict[str, Any]] = Field(default_factory=list)

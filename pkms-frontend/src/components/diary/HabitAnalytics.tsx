@@ -1,642 +1,639 @@
-import { useState, useEffect, useCallback } from 'react';
+/**
+ * Comprehensive Habit Tracker Component
+ * Shows all 9 default habits + custom habits with advanced tracking
+ */
+
+import { useEffect, useState } from 'react';
 import {
-  Paper,
+  Container,
+  Title,
   Stack,
   Group,
-  Select,
-  ActionIcon,
-  SimpleGrid,
   Card,
   Text,
   Badge,
-  Alert,
-  Loader,
-  Center,
   Progress,
-  Title,
+  SimpleGrid,
+  Tabs,
+  Alert,
+  Button,
+  TextInput,
+  NumberInput,
+  Switch,
+  Paper,
   Divider,
-  Timeline,
   ThemeIcon,
+  ActionIcon,
+  Modal,
+  Textarea,
+  Select,
+  Stepper
 } from '@mantine/core';
 import {
-  IconRefresh,
-  IconSparkles,
-  IconAlertCircle,
-  IconFlame,
+  IconMoon,
+  IconHeart,
+  IconActivity,
+  IconBrain,
+  IconDeviceDesktop,
+  IconWalk,
+  IconBook,
+  IconTree,
+  IconUsers,
+  IconPlus,
+  IconEdit,
+  IconTrash,
+  IconTarget,
+  IconCheck,
   IconTrendingUp,
   IconTrendingDown,
-  IconActivity,
-  IconTarget,
-  IconTrophy,
-  IconCalendar,
+  IconChartLine
 } from '@tabler/icons-react';
-import {
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  Cell,
-  PieChart,
-  Pie,
-} from 'recharts';
-import { diaryService } from '../../services/diaryService';
-import { HabitAnalytics, HabitInsights } from '../../types/diary';
-import { useDiaryStore } from '../../stores/diaryStore';
+import { notifications } from '@mantine/notifications';
+import { useForm } from '@mantine/form';
 
-const PERIOD_OPTIONS = [
-  { value: '7', label: '1 Week' },
-  { value: '30', label: '1 Month' },
-  { value: '90', label: '3 Months' },
-  { value: '180', label: '6 Months' },
-];
-
-const COLORS = [
-  '#339af0', // Blue
-  '#51cf66', // Green
-  '#ff6b6b', // Red
-  '#ffd43b', // Yellow
-  '#845ef7', // Purple
-  '#ff8787', // Pink
-  '#4dabf7', // Light Blue
-  '#69db7c', // Light Green
-];
-
-interface ChartView {
-  value: 'overview' | 'streaks' | 'trends' | 'completion' | 'insights';
-  label: string;
+interface HabitConfig {
+  habitId: string;
+  name: string;
+  unit: string;
+  enabled: boolean;
+  target?: number;
+  category?: string;
 }
 
-const CHART_VIEWS: ChartView[] = [
-  { value: 'overview', label: '📊 Overview' },
-  { value: 'streaks', label: '🔥 Streaks' },
-  { value: 'trends', label: '📈 Trends' },
-  { value: 'completion', label: '✅ Completion Rates' },
-  { value: 'insights', label: '💡 Insights' },
+interface HabitEntry {
+  habitId: string;
+  value: number;
+  date: string;
+  notes?: string;
+}
+
+interface HabitAnalytics {
+  [habitId: string]: {
+    average: number;
+    trend: 'improving' | 'stable' | 'declining';
+    consistency: number;
+    best_streak: number;
+    current_streak: number;
+    target_achievement: number;
+    chart_data: Array<{ date: string; value: number }>;
+  };
+}
+
+const DEFAULT_HABITS: HabitConfig[] = [
+  { habitId: 'sleep', name: 'SLEEP', unit: 'hours', enabled: true, target: 8, category: 'Health' },
+  { habitId: 'stress', name: 'STRESS', unit: '1-5', enabled: true, target: 2, category: 'Mental' },
+  { habitId: 'exercise', name: 'EXERCISE', unit: 'minutes', enabled: true, target: 30, category: 'Physical' },
+  { habitId: 'meditation', name: 'MEDITATION', unit: 'minutes', enabled: true, target: 15, category: 'Mental' },
+  { habitId: 'screen_time', name: 'SCREEN TIME', unit: 'hours', enabled: true, target: 6, category: 'Digital' },
+  { habitId: 'steps', name: 'STEPS', unit: 'count', enabled: true, target: 10000, category: 'Physical' },
+  { habitId: 'learning', name: 'LEARNING', unit: 'minutes', enabled: true, target: 30, category: 'Growth' },
+  { habitId: 'outdoor', name: 'OUTDOOR', unit: 'hours', enabled: true, target: 2, category: 'Nature' },
+  { habitId: 'social', name: 'SOCIAL', unit: 'hours', enabled: true, target: 1, category: 'Social' }
 ];
 
+const HABIT_ICONS = {
+  sleep: IconMoon,
+  stress: IconHeart,
+  exercise: IconActivity,
+  meditation: IconBrain,
+  screen_time: IconDeviceDesktop,
+  steps: IconWalk,
+  learning: IconBook,
+  outdoor: IconTree,
+  social: IconUsers
+};
+
 export function HabitAnalytics() {
-  const { isUnlocked } = useDiaryStore();
-  const [selectedView, setSelectedView] = useState<ChartView['value']>('overview');
-  const [selectedPeriod, setSelectedPeriod] = useState<string>('30');
-  const [analyticsData, setAnalyticsData] = useState<HabitAnalytics | null>(null);
-  const [insightsData, setInsightsData] = useState<HabitInsights | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [defaultHabits, setDefaultHabits] = useState<HabitConfig[]>(DEFAULT_HABITS);
+  const [definedHabits, setDefinedHabits] = useState<HabitConfig[]>([]);
+  const [todayEntries, setTodayEntries] = useState<HabitEntry[]>([]);
+  const [analytics, setAnalytics] = useState<HabitAnalytics>({});
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('default');
+  const [modalOpened, setModalOpened] = useState(false);
+  const [editingHabit, setEditingHabit] = useState<HabitConfig | null>(null);
 
-  const loadAnalyticsData = useCallback(async () => {
-    if (!isUnlocked) return;
-
-    setIsLoading(true);
-    setError(null);
-    try {
-      const [analytics, insights] = await Promise.all([
-        diaryService.getHabitAnalytics(parseInt(selectedPeriod)),
-        diaryService.getHabitInsights(parseInt(selectedPeriod)),
-      ]);
-
-      setAnalyticsData(analytics);
-      setInsightsData(insights);
-    } catch (err: any) {
-      console.error('Failed to load habit analytics:', err);
-      setError(err.message || 'Failed to load habit analytics');
-    } finally {
-      setIsLoading(false);
+  const form = useForm({
+    initialValues: {
+      name: '',
+      unit: '',
+      target: 0,
+      category: 'Custom'
     }
-  }, [selectedPeriod, isUnlocked]);
+  });
+
+  const loadHabitConfigs = async () => {
+    try {
+      // Load default habits
+      const defaultResponse = await fetch('/api/v1/diary/habits/default/config');
+      const defaultData = await defaultResponse.json();
+      setDefaultHabits(defaultData);
+
+      // Load defined habits
+      const definedResponse = await fetch('/api/v1/diary/habits/defined/config');
+      const definedData = await definedResponse.json();
+      setDefinedHabits(definedData);
+    } catch (error) {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to load habit configurations',
+        color: 'red'
+      });
+    }
+  };
+
+  const loadTodayEntries = async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const response = await fetch(`/api/v1/diary/daily-metadata/${today}/habits`);
+      const data = await response.json();
+      setTodayEntries(data.habits || []);
+    } catch (error) {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to load today\'s habit entries',
+        color: 'red'
+      });
+    }
+  };
+
+  const loadAnalytics = async () => {
+    try {
+      const response = await fetch('/api/v1/diary/habits/analytics?days=30');
+      const data = await response.json();
+      setAnalytics(data);
+    } catch (error) {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to load habit analytics',
+        color: 'red'
+      });
+    }
+  };
+
+  const saveHabitEntry = async (habitId: string, value: number, notes?: string) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const response = await fetch('/api/v1/diary/daily-metadata/habits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target_date: today,
+          habits_data: { [habitId]: value },
+          notes: notes
+        })
+      });
+
+      if (response.ok) {
+        notifications.show({
+          title: 'Success',
+          message: 'Habit entry saved successfully',
+          color: 'green'
+        });
+        loadTodayEntries();
+        loadAnalytics();
+      }
+    } catch (error) {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to save habit entry',
+        color: 'red'
+      });
+    }
+  };
+
+  const saveHabitConfig = async (habitType: 'default' | 'defined', config: HabitConfig[]) => {
+    try {
+      const response = await fetch(`/api/v1/diary/habits/${habitType}/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config)
+      });
+
+      if (response.ok) {
+        notifications.show({
+          title: 'Success',
+          message: 'Habit configuration saved successfully',
+          color: 'green'
+        });
+        loadHabitConfigs();
+      }
+    } catch (error) {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to save habit configuration',
+        color: 'red'
+      });
+    }
+  };
 
   useEffect(() => {
-    loadAnalyticsData();
-  }, [loadAnalyticsData]);
+    loadHabitConfigs();
+    loadTodayEntries();
+    loadAnalytics();
+  }, []);
 
-  if (!isUnlocked) {
-    return (
-      <Paper p="md" withBorder>
-        <Text c="dimmed" ta="center">Unlock your diary to view habit analytics</Text>
-      </Paper>
-    );
-  }
+  const getHabitValue = (habitId: string): number => {
+    const entry = todayEntries.find(e => e.habitId === habitId);
+    return entry?.value || 0;
+  };
 
-  if (isLoading && !analyticsData) {
-    return (
-      <Paper p="xl" withBorder>
-        <Center>
-          <Stack align="center" gap="md">
-            <Loader size="lg" />
-            <Text c="dimmed">Loading habit analytics...</Text>
-          </Stack>
-        </Center>
-      </Paper>
-    );
-  }
+  const getHabitProgress = (habit: HabitConfig): number => {
+    const value = getHabitValue(habit.habitId);
+    if (!habit.target) return 0;
+    return Math.min((value / habit.target) * 100, 100);
+  };
 
-  if (error) {
-    return (
-      <Alert icon={<IconAlertCircle size={16} />} title="Error" color="red">
-        {error}
-      </Alert>
-    );
-  }
-
-  const hasData = analyticsData && analyticsData.habits.length > 0;
-
-  // Render different views based on selection
-  const renderView = () => {
-    if (!hasData) {
-      return (
-        <Stack align="center" gap="md" py="xl">
-          <Text size="xl">🎯</Text>
-          <Title order={4}>No habit data yet</Title>
-          <Text size="sm" c="dimmed" ta="center" maw={400}>
-            Start tracking your daily habits in the Habit Tracker tab to see analytics and insights!
-          </Text>
-        </Stack>
-      );
-    }
-
-    switch (selectedView) {
-      case 'overview':
-        return renderOverview();
-      case 'streaks':
-        return renderStreaks();
-      case 'trends':
-        return renderTrends();
-      case 'completion':
-        return renderCompletion();
-      case 'insights':
-        return renderInsights();
-      default:
-        return renderOverview();
+  const getTrendIcon = (trend: string) => {
+    switch (trend) {
+      case 'improving': return <IconTrendingUp size={16} color="green" />;
+      case 'declining': return <IconTrendingDown size={16} color="red" />;
+      default: return <IconChartLine size={16} color="blue" />;
     }
   };
 
-  const renderOverview = () => {
-    return (
-      <Stack gap="md">
-        {/* Summary Cards */}
-        <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }} spacing="md">
-          <Card withBorder>
-            <Stack gap={4}>
-              <Group gap="xs">
-                <IconTarget size={16} color="blue" />
-                <Text size="xs" c="dimmed" tt="uppercase">Total Habits</Text>
-              </Group>
-              <Text size="xl" fw={700}>
-                {analyticsData?.habits.length || 0}
-              </Text>
-            </Stack>
-          </Card>
-
-          <Card withBorder>
-            <Stack gap={4}>
-              <Group gap="xs">
-                <IconActivity size={16} color="green" />
-                <Text size="xs" c="dimmed" tt="uppercase">Active Days</Text>
-              </Group>
-              <Text size="xl" fw={700}>
-                {analyticsData?.daysWithData || 0}
-              </Text>
-            </Stack>
-          </Card>
-
-          <Card withBorder>
-            <Stack gap={4}>
-              <Group gap="xs">
-                <IconTrophy size={16} color="orange" />
-                <Text size="xs" c="dimmed" tt="uppercase">Best Streak</Text>
-              </Group>
-              <Text size="xl" fw={700} c="orange">
-                {Math.max(...(analyticsData?.habits.map(h => h.longestStreak) || [0]))} days
-              </Text>
-            </Stack>
-          </Card>
-
-          <Card withBorder>
-            <Stack gap={4}>
-              <Group gap="xs">
-                <IconTrendingUp size={16} color="purple" />
-                <Text size="xs" c="dimmed" tt="uppercase">Avg Completion</Text>
-              </Group>
-              <Text size="xl" fw={700}>
-                {analyticsData ?
-                  Math.round(analyticsData.habits.reduce((sum, h) => sum + h.completionRate, 0) / analyticsData.habits.length)
-                  : 0}%
-              </Text>
-            </Stack>
-          </Card>
-        </SimpleGrid>
-
-        {/* Top Performing Habits */}
-        <Card withBorder p="md">
-          <Title order={5} mb="md">Top Performing Habits</Title>
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-            {analyticsData?.habits
-              .sort((a, b) => b.completionRate - a.completionRate)
-              .slice(0, 6)
-              .map((habit, index) => (
-                <Group key={habit.name} justify="space-between">
-                  <Group gap="xs">
-                    <Badge color={COLORS[index % COLORS.length]} size="xs">
-                      {index + 1}
-                    </Badge>
-                    <Text size="sm" tt="capitalize">
-                      {habit.name.replace(/_/g, ' ')}
-                    </Text>
-                  </Group>
-                  <Text size="sm" fw={600}>
-                    {Math.round(habit.completionRate)}%
-                  </Text>
-                </Group>
-              ))}
-          </SimpleGrid>
-        </Card>
-
-        {/* Habit Progress Bars */}
-        <Card withBorder p="md">
-          <Title order={5} mb="md">Habit Completion Rates</Title>
-          <Stack gap="sm">
-            {analyticsData?.habits
-              .sort((a, b) => b.completionRate - a.completionRate)
-              .map((habit, index) => (
-                <Stack key={habit.name} gap={4}>
-                  <Group justify="space-between">
-                    <Text size="sm" tt="capitalize">
-                      {habit.name.replace(/_/g, ' ')}
-                    </Text>
-                    <Text size="xs" c="dimmed">
-                      {Math.round(habit.completionRate)}% ({habit.daysCompleted}/{analyticsData.totalDays} days)
-                    </Text>
-                  </Group>
-                  <Progress
-                    value={habit.completionRate}
-                    color={COLORS[index % COLORS.length]}
-                    size="sm"
-                  />
-                </Stack>
-              ))}
-          </Stack>
-        </Card>
-      </Stack>
-    );
-  };
-
-  const renderStreaks = () => {
-    const streakData = analyticsData?.habits
-      .map(habit => ({
-        name: habit.name.replace(/_/g, ' '),
-        current: habit.currentStreak,
-        longest: habit.longestStreak,
-      }))
-      .sort((a, b) => b.current - a.current);
+  const renderHabitCard = (habit: HabitConfig, isDefault: boolean = true) => {
+    const IconComponent = HABIT_ICONS[habit.habitId as keyof typeof HABIT_ICONS] || IconTarget;
+    const currentValue = getHabitValue(habit.habitId);
+    const progress = getHabitProgress(habit);
+    const habitAnalytics = analytics[habit.habitId];
 
     return (
-      <Stack gap="md">
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-          {streakData?.map((habit, index) => (
-            <Card key={habit.name} withBorder p="md">
-              <Stack gap="sm">
-                <Group justify="space-between" align="center">
-                  <Group gap="xs">
-                    <IconFlame size={18} color="orange" />
-                    <Text size="sm" fw={600} tt="capitalize">
-                      {habit.name}
-                    </Text>
-                  </Group>
-                  {habit.current > 0 && (
-                    <Badge color="orange" variant="light">
-                      🔥 {habit.current}
-                    </Badge>
-                  )}
-                </Group>
+      <Card key={habit.habitId} withBorder p="md">
+        <Group justify="space-between" mb="sm">
+          <Group gap="xs">
+            <ThemeIcon color="blue" variant="light" size="lg">
+              <IconComponent size={20} />
+            </ThemeIcon>
+            <div>
+              <Text fw={500}>{habit.name}</Text>
+              <Text size="xs" c="dimmed">{habit.category}</Text>
+            </div>
+          </Group>
+          <Group gap="xs">
+            {habitAnalytics && getTrendIcon(habitAnalytics.trend)}
+            <Badge color={progress >= 100 ? 'green' : progress >= 50 ? 'yellow' : 'red'}>
+              {Math.round(progress)}%
+            </Badge>
+          </Group>
+        </Group>
 
-                <Group justify="space-between">
-                  <Stack gap={2}>
-                    <Text size="xs" c="dimmed">Current Streak</Text>
-                    <Text size="lg" fw={700} c={habit.current > 0 ? 'orange' : 'dimmed'}>
-                      {habit.current} days
-                    </Text>
-                  </Stack>
-                  <Stack gap={2} ta="right">
-                    <Text size="xs" c="dimmed">Longest</Text>
-                    <Text size="lg" fw={700} c="blue">
-                      {habit.longest} days
-                    </Text>
-                  </Stack>
-                </Group>
+        <Group justify="space-between" mb="md">
+          <div>
+            <Text size="xl" fw={700}>
+              {currentValue} {habit.unit}
+            </Text>
+            {habit.target && (
+              <Text size="sm" c="dimmed">
+                Target: {habit.target} {habit.unit}
+              </Text>
+            )}
+          </div>
+          <Switch
+            checked={habit.enabled}
+            onChange={(event) => {
+              const updatedHabits = isDefault 
+                ? defaultHabits.map(h => h.habitId === habit.habitId ? { ...h, enabled: event.currentTarget.checked } : h)
+                : definedHabits.map(h => h.habitId === habit.habitId ? { ...h, enabled: event.currentTarget.checked } : h);
+              
+              if (isDefault) {
+                setDefaultHabits(updatedHabits);
+                saveHabitConfig('default', updatedHabits);
+              } else {
+                setDefinedHabits(updatedHabits);
+                saveHabitConfig('defined', updatedHabits);
+              }
+            }}
+          />
+        </Group>
 
-                {habit.current === habit.longest && habit.current > 0 && (
-                  <Group gap="xs" mt="xs">
-                    <IconTrophy size={14} color="gold" />
-                    <Text size="xs" c="yellow">Personal Best!</Text>
-                  </Group>
-                )}
-              </Stack>
-            </Card>
-          ))}
-        </SimpleGrid>
+        {habit.enabled && (
+          <>
+            <Progress
+              value={progress}
+              color={progress >= 100 ? 'green' : progress >= 50 ? 'yellow' : 'red'}
+              size="sm"
+              mb="md"
+            />
 
-        {streakData?.some(h => h.current > 0) && (
-          <Card withBorder p="md">
-            <Title order={5} mb="md">Streak Leaderboard</Title>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={streakData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="name"
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                  tick={{ fontSize: 12 }}
-                />
-                <YAxis label={{ value: 'Days', angle: -90, position: 'insideLeft' }} />
-                <Tooltip />
-                <Bar dataKey="current" fill="#ff6b35" name="Current Streak" />
-                <Bar dataKey="longest" fill="#339af0" name="Longest Streak" />
-              </BarChart>
-            </ResponsiveContainer>
-          </Card>
-        )}
-      </Stack>
-    );
-  };
-
-  const renderTrends = () => {
-    return (
-      <Stack gap="md">
-        {analyticsData?.habits.map((habit, habitIndex) => (
-          <Card key={habit.name} withBorder p="md">
-            <Group justify="space-between" mb="md">
-              <Title order={6} tt="capitalize">
-                {habit.name.replace(/_/g, ' ')} ({habit.unit})
-              </Title>
-              <Group gap="xs">
-                <Text size="xs" c="dimmed">Avg:</Text>
-                <Text size="sm" fw={600}>
-                  {typeof habit.averageValue === 'number'
-                    ? habit.averageValue.toFixed(1)
-                    : habit.averageValue
-                  } {habit.unit}
-                </Text>
-              </Group>
+            <Group gap="xs">
+              <NumberInput
+                placeholder="Enter value"
+                value={currentValue}
+                onChange={(value) => {
+                  if (value !== null) {
+                    saveHabitEntry(habit.habitId, value);
+                  }
+                }}
+                min={0}
+                max={habit.unit === '1-5' ? 5 : undefined}
+                size="sm"
+                style={{ flex: 1 }}
+              />
+              <Button
+                size="sm"
+                variant="light"
+                onClick={() => {
+                  const newValue = currentValue + (habit.unit === 'hours' ? 0.5 : 1);
+                  saveHabitEntry(habit.habitId, newValue);
+                }}
+              >
+                +
+              </Button>
             </Group>
 
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={habit.trend}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={(date) => new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                />
-                <YAxis />
-                <Tooltip
-                  labelFormatter={(date) => new Date(date).toLocaleDateString()}
-                  formatter={(value: any, name: string) => [
-                    name === 'value' ? `${value} ${habit.unit}` : `${value} days`,
-                    name === 'value' ? 'Value' : 'Streak'
-                  ]}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke={COLORS[habitIndex % COLORS.length]}
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                  name="Value"
-                  connectNulls
-                />
-                <Line
-                  type="monotone"
-                  dataKey="streak"
-                  stroke="#ff6b35"
-                  strokeWidth={1}
-                  strokeDasharray="5 5"
-                  dot={false}
-                  name="Streak"
-                  connectNulls
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </Card>
-        ))}
-      </Stack>
+            {habitAnalytics && (
+              <Group justify="space-between" mt="md" pt="md" style={{ borderTop: '1px solid #e9ecef' }}>
+                <div>
+                  <Text size="xs" c="dimmed">Consistency</Text>
+                  <Text size="sm" fw={500}>{Math.round(habitAnalytics.consistency)}%</Text>
+                </div>
+                <div>
+                  <Text size="xs" c="dimmed">Streak</Text>
+                  <Text size="sm" fw={500}>{habitAnalytics.current_streak} days</Text>
+                </div>
+                <div>
+                  <Text size="xs" c="dimmed">Best</Text>
+                  <Text size="sm" fw={500}>{habitAnalytics.best_streak} days</Text>
+                </div>
+              </Group>
+            )}
+          </>
+        )}
+      </Card>
     );
   };
 
-  const renderCompletion = () => {
-    const completionData = analyticsData?.habits.map(habit => ({
-      name: habit.name.replace(/_/g, ' '),
-      completed: habit.daysCompleted,
-      missed: analyticsData.totalDays - habit.daysCompleted,
-      rate: habit.completionRate,
-    })) || [];
-
-    return (
-      <Stack gap="md">
-        {/* Completion Pie Chart */}
-        <Card withBorder p="md">
-          <Title order={5} mb="md">Overall Completion Distribution</Title>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={completionData}
-                dataKey="completed"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                outerRadius={80}
-                label={({ name, rate }) => `${name}: ${Math.round(rate)}%`}
-              >
-                {completionData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value: any, name: string) => [value, 'Days Completed']} />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </Card>
-
-        {/* Completion Timeline */}
-        <Card withBorder p="md">
-          <Title order={5} mb="md">Completion by Habit</Title>
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-            {completionData.map((habit, index) => (
-              <Stack key={habit.name} gap="xs">
-                <Group justify="space-between">
-                  <Text size="sm" fw={600} tt="capitalize">
-                    {habit.name}
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    {habit.completed}/{analyticsData?.totalDays} days
-                  </Text>
-                </Group>
-                <Progress
-                  value={(habit.completed / (analyticsData?.totalDays || 1)) * 100}
-                  color={COLORS[index % COLORS.length]}
-                  size="lg"
-                />
-                <Text size="xs" c="dimmed" ta="center">
-                  {Math.round(habit.rate)}% completion rate
-                </Text>
-              </Stack>
-            ))}
-          </SimpleGrid>
-        </Card>
-      </Stack>
-    );
+  const handleCreateHabit = () => {
+    form.reset();
+    setEditingHabit(null);
+    setModalOpened(true);
   };
 
-  const renderInsights = () => {
-    if (!insightsData?.insights.length) {
-      return (
-        <Alert color="blue" icon={<IconSparkles size={16} />}>
-          <Text>Not enough data to generate insights yet. Keep tracking your habits!</Text>
-        </Alert>
+  const handleEditHabit = (habit: HabitConfig) => {
+    form.setValues({
+      name: habit.name,
+      unit: habit.unit,
+      target: habit.target || 0,
+      category: habit.category || 'Custom'
+    });
+    setEditingHabit(habit);
+    setModalOpened(true);
+  };
+
+  const handleSaveHabit = () => {
+    const newHabit: HabitConfig = {
+      habitId: editingHabit?.habitId || form.values.name.toLowerCase().replace(/\s+/g, '_'),
+      name: form.values.name.toUpperCase(),
+      unit: form.values.unit,
+      target: form.values.target,
+      category: form.values.category,
+      enabled: true
+    };
+
+    if (editingHabit) {
+      const updatedHabits = definedHabits.map(h => 
+        h.habitId === editingHabit.habitId ? newHabit : h
       );
+      setDefinedHabits(updatedHabits);
+      saveHabitConfig('defined', updatedHabits);
+    } else {
+      const updatedHabits = [...definedHabits, newHabit];
+      setDefinedHabits(updatedHabits);
+      saveHabitConfig('defined', updatedHabits);
     }
 
-    return (
-      <Stack gap="md">
-        {/* Summary */}
-        <Card withBorder p="md">
-          <Title order={5} mb="md">Summary</Title>
-          <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }} spacing="md">
-            <Stack gap={2}>
-              <Text size="xs" c="dimmed">Total Habits</Text>
-              <Text size="lg" fw={600}>{insightsData.summary.totalHabits}</Text>
-            </Stack>
-            <Stack gap={2}>
-              <Text size="xs" c="dimmed">Active Habits</Text>
-              <Text size="lg" fw={600}>{insightsData.summary.activeHabits}</Text>
-            </Stack>
-            <Stack gap={2}>
-              <Text size="xs" c="dimmed">Top Performer</Text>
-              <Text size="lg" fw={600} c="green" tt="capitalize">
-                {insightsData.summary.topPerformingHabit?.replace(/_/g, ' ') || 'N/A'}
-              </Text>
-            </Stack>
-            <Stack gap={2}>
-              <Text size="xs" c="dimmed">Most Consistent</Text>
-              <Text size="lg" fw={600} c="blue" tt="capitalize">
-                {insightsData.summary.mostConsistentHabit?.replace(/_/g, ' ') || 'N/A'}
-              </Text>
-            </Stack>
-          </SimpleGrid>
-        </Card>
+    setModalOpened(false);
+    form.reset();
+  };
 
-        {/* Insights Timeline */}
-        <Card withBorder p="md">
-          <Title order={5} mb="md">Insights & Recommendations</Title>
-          <Timeline bulletSize={24} lineWidth={2}>
-            {insightsData.insights.map((insight, index) => (
-              <Timeline.Item
-                key={index}
-                bullet={
-                  <ThemeIcon color={
-                    insight.type === 'positive' ? 'green' :
-                    insight.type === 'negative' ? 'red' : 'blue'
-                  } size={24}>
-                    {insight.type === 'positive' ? <IconTrendingUp size={14} /> :
-                     insight.type === 'negative' ? <IconTrendingDown size={14} /> :
-                     <IconSparkles size={14} />}
-                  </ThemeIcon>
-                }
-              >
-                <Stack gap="xs">
-                  <Group gap="xs">
-                    <Badge
-                      color={
-                        insight.type === 'positive' ? 'green' :
-                        insight.type === 'negative' ? 'red' : 'blue'
-                      }
-                      variant="light"
-                      size="xs"
-                    >
-                      {insight.type}
-                    </Badge>
-                    <Text size="sm" fw={600} tt="capitalize">
-                      {insight.habit.replace(/_/g, ' ')}
-                    </Text>
-                  </Group>
-                  <Text size="sm">{insight.message}</Text>
-                </Stack>
-              </Timeline.Item>
-            ))}
-          </Timeline>
-        </Card>
-
-        {/* Needs Attention */}
-        {insightsData.summary.needsAttentionHabits.length > 0 && (
-          <Card withBorder p="md">
-            <Title order={5} mb="md" c="orange">Habits Needing Attention</Title>
-            <Stack gap="xs">
-              {insightsData.summary.needsAttentionHabits.map(habit => (
-                <Group key={habit} gap="xs">
-                  <IconAlertCircle size={14} color="orange" />
-                  <Text size="sm" tt="capitalize">{habit.replace(/_/g, ' ')}</Text>
-                </Group>
-              ))}
-            </Stack>
-          </Card>
-        )}
-      </Stack>
-    );
+  const handleDeleteHabit = (habitId: string) => {
+    const updatedHabits = definedHabits.filter(h => h.habitId !== habitId);
+    setDefinedHabits(updatedHabits);
+    saveHabitConfig('defined', updatedHabits);
   };
 
   return (
-    <Stack gap="md">
-      {/* Controls */}
-      <Group justify="space-between" wrap="wrap">
-        <Group>
-          <Select
-            label="View"
-            data={CHART_VIEWS}
-            value={selectedView}
-            onChange={(value) => {
-              if (value !== null) {
-                setSelectedView(value as ChartView['value']);
-              }
-            }}
-            style={{ minWidth: 200 }}
-            size="sm"
-          />
-          <Select
-            label="Period"
-            data={PERIOD_OPTIONS}
-            value={selectedPeriod}
-            onChange={(value) => setSelectedPeriod(value || '30')}
-            size="sm"
-          />
+    <Container size="xl" py="md">
+      <Stack gap="lg">
+        <Group justify="space-between" align="center">
+          <Title order={2}>🎯 Comprehensive Habit Tracker</Title>
+          <Button
+            leftSection={<IconPlus size={16} />}
+            onClick={handleCreateHabit}
+            variant="light"
+          >
+            Add Custom Habit
+          </Button>
         </Group>
-        <ActionIcon
-          variant="light"
-          size="lg"
-          onClick={loadAnalyticsData}
-          loading={isLoading}
-          title="Refresh data"
+
+        <Tabs value={activeTab} onChange={(value) => setActiveTab(value || 'default')}>
+          <Tabs.List>
+            <Tabs.Tab value="default" leftSection={<IconTarget size={16} />}>
+              Core Habits (9)
+            </Tabs.Tab>
+            <Tabs.Tab value="defined" leftSection={<IconPlus size={16} />}>
+              Custom Habits ({definedHabits.length})
+            </Tabs.Tab>
+            <Tabs.Tab value="analytics" leftSection={<IconChartLine size={16} />}>
+              Analytics
+            </Tabs.Tab>
+          </Tabs.List>
+
+          <Tabs.Panel value="default" pt="md">
+            <Stack gap="md">
+              <Alert color="blue" icon={<IconTarget size={16} />}>
+                Track your core wellness habits with our 9 default habits. These cover all aspects of your well-being.
+              </Alert>
+              
+              <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
+                {defaultHabits.map(habit => renderHabitCard(habit, true))}
+              </SimpleGrid>
+            </Stack>
+          </Tabs.Panel>
+
+          <Tabs.Panel value="defined" pt="md">
+            <Stack gap="md">
+              <Alert color="green" icon={<IconPlus size={16} />}>
+                Create and track your own custom habits. Perfect for personal goals and unique tracking needs.
+              </Alert>
+              
+              {definedHabits.length === 0 ? (
+                <Paper p="xl" withBorder style={{ textAlign: 'center' }}>
+                  <ThemeIcon size="xl" color="gray" variant="light" mx="auto" mb="md">
+                    <IconPlus size={32} />
+                  </ThemeIcon>
+                  <Text size="lg" fw={500} mb="xs">No Custom Habits Yet</Text>
+                  <Text c="dimmed" mb="md">
+                    Create your first custom habit to start tracking personal goals
+                  </Text>
+                  <Button onClick={handleCreateHabit}>
+                    Create Custom Habit
+                  </Button>
+                </Paper>
+              ) : (
+                <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
+                  {definedHabits.map(habit => (
+                    <Card key={habit.habitId} withBorder p="md">
+                      <Group justify="space-between" mb="sm">
+                        <Group gap="xs">
+                          <ThemeIcon color="green" variant="light" size="lg">
+                            <IconTarget size={20} />
+                          </ThemeIcon>
+                          <div>
+                            <Text fw={500}>{habit.name}</Text>
+                            <Text size="xs" c="dimmed">{habit.category}</Text>
+                          </div>
+                        </Group>
+                        <Group gap="xs">
+                          <ActionIcon
+                            variant="light"
+                            color="blue"
+                            size="sm"
+                            onClick={() => handleEditHabit(habit)}
+                          >
+                            <IconEdit size={14} />
+                          </ActionIcon>
+                          <ActionIcon
+                            variant="light"
+                            color="red"
+                            size="sm"
+                            onClick={() => handleDeleteHabit(habit.habitId)}
+                          >
+                            <IconTrash size={14} />
+                          </ActionIcon>
+                        </Group>
+                      </Group>
+                      {renderHabitCard(habit, false)}
+                    </Card>
+                  ))}
+                </SimpleGrid>
+              )}
+            </Stack>
+          </Tabs.Panel>
+
+          <Tabs.Panel value="analytics" pt="md">
+            <Stack gap="lg">
+              <Title order={3}>Habit Performance Analytics</Title>
+              
+              <SimpleGrid cols={{ base: 1, md: 2, lg: 3 }} spacing="md">
+                {Object.entries(analytics).map(([habitId, data]) => {
+                  const habit = [...defaultHabits, ...definedHabits].find(h => h.habitId === habitId);
+                  if (!habit) return null;
+
+                  return (
+                    <Card key={habitId} withBorder p="md">
+                      <Group justify="space-between" mb="sm">
+                        <Text fw={500} tt="uppercase">
+                          {habit.name}
+                        </Text>
+                        {getTrendIcon(data.trend)}
+                      </Group>
+                      
+                      <Text size="xl" fw={700} mb="xs">
+                        {data.average.toFixed(1)} {habit.unit}
+                      </Text>
+                      
+                      <Group justify="space-between" mb="sm">
+                        <div>
+                          <Text size="xs" c="dimmed">Consistency</Text>
+                          <Text size="sm" fw={500}>
+                            {Math.round(data.consistency)}%
+                          </Text>
+                        </div>
+                        <div>
+                          <Text size="xs" c="dimmed">Current Streak</Text>
+                          <Text size="sm" fw={500}>
+                            {data.current_streak} days
+                          </Text>
+                        </div>
+                        <div>
+                          <Text size="xs" c="dimmed">Best Streak</Text>
+                          <Text size="sm" fw={500}>
+                            {data.best_streak} days
+                          </Text>
+                        </div>
+                      </Group>
+
+                      <Progress
+                        value={data.target_achievement}
+                        color={data.target_achievement >= 100 ? 'green' : data.target_achievement >= 50 ? 'yellow' : 'red'}
+                        size="sm"
+                        mb="sm"
+                      />
+                      <Text size="xs" c="dimmed" ta="center">
+                        Target Achievement: {Math.round(data.target_achievement)}%
+                      </Text>
+                    </Card>
+                  );
+                })}
+              </SimpleGrid>
+            </Stack>
+          </Tabs.Panel>
+        </Tabs>
+
+        {/* Habit Creation/Edit Modal */}
+        <Modal
+          opened={modalOpened}
+          onClose={() => setModalOpened(false)}
+          title={editingHabit ? 'Edit Custom Habit' : 'Create Custom Habit'}
+          centered
         >
-          <IconRefresh size={18} />
-        </ActionIcon>
-      </Group>
+          <form onSubmit={form.onSubmit(handleSaveHabit)}>
+            <Stack gap="md">
+              <TextInput
+                label="Habit Name"
+                placeholder="e.g., Reading, Water Intake"
+                {...form.getInputProps('name')}
+                required
+              />
+              
+              <Select
+                label="Unit"
+                placeholder="Select unit"
+                data={[
+                  { value: 'minutes', label: 'Minutes' },
+                  { value: 'hours', label: 'Hours' },
+                  { value: 'count', label: 'Count' },
+                  { value: '1-5', label: 'Scale (1-5)' },
+                  { value: '1-10', label: 'Scale (1-10)' }
+                ]}
+                {...form.getInputProps('unit')}
+                required
+              />
+              
+              <NumberInput
+                label="Daily Target"
+                placeholder="Enter target value"
+                min={0}
+                {...form.getInputProps('target')}
+              />
+              
+              <Select
+                label="Category"
+                data={[
+                  { value: 'Health', label: 'Health' },
+                  { value: 'Mental', label: 'Mental' },
+                  { value: 'Physical', label: 'Physical' },
+                  { value: 'Growth', label: 'Growth' },
+                  { value: 'Social', label: 'Social' },
+                  { value: 'Custom', label: 'Custom' }
+                ]}
+                {...form.getInputProps('category')}
+              />
 
-      {/* Main Content */}
-      <Paper p="md" withBorder>
-        {renderView()}
-      </Paper>
-
-      {/* Data Summary */}
-      {hasData && analyticsData && (
-        <Text size="xs" c="dimmed" ta="center">
-          Showing data from {analyticsData.totalDays} days analyzed
-          ({analyticsData.periodStart} to {analyticsData.periodEnd})
-        </Text>
-      )}
-    </Stack>
+              <Group justify="flex-end">
+                <Button variant="light" onClick={() => setModalOpened(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit">
+                  {editingHabit ? 'Update' : 'Create'} Habit
+                </Button>
+              </Group>
+            </Stack>
+          </form>
+        </Modal>
+      </Stack>
+    </Container>
   );
 }

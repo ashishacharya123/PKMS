@@ -1,8 +1,10 @@
 /**
  * Notes Service with File Attachment Support
+ * Extends BaseService for DRY CRUD operations
  */
 
 import { apiService } from './api';
+import { BaseService } from './BaseService';
 import { coreUploadService, UploadProgress } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
 
@@ -82,42 +84,36 @@ export interface UpdateNoteRequest {
   isExclusiveMode?: boolean;
 }
 
-class NotesService {
+class NotesService extends BaseService<Note, CreateNoteRequest, UpdateNoteRequest> {
+  constructor() {
+    super('/api/v1/notes');
+  }
   /**
    * Create a new note
    */
   async createNote(data: CreateNoteRequest): Promise<Note> {
-    const response = await apiService.post<Note>('/notes/', data);
-    // Invalidate search cache for notes
-    // searchService.invalidateCacheForContentType('note'); // Method removed in search refactor
-    return response.data;
+    return this.create(data);
   }
 
   /**
    * Get a specific note by ID
    */
   async getNote(uuid: string): Promise<Note> {
-    const response = await apiService.get<Note>(`/notes/${uuid}`);
-    return response.data;
+    return this.getById(uuid);
   }
 
   /**
    * Update a note
    */
   async updateNote(uuid: string, data: UpdateNoteRequest): Promise<Note> {
-    const response = await apiService.put<Note>(`/notes/${uuid}`, data);
-    // Invalidate search cache for notes
-    // searchService.invalidateCacheForContentType('note'); // Method removed in search refactor
-    return response.data;
+    return this.update(uuid, data);
   }
 
   /**
    * Delete a note
    */
   async deleteNote(uuid: string): Promise<void> {
-    await apiService.delete(`/notes/${uuid}`);
-    // Invalidate search cache for notes
-    // searchService.invalidateCacheForContentType('note'); // Method removed in search refactor
+    return this.delete(uuid);
   }
 
   /**

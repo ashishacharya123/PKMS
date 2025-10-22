@@ -611,7 +611,7 @@ class ProjectCRUDService:
             select(
                 todo_projects.c.project_uuid,
                 func.count(todo_projects.c.todo_uuid).label('total_count'),
-                func.sum(case((Todo.status == TodoStatus.COMPLETED, 1), else_=0)).label('completed_count')
+                func.sum(case((Todo.status == TodoStatus.DONE, 1), else_=0)).label('completed_count')
             )
             .join(Todo, todo_projects.c.todo_uuid == Todo.uuid)
             .where(todo_projects.c.project_uuid.in_(project_uuids))

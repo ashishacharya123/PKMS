@@ -136,15 +136,10 @@ class UnifiedCacheService(Generic[T]):
                 self._cache.popitem(last=False)
                 self._stats["evictions"] += 1
     
-    def invalidate(self, key: str) -> bool:
+    def _invalidate_internal(self, key: str) -> bool:
         """
-        Remove specific key from cache.
-        
-        Args:
-            key: Cache key to remove
-            
-        Returns:
-            True if key was found and removed, False otherwise
+        Internal method to remove specific key from cache.
+        Use cache_invalidation_service for public invalidation.
         """
         with self._lock:
             if key in self._cache:
@@ -153,18 +148,10 @@ class UnifiedCacheService(Generic[T]):
                 return True
             return False
     
-    def invalidate_pattern(self, pattern: str) -> int:
+    def _invalidate_pattern_internal(self, pattern: str) -> int:
         """
-        Invalidate all keys starting with pattern.
-        
-        Useful for invalidating all cache entries for a user:
-            cache.invalidate_pattern(f"user:{user_uuid}:")
-        
-        Args:
-            pattern: Key prefix to match
-            
-        Returns:
-            Number of keys invalidated
+        Internal method to invalidate all keys starting with pattern.
+        Use cache_invalidation_service for public invalidation.
         """
         with self._lock:
             keys_to_remove = [key for key in self._cache.keys() if key.startswith(pattern)]
@@ -244,6 +231,15 @@ diary_cache = UnifiedCacheService(max_size=512, default_ttl=30)
 # General purpose cache (5 minute TTL, large size)
 general_cache = UnifiedCacheService(max_size=2048, default_ttl=300)
 
+# Analytics cache (10 minute TTL, large size for complex calculations)
+analytics_cache = UnifiedCacheService(max_size=1024, default_ttl=600)
+
+# Search results cache (5 minute TTL, medium size)
+search_cache = UnifiedCacheService(max_size=2048, default_ttl=300)
+
+# User data cache (15 minute TTL, small size)
+user_cache = UnifiedCacheService(max_size=512, default_ttl=900)
+
 
 def get_all_cache_stats() -> Dict[str, Dict[str, Any]]:
     """Get statistics from all cache instances."""
@@ -251,6 +247,9 @@ def get_all_cache_stats() -> Dict[str, Dict[str, Any]]:
         "dashboard": dashboard_cache.get_stats(),
         "diary": diary_cache.get_stats(),
         "general": general_cache.get_stats(),
+        "analytics": analytics_cache.get_stats(),
+        "search": search_cache.get_stats(),
+        "user": user_cache.get_stats(),
     }
 
 
@@ -260,5 +259,8 @@ __all__ = [
     "dashboard_cache",
     "diary_cache",
     "general_cache",
+    "analytics_cache",
+    "search_cache",
+    "user_cache",
     "get_all_cache_stats",
 ]

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Download, Trash2, Image, FileText, Mic, Video, Unlink } from 'lucide-react';
+import { Play, Pause, Download, Trash2, Image, FileText, Mic, Video, Unlink, GripVertical } from 'lucide-react';
 import { apiService } from '../../services/api';
+import { reorderArray, getDragPreviewStyles, getDropZoneStyles } from '../../utils/dragAndDrop';
 
 interface FileItem {
   uuid: string;
@@ -11,28 +12,40 @@ interface FileItem {
   description?: string;
   created_at: string;
   media_type?: string;
+  // Optional: relative path in storage (if available from backend)
+  file_path?: string;
+  // Optional: direct or relative API path to thumbnail provided by backend
+  thumbnail_path?: string;
 }
 
 interface FileListProps {
   files: FileItem[];
   onDelete: (fileId: string) => void;
   onUnlink?: (fileId: string) => void; // For project context
+  onReorder?: (reorderedFiles: FileItem[]) => void; // For drag-and-drop reordering
   module: 'notes' | 'diary' | 'documents' | 'archive' | 'projects';
   className?: string;
   showUnlink?: boolean; // Show unlink action instead of delete
+  enableDragDrop?: boolean; // Enable drag-and-drop reordering
 }
 
 export const FileList: React.FC<FileListProps> = ({
   files,
   onDelete,
   onUnlink,
+  onReorder,
   module,
   className = '',
-  showUnlink = false
+  showUnlink = false,
+  enableDragDrop = false
 }) => {
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
+  
+  // Drag and drop state
+  const [draggedFile, setDraggedFile] = useState<FileItem | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   useEffect(() => {
     return () => {
@@ -53,6 +66,20 @@ export const FileList: React.FC<FileListProps> = ({
     }
     // Notes and Diary now use the same consistent structure
     return `/${currentModule}/files/${fileUuid}/download`;
+  };
+
+  const getThumbnailUrl = (file: FileItem, size: 'small' | 'medium' | 'large' = 'small'): string | null => {
+    // Prefer explicit thumbnail_path from backend DB if present
+    if (file.thumbnail_path) {
+      return file.thumbnail_path;
+    }
+    // Else construct from file_path via thumbnails router
+    if (file.file_path) {
+      const basePath = file.file_path.replace(/\\/g, '/');
+      return `/api/v1/thumbnails/file/${basePath}?size=${size}`;
+    }
+    // No thumbnail available
+    return null;
   };
 
   const formatFileSize = (bytes: number) => {
@@ -173,6 +200,51 @@ export const FileList: React.FC<FileListProps> = ({
     }
   };
 
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, file: FileItem) => {
+    if (!enableDragDrop) return;
+    setDraggedFile(file);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', file.uuid);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    if (!enableDragDrop) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    if (!enableDragDrop) return;
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    if (!enableDragDrop || !draggedFile || !onReorder) return;
+    e.preventDefault();
+    
+    const sourceIndex = files.findIndex(file => file.uuid === draggedFile.uuid);
+    if (sourceIndex === -1 || sourceIndex === targetIndex) {
+      setDraggedFile(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    // Reorder files and call onReorder callback
+    const reorderedFiles = reorderArray(files, sourceIndex, targetIndex);
+    onReorder(reorderedFiles);
+    
+    setDraggedFile(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    if (!enableDragDrop) return;
+    setDraggedFile(null);
+    setDragOverIndex(null);
+  };
+
   // Files are already ordered by server - no local sorting needed
   if (files.length === 0) {
     return (
@@ -185,13 +257,47 @@ export const FileList: React.FC<FileListProps> = ({
 
   return (
     <div className={`space-y-2 ${className}`}>
-      {files.map((file) => (
+      {files.map((file, index) => (
         <div
           key={file.uuid}
-          className="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          draggable={enableDragDrop}
+          onDragStart={(e) => handleDragStart(e, file)}
+          onDragOver={(e) => handleDragOver(e, index)}
+          onDragLeave={handleDragLeave}
+          onDrop={(e) => handleDrop(e, index)}
+          onDragEnd={handleDragEnd}
+          style={{
+            ...getDragPreviewStyles(draggedFile?.uuid === file.uuid),
+            ...(dragOverIndex === index ? getDropZoneStyles(true, true) : {})
+          }}
+          className={`flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors ${
+            enableDragDrop ? 'cursor-grab' : ''
+          }`}
         >
           <div className="flex items-center flex-1 min-w-0">
-            {getFileIcon(file.mime_type, file.media_type)}
+            {enableDragDrop && (
+              <div className="mr-2 cursor-grab">
+                <GripVertical className="w-4 h-4 text-gray-400" />
+              </div>
+            )}
+            {/* Thumbnail or fallback icon */}
+            {(() => {
+              const thumbUrl = getThumbnailUrl(file, 'small');
+              if (thumbUrl && file.mime_type.startsWith('image/')) {
+                return (
+                  <img
+                    src={thumbUrl}
+                    alt={file.original_name}
+                    className="w-10 h-10 rounded object-cover bg-gray-100 border border-gray-200"
+                    onError={(e) => {
+                      // Fallback to icon on error
+                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                );
+              }
+              return getFileIcon(file.mime_type, file.media_type);
+            })()}
             <div className="ml-3 flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-900 truncate">
                 {file.original_name}

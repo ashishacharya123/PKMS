@@ -1,16 +1,7 @@
 import { create } from 'zustand';
-import { 
-  todosService, 
-  type Todo, 
-  type TodoSummary, 
-  type Project, 
-  type TodoCreate, 
-  type TodoUpdate, 
-  type ProjectCreate, 
-  type ProjectUpdate, 
-  type TodoStats,
-  type TodoListParams 
-} from '../services/todosService';
+import { todosService } from '../services/todosService';
+import { Todo, TodoSummary, CreateTodoRequest, UpdateTodoRequest, TodoStats, TodoListParams } from '../types/todo';
+import { Project, ProjectCreate, ProjectUpdate } from '../types/project';
 
 interface TodosState {
   // Data
@@ -44,8 +35,8 @@ interface TodosState {
   loadTodos: () => Promise<void>;
   loadMore: () => Promise<void>;
   loadTodo: (uuid: string) => Promise<void>;
-  createTodo: (data: TodoCreate) => Promise<Todo | null>;
-  updateTodo: (uuid: string, data: TodoUpdate) => Promise<Todo | null>;
+  createTodo: (data: CreateTodoRequest) => Promise<Todo | null>;
+  updateTodo: (uuid: string, data: UpdateTodoRequest) => Promise<Todo | null>;
   updateTodoWithSubtasks: (todoUuid: string, updater: (todo: TodoSummary) => TodoSummary) => void;
   completeTodo: (uuid: string) => Promise<Todo | null>;
   deleteTodo: (uuid: string) => Promise<boolean>;
@@ -196,7 +187,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
         title: todo.title,
         project_name: todo.project_name,
         isExclusiveMode: todo.isExclusiveMode,
-        due_date: todo.due_date,
+        due_date: todo.dueDate,
         priority: todo.priority,
         status: todo.status,
         order_index: todo.order_index || 0,

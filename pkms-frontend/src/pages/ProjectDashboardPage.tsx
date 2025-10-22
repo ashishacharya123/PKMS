@@ -30,12 +30,15 @@ import {
   IconFile,
   IconCheckbox,
   IconCalendar,
-  IconProgress
+  IconProgress,
+  IconGripVertical
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { todosService, Project, Todo } from '../services/todosService';
 import { notesService, NoteSummary } from '../services/notesService';
 import { documentsService, DocumentSummary } from '../services/documentsService';
+import { projectApi } from '../services/projectApi';
+import { reorderArray, generateDocumentReorderUpdate, getDragPreviewStyles, getDropZoneStyles } from '../utils/dragAndDrop';
 
 export function ProjectDashboardPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -43,6 +46,10 @@ export function ProjectDashboardPage() {
   
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Drag and drop state
+  const [draggedDocument, setDraggedDocument] = useState<DocumentSummary | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   
   // Items state
   const [notes, setNotes] = useState<NoteSummary[]>([]);
@@ -149,6 +156,75 @@ export function ProjectDashboardPage() {
         color: 'red'
       });
     }
+  };
+
+  // Drag and drop handlers for document reordering
+  const handleDragStart = (e: React.DragEvent, document: DocumentSummary) => {
+    setDraggedDocument(document);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', document.uuid);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    
+    if (!draggedDocument || !project) return;
+    
+    const sourceIndex = documents.findIndex(doc => doc.uuid === draggedDocument.uuid);
+    if (sourceIndex === -1 || sourceIndex === targetIndex) {
+      setDraggedDocument(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    try {
+      // Optimistic update
+      const reorderedDocuments = reorderArray(documents, sourceIndex, targetIndex);
+      setDocuments(reorderedDocuments);
+
+      // Generate new order for API
+      const documentUuids = generateDocumentReorderUpdate(documents, {
+        sourceIndex,
+        destinationIndex: targetIndex,
+        sourceId: draggedDocument.uuid
+      });
+
+      // Call API to persist the reorder
+      await projectApi.reorderDocuments(project.uuid, documentUuids);
+
+      notifications.show({
+        title: 'Success',
+        message: 'Document order updated',
+        color: 'green'
+      });
+    } catch (error) {
+      console.error('Failed to reorder documents:', error);
+      // Revert optimistic update
+      setDocuments(documents);
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to reorder documents',
+        color: 'red'
+      });
+    } finally {
+      setDraggedDocument(null);
+      setDragOverIndex(null);
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggedDocument(null);
+    setDragOverIndex(null);
   };
 
   if (!project) {
@@ -497,13 +573,45 @@ export function ProjectDashboardPage() {
                 <div>
                   <Text size="sm" fw={600} mb="xs">📄 Documents ({documents.length})</Text>
                   <Stack gap="xs">
-                    {documents.map(doc => (
-                      <ItemCard
+                    {documents.map((doc, index) => (
+                      <div
                         key={doc.uuid}
-                        item={doc}
-                        type="document"
-                        onNavigate={() => navigate(`/documents?doc=${doc.uuid}`)}
-                      />
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, doc)}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, index)}
+                        onDragEnd={handleDragEnd}
+                        style={{
+                          ...getDragPreviewStyles(draggedDocument?.uuid === doc.uuid),
+                          ...(dragOverIndex === index ? getDropZoneStyles(true, true) : {})
+                        }}
+                      >
+                        <Paper
+                          p="sm"
+                          withBorder
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            cursor: 'grab'
+                          }}
+                        >
+                          <ActionIcon
+                            variant="subtle"
+                            color="gray"
+                            size="sm"
+                            style={{ cursor: 'grab' }}
+                          >
+                            <IconGripVertical size={14} />
+                          </ActionIcon>
+                          <ItemCard
+                            item={doc}
+                            type="document"
+                            onNavigate={() => navigate(`/documents?doc=${doc.uuid}`)}
+                          />
+                        </Paper>
+                      </div>
                     ))}
                   </Stack>
                 </div>
@@ -564,13 +672,45 @@ export function ProjectDashboardPage() {
                 <div>
                   <Text size="sm" fw={600} mb="xs">📄 Exclusive Documents ({exclusiveDocs.length})</Text>
                   <Stack gap="xs">
-                    {exclusiveDocs.map(doc => (
-                      <ItemCard
+                    {exclusiveDocs.map((doc, index) => (
+                      <div
                         key={doc.uuid}
-                        item={doc}
-                        type="document"
-                        onNavigate={() => navigate(`/documents?doc=${doc.uuid}`)}
-                      />
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, doc)}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, index)}
+                        onDragEnd={handleDragEnd}
+                        style={{
+                          ...getDragPreviewStyles(draggedDocument?.uuid === doc.uuid),
+                          ...(dragOverIndex === index ? getDropZoneStyles(true, true) : {})
+                        }}
+                      >
+                        <Paper
+                          p="sm"
+                          withBorder
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            cursor: 'grab'
+                          }}
+                        >
+                          <ActionIcon
+                            variant="subtle"
+                            color="gray"
+                            size="sm"
+                            style={{ cursor: 'grab' }}
+                          >
+                            <IconGripVertical size={14} />
+                          </ActionIcon>
+                          <ItemCard
+                            item={doc}
+                            type="document"
+                            onNavigate={() => navigate(`/documents?doc=${doc.uuid}`)}
+                          />
+                        </Paper>
+                      </div>
                     ))}
                   </Stack>
                 </div>
@@ -630,13 +770,45 @@ export function ProjectDashboardPage() {
                 <div>
                   <Text size="sm" fw={600} mb="xs">📄 Linked Documents ({linkedDocs.length})</Text>
                   <Stack gap="xs">
-                    {linkedDocs.map(doc => (
-                      <ItemCard
+                    {linkedDocs.map((doc, index) => (
+                      <div
                         key={doc.uuid}
-                        item={doc}
-                        type="document"
-                        onNavigate={() => navigate(`/documents?doc=${doc.uuid}`)}
-                      />
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, doc)}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, index)}
+                        onDragEnd={handleDragEnd}
+                        style={{
+                          ...getDragPreviewStyles(draggedDocument?.uuid === doc.uuid),
+                          ...(dragOverIndex === index ? getDropZoneStyles(true, true) : {})
+                        }}
+                      >
+                        <Paper
+                          p="sm"
+                          withBorder
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            cursor: 'grab'
+                          }}
+                        >
+                          <ActionIcon
+                            variant="subtle"
+                            color="gray"
+                            size="sm"
+                            style={{ cursor: 'grab' }}
+                          >
+                            <IconGripVertical size={14} />
+                          </ActionIcon>
+                          <ItemCard
+                            item={doc}
+                            type="document"
+                            onNavigate={() => navigate(`/documents?doc=${doc.uuid}`)}
+                          />
+                        </Paper>
+                      </div>
                     ))}
                   </Stack>
                 </div>

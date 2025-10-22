@@ -37,8 +37,16 @@ from app.routers import (
     advanced_fuzzy,
     delete_preflight,
 )
+# Import refactored testing routers
+from app.testing import (
+    testing_database,
+    testing_auth,
+    testing_system,
+    testing_crud,
+)
 from app.routers import unified_uploads
 from app.routers.search import router as search_endpoints_router
+from app.routers.thumbnails import router as thumbnails_router
 from app.services.chunk_service import chunk_manager
 from app.middleware.query_monitoring import QueryMonitoringMiddleware
 
@@ -197,10 +205,16 @@ app.include_router(archive.router, prefix="/api/v1/archive")
 # Removed archive_improvements disabled include (module deprecated)
 app.include_router(dashboard.router, prefix="/api/v1/dashboard")
 app.include_router(search_endpoints_router, prefix="/api/v1")  # Unified search endpoints
+app.include_router(thumbnails_router, prefix="/api/v1")  # Thumbnails serving
 app.include_router(backup.router, prefix="/api/v1/backup")
 app.include_router(tags.router, prefix="/api/v1/tags")
 app.include_router(unified_uploads.router)
+# Include testing routers
 app.include_router(testing_router, prefix="/api/v1/testing")
+app.include_router(testing_database.router, prefix="/api/v1")
+app.include_router(testing_auth.router, prefix="/api/v1")
+app.include_router(testing_system.router, prefix="/api/v1")
+app.include_router(testing_crud.router, prefix="/api/v1")
 app.include_router(advanced_fuzzy.router, prefix="/api/v1")  # Re-enabled for hybrid search
 app.include_router(delete_preflight.router, prefix="/api/v1/delete-preflight")  # Unified delete preflight
 

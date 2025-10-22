@@ -45,7 +45,7 @@ async def create_todo(
 
 @router.get("/", response_model=List[TodoResponse])
 async def list_todos(
-    status: Optional[str] = Query(None, description="Filter by status"),
+    todo_status: Optional[str] = Query(None, description="Filter by status"),
     priority: Optional[str] = Query(None, description="Filter by priority"),
     project_uuid: Optional[str] = Query(None, description="Filter by project UUID"),
     is_favorite: Optional[bool] = Query(None, description="Filter by favorite status"),
@@ -61,8 +61,8 @@ async def list_todos(
     """List todos with filters and pagination"""
     try:
         return await todo_crud_service.list_todos(
-            db, current_user.uuid, status, priority, project_uuid, 
-            is_favorite, is_archived, due_date_from, due_date_to, 
+            db, current_user.uuid, todo_status, priority, project_uuid,
+            is_favorite, is_archived, due_date_from, due_date_to,
             search, limit, offset
         )
     except HTTPException:

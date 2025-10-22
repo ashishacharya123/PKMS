@@ -446,10 +446,11 @@ class ArchiveFolderService:
                     detail="Destination folder not found"
                 )
         
-        # Move folders
+        # Move folders with cycle prevention and depth recalculation
         if move_request.folder_uuids:
-            await db.execute(
-                update(ArchiveFolder)
+            # Validate folder existence and collect current data
+            folder_results = await db.execute(
+                select(ArchiveFolder.uuid, ArchiveFolder.parent_uuid, ArchiveFolder.depth)
                 .where(
                     and_(
                         ArchiveFolder.uuid.in_(move_request.folder_uuids),
@@ -457,8 +458,72 @@ class ArchiveFolderService:
                         ArchiveFolder.is_deleted.is_(False)
                     )
                 )
-                .values(parent_uuid=move_request.destination_folder_uuid)
             )
+            existing_folders = folder_results.all()
+
+            if not existing_folders:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="No valid folders found to move"
+                )
+
+            existing_folder_uuids = {row.uuid for row in existing_folders}
+            moved_uuids = existing_folder_uuids
+
+            # Get destination folder depth
+            dest_depth = 0
+            if move_request.destination_folder_uuid:
+                dest_result = await db.execute(
+                    select(ArchiveFolder.depth)
+                    .where(
+                        and_(
+                            ArchiveFolder.uuid == move_request.destination_folder_uuid,
+                            ArchiveFolder.created_by == user_uuid,
+                            ArchiveFolder.is_deleted.is_(False)
+                        )
+                    )
+                )
+                dest_depth = dest_result.scalar() or 0
+
+                # Check for cycles: destination cannot be inside any moved folder subtree
+                for folder_uuid in moved_uuids:
+                    has_cycle = await self.path_service.detect_cycle(
+                        folder_uuid, move_request.destination_folder_uuid, db, user_uuid
+                    )
+                    if has_cycle:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Cannot move folder {folder_uuid}: would create circular reference"
+                        )
+
+            # Calculate depth changes for each folder
+            folder_depth_updates = []
+            for row in existing_folders:
+                old_depth = row.depth
+                new_parent_uuid = move_request.destination_folder_uuid
+
+                # Calculate new depth
+                if new_parent_uuid:
+                    # Get destination folder depth
+                    new_depth = dest_depth + 1
+                else:
+                    new_depth = 0  # Moving to root
+
+                depth_delta = new_depth - old_depth
+                folder_depth_updates.append((row.uuid, new_parent_uuid, new_depth, depth_delta))
+
+            # Apply parent_uuid changes
+            for folder_uuid, new_parent_uuid, new_depth, depth_delta in folder_depth_updates:
+                await db.execute(
+                    update(ArchiveFolder)
+                    .where(ArchiveFolder.uuid == folder_uuid)
+                    .values(parent_uuid=new_parent_uuid, depth=new_depth)
+                )
+
+            # Update depths for all descendants
+            for folder_uuid, new_parent_uuid, new_depth, depth_delta in folder_depth_updates:
+                if depth_delta != 0:
+                    await self._update_descendant_depths_by_delta(db, folder_uuid, depth_delta)
         
         # Move items
         if move_request.item_uuids:
@@ -633,7 +698,28 @@ class ArchiveFolderService:
             
             # Recursively update descendants
             await self._update_descendant_depths(db, child.uuid, new_depth + 1)
-    
+
+    async def _update_descendant_depths_by_delta(
+        self,
+        db: AsyncSession,
+        parent_uuid: str,
+        depth_delta: int
+    ) -> None:
+        """Update depth for all descendant folders by applying a depth delta"""
+        if depth_delta == 0:
+            return
+
+        # Get all descendant UUIDs recursively
+        descendant_uuids = await self._get_descendant_uuids(db, parent_uuid)
+
+        if descendant_uuids:
+            # Apply depth delta to all descendants in a single query
+            await db.execute(
+                update(ArchiveFolder)
+                .where(ArchiveFolder.uuid.in_(descendant_uuids))
+                .values(depth=ArchiveFolder.depth + depth_delta)
+            )
+
     async def _get_descendant_uuids(
         self, 
         db: AsyncSession, 

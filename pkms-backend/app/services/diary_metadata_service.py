@@ -382,9 +382,17 @@ class DiaryMetadataService:
         exercise_values = []
         meditation_values = []
         screen_time_values = []
+        steps_values = []
+        learning_values = []
+        outdoor_values = []
+        social_values = []
         exercise_days = 0
         meditation_days = 0
         sleep_quality_days = 0
+        active_days = 0
+        learning_days = 0
+        outdoor_days = 0
+        social_days = 0
         
         # Trends
         mood_trend = []
@@ -393,6 +401,10 @@ class DiaryMetadataService:
         exercise_trend = []
         meditation_trend = []
         screen_time_trend = []
+        steps_trend = []
+        learning_trend = []
+        outdoor_trend = []
+        social_trend = []
         
         # Correlation data
         mood_sleep_pairs = []
@@ -463,7 +475,48 @@ class DiaryMetadataService:
                 screen_time_trend.append(WellnessTrendPoint(date=date_str, value=float(screen_time)))
             else:
                 screen_time_trend.append(WellnessTrendPoint(date=date_str, value=None))
-        
+
+            # Enhanced wellness metrics
+            # Steps
+            steps = metrics.get("steps")
+            if steps is not None:
+                steps_values.append(steps)
+                steps_trend.append(WellnessTrendPoint(date=date_str, value=float(steps)))
+                if steps >= 8000:  # Daily step goal
+                    active_days += 1
+            else:
+                steps_trend.append(WellnessTrendPoint(date=date_str, value=None))
+
+            # Learning
+            learning = metrics.get("learning")
+            if learning is not None:
+                learning_values.append(learning)
+                learning_trend.append(WellnessTrendPoint(date=date_str, value=float(learning)))
+                if learning > 0:
+                    learning_days += 1
+            else:
+                learning_trend.append(WellnessTrendPoint(date=date_str, value=None))
+
+            # Outdoor time
+            outdoor = metrics.get("outdoor")
+            if outdoor is not None:
+                outdoor_values.append(outdoor)
+                outdoor_trend.append(WellnessTrendPoint(date=date_str, value=float(outdoor)))
+                if outdoor >= 1:  # At least 1 hour outdoors
+                    outdoor_days += 1
+            else:
+                outdoor_trend.append(WellnessTrendPoint(date=date_str, value=None))
+
+            # Social time
+            social = metrics.get("social")
+            if social is not None:
+                social_values.append(social)
+                social_trend.append(WellnessTrendPoint(date=date_str, value=float(social)))
+                if social >= 1:  # At least 1 hour social interaction
+                    social_days += 1
+            else:
+                social_trend.append(WellnessTrendPoint(date=date_str, value=None))
+
         # Calculate averages with proper floating point handling
         avg_mood = round(sum(mood_values) / len(mood_values), 2) if mood_values else None
         avg_sleep = round(sum(sleep_values) / len(sleep_values), 2) if sleep_values else None
@@ -471,7 +524,18 @@ class DiaryMetadataService:
         avg_exercise = round(sum(exercise_values) / len(exercise_values), 2) if exercise_values else None
         avg_meditation = round(sum(meditation_values) / len(meditation_values), 2) if meditation_values else None
         avg_screen_time = round(sum(screen_time_values) / len(screen_time_values), 2) if screen_time_values else None
-        
+        avg_steps = round(sum(steps_values) / len(steps_values), 2) if steps_values else None
+        avg_learning = round(sum(learning_values) / len(learning_values), 2) if learning_values else None
+        avg_outdoor = round(sum(outdoor_values) / len(outdoor_values), 2) if outdoor_values else None
+        avg_social = round(sum(social_values) / len(social_values), 2) if social_values else None
+
+        # Calculate frequency metrics for wellness score
+        exercise_freq_per_week = (exercise_days / days) * 7 if days > 0 else 0
+        steps_freq_per_week = (active_days / days) * 7 if days > 0 else 0
+        learning_freq_per_week = (learning_days / days) * 7 if days > 0 else 0
+        outdoor_freq_per_week = (outdoor_days / days) * 7 if days > 0 else 0
+        social_freq_per_week = (social_days / days) * 7 if days > 0 else 0
+
         # Get defined habits summary
         defined_habits_summary = await DiaryMetadataService._get_defined_habits_summary(
             db, user_uuid, start_date, end_date
@@ -499,44 +563,89 @@ class DiaryMetadataService:
             except Exception:
                 logger.exception("Failed to calculate correlation")
         
-        # Calculate wellness score (0-100)
+        # Calculate enhanced wellness score (0-100)
         score_components = {}
         component_scores = []
-        
-        # Sleep component (25%)
+
+        # Physical Health (35%)
+        # Sleep component (20%)
         if avg_sleep is not None:
-            sleep_score = min(100, (avg_sleep / 8.0) * 100)
+            # 7 hours optimal, penalize both under and over sleep
+            if avg_sleep >= 6.5 and avg_sleep <= 7.5:
+                sleep_score = 100  # Sweet spot
+            elif avg_sleep < 6.5:
+                sleep_score = max(0, (avg_sleep / 6.5) * 100)  # Under sleep penalty
+            else:  # avg_sleep > 7.5
+                sleep_score = max(0, 100 - ((avg_sleep - 7.5) / 2.5) * 50)  # Over sleep penalty
             score_components["sleep"] = round(sleep_score, 1)
-            component_scores.append(sleep_score * 0.25)
-        
-        # Exercise component (20%)
-        if exercise_freq_per_week > 0:
-            exercise_score = min(100, (exercise_freq_per_week / 4.0) * 100)
+            component_scores.append(sleep_score * 0.20)
+
+        # Exercise component (10%) - Combination of frequency + average value
+        if exercise_freq_per_week > 0 and avg_exercise is not None:
+            freq_score = min(100, (exercise_freq_per_week / 4.0) * 100)  # 4 days/week goal
+            value_score = min(100, (avg_exercise / 30.0) * 100)  # 30 minutes optimal
+            exercise_score = (freq_score + value_score) / 2
             score_components["exercise"] = round(exercise_score, 1)
-            component_scores.append(exercise_score * 0.20)
-        
-        # Mental wellness component (20%)
-        if avg_energy is not None and avg_stress is not None:
-            mental_score = ((avg_energy + (6 - avg_stress)) / 10.0) * 100
-            score_components["mental"] = round(mental_score, 1)
-            component_scores.append(mental_score * 0.20)
-        
-        # Healthy habits component (15%)
-        if avg_water is not None:
-            habits_score = min(100, (avg_water / 8.0) * 100)
-            score_components["habits"] = round(habits_score, 1)
-            component_scores.append(habits_score * 0.15)
-        
-        # Low screen time component (10%)
+            component_scores.append(exercise_score * 0.10)
+
+        # Steps component (5%) - Combination of frequency + average value
+        if steps_freq_per_week > 0 and avg_steps is not None:
+            freq_score = min(100, (steps_freq_per_week / 5.0) * 100)  # 5 days/week goal
+            value_score = min(100, (avg_steps / 10000.0) * 100)  # 10k steps optimal
+            steps_score = (freq_score + value_score) / 2
+            score_components["steps"] = round(steps_score, 1)
+            component_scores.append(steps_score * 0.05)
+
+        # Mental Health (35%)
+        # Stress component (15%) - Average value based
+        if avg_stress is not None:
+            # Lower stress is better: 1-5 scale, 2.5 is optimal
+            stress_score = max(0, min(100, ((5 - avg_stress) / 3.5) * 100))  # 5-1=4 range, 2.5 target
+            score_components["stress"] = round(stress_score, 1)
+            component_scores.append(stress_score * 0.15)
+
+        # Meditation component (10%) - Combination of frequency + average value
+        if meditation_freq_per_week := (meditation_days / days) * 7 if days > 0 else 0:
+            if avg_meditation is not None:
+                freq_score = min(100, (meditation_freq_per_week / 5.0) * 100)  # 5 days/week goal
+                value_score = min(100, (avg_meditation / 15.0) * 100)  # 15 minutes optimal
+                meditation_score = (freq_score + value_score) / 2
+            else:
+                meditation_score = (meditation_days / days) * 100
+            score_components["meditation"] = round(meditation_score, 1)
+            component_scores.append(meditation_score * 0.10)
+
+        # Outdoor component (5%) - Combination of frequency + average value
+        if outdoor_freq_per_week > 0 and avg_outdoor is not None:
+            freq_score = min(100, (outdoor_freq_per_week / 4.0) * 100)  # 4 days/week goal
+            value_score = min(100, (avg_outdoor / 1.0) * 100)  # 1 hour optimal
+            outdoor_score = (freq_score + value_score) / 2
+            score_components["outdoor"] = round(outdoor_score, 1)
+            component_scores.append(outdoor_score * 0.05)
+
+        # Social component (5%) - Combination of frequency + average value
+        if social_freq_per_week > 0 and avg_social is not None:
+            freq_score = min(100, (social_freq_per_week / 3.0) * 100)  # 3 days/week goal
+            value_score = min(100, (avg_social / 1.0) * 100)  # 1 hour optimal
+            social_score = (freq_score + value_score) / 2
+            score_components["social"] = round(social_score, 1)
+            component_scores.append(social_score * 0.05)
+
+        # Productivity (25%)
+        # Learning component (15%) - Combination of frequency + average value
+        if learning_freq_per_week > 0 and avg_learning is not None:
+            freq_score = min(100, (learning_freq_per_week / 5.0) * 100)  # 5 days/week goal
+            value_score = min(100, (avg_learning / 60.0) * 100)  # 60 minutes optimal (updated!)
+            learning_score = (freq_score + value_score) / 2
+            score_components["learning"] = round(learning_score, 1)
+            component_scores.append(learning_score * 0.15)
+
+        # Screen time control component (10%)
         if avg_screen_time is not None:
-            screen_score = max(0, 100 - (avg_screen_time / 8.0) * 100)
-            score_components["screenTime"] = round(screen_score, 1)
+            # 2 hours optimal for perfect score, stricter than before
+            screen_score = max(0, 100 - ((avg_screen_time - 2.0) / 4.0) * 100) if avg_screen_time > 2.0 else 100
+            score_components["screen_time"] = round(screen_score, 1)
             component_scores.append(screen_score * 0.10)
-        
-        # Mindfulness component (10%)
-        mindfulness_score = (meditation_days / days) * 100 if days > 0 else 0
-        score_components["mindfulness"] = round(mindfulness_score, 1)
-        component_scores.append(mindfulness_score * 0.10)
         
         overall_wellness_score = sum(component_scores) if component_scores else None
         
@@ -544,40 +653,74 @@ class DiaryMetadataService:
         insights = []
         
         # Positive insights
-        if avg_sleep and avg_sleep >= 7.5:
+        if avg_sleep and 6.5 <= avg_sleep <= 7.5:
             insights.append({
                 "type": "positive",
-                "message": f"Excellent sleep quality! Averaging {avg_sleep:.1f} hours per night.",
+                "message": f"Perfect sleep balance! Averaging {avg_sleep:.1f} hours - you're in the optimal zone.",
                 "metric": "sleep"
             })
-        
+
         if exercise_freq_per_week >= 4:
             insights.append({
                 "type": "positive",
                 "message": f"Great job! You exercised {exercise_freq_per_week:.1f} days per week.",
                 "metric": "exercise"
             })
-        
+
         if meditation_days >= days * 0.5:
             insights.append({
                 "type": "positive",
                 "message": f"Wonderful mindfulness practice! {meditation_days} meditation days.",
                 "metric": "mental"
             })
-        
+
+        # Enhanced habit insights
+        if learning_days >= days * 0.6:
+            insights.append({
+                "type": "positive",
+                "message": f"Excellent learning habit! {learning_days} days with personal growth time.",
+                "metric": "learning"
+            })
+
+        if outdoor_days >= days * 0.4:
+            insights.append({
+                "type": "positive",
+                "message": f"Great outdoor exposure! {outdoor_days} days spent in nature.",
+                "metric": "outdoor"
+            })
+
+        if social_days >= days * 0.3:
+            insights.append({
+                "type": "positive",
+                "message": f"Good social connection! {social_days} days with meaningful interactions.",
+                "metric": "social"
+            })
+
         # Areas for improvement
-        if avg_sleep and avg_sleep < 6:
+        if avg_sleep and avg_sleep < 6.5:
             insights.append({
                 "type": "negative",
-                "message": f"You're averaging only {avg_sleep:.1f} hours of sleep. Aim for 7-8 hours.",
+                "message": f"You're averaging only {avg_sleep:.1f} hours of sleep. Aim for 7 hours for optimal recovery.",
+                "metric": "sleep"
+            })
+        elif avg_sleep and avg_sleep > 8.5:
+            insights.append({
+                "type": "neutral",
+                "message": f"You're sleeping {avg_sleep:.1f} hours - consider if oversleeping affects your energy levels.",
                 "metric": "sleep"
             })
         
-        if avg_screen_time and avg_screen_time > 6:
+        if avg_screen_time and avg_screen_time > 3:
             insights.append({
                 "type": "negative",
-                "message": f"High screen time detected ({avg_screen_time:.1f} hrs/day). Consider reducing it.",
-                "metric": "habits"
+                "message": f"High screen time detected ({avg_screen_time:.1f} hrs/day). Aim for ≤2 hours for digital wellness.",
+                "metric": "screen_time"
+            })
+        elif avg_screen_time and avg_screen_time <= 2:
+            insights.append({
+                "type": "positive",
+                "message": f"Excellent digital wellness! Only {avg_screen_time:.1f} hrs/day screen time.",
+                "metric": "screen_time"
             })
         
         if exercise_freq_per_week < 2:
@@ -746,6 +889,18 @@ class DiaryMetadataService:
             meditation_trend=meditation_trend,
             average_screen_time=round(avg_screen_time, 1) if avg_screen_time else None,
             screen_time_trend=screen_time_trend,
+            # Enhanced wellness metrics
+            average_steps=round(avg_steps, 1) if avg_steps else None,
+            steps_trend=steps_trend,
+            average_learning=round(avg_learning, 1) if avg_learning else None,
+            learning_trend=learning_trend,
+            average_outdoor=round(avg_outdoor, 1) if avg_outdoor else None,
+            outdoor_trend=outdoor_trend,
+            average_social=round(avg_social, 1) if avg_social else None,
+            social_trend=social_trend,
+            # Wellness score and components
+            overall_wellness_score=round(sum(component_scores), 1) if component_scores else None,
+            score_components=score_components,
             financial_trend=financial_trend,
             total_income=round(total_income, 2),
             total_expense=round(total_expense, 2),
@@ -759,7 +914,157 @@ class DiaryMetadataService:
             defined_habits_summary=defined_habits_summary,
             insights=insights
         )
-    
+
+    @staticmethod
+    async def get_wellness_score_analytics(
+        db: AsyncSession,
+        user_uuid: str,
+        days: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Get wellness score analytics for different time periods.
+
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            days: Number of days for primary analysis (default: 30)
+
+        Returns:
+            Dict with wellness scores for different time periods
+        """
+        from datetime import date
+        end_date = datetime.now(NEPAL_TZ).date()
+
+        # Define time periods
+        time_periods = {
+            "day": {"days": 1, "start_date": end_date},
+            "week": {"days": 7, "start_date": end_date - timedelta(days=6)},
+            "month": {"days": days, "start_date": end_date - timedelta(days=days-1)},
+            "3_months": {"days": 90, "start_date": end_date - timedelta(days=89)},
+            "6_months": {"days": 180, "start_date": end_date - timedelta(days=179)},
+            "1_year": {"days": 365, "start_date": end_date - timedelta(days=364)}  # Optimistic yearly view! 🎯
+        }
+
+        wellness_scores = {}
+
+        for period_name, period_config in time_periods.items():
+            try:
+                # Get wellness stats for this period
+                wellness_stats = await DiaryMetadataService.get_wellness_stats(
+                    db, user_uuid, period_config["days"]
+                )
+
+                wellness_scores[period_name] = {
+                    "score": wellness_stats.overall_wellness_score,
+                    "score_components": wellness_stats.score_components,
+                    "period_start": wellness_stats.period_start,
+                    "period_end": wellness_stats.period_end,
+                    "total_days": wellness_stats.total_days,
+                    "days_with_data": wellness_stats.days_with_data
+                }
+
+            except Exception as e:
+                logger.exception(f"Error calculating wellness score for {period_name}: {e}")
+                wellness_scores[period_name] = {
+                    "score": None,
+                    "score_components": {},
+                    "period_start": period_config["start_date"].strftime("%Y-%m-%d"),
+                    "period_end": end_date.strftime("%Y-%m-%d"),
+                    "total_days": period_config["days"],
+                    "days_with_data": 0,
+                    "error": "Failed to calculate"
+                }
+
+        return {
+            "current_scores": wellness_scores,
+            "trend_analysis": {
+                "weekly_vs_daily": None,
+                "monthly_vs_weekly": None,
+                "quarterly_vs_monthly": None,
+                "half_yearly_vs_quarterly": None
+            },
+            "insights": DiaryMetadataService._generate_score_insights(wellness_scores)
+        }
+
+    @staticmethod
+    def _generate_score_insights(wellness_scores: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Generate insights based on wellness score trends across time periods"""
+        insights = []
+
+        try:
+            day_score = wellness_scores.get("day", {}).get("score")
+            week_score = wellness_scores.get("week", {}).get("score")
+            month_score = wellness_scores.get("month", {}).get("score")
+            quarterly_score = wellness_scores.get("3_months", {}).get("score")
+            half_yearly_score = wellness_scores.get("6_months", {}).get("score")
+            yearly_score = wellness_scores.get("1_year", {}).get("score")
+
+            # Trend insights
+            if day_score and week_score:
+                if week_score > day_score + 5:
+                    insights.append({
+                        "type": "positive",
+                        "message": f"Great improvement! Weekly average ({week_score:.1f}) is higher than today ({day_score:.1f}).",
+                        "metric": "trend"
+                    })
+                elif week_score < day_score - 5:
+                    insights.append({
+                        "type": "neutral",
+                        "message": f"Keep consistent! Today's score ({day_score:.1f}) is higher than your weekly average ({week_score:.1f}).",
+                        "metric": "trend"
+                    })
+
+            # Long-term trend insights
+            if month_score and quarterly_score:
+                if quarterly_score > month_score + 10:
+                    insights.append({
+                        "type": "positive",
+                        "message": f"Excellent long-term progress! 3-month average ({quarterly_score:.1f}) is much higher than current month ({month_score:.1f}).",
+                        "metric": "long_term_trend"
+                    })
+
+            # Yearly comparison (for the truly dedicated!)
+            if yearly_score and quarterly_score:
+                if yearly_score > quarterly_score + 5:
+                    insights.append({
+                        "type": "positive",
+                        "message": f"Incredible consistency! Yearly average ({yearly_score:.1f}) shows you're maintaining excellence over time. 🏆",
+                        "metric": "yearly_consistency"
+                    })
+                elif yearly_score and quarterly_score > yearly_score + 15:
+                    insights.append({
+                        "type": "positive",
+                        "message": f"Amazing growth trajectory! Current quarter ({quarterly_score:.1f}) vs yearly average ({yearly_score:.1f}) shows major improvement! 🚀",
+                        "metric": "breakthrough_growth"
+                    })
+
+            # Score level insights
+            latest_score = day_score or week_score or month_score
+            if latest_score:
+                if latest_score >= 85:
+                    insights.append({
+                        "type": "positive",
+                        "message": f"Outstanding wellness score of {latest_score:.1f}! You're in the top performance zone.",
+                        "metric": "achievement"
+                    })
+                elif latest_score >= 70:
+                    insights.append({
+                        "type": "positive",
+                        "message": f"Good wellness score of {latest_score:.1f}! You're building healthy habits consistently.",
+                        "metric": "achievement"
+                    })
+                elif latest_score < 50:
+                    insights.append({
+                        "type": "neutral",
+                        "message": f"Current wellness score is {latest_score:.1f}. Focus on one habit at a time to see improvement.",
+                        "metric": "improvement_focus"
+                    })
+
+        except Exception as e:
+            logger.exception(f"Error generating wellness score insights: {e}")
+
+        return insights
+
     @staticmethod
     async def _get_defined_habits_summary(
         db: AsyncSession,
@@ -1240,54 +1545,7 @@ class DiaryMetadataService:
             await db.rollback()
             raise
 
-    @staticmethod
-    async def calculate_habit_streak(
-        db: AsyncSession,
-        user_uuid: str,
-        habit_key: str,
-        end_date: date
-    ) -> int:
-        """
-        Calculate streak by counting consecutive non-zero days.
-
-        Args:
-            db: Database session
-            user_uuid: User's UUID
-            habit_key: Key of the habit to calculate streak for
-            end_date: End date for streak calculation
-
-        Returns:
-            Current streak count
-        """
-        streak = 0
-        check_date = end_date
-
-        while True:
-            # Get that day's metadata
-            daily_metadata = await DiaryMetadataService.get_daily_metadata(
-                db, user_uuid, check_date
-            )
-
-            if not daily_metadata or not daily_metadata.defined_habits_json:
-                break
-
-            try:
-                habits_data = json.loads(daily_metadata.defined_habits_json)
-                habit_values = habits_data.get("habits", {})
-
-                # Check if habit has non-zero value
-                if habit_key in habit_values and habit_values[habit_key] != 0:
-                    streak += 1
-                    check_date -= timedelta(days=1)
-                else:
-                    break
-
-            except json.JSONDecodeError:
-                logger.warning(f"Invalid defined_habits_json for user {user_uuid} on {check_date}")
-                break
-
-        return streak
-
+    
     @staticmethod
     async def get_habit_analytics(
         db: AsyncSession,
@@ -1317,9 +1575,9 @@ class DiaryMetadataService:
             # Get all unique habit keys
             all_habits = set()
             for record in records:
-                if record.habits_json:
+                if record.defined_habits_json:
                     try:
-                        habits = json.loads(record.habits_json).get("habits", {})
+                        habits = json.loads(record.defined_habits_json).get("habits", {})
                         all_habits.update(habits.keys())
                     except json.JSONDecodeError:
                         continue
@@ -1461,9 +1719,9 @@ class DiaryMetadataService:
 
             all_habits = set()
             for record in records:
-                if record.habits_json:
+                if record.defined_habits_json:
                     try:
-                        habits = json.loads(record.habits_json).get("habits", {})
+                        habits = json.loads(record.defined_habits_json).get("habits", {})
                         all_habits.update(habits.keys())
                     except json.JSONDecodeError:
                         continue
@@ -1581,8 +1839,8 @@ class DiaryMetadataService:
 
         try:
             snapshot = await DiaryMetadataService._get_model_by_date(db, user_uuid, target_date)
-            if snapshot and snapshot.habits_json:
-                return json.loads(snapshot.habits_json)
+            if snapshot and snapshot.defined_habits_json:
+                return json.loads(snapshot.defined_habits_json)
             else:
                 return {
                     "habits": {},

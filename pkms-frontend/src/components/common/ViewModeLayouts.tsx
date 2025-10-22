@@ -1,5 +1,6 @@
 import { SimpleGrid, Card, Stack, Title, Text, Badge, Group } from '@mantine/core';
 import { ViewMode } from './ViewMenu';
+import { LoadingSkeleton } from './LoadingSkeleton';
 import classes from './ViewModeLayouts.module.css';
 
 interface BaseItem {
@@ -38,18 +39,7 @@ export function ViewModeLayouts<T extends BaseItem>({
 }: ViewModeLayoutsProps<T>) {
 
   if (isLoading) {
-    return (
-      <Stack gap="md">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Card key={i} withBorder p="md" style={{ opacity: 0.6 }}>
-            <Stack gap={4}>
-              <div style={{ width: 120, height: 12, backgroundColor: '#f0f0f0', borderRadius: 2 }} />
-              <div style={{ width: 80, height: 8, backgroundColor: '#f0f0f0', borderRadius: 2 }} />
-            </Stack>
-          </Card>
-        ))}
-      </Stack>
-    );
+    return <LoadingSkeleton variant="card" count={6} />;
   }
 
   if (items.length === 0) {

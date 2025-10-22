@@ -197,66 +197,90 @@ class DiaryDocumentService:
     ):
         """
         Reorder documents within a diary entry.
-        
+
         Args:
             db: Database session
             user_uuid: User's UUID
             diary_entry_uuid: Diary entry UUID
             document_uuids: List of document UUIDs in desired order
         """
-        # Verify diary entry exists and belongs to user
-        entry_result = await db.execute(
-            select(DiaryEntry).where(
-                and_(
-                    DiaryEntry.uuid == diary_entry_uuid,
-                    DiaryEntry.created_by == user_uuid,
-                    DiaryEntry.is_deleted.is_(False)
-                )
-            )
-        )
-        if not entry_result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Diary entry {diary_entry_uuid} not found"
-            )
-
-        # Verify all documents exist and are linked to this diary entry
-        for document_uuid in document_uuids:
-            link_result = await db.execute(
-                select(document_diary.c.id)
-                .where(
+        try:
+            # Verify diary entry exists and belongs to user
+            entry_result = await db.execute(
+                select(DiaryEntry).where(
                     and_(
-                        document_diary.c.diary_entry_uuid == diary_entry_uuid,
-                        document_diary.c.document_uuid == document_uuid
+                        DiaryEntry.uuid == diary_entry_uuid,
+                        DiaryEntry.created_by == user_uuid,
+                        DiaryEntry.is_deleted.is_(False)
                     )
                 )
             )
-            if not link_result.scalar_one_or_none():
+            if not entry_result.scalar_one_or_none():
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Document {document_uuid} not linked to diary entry {diary_entry_uuid}"
+                    detail=f"Diary entry {diary_entry_uuid} not found"
                 )
 
-        # Update sort_order for each document
-        for index, document_uuid in enumerate(document_uuids):
-            await db.execute(
-                document_diary.update()
+        # ✅ Creative Solution 1: Batch verify all documents in ONE query (eliminate N+1 verification)
+            existing_links_query = (
+                select(document_diary.c.document_uuid)
                 .where(
                     and_(
                         document_diary.c.diary_entry_uuid == diary_entry_uuid,
-                        document_diary.c.document_uuid == document_uuid
+                        document_diary.c.document_uuid.in_(document_uuids)
                     )
                 )
-                .values(
-                    sort_order=index,
-                    updated_at=datetime.now(NEPAL_TZ)
-                )
             )
-        
+            existing_links_result = await db.execute(existing_links_query)
+            existing_document_uuids = {row[0] for row in existing_links_result}
+
+            # Find missing documents using set difference (O(1) lookup)
+            missing_document_uuids = set(document_uuids) - existing_document_uuids
+            if missing_document_uuids:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Documents not linked to diary entry {diary_entry_uuid}: {list(missing_document_uuids)}"
+                )
+
+            # ✅ Creative Solution 2: Bulk UPDATE with VALUES clause (eliminate N+1 updates)
+            if document_uuids:
+                from sqlalchemy import text, case, literal_column
+
+                # Build CASE WHEN statement for bulk update - ONE query for ALL documents!
+                when_clauses = []
+                for index, document_uuid in enumerate(document_uuids):
+                    when_clauses.append(case(
+                    (document_diary.c.document_uuid == document_uuid, index),
+                    else_=document_diary.c.sort_order
+                ))
+
+                # Single bulk UPDATE statement - creative solution!
+                await db.execute(
+                    document_diary.update()
+                    .where(
+                        and_(
+                            document_diary.c.diary_entry_uuid == diary_entry_uuid,
+                            document_diary.c.document_uuid.in_(document_uuids)
+                        )
+                    )
+                    .values(
+                        sort_order=case(*when_clauses),
+                        updated_at=datetime.now(NEPAL_TZ)
+                    )
+                )
+
+        # Only invalidate cache after successful commit
         await db.commit()
-        
-        # Invalidate dashboard cache
         dashboard_service.invalidate_user_cache(user_uuid, "diary_documents_reordered")
+
+        except Exception as e:
+            # Rollback on any error and re-raise
+            await db.rollback()
+            logger.error(f"Failed to reorder diary documents for entry {diary_entry_uuid}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to reorder diary documents"
+            ) from e
 
     async def get_diary_entry_documents(
         self, db: AsyncSession, user_uuid: str, diary_entry_uuid: str

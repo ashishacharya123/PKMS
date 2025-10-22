@@ -93,6 +93,13 @@ class NoteFile(Base):
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
 
+    # Composite indexes for common query patterns
+    __table_args__ = (
+        Index('ix_note_file_note_order', 'note_uuid', 'display_order'),
+        Index('ix_note_file_mime_type', 'mime_type', 'note_uuid'),
+        Index('ix_note_file_size', 'file_size', 'note_uuid'),
+    )
+
     # Relationships
     note = relationship("Note", back_populates="files")
     # user relationship removed - created_by field removed

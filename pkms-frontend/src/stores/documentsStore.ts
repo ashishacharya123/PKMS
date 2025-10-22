@@ -209,7 +209,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         isExclusiveMode: (document as any).isExclusiveMode ?? false,
         is_favorite: document.is_favorite ?? false,
         is_archived: document.is_archived,
-        // upload_status: document.upload_status || 'completed',  // Removed - backend no longer tracks
+        // upload_status field removed - backend no longer tracks upload status
         created_at: document.created_at,
         updated_at: document.updated_at,
         tags: document.tags,
@@ -239,11 +239,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       });
       
       // If document was uploaded but doesn't match filters, user might be confused
-      // Log for debugging
+      // Debug: Uploaded document does not match current filters
       if (!shouldAdd) {
-        console.log('[Documents Store] Uploaded document does not match current filters:', {
-          document: document.original_name,
-          filters: {
+        // Document filtered out based on current view settings
             mimeType: state.currentMimeType,
             tag: state.currentTag,
             search: state.searchQuery,
@@ -288,7 +286,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         description: updatedDocument.description,
         is_favorite: updatedDocument.is_favorite,
         is_archived: updatedDocument.is_archived,
-        // upload_status: updatedDocument.upload_status,  // Removed - backend no longer tracks
+        // upload_status field removed - backend no longer tracks upload status
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
         tags: updatedDocument.tags,
@@ -356,7 +354,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         description: updatedDocument.description,
         is_favorite: updatedDocument.is_favorite,
         is_archived: updatedDocument.is_archived,
-        // upload_status: updatedDocument.upload_status,  // Removed - backend no longer tracks
+        // upload_status field removed - backend no longer tracks upload status
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
         tags: updatedDocument.tags,

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -27,7 +27,7 @@ import {
   IconChecklist,
   IconArchive,
   IconEyeOff,
-  IconBolt,
+  // IconBolt, // Removed unused import
   IconInfoCircle,
   IconArrowLeft,
 } from '@tabler/icons-react';
@@ -37,6 +37,7 @@ import type { SearchResult, SearchFilters, SearchResponse, TagInfo } from '../..
 import searchService from '../../services/searchService';
 import SearchSuggestions from './SearchSuggestions';
 import UnifiedSearchFilters from './UnifiedSearchFilters';
+import { SearchTypeToggle, SearchType } from './SearchTypeToggle';
 
 interface UnifiedSearchProps {
   initialQuery?: string;
@@ -60,6 +61,7 @@ const UnifiedSearch: React.FC<UnifiedSearchProps> = ({ initialQuery = '' }) => {
   });
   const [selectedModules, setSelectedModules] = useState<string[]>(['notes', 'documents', 'todos', 'archive', 'folders', 'projects']);
   const [availableTags, setAvailableTags] = useState<TagInfo[]>([]);
+  const [searchType, setSearchType] = useState<SearchType>('fts5');
 
   const resultsPerPage = 20;
   const allModuleOptions = useMemo(
@@ -108,8 +110,21 @@ const UnifiedSearch: React.FC<UnifiedSearchProps> = ({ initialQuery = '' }) => {
         modules: selectedModules,
       };
 
-      // UnifiedSearch always uses FTS5 for cross-module search
-      const response: SearchResponse = await searchService.searchFTS(searchQuery, effectiveFilters, page, resultsPerPage);
+      // Use selected search type
+      let response: SearchResponse;
+      switch (searchType) {
+        case 'fts5':
+          response = await searchService.searchFTS(searchQuery, effectiveFilters, page, resultsPerPage);
+          break;
+        case 'fuzzy':
+          response = await searchService.searchFuzzy(searchQuery, effectiveFilters, page, resultsPerPage);
+          break;
+        case 'advanced-fuzzy':
+          response = await searchService.searchAdvancedFuzzy(searchQuery, effectiveFilters, page, resultsPerPage);
+          break;
+        default:
+          response = await searchService.searchFTS(searchQuery, effectiveFilters, page, resultsPerPage);
+      }
 
       setResults(response.results);
       setTotalResults(response.stats.totalResults);
@@ -223,9 +238,11 @@ const UnifiedSearch: React.FC<UnifiedSearchProps> = ({ initialQuery = '' }) => {
           </ActionIcon>
         </Group>
 
-        <Alert icon={<IconBolt size={16} />} color="blue" title="FTS5 Full-Text Search">
-          Fast cross-module search using SQLite FTS5 for titles, tags, and descriptions.
-        </Alert>
+        <SearchTypeToggle
+          value={searchType}
+          onChange={setSearchType}
+          disabled={loading}
+        />
 
         <Alert icon={<IconEyeOff size={16} />} color="orange">
           Diary entries remain excluded unless explicitly included via advanced filters.
@@ -362,4 +379,4 @@ const UnifiedSearch: React.FC<UnifiedSearchProps> = ({ initialQuery = '' }) => {
   );
 };
 
-export default UnifiedSearch;
+export default memo(UnifiedSearch);

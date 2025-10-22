@@ -40,6 +40,17 @@ class DiaryEntry(Base):
     
     is_deleted = Column(Boolean, default=False, index=True)
     
+    # Composite indexes for common query patterns
+    __table_args__ = (
+        Index('ix_diary_user_date', 'created_by', 'date'),
+        Index('ix_diary_user_mood', 'created_by', 'mood'),
+        Index('ix_diary_user_weather', 'created_by', 'weather_code'),
+        Index('ix_diary_user_favorite', 'created_by', 'is_favorite'),
+        Index('ix_diary_user_template', 'created_by', 'is_template'),
+        Index('ix_diary_user_deleted', 'created_by', 'is_deleted'),
+        Index('ix_diary_date_range', 'date', 'created_by'),
+    )
+    
     # Relationships
     user = relationship("User", back_populates="diary_entries", foreign_keys=[created_by])
     tag_objs = relationship("Tag", secondary=diary_entry_tags, back_populates="diary_entries")
@@ -71,6 +82,9 @@ class DiaryDailyMetadata(Base):
     __tablename__ = "diary_daily_metadata"
     __table_args__ = (
         UniqueConstraint('created_by', 'date', name='uq_diary_daily_metadata_user_date'),  # One metadata per user per day
+        Index('ix_diary_metadata_user_date', 'created_by', 'date'),
+        Index('ix_diary_metadata_day_of_week', 'created_by', 'day_of_week'),
+        Index('ix_diary_metadata_office_day', 'created_by', 'is_office_day'),
     )
 
     uuid = Column(String(36), primary_key=True, default=lambda: str(uuid4()), index=True)

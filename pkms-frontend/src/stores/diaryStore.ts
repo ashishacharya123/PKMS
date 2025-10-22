@@ -183,7 +183,26 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
     lockSession: () => {
       // Stop monitoring unlock status
       get().stopUnlockStatusMonitoring();
-      set({ encryptionKey: null, isUnlocked: false });
+      
+      // Clear all diary-related cache and sensitive data
+      set({ 
+        encryptionKey: null, 
+        isUnlocked: false,
+        entries: [],
+        currentEntry: null,
+        calendarData: [],
+        moodStats: null,
+        dailyMetadataCache: {},
+        searchQuery: '',
+        currentDayOfWeek: null,
+        currentHasMedia: null,
+        error: null
+      });
+      
+      // Clear any cached Nepali dates
+      if (typeof window !== 'undefined' && window.nepaliDateCache) {
+        window.nepaliDateCache.clear();
+      }
     },
 
     setEncryptionKey: (key: CryptoKey) => {

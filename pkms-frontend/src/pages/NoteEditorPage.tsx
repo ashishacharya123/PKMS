@@ -34,6 +34,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { notesService, Note, type NoteFile } from '../services/notesService';
 import { searchService } from '../services/searchService';
 import { MultiProjectSelector } from '../components/common/MultiProjectSelector';
+import { FileSection } from '../components/file';
 
 export function NoteEditorPage() {
   const navigate = useNavigate();
@@ -440,60 +441,13 @@ export function NoteEditorPage() {
                 </Stack>
               </Card>
 
-              {/* Attachments (Images) */}
-              <Card shadow="sm" padding="md" radius="md" withBorder>
-                <Title order={4} mb="md">
-                  <Group gap="xs">
-                    Image Attachments
-                    {isEditing && (
-                      <Badge size="xs" variant="light">{noteFiles.length}</Badge>
-                    )}
-                  </Group>
-                </Title>
-                {isEditing ? (
-                  <Stack gap="sm">
-                    <FileInput
-                      label="Add Image"
-                      placeholder="Choose an image to attach"
-                      value={attachmentFile}
-                      onChange={setAttachmentFile}
-                      accept="image/*"
-                      clearable
-                    />
-                    <Group justify="flex-end">
-                      <Button size="xs" onClick={handleUploadImage} loading={isUploadingAttachment} disabled={!attachmentFile}>
-                        Upload Image
-                      </Button>
-                    </Group>
-                    {noteFiles.length > 0 && (
-                      <Stack gap="xs">
-                        {noteFiles.map((f) => (
-                          <Group key={f.uuid} justify="space-between" gap="xs" wrap="nowrap">
-                            <Text size="sm" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>
-                              {f.original_name}
-                            </Text>
-                            <Group gap="xs" wrap="nowrap">
-                              {f.mime_type.startsWith('image/') && (
-                                <>
-                                  <Button size="xs" variant="light" onClick={() => handlePreviewImage(f)}>Preview</Button>
-                                  <Button size="xs" variant="subtle" onClick={() => handleInsertImageIntoContent(f)}>Insert</Button>
-                                </>
-                              )}
-                              {!f.mime_type.startsWith('image/') && (
-                                <a href={notesService.getFileDownloadUrl(f.uuid)} target="_blank" rel="noreferrer">
-                                  <Button size="xs" variant="subtle">Download</Button>
-                                </a>
-                              )}
-                            </Group>
-                          </Group>
-                        ))}
-                      </Stack>
-                    )}
-                  </Stack>
-                ) : (
-                  <Text size="sm" c="dimmed">Attachments are available after creating the note.</Text>
-                )}
-              </Card>
+              {/* Attachments */}
+              <FileSection
+                module="notes"
+                entityId={currentNote?.uuid || ''}
+                files={noteFiles as any}
+                onFilesUpdate={setNoteFiles as any}
+              />
 
               {/* Preview */}
               <Card shadow="sm" padding="md" radius="md" withBorder>

@@ -187,7 +187,7 @@ class TodoWorkflowService:
                     and_(
                         Todo.created_by == user_uuid,
                         Todo.priority == TaskPriority.HIGH.value,
-                        Todo.status != TodoStatus.COMPLETED.value,
+                        Todo.status != TodoStatus.DONE.value,
                         Todo.is_archived == False
                     )
                 )
@@ -338,7 +338,7 @@ class TodoWorkflowService:
                 .where(
                     and_(
                         Todo.created_by == user_uuid,
-                        Todo.status == TodoStatus.COMPLETED.value
+                        Todo.status == TodoStatus.DONE.value
                     )
                 )
             )
@@ -360,7 +360,7 @@ class TodoWorkflowService:
                     and_(
                         Todo.created_by == user_uuid,
                         Todo.priority == TaskPriority.HIGH.value,
-                        Todo.status != TodoStatus.COMPLETED.value
+                        Todo.status != TodoStatus.DONE.value
                     )
                 )
             )
