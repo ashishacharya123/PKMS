@@ -1,9 +1,13 @@
-'''
+"""
 Diary Models for Personal Journaling
-'''
+
+SQLAlchemy models for diary entries, daily metadata, and wellness tracking.
+Includes DiaryEntry for journal entries and DiaryDailyMetadata for habit tracking,
+financial data, and wellness analytics. Supports Nepali calendar integration.
+"""
 
 from uuid import uuid4
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, SmallInteger, UniqueConstraint, func
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, SmallInteger, UniqueConstraint, Index, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
@@ -15,7 +19,10 @@ from app.models.associations import document_diary
 
 
 class DiaryEntry(Base):
-    """Diary entry model for personal journaling"""
+    """
+    Diary entry model for personal journaling with mood tracking and metadata.
+    Stores journal content, mood ratings, and relationships to tags/documents.
+    """
     
     __tablename__ = "diary_entries"
     
@@ -77,7 +84,10 @@ class DiaryEntry(Base):
 
 
 class DiaryDailyMetadata(Base):
-    """Daily wellness metrics per user (sleep, exercise, nepali date, financial, office day, etc.)."""
+    """
+    Daily wellness metadata for habit tracking, financial data, and analytics.
+    Stores habit values, income/expense, Nepali dates, and wellness metrics.
+    """
 
     __tablename__ = "diary_daily_metadata"
     __table_args__ = (

@@ -1,47 +1,38 @@
 """
-Diary Metadata Service
+Habit Data Service
 
-Comprehensive service for managing personal knowledge management system (PKMS) diary metadata,
-wellness analytics, and habit tracking. This service provides the core functionality for:
+CRUD operations for habit tracking and daily metadata management.
+This service provides the core data management functionality for:
 
 CORE FEATURES:
-- Daily metadata management (mood, habits, financial tracking)
-- Advanced wellness analytics with correlation analysis
-- Habit tracking and streak calculations
-- Financial trend analysis and savings tracking
+- Daily metadata CRUD operations (mood, habits, financial tracking)
+- Habit data storage and retrieval
+- Daily mood averaging from diary entries
+- Financial data management
 - Calendar integration with Nepali date support
-- Comprehensive dashboard statistics
+- Basic statistics and data access
 
-WELLNESS ANALYTICS:
-- Mood analysis with distribution and trend tracking
-- Habit correlation analysis (sleep vs mood, exercise vs stress, etc.)
-- Multi-dimensional wellness scoring system
-- Long-term trend analysis (3-month, 6-month, yearly)
-- Personalized insights and recommendations
+HABIT DATA MANAGEMENT:
+- Default habits: sleep, stress, exercise, meditation, screen time, steps, learning, outdoor, social
+- Defined habits: custom user-created habits with units and targets
+- Daily habit value storage and retrieval
+- Habit configuration management
+- Data validation and sanitization
 
-HABIT TRACKING:
-- Default habits: sleep, stress, exercise, meditation, screen time
-- Defined habits: custom user-created habits with units and streaks
-- Streak calculations and maintenance
-- Habit completion percentage tracking
-- Historical habit performance analysis
-
-FINANCIAL TRACKING:
+FINANCIAL DATA:
 - Daily income and expense tracking
-- Savings rate calculations
-- Financial trend analysis over time
-- Budget vs actual spending comparisons
-- Financial wellness scoring
+- Financial data storage and retrieval
+- Basic financial statistics
+- Data consistency checks
 
 CALENDAR & STATISTICS:
 - Nepali calendar integration (Bikram Sambat)
-- Monthly and yearly statistics
-- Activity heatmaps and patterns
-- Entry frequency analysis
-- Content analysis (word counts, topics, etc.)
+- Daily metadata creation and updates
+- Data access patterns and optimization
+- Basic aggregation functions
 
-This service is the backbone of the PKMS wellness and analytics system, providing
-comprehensive insights into personal development, habit formation, and life patterns.
+This service focuses on data management operations only. For analytics,
+trend analysis, and insights, use the unified_habit_analytics_service.py.
 """
 
 import logging
@@ -76,7 +67,7 @@ from app.services.unified_cache_service import diary_cache
 logger = logging.getLogger(__name__)
 
 
-class DiaryMetadataService:
+class HabitDataService:
     @staticmethod
     async def _get_model_by_date(
         db: AsyncSession, user_uuid: str, day: date
@@ -356,12 +347,8 @@ class DiaryMetadataService:
             total_entries=total_entries
         )
     
-    @staticmethod
-    async def get_wellness_stats(
-        db: AsyncSession,
-        user_uuid: str,
-        days: int = 30
-    ) -> WellnessStats:
+    # REMOVED: get_wellness_stats moved to unified_habit_analytics_service.py
+    # This service should only handle CRUD operations, not analytics
         """
         Generate comprehensive wellness analytics and insights for personal development tracking.
         
@@ -2175,6 +2162,58 @@ class DiaryMetadataService:
         )
 
 
+    @staticmethod
+    async def get_daily_mood_average(db: AsyncSession, user_uuid: str, date_obj: date) -> Optional[float]:
+        """
+        Calculate average mood from all diary entries on a specific date.
+        
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            date_obj: Date to calculate mood average for
+            
+        Returns:
+            Average mood value (1-5 scale) or None if no entries
+            
+        Example:
+            >>> mood_avg = await get_daily_mood_average(db, user_uuid, date(2025, 1, 22))
+            >>> # Returns: 3.5 (average of all diary entries on that date)
+        """
+        try:
+            from app.models.diary import DiaryEntry
+            
+            # Get all diary entries for the date
+            entries = await db.execute(
+                select(DiaryEntry)
+                .where(DiaryEntry.user_uuid == user_uuid)
+                .where(DiaryEntry.date == date_obj)
+                .where(DiaryEntry.mood.isnot(None))
+            )
+            entries = entries.scalars().all()
+            
+            if not entries:
+                return None
+            
+            # Calculate average mood
+            mood_values = [entry.mood for entry in entries if entry.mood is not None]
+            if not mood_values:
+                return None
+            
+            average_mood = sum(mood_values) / len(mood_values)
+            
+            # Cache the result in daily metadata for future use
+            daily_metadata = await HabitDataService._get_model_by_date(db, user_uuid, date_obj)
+            if daily_metadata:
+                daily_metadata.mood_average = round(average_mood, 2)
+                await db.commit()
+            
+            return round(average_mood, 2)
+            
+        except Exception as e:
+            logger.error(f"Error calculating daily mood average for user {user_uuid} on {date_obj}: {e}")
+            return None
+
+
 # Global instance
-diary_metadata_service = DiaryMetadataService()
+habit_data_service = HabitDataService()
 

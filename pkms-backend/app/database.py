@@ -18,7 +18,8 @@ from app.config import get_database_url, settings, get_data_dir
 # This ensures all tables are created by Base.metadata.create_all()
 from app.models.base import Base
 from app.models.user import User, Session, RecoveryKey
-from app.models.note import Note, NoteFile
+from app.models.note import Note
+# NoteFile model removed - notes now use Document + note_documents association
 from app.models.document import Document
 from app.models.todo import Todo
 from app.models.project import Project
@@ -220,9 +221,18 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_documents_created_by ON documents(created_by);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_user_mime ON documents(created_by, mime_type);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_documents_updated_at ON documents(updated_at DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_documents_user_mime_created ON documents(created_by, mime_type, created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_uuid ON documents(uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_title ON documents(title);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_archived ON documents(is_archived);",
+
+                # Document model composite indexes for optimal performance
+                "CREATE INDEX IF NOT EXISTS idx_doc_user_archived_exclusive ON documents(created_by, is_archived, is_project_exclusive, is_diary_exclusive);",
+                "CREATE INDEX IF NOT EXISTS idx_doc_user_deleted ON documents(created_by, is_deleted);",
+                "CREATE INDEX IF NOT EXISTS idx_doc_user_created_desc ON documents(created_by, created_at DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_doc_user_favorite ON documents(created_by, is_favorite);",
+                "CREATE INDEX IF NOT EXISTS idx_doc_mime_type ON documents(mime_type, created_by);",
                 
                 # Todos indexes
                 "CREATE INDEX IF NOT EXISTS idx_todos_created_by ON todos(created_by);",

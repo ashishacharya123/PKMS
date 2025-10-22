@@ -1,4 +1,12 @@
-import React, { useState } from 'react';
+/**
+ * File Section Component
+ * 
+ * Handles file uploads, audio recording, and file management for various modules.
+ * Supports chunked uploads, metadata collection, and module-specific commit workflows.
+ * Used across notes, diary, documents, archive, and projects modules.
+ */
+
+import React, { useState, useEffect } from 'react';
 import { Button, Group, Title, Progress, Alert } from '@mantine/core';
 import { IconUpload, IconLink } from '@tabler/icons-react';
 import { FileUploadModal } from './FileUploadModal';
@@ -20,13 +28,16 @@ interface FileSectionProps {
   module: 'notes' | 'diary' | 'documents' | 'archive' | 'projects';
   entityId: string; // note_uuid, entry_id, project_uuid, etc.
   files: FileItem[];
-  onFilesUpdate: (files: FileItem[]) => void;
-  defaultFilename?: string;
+  onFilesUpdate: React.Dispatch<React.SetStateAction<FileItem[]>>;
   className?: string;
   showUnlink?: boolean; // For project context
   onUnlink?: (fileId: string) => void; // For project context
 }
 
+/**
+ * File management component with upload, recording, and metadata handling.
+ * Manages file state updates and module-specific commit workflows.
+ */
 export const FileSection: React.FC<FileSectionProps> = ({
   module,
   entityId,
@@ -40,22 +51,83 @@ export const FileSection: React.FC<FileSectionProps> = ({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [fileUploadModalOpened, setFileUploadModalOpened] = useState(false);
   const [audioRecorderModalOpened, setAudioRecorderModalOpened] = useState(false);
+  const [isExclusive, setIsExclusive] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
 
-  const handleUpload = async (files: File[], metadata: any) => {
+  // Handle paste events for file uploads
+  useEffect(() => {
+    const handlePaste = async (event: ClipboardEvent) => {
+      const items = event.clipboardData?.items;
+      if (!items) return;
+
+      const files: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) {
+            files.push(file);
+          }
+        }
+      }
+
+      if (files.length > 0) {
+        event.preventDefault();
+        await handleUpload(files, { 
+          title: '', 
+          description: 'Pasted from clipboard',
+          is_exclusive: isExclusive 
+        });
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [isExclusive]);
+
+  // Handle drag and drop
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      await handleUpload(files, { 
+        title: '', 
+        description: 'Dropped files',
+        is_exclusive: isExclusive 
+      });
+    }
+  };
+
+  const handleUpload = async (selectedFiles: File[], metadata: { title?: string; description?: string; tags?: string[]; is_exclusive?: boolean }) => {
     setIsUploading(true);
     setUploadProgress(0);
 
     try {
-      const newFiles = [];
+      const newFiles: FileItem[] = [];
       
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        setUploadProgress((i / files.length) * 50);
+      for (let i = 0; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+        setUploadProgress((i / selectedFiles.length) * 50);
         
         // Step 1: Upload file using chunk service
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('metadata', JSON.stringify(metadata));
+        formData.append('metadata', JSON.stringify({
+          ...metadata,
+          is_exclusive: isExclusive
+        }));
 
         const uploadResponse = await fetch('/api/v1/uploads/chunk-upload', {
           method: 'POST',
@@ -70,7 +142,7 @@ export const FileSection: React.FC<FileSectionProps> = ({
         }
 
         const { file_id } = await uploadResponse.json();
-        setUploadProgress(50 + (i / files.length) * 50);
+        setUploadProgress(50 + (i / selectedFiles.length) * 50);
 
         // Step 2: Commit upload using module-specific endpoint
         const commitEndpoint = getCommitEndpoint(module);
@@ -99,8 +171,8 @@ export const FileSection: React.FC<FileSectionProps> = ({
 
       setUploadProgress(100);
 
-      // Step 3: Update files list
-      onFilesUpdate([...files, ...newFiles]);
+      // Step 3: Merge into existing list
+      onFilesUpdate(prev => [...prev, ...newFiles]);
 
     } catch (error) {
       console.error('Upload error:', error);
@@ -147,7 +219,7 @@ export const FileSection: React.FC<FileSectionProps> = ({
   };
 
   const handleDelete = (fileId: string) => {
-    onFilesUpdate(files.filter(f => f.uuid !== fileId));
+    onFilesUpdate(prev => prev.filter(f => f.uuid !== fileId));
   };
 
   const handleUnlink = (fileId: string) => {
@@ -155,7 +227,7 @@ export const FileSection: React.FC<FileSectionProps> = ({
       onUnlink(fileId);
     }
     // Remove from local list
-    onFilesUpdate(files.filter(f => f.uuid !== fileId));
+    onFilesUpdate(prev => prev.filter(f => f.uuid !== fileId));
   };
 
   const handleAudioSave = async (audioBlob: Blob, filename: string) => {
@@ -165,7 +237,17 @@ export const FileSection: React.FC<FileSectionProps> = ({
   };
 
   return (
-    <div className={className}>
+    <div 
+      className={className}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      style={{
+        border: isDragOver ? '2px dashed #1976d2' : '2px dashed transparent',
+        borderRadius: '8px',
+        transition: 'border-color 0.2s ease'
+      }}
+    >
       {/* Header */}
       <Group justify="space-between" mb="md">
         <Title order={4}>Attachments</Title>
@@ -201,6 +283,30 @@ export const FileSection: React.FC<FileSectionProps> = ({
           </Button>
         </Group>
       </Group>
+
+      {/* Exclusivity Checkbox */}
+      {module !== 'diary' && (
+        <div style={{ marginBottom: '1rem', padding: '0.5rem', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+            <input 
+              type="checkbox" 
+              checked={isExclusive} 
+              onChange={(e) => setIsExclusive(e.target.checked)}
+              style={{ margin: 0 }}
+            />
+            <span style={{ fontSize: '0.9rem', color: '#666' }}>
+              Make exclusive to this {module === 'notes' ? 'note' : module === 'projects' ? 'project' : module}
+            </span>
+          </label>
+        </div>
+      )}
+
+      {/* Upload Tips */}
+      <div style={{ marginBottom: '1rem', padding: '0.5rem', backgroundColor: '#e3f2fd', borderRadius: '4px', border: '1px solid #bbdefb' }}>
+        <span style={{ fontSize: '0.85rem', color: '#1976d2' }}>
+          💡 Tips: Paste files with Ctrl+V (Cmd+V on Mac) or drag & drop files here
+        </span>
+      </div>
 
       {/* Upload Progress */}
       {isUploading && (

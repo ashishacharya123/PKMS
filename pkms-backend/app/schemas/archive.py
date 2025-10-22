@@ -1,4 +1,12 @@
-from pydantic import BaseModel, Field, validator, ConfigDict
+"""
+Archive Schemas
+
+Pydantic v2 schemas for archive management (folders, items, uploads) with validation.
+Handles folder hierarchy, file metadata, bulk operations, and upload workflows.
+Includes security sanitization for names, descriptions, and UUID validation.
+"""
+
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from pydantic.alias_generators import to_camel
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -12,22 +20,25 @@ class CamelCaseModel(BaseModel):
 
 class FolderCreate(CamelCaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    description: Optional[str] = Field(None, max_length=1000)
+    description: Optional[str] = Field(None, max_length=2000)
     parent_uuid: Optional[str] = None
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_name(cls, v):
         from app.utils.security import sanitize_folder_name
         return sanitize_folder_name(v)
 
-    @validator('description')
+    @field_validator('description')
+    @classmethod
     def validate_description(cls, v):
         if v is None:
             return v
         from app.utils.security import sanitize_description
         return sanitize_description(v)
 
-    @validator('parent_uuid')
+    @field_validator('parent_uuid')
+    @classmethod
     def validate_parent_uuid(cls, v):
         if v is None:
             return v
@@ -37,25 +48,28 @@ class FolderCreate(CamelCaseModel):
 class FolderUpdate(CamelCaseModel):
     # Optional updates - only include fields you want to change
     name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = Field(None, max_length=1000)
+    description: Optional[str] = Field(None, max_length=2000)
     is_favorite: Optional[bool] = None
     parent_uuid: Optional[str] = None
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_name(cls, v):
         if v is not None:
             from app.utils.security import sanitize_folder_name
             return sanitize_folder_name(v)
         return v
 
-    @validator('description')
+    @field_validator('description')
+    @classmethod
     def validate_description(cls, v):
         if v is not None:
             from app.utils.security import sanitize_description
             return sanitize_description(v)
         return v
 
-    @validator('parent_uuid')
+    @field_validator('parent_uuid')
+    @classmethod
     def validate_parent_uuid(cls, v):
         if v is not None:
             from app.utils.security import validate_uuid_format
@@ -64,33 +78,37 @@ class FolderUpdate(CamelCaseModel):
 
 class ItemUpdate(CamelCaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = Field(None, max_length=1000)
+    description: Optional[str] = Field(None, max_length=2000)
     folder_uuid: Optional[str] = None
     tags: Optional[List[str]] = Field(None, max_items=20)
     is_favorite: Optional[bool] = None
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_name(cls, v):
         if v is None:
             return v
         from app.utils.security import sanitize_filename
         return sanitize_filename(v)
 
-    @validator('description')
+    @field_validator('description')
+    @classmethod
     def validate_description(cls, v):
         if v is None:
             return v
         from app.utils.security import sanitize_description
         return sanitize_description(v)
 
-    @validator('folder_uuid')
+    @field_validator('folder_uuid')
+    @classmethod
     def validate_folder_uuid(cls, v):
         if v is None:
             return v
         from app.utils.security import validate_uuid_format
         return validate_uuid_format(v)
 
-    @validator('tags')
+    @field_validator('tags')
+    @classmethod
     def validate_tags(cls, v):
         if v is None:
             return v
@@ -158,4 +176,4 @@ class CommitUploadRequest(CamelCaseModel):
     folder_uuid: str
     name: Optional[str] = None
     description: Optional[str] = None
-    tags: Optional[List[str]] = []
+    tags: List[str] = Field(default_factory=list)

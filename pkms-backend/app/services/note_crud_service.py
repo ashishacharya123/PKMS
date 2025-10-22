@@ -18,7 +18,8 @@ from fastapi import HTTPException, status
 from fastapi.responses import FileResponse
 
 from app.config import get_file_storage_dir
-from app.models.note import Note, NoteFile
+from app.models.note import Note
+# NoteFile model removed - notes now use Document + note_documents association
 from app.models.tag import Tag
 from app.models.tag_associations import note_tags
 from app.models.project import Project

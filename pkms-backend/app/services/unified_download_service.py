@@ -18,7 +18,7 @@ import os
 
 from app.models.base import Base
 from app.models.document import Document
-from app.models.note import NoteFile
+# NoteFile model removed - notes now use Document + note_documents association
 from app.models.archive import ArchiveItem
 from app.models.user import User
 from app.config import get_file_storage_dir, get_data_dir
@@ -73,7 +73,7 @@ class UnifiedDownloadService:
         ),
         "notes": DownloadConfig(
             module="notes",
-            model_class=NoteFile,
+            model_class=Document,  # Notes now use Document + note_documents association
             requires_decryption=False
         ),
         "archive": DownloadConfig(

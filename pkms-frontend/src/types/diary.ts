@@ -1,28 +1,16 @@
 export interface DiaryDailyMetrics {
-  // Physical Activity
-  did_exercise?: boolean;
-  exercise_minutes?: number;  // Only if did_exercise is true
-  time_outside?: number;
+  // Core wellness metrics (matching backend default_habits_json)
+  sleep_duration?: number;     // hours
+  stress_level?: number;       // 1-5 scale  
+  exercise_minutes?: number;   // minutes
+  meditation_minutes?: number; // minutes
+  screen_time?: number;       // hours
+  steps?: number;             // step count
+  learning?: number;           // learning minutes
+  outdoor?: number;           // outdoor hours
+  social?: number;            // social interaction hours
   
-  // Sleep
-  sleep_duration?: number;
-  
-  // Mental Wellness
-  did_meditation?: boolean;
-  energy_level?: number;      // 1-5 scale
-  stress_level?: number;       // 1-5 scale
-  gratitude_practice?: boolean;
-  
-  // Daily Habits
-  water_intake?: number;       // glasses
-  screen_time?: number;        // hours
-  reading_time?: number;       // minutes
-  social_interaction?: boolean;
-  
-  // Financial fields moved to top-level (backend structure)
-  
-  // Context fields moved to top-level (backend structure)
-  
+  // Custom fields for user-defined habits
   custom_fields?: Record<string, any>;
 }
 
@@ -188,20 +176,29 @@ export interface WellnessStats {
   screenTimeTrend: WellnessTrendPoint[];
   averageScreenTime: number | null;
   
-  // Energy & Stress
-  energyTrend: WellnessTrendPoint[];
+  // Stress
   stressTrend: WellnessTrendPoint[];
-  averageEnergy: number | null;
   averageStress: number | null;
   
-  // Hydration
-  hydrationTrend: WellnessTrendPoint[];
-  averageWaterIntake: number | null;
+  // Meditation
+  meditationTrend: WellnessTrendPoint[];
+  averageMeditation: number | null;
   
-  // Mental wellness habits
-  meditationDays: number;
-  gratitudeDays: number;
-  socialInteractionDays: number;
+  // Steps
+  stepsTrend: WellnessTrendPoint[];
+  averageSteps: number | null;
+  
+  // Learning
+  learningTrend: WellnessTrendPoint[];
+  averageLearning: number | null;
+  
+  // Outdoor
+  outdoorTrend: WellnessTrendPoint[];
+  averageOutdoor: number | null;
+  
+  // Social
+  socialTrend: WellnessTrendPoint[];
+  averageSocial: number | null;
   
   // Correlations
   moodSleepCorrelation: Array<{ mood: number | null; sleep: number | null }>;

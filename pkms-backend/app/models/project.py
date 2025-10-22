@@ -13,7 +13,7 @@ from app.models.base import Base
 from app.config import nepal_now
 from app.models.enums import ProjectStatus, TodoStatus, TaskPriority
 from app.models.tag_associations import project_tags
-from app.models.associations import note_projects, document_projects, todo_projects
+from app.models.associations import note_projects, todo_projects, project_items
 
 
 class Project(Base):
@@ -69,12 +69,7 @@ class Project(Base):
         back_populates="projects",
         order_by=note_projects.c.sort_order
     )
-    documents_multi = relationship(
-        "Document",
-        secondary=document_projects,
-        back_populates="projects",
-        order_by=document_projects.c.sort_order
-    )
+    # REMOVED: documents_multi relationship - replaced with polymorphic project_items
     todos_multi = relationship(
         "Todo",
         secondary=todo_projects,

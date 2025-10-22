@@ -10,7 +10,7 @@ from uuid import uuid4
 from app.models.base import Base
 from app.config import nepal_now
 from app.models.tag_associations import note_tags
-from app.models.associations import note_projects
+from app.models.associations import note_projects, note_documents
 
 
 class Note(Base):
@@ -62,7 +62,7 @@ class Note(Base):
     # Relationships
     user = relationship("User", back_populates="notes", foreign_keys=[created_by])
     tag_objs = relationship("Tag", secondary=note_tags, back_populates="notes")
-    files = relationship("NoteFile", back_populates="note", cascade="all, delete-orphan")
+    documents = relationship("Document", secondary=note_documents, back_populates="notes")  # NEW: Documents via note_documents
     projects = relationship("Project", secondary=note_projects, back_populates="notes")
     
     def get_size_bytes(self):
@@ -73,37 +73,4 @@ class Note(Base):
         return f"<Note(uuid={self.uuid}, title='{self.title}')>"
 
 
-class NoteFile(Base):
-    """Note file attachments"""
-
-    __tablename__ = "note_files"
-
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
-
-    note_uuid = Column(String(36), ForeignKey("notes.uuid", ondelete="CASCADE"), nullable=False, index=True)
-    filename = Column(String(255), nullable=False)
-    original_name = Column(String(255), nullable=False)
-    file_path = Column(String(500), nullable=False)
-    file_size = Column(BigInteger, nullable=False)
-    mime_type = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True)  # Optional description/caption
-    display_order = Column(Integer, default=0, nullable=False)  # Order of display within note (0 = first)
-    # is_deleted removed - files are deleted when parent note is deleted (cascade)
-    # created_by removed - redundant, already in parent note
-    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
-
-    # Composite indexes for common query patterns
-    __table_args__ = (
-        Index('ix_note_file_note_order', 'note_uuid', 'display_order'),
-        Index('ix_note_file_mime_type', 'mime_type', 'note_uuid'),
-        Index('ix_note_file_size', 'file_size', 'note_uuid'),
-    )
-
-    # Relationships
-    note = relationship("Note", back_populates="files")
-    # user relationship removed - created_by field removed
-    # is_exclusive_mode removed - always exclusive to parent note (cascade handles this)
-    
-    def __repr__(self):
-        return f"<NoteFile(uuid={self.uuid}, filename='{self.filename}')>" 
+# NoteFile class removed - replaced with note_documents junction table 

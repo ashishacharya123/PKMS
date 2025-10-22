@@ -1,3 +1,11 @@
+/**
+ * DateTime Hook
+ * 
+ * Provides current time, formatted time, and Nepali date/day information.
+ * Optimized for static date/day values with 60-second update frequency.
+ * Used in Layout component for time display and date information.
+ */
+
 import { useState, useEffect } from 'react';
 import NepaliDate from 'nepali-date-converter';
 import { NEPALI_MONTH_NAMES, NEPALI_DAY_NAMES, convertToDevanagari } from '../utils/nepaliConstants';
@@ -12,6 +20,10 @@ export interface DateTimeInfo {
   isLoading: boolean;
 }
 
+/**
+ * Custom hook for date/time management with Nepali calendar support.
+ * Returns current time, formatted time, and Nepali date information.
+ */
 export function useDateTime(): DateTimeInfo {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [nepaliDate, setNepaliDate] = useState('');
@@ -57,7 +69,7 @@ export function useDateTime(): DateTimeInfo {
     };
 
     updateTime(); // Initial update
-    const interval = setInterval(updateTime, 10000); // Update every 10 seconds (changed from 60000)
+    const interval = setInterval(updateTime, 60_000); // Update every 60 seconds; UI only needs minute/day changes
 
     return () => clearInterval(interval);
   }, []);

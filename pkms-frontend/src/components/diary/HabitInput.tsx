@@ -1,10 +1,27 @@
+/**
+ * HabitInput - Daily habit input/tracking interface
+ * 
+ * This component provides the daily habit tracking interface for both default
+ * and defined habits. It allows users to input their daily habit values and
+ * displays today's completion status with missing data warnings.
+ * 
+ * Features:
+ * - Daily habit value input for default and defined habits
+ * - Today-filled indicator display
+ * - Missing data warnings for unfilled habits
+ * - Habit type switching (default vs defined)
+ * - Real-time validation and feedback
+ * - Streak tracking and goal progress
+ */
+
 import { useState, useEffect } from 'react';
 import { 
   Stack, Group, NumberInput, Button, Badge, Card, LoadingOverlay, 
-  Title, Select, Divider
+  Title, Select, Divider, Alert, Text
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { format } from 'date-fns';
+import { IconAlertCircle, IconCheck, IconTarget } from '@tabler/icons-react';
 import { diaryService } from '../../services/diaryService';
 
 interface HabitConfig {
@@ -16,13 +33,11 @@ interface HabitConfig {
   isActive?: boolean;
 }
 
-interface UnifiedHabitTrackerProps {
+interface HabitInputProps {
   selectedDate: Date;
 }
 
-
-
-export function UnifiedHabitTracker({ selectedDate }: UnifiedHabitTrackerProps) {
+export function HabitInput({ selectedDate }: HabitInputProps) {
   const [defaultConfig, setDefaultConfig] = useState<HabitConfig[]>([]);
   const [definedConfig, setDefinedConfig] = useState<HabitConfig[]>([]);
   const [defaultData, setDefaultData] = useState<Record<string, number>>({});
@@ -52,19 +67,16 @@ export function UnifiedHabitTracker({ selectedDate }: UnifiedHabitTrackerProps) 
       
       // Load existing data for this date
       const existing = await diaryService.getDailyMetadata(dateKey);
-      const defaultDailyData = (existing as any)?.defaultHabitsJson || [];
-      const definedDailyData = (existing as any)?.definedHabitsJson || [];
       
-      const defaultDataMap: Record<string, number> = {};
-      const definedDataMap: Record<string, number> = {};
+      // Parse the JSON *objects* directly
+      const defaultDataMap: Record<string, number> = JSON.parse(
+        (existing as any)?.defaultHabitsJson || "{}"
+      );
       
-      defaultDailyData.forEach((entry: any) => {
-        defaultDataMap[entry.habitId] = entry.loggedQuantity;
-      });
-      
-      definedDailyData.forEach((entry: any) => {
-        definedDataMap[entry.habitId] = entry.loggedQuantity;
-      });
+      const definedHabitsJson = (existing as any)?.definedHabitsJson || "{}";
+      const definedDataMap: Record<string, number> = JSON.parse(
+        definedHabitsJson
+      ).habits || {}; // Get the 'habits' sub-key
       
       setDefaultData(defaultDataMap);
       setDefinedData(definedDataMap);
@@ -76,35 +88,22 @@ export function UnifiedHabitTracker({ selectedDate }: UnifiedHabitTrackerProps) 
   };
   
   
-  const handleSaveDefault = async () => {
+  const handleSave = async () => {
     setIsLoading(true);
     try {
-      await diaryService.updateDailyHabits('default', dateKey, defaultData);
-      notifications.show({
-        title: 'Saved',
-        message: 'Daily stats saved successfully',
-        color: 'green'
-      });
-    } catch (error) {
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to save daily stats',
-        color: 'red'
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  const handleSaveDefined = async () => {
-    setIsLoading(true);
-    try {
-      const result = await diaryService.updateDailyHabits('defined', dateKey, definedData);
+      // Create the single payload object the backend expects
+      const payload = {
+        default_habits: defaultData,
+        defined_habits: definedData
+      };
+
+      // Call the service with the correct, unified payload
+      const result = await diaryService.updateDailyHabits('unified', dateKey, payload);
       
       if (result.streaks) {
         setDefinedStreaks(result.streaks);
       }
-      
+
       notifications.show({
         title: 'Saved',
         message: 'Habits saved successfully',
@@ -168,7 +167,7 @@ export function UnifiedHabitTracker({ selectedDate }: UnifiedHabitTrackerProps) 
                 size="sm"
               />
               <Button 
-                onClick={currentHabitType === 'default' ? handleSaveDefault : handleSaveDefined}
+                onClick={handleSave}
                 loading={isLoading}
                 size="sm"
               >

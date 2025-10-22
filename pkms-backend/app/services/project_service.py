@@ -20,7 +20,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from app.models.project import Project
-from app.models.associations import note_projects, document_projects, todo_projects
+from app.models.associations import note_projects, project_items, todo_projects
 from app.models.note import Note
 from app.models.document import Document
 from app.models.todo import Todo
@@ -33,31 +33,36 @@ from app.config import get_file_storage_dir, get_data_dir
 class ProjectService:
     """Centralized service for project-related operations"""
 
-    async def handle_associations(
+    async def handle_polymorphic_associations(
         self,
         db: AsyncSession,
-        item: any,
+        item: Any,
         project_uuids: List[str],
         created_by: str,
-        association_table: Type,
-        item_uuid_field: str
-    ):
+        association_table: Any,
+        item_type: str,
+        is_exclusive: bool = False
+    ) -> None:
         """
-        Handle project associations for any content item.
+        Handle polymorphic project associations using project_items table.
         
         Args:
             db: Database session
             item: The content item (note, document, todo)
             project_uuids: List of project UUIDs to associate
             created_by: User UUID for ownership verification
-            association_table: The junction table (note_projects, document_projects, todo_projects)
-            item_uuid_field: The field name for the item UUID in the association table
+            association_table: The project_items table
+            item_type: The type of item ('Note', 'Document', 'Todo')
+            is_exclusive: Whether the association is exclusive
         """
         if not project_uuids:
             # Clear all associations if no projects provided
             await db.execute(
                 delete(association_table).where(
-                    getattr(association_table.c, item_uuid_field) == item.uuid
+                    and_(
+                        association_table.c.item_type == item_type,
+                        association_table.c.item_uuid == item.uuid
+                    )
                 )
             )
             return
@@ -85,7 +90,10 @@ class ProjectService:
         # Clear existing associations
         await db.execute(
             delete(association_table).where(
-                getattr(association_table.c, item_uuid_field) == item.uuid
+                and_(
+                    association_table.c.item_type == item_type,
+                    association_table.c.item_uuid == item.uuid
+                )
             )
         )
 
@@ -93,7 +101,10 @@ class ProjectService:
         for project_uuid in project_uuids:
             await db.execute(
                 association_table.insert().values(
-                    **{item_uuid_field: item.uuid, "project_uuid": project_uuid}
+                    project_uuid=project_uuid,
+                    item_type=item_type,
+                    item_uuid=item.uuid,
+                    is_exclusive=is_exclusive
                 )
             )
 

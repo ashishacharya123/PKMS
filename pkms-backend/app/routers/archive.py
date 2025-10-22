@@ -57,7 +57,7 @@ async def list_folders(
     parent_uuid: Optional[str] = Query(None, description="Parent folder UUID"),
     search: Optional[str] = Query(None, description="Search term for folder names"),
     is_favorite: Optional[bool] = Query(None, description="Filter by favorite status"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of folders to return"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of folders to return"),
     offset: int = Query(0, ge=0, description="Number of folders to skip"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)

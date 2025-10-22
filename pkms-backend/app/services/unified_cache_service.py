@@ -1,8 +1,10 @@
 """
 Unified Cache Service
-Provides a single, consistent caching solution across the application with TTL, LRU eviction, and statistics.
 
-Designed for easy migration to Redis for multi-worker deployments.
+Centralized caching system for PKMS backend with TTL, LRU eviction, and performance statistics.
+Used by dashboard analytics, diary metadata, search indexing, and user data caching.
+Supports multiple cache instances (analytics, dashboard, search, user) with thread-safe operations.
+Designed for easy Redis migration in multi-worker deployments.
 """
 
 import time
@@ -18,17 +20,11 @@ T = TypeVar('T')
 
 class UnifiedCacheService(Generic[T]):
     """
-    Thread-safe in-memory cache with TTL and LRU eviction.
+    Thread-safe in-memory cache with TTL and LRU eviction for PKMS backend.
     
-    Features:
-    - Automatic TTL (time-to-live) expiration
-    - LRU (Least Recently Used) eviction when max size reached
-    - Cache statistics for monitoring
-    - Thread-safe operations
-    - Easy Redis migration path
-    
-    Usage:
-        cache = UnifiedCacheService(max_size=1000, default_ttl=120)
+    Used for caching dashboard analytics, diary metadata, search results, and user data.
+    Provides automatic expiration, LRU eviction, and performance statistics.
+    """
         
         # Set value with default TTL
         cache.set("user:123", user_data)
@@ -162,6 +158,12 @@ class UnifiedCacheService(Generic[T]):
             
             self._stats["invalidations"] += count
             return count
+    
+    def invalidate_pattern(self, pattern: str) -> int:
+        """
+        Public method to invalidate all keys starting with pattern.
+        """
+        return self._invalidate_pattern_internal(pattern)
     
     def clear(self) -> None:
         """Clear all cache entries."""

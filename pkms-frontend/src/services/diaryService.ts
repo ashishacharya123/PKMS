@@ -106,6 +106,14 @@ class DiaryService {
     return response.data;
   }
 
+  async getHistoricalEntries(dates: string[]): Promise<DiaryEntrySummary[]> {
+    // Efficient API call for specific dates only
+    const response = await apiService.post<DiaryEntrySummary[]>(`${this.baseUrl}/entries/historical`, {
+      dates
+    });
+    return response.data;
+  }
+
   async getEntryById(id: number): Promise<DiaryEntry> {
     const response = await apiService.get<DiaryEntry>(`${this.baseUrl}/entries/${id}`);
     return response.data;
@@ -497,6 +505,146 @@ class DiaryService {
       `${this.baseUrl}/daily-metadata/${date}/habits/${habitType}`
     );
     return response.data;
+  }
+
+  // --- New Analytics Methods ---
+
+  /**
+   * Get analytics for 9 default habits with optional SMA overlays
+   * @param days Number of days for analysis (7-365)
+   * @param includeSMA Whether to include Simple Moving Average overlays
+   * @param smaWindows List of SMA window sizes (default: [7, 14, 30])
+   * @returns Default habits analytics data
+   */
+  async getDefaultHabitsAnalytics(
+    days: number = 30,
+    includeSMA: boolean = false,
+    smaWindows: number[] = [7, 14, 30]
+  ): Promise<any> {
+    const params = new URLSearchParams({
+      days: days.toString(),
+      include_sma: includeSMA.toString(),
+      sma_windows: smaWindows.join(',')
+    });
+    
+    const response = await apiService.get<any>(
+      `${this.baseUrl}/habits/analytics/default?${params}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Get analytics for user-defined custom habits with optional normalization
+   * @param days Number of days for analysis (7-365)
+   * @param normalize Whether to normalize values to percentage of target
+   * @returns Defined habits analytics data
+   */
+  async getDefinedHabitsAnalytics(
+    days: number = 30,
+    normalize: boolean = false
+  ): Promise<any> {
+    const params = new URLSearchParams({
+      days: days.toString(),
+      normalize: normalize.toString()
+    });
+    
+    const response = await apiService.get<any>(
+      `${this.baseUrl}/habits/analytics/defined?${params}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Get unified view of all habits + mood + financial + insights
+   * @param days Number of days for analysis (7-365)
+   * @returns Comprehensive analytics data
+   */
+  async getComprehensiveAnalytics(days: number = 30): Promise<any> {
+    const response = await apiService.get<any>(
+      `${this.baseUrl}/habits/analytics/comprehensive?days=${days}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Calculate correlation between any two habits
+   * @param habitX First habit identifier
+   * @param habitY Second habit identifier
+   * @param days Number of days for analysis (7-365)
+   * @param normalize Whether to normalize defined habits to percentage of target
+   * @returns Correlation analysis data
+   */
+  async getHabitCorrelation(
+    habitX: string,
+    habitY: string,
+    days: number = 90,
+    normalize: boolean = false
+  ): Promise<any> {
+    const params = new URLSearchParams({
+      habit_x: habitX,
+      habit_y: habitY,
+      days: days.toString(),
+      normalize: normalize.toString()
+    });
+    
+    const response = await apiService.get<any>(
+      `${this.baseUrl}/habits/correlation?${params}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Get trend data for specific habit with SMA overlays
+   * @param habitKey Habit identifier
+   * @param days Number of days for analysis (7-365)
+   * @param includeSMA Whether to include SMA overlays
+   * @param smaWindows List of SMA window sizes (default: [7, 14, 30])
+   * @returns Habit trend data
+   */
+  async getHabitTrend(
+    habitKey: string,
+    days: number = 90,
+    includeSMA: boolean = true,
+    smaWindows: number[] = [7, 14, 30]
+  ): Promise<any> {
+    const params = new URLSearchParams({
+      days: days.toString(),
+      include_sma: includeSMA.toString(),
+      sma_windows: smaWindows.join(',')
+    });
+    
+    const response = await apiService.get<any>(
+      `${this.baseUrl}/habits/trend/${habitKey}?${params}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Get lightweight dashboard summary for instant load (< 100ms)
+   * @returns Dashboard summary data
+   */
+  async getHabitsDashboardSummary(): Promise<any> {
+    const response = await apiService.get<any>(
+      `${this.baseUrl}/habits/dashboard`
+    );
+    return response.data;
+  }
+
+  /**
+   * Check if today's data is filled for habits
+   * @returns Object with filled status and missing habits list
+   */
+  async checkTodayDataFilled(): Promise<{ filled: boolean; missing: string[] }> {
+    try {
+      const dashboard = await this.getHabitsDashboardSummary();
+      return {
+        filled: dashboard.missing_today.length === 0,
+        missing: dashboard.missing_today || []
+      };
+    } catch (error) {
+      console.error('Failed to check today data:', error);
+      return { filled: false, missing: [] };
+    }
   }
 }
 

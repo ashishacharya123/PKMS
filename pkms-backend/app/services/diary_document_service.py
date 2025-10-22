@@ -123,10 +123,9 @@ class DiaryDocumentService:
             # Update diary entry file count
             await self._update_diary_entry_file_count(db, diary_entry_uuid)
             
-            # Invalidate dashboard cache
-            dashboard_service.invalidate_user_cache(user_uuid, "diary_documents_linked")
-            
+            # Commit first, then invalidate cache
             await db.commit()
+            dashboard_service.invalidate_user_cache(user_uuid, "diary_documents_linked")
         
         except HTTPException:
             # Re-raise HTTP exceptions without rollback (they're expected)
@@ -187,10 +186,9 @@ class DiaryDocumentService:
         # Update diary entry file count
         await self._update_diary_entry_file_count(db, diary_entry_uuid)
         
-        # Invalidate dashboard cache
-        dashboard_service.invalidate_user_cache(user_uuid, "diary_document_unlinked")
-        
+        # Commit first, then invalidate cache
         await db.commit()
+        dashboard_service.invalidate_user_cache(user_uuid, "diary_document_unlinked")
 
     async def reorder_diary_documents(
         self, db: AsyncSession, user_uuid: str, diary_entry_uuid: str, document_uuids: List[str]

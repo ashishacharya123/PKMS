@@ -83,8 +83,7 @@ export function NotesPage() {
     showArchived,
     deleteNote,
     setTag,
-    setShowArchived,
-    clearError
+    setShowArchived
   } = useNotesStore();
 
   // State for notes data
@@ -319,7 +318,7 @@ export function NotesPage() {
                 color="red"
                 variant="light"
                 withCloseButton
-                onClose={clearError}
+                onClose={() => setError(null)}
               >
                 {error instanceof Error ? error.message : String(error)}
               </Alert>
@@ -353,8 +352,8 @@ export function NotesPage() {
                     <ActionMenu
                       onToggleFavorite={async () => {
                         try {
-                          await useNotesStore.getState().updateNote(note.uuid, { is_favorite: !note.is_favorite });
-                          notifications.show({ title: note.is_favorite ? 'Removed from Favorites' : 'Added to Favorites', message: '', color: 'pink' });
+                          await useNotesStore.getState().updateNote(note.uuid, { isFavorite: !note.isFavorite });
+                          notifications.show({ title: note.isFavorite ? 'Removed from Favorites' : 'Added to Favorites', message: '', color: 'pink' });
                         } catch {
                           notifications.show({ title: 'Action Failed', message: 'Could not update favorite', color: 'red' });
                         }
@@ -382,7 +381,7 @@ export function NotesPage() {
                         navigate(`/notes/${note.uuid}`);
                       }}
                       onDelete={() => handleDeleteNote(note.uuid, note.title)}
-                      isFavorite={note.is_favorite}
+                      isFavorite={note.isFavorite}
                       isArchived={note.is_archived}
                       variant="subtle"
                       color="gray"
@@ -424,7 +423,7 @@ export function NotesPage() {
                             Archived
                           </Badge>
                         )}
-                        {note.is_favorite && (
+                        {note.isFavorite && (
                           <Badge size="xs" color="pink" variant="light">
                             Favorite
                           </Badge>
@@ -493,9 +492,9 @@ export function NotesPage() {
                   <ActionMenu
                     onToggleFavorite={async () => {
                       try {
-                        await useNotesStore.getState().updateNote(note.uuid, { is_favorite: !note.is_favorite });
+                        await useNotesStore.getState().updateNote(note.uuid, { isFavorite: !note.isFavorite });
                         notifications.show({ 
-                          title: note.is_favorite ? 'Removed from Favorites' : 'Added to Favorites', 
+                          title: note.isFavorite ? 'Removed from Favorites' : 'Added to Favorites', 
                           message: '', 
                           color: 'pink' 
                         });
@@ -531,7 +530,7 @@ export function NotesPage() {
                     } : undefined}
                     onEdit={() => navigate(`/notes/${note.uuid}`)}
                     onDelete={() => handleDeleteNote(note.uuid, note.title)}
-                    isFavorite={note.is_favorite}
+                    isFavorite={note.isFavorite}
                     isArchived={note.is_archived}
                     variant="subtle"
                     color="gray"
@@ -555,7 +554,7 @@ export function NotesPage() {
                       {note.title}
                     </Text>
                     <Group gap={6}>
-                      {note.is_favorite && (
+                      {note.isFavorite && (
                         <Badge size="xs" color="pink" variant="light">Favorite</Badge>
                       )}
                       {note.file_count > 0 && (
@@ -611,9 +610,9 @@ export function NotesPage() {
                   key="actions"
                   onToggleFavorite={async () => {
                     try {
-                      await useNotesStore.getState().updateNote(note.uuid, { is_favorite: !note.is_favorite });
+                      await useNotesStore.getState().updateNote(note.uuid, { isFavorite: !note.isFavorite });
                       loadNotes();
-                      notifications.show({ title: note.is_favorite ? 'Removed from Favorites' : 'Added to Favorites', message: '', color: 'pink' });
+                      notifications.show({ title: note.isFavorite ? 'Removed from Favorites' : 'Added to Favorites', message: '', color: 'pink' });
                     } catch {}
                   }}
                   onArchive={note.is_archived ? undefined : async () => {
@@ -630,7 +629,7 @@ export function NotesPage() {
                   } : undefined}
                   onEdit={() => navigate(`/notes/${note.uuid}`)}
                   onDelete={() => handleDeleteNote(note.uuid, note.title)}
-                  isFavorite={note.is_favorite}
+                  isFavorite={note.isFavorite}
                   isArchived={note.is_archived}
                   variant="subtle"
                   color="gray"

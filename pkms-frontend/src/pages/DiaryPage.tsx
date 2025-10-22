@@ -4,7 +4,7 @@
  * Optimized with React.memo for performance
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import {
   Container,
@@ -13,27 +13,9 @@ import {
   Group,
   Button,
   Tabs,
-  Alert,
-  Badge,
   Card,
   Text,
   SimpleGrid,
-  Paper,
-  ThemeIcon,
-  Progress,
-  RingProgress,
-  LineChart,
-  AreaChart,
-  BarChart,
-  Table,
-  ActionIcon,
-  Tooltip,
-  Modal,
-  TextInput,
-  NumberInput,
-  Select,
-  Switch,
-  Textarea
 } from '@mantine/core';
 import {
   IconBook,
@@ -42,40 +24,19 @@ import {
   IconTarget,
   IconSearch,
   IconBolt,
-  IconTrendingUp,
-  IconTrendingDown,
-  IconMoon,
-  IconHeart,
-  IconActivity,
-  IconDeviceDesktop,
-  IconWalk,
-  IconBook as IconBookOpen,
-  IconTree,
-  IconUsers,
-  IconCurrencyDollar,
-  IconDatabase,
   IconRefresh,
-  IconPlus,
-  IconEye,
-  IconDownload,
-  IconFilter,
-  IconSortAscending,
-  IconSortDescending,
-  IconCheck,
-  IconX,
-  IconAlertTriangle,
-  IconInfoCircle
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 
-// Import our advanced components
-import { AdvancedWellnessAnalytics } from '../components/diary/AdvancedWellnessAnalytics';
-import { HabitAnalytics } from '../components/diary/HabitAnalytics';
+// Import our new unified analytics components
+import HabitDashboard from '../components/diary/HabitDashboard';
+import { HabitInput } from '../components/diary/HabitInput';
+import HabitAnalyticsView from '../components/diary/HabitAnalyticsView';
+import { HabitManagement } from '../components/diary/HabitManagement';
 import { AdvancedSearchAnalytics } from '../components/diary/AdvancedSearchAnalytics';
-import { UnifiedSearchEmbedded } from '../components/search/UnifiedSearchEmbedded';
 
 export const DiaryPage = React.memo(function DiaryPage() {
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(false);
   const [wellnessScore, setWellnessScore] = useState<number | null>(null);
   const [habitStreaks, setHabitStreaks] = useState<Record<string, number>>({});
@@ -207,134 +168,43 @@ export const DiaryPage = React.memo(function DiaryPage() {
         </SimpleGrid>
 
         {/* Main Content Tabs */}
-        <Tabs value={activeTab} onChange={(value) => setActiveTab(value || 'overview')}>
+        <Tabs value={activeTab} onChange={(value) => setActiveTab(value || 'dashboard')}>
           <Tabs.List>
-            <Tabs.Tab value="overview" leftSection={<IconBook size={16} />}>
-              Overview
+            <Tabs.Tab value="dashboard" leftSection={<IconChartLine size={16} />}>
+              Dashboard
             </Tabs.Tab>
-            <Tabs.Tab value="advanced-analytics" leftSection={<IconBrain size={16} />}>
-              Advanced Analytics
+            <Tabs.Tab value="habit-input" leftSection={<IconTarget size={16} />}>
+              Habit Input
             </Tabs.Tab>
-            <Tabs.Tab value="comprehensive-habits" leftSection={<IconTarget size={16} />}>
-              Comprehensive Habits
+            <Tabs.Tab value="habit-analytics" leftSection={<IconBrain size={16} />}>
+              Habit Analytics
+            </Tabs.Tab>
+            <Tabs.Tab value="habit-management" leftSection={<IconTarget size={16} />}>
+              Habit Management
             </Tabs.Tab>
             <Tabs.Tab value="search-analytics" leftSection={<IconBolt size={16} />}>
               Search Analytics
             </Tabs.Tab>
-            <Tabs.Tab value="unified-search" leftSection={<IconSearch size={16} />}>
-              Unified Search
-            </Tabs.Tab>
           </Tabs.List>
 
-          <Tabs.Panel value="overview" pt="md">
-            <Stack gap="lg">
-              <Alert color="blue" icon={<IconInfoCircle size={16} />}>
-                <Text fw={500} mb="xs">Welcome to the Enhanced Diary Experience!</Text>
-                <Text size="sm">
-                  This is the full power of your PKMS backend. Explore advanced analytics, 
-                  comprehensive habit tracking, and intelligent search capabilities.
-                </Text>
-              </Alert>
-
-              <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
-                <Card withBorder>
-                  <Title order={3} mb="md">🎯 What You Can Do</Title>
-                  <Stack gap="sm">
-                    <Group gap="xs">
-                      <IconBrain size={16} color="blue" />
-                      <Text>Advanced wellness analytics with 6 timeframes</Text>
-                    </Group>
-                    <Group gap="xs">
-                      <IconTarget size={16} color="green" />
-                      <Text>Track 9 default habits + unlimited custom ones</Text>
-                    </Group>
-                    <Group gap="xs">
-                      <IconSearch size={16} color="purple" />
-                      <Text>3 powerful search types with analytics</Text>
-                    </Group>
-                    <Group gap="xs">
-                      <IconCurrencyDollar size={16} color="orange" />
-                      <Text>Financial wellness tracking</Text>
-                    </Group>
-                    <Group gap="xs">
-                      <IconDatabase size={16} color="gray" />
-                      <Text>Smart caching and performance monitoring</Text>
-                    </Group>
-                  </Stack>
-                </Card>
-
-                <Card withBorder>
-                  <Title order={3} mb="md">📊 Current Status</Title>
-                  <Stack gap="sm">
-                    {wellnessScore && (
-                      <Group justify="space-between">
-                        <Text>Wellness Score</Text>
-                        <Badge color={getScoreColor(wellnessScore)} variant="filled">
-                          {Math.round(wellnessScore)}/100
-                        </Badge>
-                      </Group>
-                    )}
-                    <Group justify="space-between">
-                      <Text>Active Habits</Text>
-                      <Badge color="green" variant="light">
-                        {Object.keys(habitStreaks).length}
-                      </Badge>
-                    </Group>
-                    <Group justify="space-between">
-                      <Text>Search Performance</Text>
-                      <Badge color="blue" variant="light">
-                        {searchStats?.performance_metrics?.average_response_time || 0}ms
-                      </Badge>
-                    </Group>
-                    <Group justify="space-between">
-                      <Text>Cache Hit Rate</Text>
-                      <Badge color="purple" variant="light">
-                        {searchStats?.performance_metrics?.cache_hit_rate || 0}%
-                      </Badge>
-                    </Group>
-                  </Stack>
-                </Card>
-              </SimpleGrid>
-
-              <Alert color="green" icon={<IconCheck size={16} />}>
-                <Text fw={500} mb="xs">🎉 Backend Gold Unlocked!</Text>
-                <Text size="sm">
-                  You now have access to all the sophisticated features we've built:
-                  SMA analytics, financial tracking, work-life balance, 9 default habits, 
-                  custom habits, FTS5 search, fuzzy search, advanced analytics, and smart caching.
-                </Text>
-              </Alert>
-            </Stack>
+          <Tabs.Panel value="dashboard" pt="md">
+            <HabitDashboard />
           </Tabs.Panel>
 
-          <Tabs.Panel value="advanced-analytics" pt="md">
-            <AdvancedWellnessAnalytics />
+          <Tabs.Panel value="habit-input" pt="md">
+            <HabitInput selectedDate={new Date()} />
           </Tabs.Panel>
 
-          <Tabs.Panel value="comprehensive-habits" pt="md">
-            <HabitAnalytics />
+          <Tabs.Panel value="habit-analytics" pt="md">
+            <HabitAnalyticsView />
+          </Tabs.Panel>
+
+          <Tabs.Panel value="habit-management" pt="md">
+            <HabitManagement />
           </Tabs.Panel>
 
           <Tabs.Panel value="search-analytics" pt="md">
             <AdvancedSearchAnalytics />
-          </Tabs.Panel>
-
-          <Tabs.Panel value="unified-search" pt="md">
-            <Stack gap="md">
-              <Title order={3}>🔍 Unified Search Experience</Title>
-              <Alert color="blue" icon={<IconSearch size={16} />}>
-                Search across all your data with three powerful search types: 
-                FTS5 (fast), Fuzzy (typo-tolerant), and Advanced Fuzzy (deep analysis).
-              </Alert>
-              <UnifiedSearchEmbedded
-                defaultModules={['notes', 'documents', 'todos', 'projects', 'diary']}
-                includeDiary={true}
-                showModuleSelector={true}
-                showSearchTypeToggle={true}
-                resultsPerPage={20}
-                showPagination={true}
-              />
-            </Stack>
           </Tabs.Panel>
         </Tabs>
       </Stack>

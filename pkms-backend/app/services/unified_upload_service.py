@@ -20,7 +20,6 @@ from app.config import get_data_dir, get_file_storage_dir
 from app.utils.security import sanitize_filename
 from sqlalchemy import select, and_, func
 
-from app.models.note import NoteFile
 from app.models.enums import UploadStatus, ModuleType
 
 logger = logging.getLogger(__name__)
@@ -42,16 +41,63 @@ class UnifiedUploadService:
         temp_path = None
         assembled_path = None
         
+        # Import the services you need
+        from app.services.document_hash_service import document_hash_service
+        from app.services.document_exclusivity_service import document_exclusivity_service
+        from app.models.document import Document
+
         try:
             assembled_path = await self._locate_assembled_file(upload_id, created_by)
             
             if pre_commit_callback:
                 assembled_path, metadata = await pre_commit_callback(assembled_path, metadata)
             
+            # === START: NEW LOGIC ===
+            
+            # 1. Calculate hash BEFORE doing anything else
+            file_hash = await document_hash_service.calculate_file_hash(assembled_path)
+            metadata["file_hash"] = file_hash # Store it for later
+
+            # 2. Check for an existing document with this hash
+            existing_doc = await db.scalar(
+                select(Document).where(Document.file_hash == file_hash)
+            )
+
+            if existing_doc:
+                # 3. FILE ALREADY EXISTS. DO NOT CREATE A NEW DOCUMENT.
+                logger.info(f"Duplicate file detected. Hash: {file_hash}. Linking to existing doc: {existing_doc.uuid}")
+                
+                # 3a. Check for exclusivity conflicts
+                is_exclusive_upload = metadata.get("is_exclusive", False)
+                if is_exclusive_upload:
+                    has_conflict = await document_exclusivity_service.has_exclusive_associations(db, existing_doc.uuid)
+                    if has_conflict:
+                        # This file is already exclusively owned. You cannot make it exclusive again.
+                        raise HTTPException(status_code=409, detail="File already exists and is exclusively owned by another item.")
+                
+                # 3b. No conflict. Just create the new association.
+                # The 'record' is the *existing* document
+                record = existing_doc
+                await self._handle_associations(db, module, record, metadata, created_by)
+                await db.commit()
+                
+                # 3c. Cleanup the redundant assembled file
+                await chunk_manager.cleanup_upload(upload_id)
+                if assembled_path and await asyncio.to_thread(assembled_path.exists):
+                    await asyncio.to_thread(assembled_path.unlink)
+                
+                return record # Return the existing document
+
+            # 4. FILE IS NEW. Proceed with your original logic.
+            logger.info(f"New file detected. Hash: {file_hash}. Creating new document.")
+            
+            # === END: NEW LOGIC ===
+            
             final_path, temp_path = await self._generate_paths(module, assembled_path, metadata, db)
             
             await self._move_to_temp(assembled_path, temp_path)
             
+            # _create_record will now use the hash from metadata
             record = await self._create_record(db, module, temp_path, final_path, metadata, created_by)
             
             await self._handle_associations(db, module, record, metadata, created_by)
@@ -133,11 +179,7 @@ class UnifiedUploadService:
             final_path = archive_dir / filename
             temp_path = archive_dir / f"temp_{filename}"
             
-        elif module == "diary":
-            filename = metadata.get("filename", f"{file_uuid}{extension}")
-            files_dir = get_file_storage_dir() / "secure" / "entries" / "files"
-            final_path = files_dir / filename
-            temp_path = files_dir / f"temp_{filename}"
+        # Diary files now use documents module with document_diary association
             
         else:
             raise ValueError(f"Unsupported module: {module}")
@@ -158,6 +200,20 @@ class UnifiedUploadService:
         file_stat = await asyncio.to_thread(temp_path.stat)
         file_uuid = metadata.get("file_uuid", str(uuid_lib.uuid4()))
         
+        # Validate file size
+        from app.services.file_size_service import file_size_service
+        if not file_size_service.validate_file_size(file_stat.st_size):
+            raise HTTPException(
+                status_code=413, 
+                detail=f"File size {file_size_service.format_file_size(file_stat.st_size)} exceeds the limit of {file_size_service.get_size_limit_mb()}MB"
+            )
+        
+        # Calculate file hash if not provided
+        file_hash = metadata.get("file_hash")
+        if not file_hash:
+            from app.services.document_hash_service import document_hash_service
+            file_hash = await document_hash_service.calculate_file_hash(temp_path)
+        
         if module == "documents":
             from app.models.document import Document
             detection_result = await file_detector.detect_file_type(file_path=temp_path)
@@ -170,22 +226,24 @@ class UnifiedUploadService:
                 file_size=file_stat.st_size,
                 mime_type=detection_result["mime_type"],
                 description=metadata.get("description"),
-                is_project_exclusive=metadata.get("is_project_exclusive", False),
-                is_diary_exclusive=metadata.get("is_diary_exclusive", False),
+                file_hash=file_hash,
                 created_by=user
             )
             
         elif module == "notes":
-            record = NoteFile(
+            # Notes now use Document + note_documents association
+            from app.models.document import Document
+            detection_result = await file_detector.detect_file_type(file_path=temp_path)
+            record = Document(
                 uuid=file_uuid,
-                note_uuid=metadata.get("note_uuid"),
-                filename=final_path.name,
+                title=metadata.get("title", ""),
                 original_name=metadata.get("original_name", final_path.name),
+                filename=final_path.name,
                 file_path=str(final_path.relative_to(get_file_storage_dir())),
                 file_size=file_stat.st_size,
-                mime_type=metadata.get("mime_type", "application/octet-stream"),
+                file_hash=file_hash,
+                mime_type=detection_result["mime_type"],
                 description=metadata.get("description"),
-                display_order=metadata.get("display_order", 0),
                 created_by=user
             )
             
@@ -222,18 +280,48 @@ class UnifiedUploadService:
             await tag_service.handle_tags(db, record, metadata["tags"], user, None, association_tables[module])
         
         if module in ["documents", "notes"] and metadata.get("project_ids"):
-            from app.models.associations import document_projects, note_projects
-            from app.services.project_service import project_service
-            project_associations = {"documents": document_projects, "notes": note_projects}
-            await project_service.handle_associations(db, record, metadata["project_ids"], user, project_associations[module], f"{module}_uuid")
+            from app.models.associations import project_items
+            from sqlalchemy import insert
+            # Create project_items associations with exclusivity
+            for project_id in metadata["project_ids"]:
+                await db.execute(
+                    insert(project_items).values(
+                        project_uuid=project_id,
+                        item_type="Document" if module == "documents" else "Note",
+                        item_uuid=record.uuid,
+                        sort_order=metadata.get("sort_order", 0),
+                        is_exclusive=metadata.get("is_exclusive", False)
+                    )
+                )
         
-        if module == "notes":
-            await self._update_note_file_count(db, record.note_uuid)
+        if module == "notes" and metadata.get("note_uuid"):
+            # Create note_documents association
+            from app.models.associations import note_documents
+            from sqlalchemy import insert
+            await db.execute(
+                insert(note_documents).values(
+                    note_uuid=metadata["note_uuid"],
+                    document_uuid=record.uuid,
+                    sort_order=metadata.get("display_order", 0),
+                    is_exclusive=metadata.get("is_exclusive", False)
+                )
+            )
+        
+        if module == "documents" and metadata.get("diary_entry_uuid"):
+            # Create document_diary association for diary files
+            from app.models.associations import document_diary
+            from sqlalchemy import insert
+            await db.execute(
+                insert(document_diary).values(
+                    document_uuid=record.uuid,
+                    diary_entry_uuid=metadata["diary_entry_uuid"],
+                    sort_order=metadata.get("sort_order", 0),
+                    is_exclusive=True  # Diary files are always exclusive
+                )
+            )
         
         if module == "archive" and metadata.get("folder_uuid"):
             await self._update_folder_metadata(db, metadata["folder_uuid"])
-        
-        # Diary files now use Document + document_diary association, no special handling needed
 
     async def _finalize_file(self, temp_path: Path, final_path: Path, record: Any, db: AsyncSession) -> None:
         try:
@@ -260,7 +348,8 @@ class UnifiedUploadService:
 
     async def _update_note_file_count(self, db: AsyncSession, note_uuid: str) -> None:
         from app.models.note import Note
-        count_query = select(func.count(NoteFile.uuid)).where(NoteFile.note_uuid == note_uuid, NoteFile.is_deleted.is_(False))
+        from app.models.associations import note_documents
+        count_query = select(func.count(note_documents.c.id)).where(note_documents.c.note_uuid == note_uuid)
         result = await db.execute(count_query)
         await db.execute(Note.__table__.update().where(Note.uuid == note_uuid).values(file_count=result.scalar() or 0))
 

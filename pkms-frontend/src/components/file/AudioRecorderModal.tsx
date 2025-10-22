@@ -74,7 +74,7 @@ export function AudioRecorderModal({
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
         setAudioBlob(audioBlob);
         setAudioUrl(URL.createObjectURL(audioBlob));
         
@@ -121,7 +121,7 @@ export function AudioRecorderModal({
   const handleSave = async () => {
     if (audioBlob) {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = `recording-${timestamp}.wav`;
+      const filename = `recording-${timestamp}.webm`;
       
       try {
         await onSave(audioBlob, filename);

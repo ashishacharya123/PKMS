@@ -132,7 +132,7 @@ class ProjectBadge(CamelCaseModel):
     uuid: Optional[str] = None  # None if project is deleted (snapshot)
     name: str
     # color removed - deemed unnecessary for professional project management
-    is_project_exclusive: bool
+    # is_project_exclusive removed - exclusivity now handled via project_items association
     is_deleted: bool  # True if project was deleted (using snapshot name)
 
 

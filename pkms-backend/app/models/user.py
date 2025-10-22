@@ -43,7 +43,7 @@ class User(Base):
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
     recovery_keys = relationship("RecoveryKey", back_populates="user", cascade="all, delete-orphan")
     notes = relationship("Note", back_populates="user", cascade="all, delete-orphan", foreign_keys="Note.created_by")
-    note_files = relationship("NoteFile", back_populates="user", cascade="all, delete-orphan", foreign_keys="NoteFile.created_by")
+    # note_files relationship removed - replaced with note_documents junction table
     documents = relationship("Document", back_populates="user", cascade="all, delete-orphan", foreign_keys="Document.created_by")
     todos = relationship("Todo", back_populates="user", cascade="all, delete-orphan", foreign_keys="Todo.created_by")
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan", foreign_keys="Project.created_by")

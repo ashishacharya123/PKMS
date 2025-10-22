@@ -23,7 +23,7 @@ class NoteCreate(CamelCaseModel):
     content: str = Field(..., min_length=0, max_length=50000)
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
     project_ids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this note to")
-    is_project_exclusive: Optional[bool] = Field(default=False, description="If True, note is exclusive to projects and deleted when any project is deleted")
+    # is_project_exclusive removed - exclusivity now handled via project_items association
 
     @field_validator('title')
     def validate_safe_text(cls, v: str):
@@ -92,18 +92,5 @@ class NoteSummary(CamelCaseModel):
     preview: str
     projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this note belongs to")
 
-class NoteFileResponse(CamelCaseModel):
-    uuid: str
-    note_uuid: str
-    filename: str
-    original_name: str
-    file_size: int
-    mime_type: str
-    description: Optional[str]
-    created_at: datetime
-
-class CommitNoteFileRequest(CamelCaseModel):
-    file_id: str
-    note_uuid: str
-    description: Optional[str] = Field(None, max_length=500)
-    display_order: Optional[int] = Field(0, ge=0, description="Order of display (0 = first)")
+# NoteFile schemas removed - notes now use Document + note_documents association
+# Use Document schemas instead for file operations

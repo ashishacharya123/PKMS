@@ -87,6 +87,7 @@ class ArchiveItemService:
         # Update folder stats
         if folder_uuid:
             await self._update_folder_stats(db, user_uuid, folder_uuid)
+            await db.commit()
         
         return ItemResponse.model_validate(item)
     
@@ -104,7 +105,7 @@ class ArchiveItemService:
         """List items in folder with filters and pagination"""
         cond = and_(
             ArchiveItem.created_by == user_uuid,
-                        ArchiveItem.is_deleted.is_(False)
+            ArchiveItem.is_deleted.is_(False)
         )
         
         if folder_uuid is not None:
@@ -223,8 +224,10 @@ class ArchiveItemService:
         if old_folder_uuid != item.folder_uuid:
             if old_folder_uuid:
                 await self._update_folder_stats(db, user_uuid, old_folder_uuid)
+                await db.commit()
             if item.folder_uuid:
                 await self._update_folder_stats(db, user_uuid, item.folder_uuid)
+                await db.commit()
         
         return ItemResponse.model_validate(item)
     
@@ -267,6 +270,7 @@ class ArchiveItemService:
         # Update folder stats
         if folder_uuid:
             await self._update_folder_stats(db, user_uuid, folder_uuid)
+            await db.commit()
     
     async def search_items(
         self, 
