@@ -1,8 +1,10 @@
 {
-  "outputStyle": "Explanatory",
   "permissions": {
     "allow": [
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(findstr:*)",
+      "Bash(tree:*)"
     ]
-  }
+  },
+  "outputStyle": "Explanatory"
 }
