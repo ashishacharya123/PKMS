@@ -11,8 +11,8 @@ Handles:
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, and_, func, update
 from sqlalchemy.orm import selectinload
-from typing import List, Optional, Type
-from fastapi import HTTPException
+from typing import List, Optional, Type, Any
+from fastapi import HTTPException, status
 from pathlib import Path
 import logging
 
@@ -20,7 +20,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from app.models.project import Project
-from app.models.associations import note_projects, project_items, todo_projects
+from app.models.associations import note_projects, project_items, note_documents
 from app.models.note import Note
 from app.models.document import Document
 from app.models.todo import Todo
@@ -200,18 +200,24 @@ class ProjectService:
         """
         from app.models.todo import Todo, TodoStatus
         
-        # Get total count via junction table
+        # Get total count via polymorphic project_items table
         total_result = await db.execute(
-            select(func.count(todo_projects.c.todo_uuid)).where(todo_projects.c.project_uuid == project_uuid)
+            select(func.count(project_items.c.item_uuid)).where(
+                and_(
+                    project_items.c.project_uuid == project_uuid,
+                    project_items.c.item_type == 'Todo'
+                )
+            )
         )
         total_count = total_result.scalar() or 0
         
-        # Get completed count via junction table
+        # Get completed count via polymorphic project_items table
         completed_result = await db.execute(
-            select(func.count(todo_projects.c.todo_uuid))
-            .join(Todo, Todo.uuid == todo_projects.c.todo_uuid)
+            select(func.count(project_items.c.item_uuid))
+            .join(Todo, Todo.uuid == project_items.c.item_uuid)
             .where(and_(
-                todo_projects.c.project_uuid == project_uuid,
+                project_items.c.project_uuid == project_uuid,
+                project_items.c.item_type == 'Todo',
                 Todo.status == TodoStatus.DONE
             ))
         )
@@ -282,7 +288,7 @@ class ProjectService:
         # Get exclusive notes linked to this project
         exclusive_notes_result = await db.execute(
             select(Note)
-            .options(selectinload(Note.files))
+            .options(selectinload(Note.documents))
             .join(note_projects, Note.uuid == note_projects.c.note_uuid)
             .where(
                 and_(
@@ -293,19 +299,19 @@ class ProjectService:
         )
         exclusive_notes = exclusive_notes_result.scalars().all()
         for note in exclusive_notes:
-            if note.files:
+            if note.documents:
                 base_dir = get_file_storage_dir().resolve()
-                for note_file in note.files:
+                for note_document in note.documents:
                     try:
-                        resolved_path = self._resolve_path(note_file.file_path).resolve()
+                        resolved_path = self._resolve_path(note_document.file_path).resolve()
                         # Security Check: Prevent path traversal
                         if str(resolved_path).startswith(str(base_dir)):
                             if resolved_path.exists():
                                 resolved_path.unlink()
                         else:
-                            logger.warning(f"Skipping deletion of note file due to potential path traversal: {note_file.file_path}")
+                            logger.warning(f"Skipping deletion of note document due to potential path traversal: {note_document.file_path}")
                     except Exception as e:
-                        logger.warning(f"Failed to delete file for note {note.uuid}: {str(e)}")
+                        logger.warning(f"Failed to delete document for note {note.uuid}: {str(e)}")
             await search_service.remove_item(db, note.uuid)
             await tag_service.decrement_tags_on_delete(db, note)
             await db.delete(note)
@@ -313,11 +319,12 @@ class ProjectService:
         # Get exclusive documents linked to this project
         exclusive_docs_result = await db.execute(
             select(Document)
-            .join(document_projects, Document.uuid == document_projects.c.document_uuid)
+            .join(project_items, Document.uuid == project_items.c.item_uuid)
             .where(
                 and_(
-                    document_projects.c.project_uuid == project.uuid,
-                    Document.is_project_exclusive.is_(True)
+                    project_items.c.project_uuid == project.uuid,
+                    project_items.c.item_type == 'Document',
+                    project_items.c.is_exclusive.is_(True)
                 )
             )
         )
@@ -339,14 +346,15 @@ class ProjectService:
             await tag_service.decrement_tags_on_delete(db, doc)
             await db.delete(doc)
         
-        # Get exclusive todos linked to this project
+        # Get exclusive todos linked to this project via project_items
         exclusive_todos_result = await db.execute(
             select(Todo)
-            .join(todo_projects, Todo.uuid == todo_projects.c.todo_uuid)
+            .join(project_items, Todo.uuid == project_items.c.item_uuid)
             .where(
                 and_(
-                    todo_projects.c.project_uuid == project.uuid,
-                    Todo.is_project_exclusive.is_(True)
+                    project_items.c.project_uuid == project.uuid,
+                    project_items.c.item_type == 'Todo',
+                    project_items.c.is_exclusive.is_(True)
                 )
             )
         )
@@ -358,7 +366,7 @@ class ProjectService:
         
         # Step 2: Snapshot project name in all junction records AFTER deleting exclusives
         # This preserves the project name for linked (non-exclusive) items
-        for table in [note_projects, document_projects, todo_projects]:
+        for table in [note_projects, document_projects]:
             await db.execute(
                 table.update()
                 .where(table.c.project_uuid == project_uuid)
@@ -367,6 +375,16 @@ class ProjectService:
                     project_name_snapshot=project.name
                 )
             )
+        
+        # Handle project_items polymorphic table
+        await db.execute(
+            project_items.update()
+            .where(project_items.c.project_uuid == project_uuid)
+            .values(
+                project_uuid=None,
+                project_name_snapshot=project.name
+            )
+        )
         
         # Remove from search index BEFORE deleting project
         await search_service.remove_item(db, project_uuid)

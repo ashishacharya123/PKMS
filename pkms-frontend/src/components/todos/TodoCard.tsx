@@ -168,6 +168,25 @@ export const TodoCard = React.memo(function TodoCard({
             </Group>
           )}
 
+          {/* Dependency Information */}
+          {(todo.blockedByTodos && todo.blockedByTodos.length > 0) && (
+            <Group gap="xs" align="center">
+              <IconAlertTriangle size={12} color="orange" />
+              <Text size="xs" c="orange">
+                Blocked by {todo.blockedByTodos.length} todo{todo.blockedByTodos.length > 1 ? 's' : ''}
+              </Text>
+            </Group>
+          )}
+
+          {(todo.blockingTodos && todo.blockingTodos.length > 0) && (
+            <Group gap="xs" align="center">
+              <IconCheck size={12} color="blue" />
+              <Text size="xs" c="blue">
+                Blocking {todo.blockingTodos.length} todo{todo.blockingTodos.length > 1 ? 's' : ''}
+              </Text>
+            </Group>
+          )}
+
           {/* Progress */}
           {todo.completionPercentage !== undefined && todo.completionPercentage > 0 && (
             <Box>

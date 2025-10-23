@@ -41,7 +41,7 @@ class BaseCommitUploadRequest(CamelCaseModel):
 class DocumentCommitUploadRequest(BaseCommitUploadRequest):
     """Extended schema for document uploads."""
     title: str = Field(..., min_length=1, max_length=255, description="Document title")
-    project_ids: List[UUID4] = Field(default_factory=list, description="Project UUIDs to link this document to")
+    project_uuids: List[UUID4] = Field(default_factory=list, description="Project UUIDs to link this document to")
     is_project_exclusive: bool = Field(False, description="If True, document is exclusive to projects and deleted when any project is deleted")
 
     # Pydantic v2 coerces list[str|UUID] → list[UUID4]; no custom validator needed

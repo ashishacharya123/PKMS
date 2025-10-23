@@ -13,7 +13,9 @@ from sqlalchemy.orm import selectinload
 
 from app.schemas.project import ProjectBadge
 from app.models.project import Project
-from app.models.note import Note, NoteFile
+from app.models.note import Note
+from app.models.document import Document
+from app.models.associations import note_documents
 from app.models.diary import DiaryEntry
 from app.models.associations import document_diary
 
@@ -126,24 +128,30 @@ class SharedUtilitiesService:
             entity_uuid: UUID of the entity to update
         """
         if entity_type == "note":
-            await self._update_note_file_count(db, entity_uuid)
+            await self._update_note_document_count(db, entity_uuid)
         elif entity_type == "diary_entry":
             await self._update_diary_entry_file_count(db, entity_uuid)
         else:
             logger.warning(f"Unknown entity type for file count update: {entity_type}")
 
-    async def _update_note_file_count(self, db: AsyncSession, note_uuid: str) -> None:
-        """Update file count for a note"""
+    async def _update_note_document_count(self, db: AsyncSession, note_uuid: str) -> None:
+        """Update document count for a note via note_documents association"""
         count_result = await db.execute(
-            select(func.count(NoteFile.uuid))
-            .where(and_(NoteFile.note_uuid == note_uuid, NoteFile.is_deleted == False))
+            select(func.count(note_documents.c.document_uuid))
+            .join(Document, note_documents.c.document_uuid == Document.uuid)
+            .where(
+                and_(
+                    note_documents.c.note_uuid == note_uuid,
+                    Document.is_deleted == False
+                )
+            )
         )
-        file_count = count_result.scalar() or 0
+        document_count = count_result.scalar() or 0
         
         await db.execute(
             update(Note)
             .where(Note.uuid == note_uuid)
-            .values(file_count=file_count)
+            .values(file_count=document_count)
         )
 
     async def _update_diary_entry_file_count(self, db: AsyncSession, diary_entry_uuid: str) -> None:
@@ -224,6 +232,89 @@ class SharedUtilitiesService:
                 ))
         
         return project_badges
+    
+    async def batch_get_project_badges_polymorphic(
+        self,
+        db: AsyncSession,
+        item_uuids: List[str],
+        item_type: str  # 'Todo', 'Document', 'Note'
+    ) -> Dict[str, List[ProjectBadge]]:
+        """
+        Batch load project badges for items using polymorphic project_items table.
+        
+        Replaces module-specific association tables (todo_projects, document_projects)
+        with the unified polymorphic approach.
+        
+        Args:
+            db: Database session
+            item_uuids: List of item UUIDs
+            item_type: Type of items ('Todo', 'Document', 'Note')
+        
+        Returns:
+            Dict mapping item_uuid -> list of ProjectBadge
+        """
+        from app.models.associations import project_items
+        from app.models.project import Project
+        
+        if not item_uuids:
+            return {}
+        
+        # Query project_items for all items at once (N+1 prevention)
+        result = await db.execute(
+            select(
+                project_items.c.item_uuid,
+                project_items.c.project_uuid,
+                project_items.c.is_exclusive
+            ).where(
+                and_(
+                    project_items.c.item_type == item_type,
+                    project_items.c.item_uuid.in_(item_uuids)
+                )
+            )
+        )
+        
+        associations = result.fetchall()
+        
+        if not associations:
+            return {uuid: [] for uuid in item_uuids}
+        
+        # Group by item_uuid and collect project UUIDs
+        item_associations = {}
+        project_uuids_set = set()
+        
+        for item_uuid, project_uuid, is_exclusive in associations:
+            if item_uuid not in item_associations:
+                item_associations[item_uuid] = []
+            item_associations[item_uuid].append((project_uuid, is_exclusive))
+            if project_uuid:
+                project_uuids_set.add(project_uuid)
+        
+        # Fetch all projects at once (batch query)
+        if project_uuids_set:
+            projects_result = await db.execute(
+                select(Project).where(Project.uuid.in_(list(project_uuids_set)))
+            )
+            projects_map = {p.uuid: p for p in projects_result.scalars().all()}
+        else:
+            projects_map = {}
+        
+        # Build badges
+        result_map = {}
+        for item_uuid in item_uuids:
+            badges = []
+            for project_uuid, is_exclusive in item_associations.get(item_uuid, []):
+                if project_uuid in projects_map:
+                    project = projects_map[project_uuid]
+                    badge = ProjectBadge(
+                        uuid=project.uuid,
+                        name=project.name,
+                        is_deleted=False,
+                        is_project_exclusive=is_exclusive  # Per-association exclusivity
+                    )
+                    badges.append(badge)
+            result_map[item_uuid] = badges
+        
+        return result_map
 
 
 # Create singleton instance

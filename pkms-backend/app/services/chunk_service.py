@@ -34,6 +34,9 @@ from datetime import datetime, timedelta
 from app.config import settings, get_data_dir, NEPAL_TZ
 from app.models.enums import ChunkUploadStatus
 
+# File size validation
+from app.services.file_size_service import file_size_service
+
 logger = logging.getLogger(__name__)
 
 # Constants
@@ -206,9 +209,11 @@ class ChunkUploadManager:
                 
                 # SECURITY: Validate total file size before reading chunks into memory
                 # This prevents large files from crashing the server
-                MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
-                if upload['total_size'] > MAX_FILE_SIZE:
-                    raise ValueError(f"File too large: {upload['total_size']} bytes (max: {MAX_FILE_SIZE})")
+                if upload['total_size'] > file_size_service.get_size_limit():
+                    raise ValueError(
+                        f"File too large: {file_size_service.format_file_size(upload['total_size'])} "
+                        f"(max: {file_size_service.get_size_limit_mb()}MB)"
+                    )
                 
                 # Assemble chunks with verification
                 async with aiofiles.open(output_path, 'wb') as outfile:

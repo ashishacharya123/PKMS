@@ -86,7 +86,14 @@ class FileTypeDetectionService:
                 if results["confidence"] == "low":
                     results.update(pyfsig_result)
             
-            # Method 3: Fallback to mimetypes
+            # Method 3: Try filetype (content-based, secure) - NEW
+            filetype_result = await self._detect_with_filetype(file_path)
+            if filetype_result["confidence"] != "low":
+                return filetype_result
+            if results["confidence"] == "low":
+                results.update(filetype_result)
+            
+            # Method 4: Fallback to mimetypes (extension-based only)
             mimetypes_result = await self._detect_with_mimetypes(file_path)
             if results["confidence"] == "low":
                 results.update(mimetypes_result)
@@ -183,6 +190,37 @@ class FileTypeDetectionService:
         return {
             "confidence": "low",
             "detection_method": "pyfsig_failed"
+        }
+    
+    async def _detect_with_filetype(self, file_path: Path) -> Dict[str, Any]:
+        """Detect file type using filetype library (content-based, secure)"""
+        try:
+            import filetype
+            kind = filetype.guess(str(file_path))
+            
+            if kind:
+                return {
+                    "mime_type": kind.mime,
+                    "file_type": kind.extension,
+                    "confidence": "high",
+                    "detection_method": "filetype",
+                    "is_text": kind.mime.startswith('text/'),
+                    "extensions": [kind.extension],
+                    "description": f"{kind.mime} ({kind.extension})"
+                }
+        except ImportError:
+            logger.debug("filetype library not available")
+        except Exception as e:
+            logger.warning(f"filetype detection failed: {e}")
+        
+        return {
+            "mime_type": "application/octet-stream",
+            "file_type": "unknown",
+            "confidence": "low",
+            "detection_method": "filetype_failed",
+            "is_text": False,
+            "extensions": [],
+            "description": "Unknown file type"
         }
     
     async def _detect_with_mimetypes(self, file_path: Path) -> Dict[str, Any]:

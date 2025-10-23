@@ -33,6 +33,9 @@ from app.schemas.unified_upload import (
 )
 import logging
 
+# Allowed modules for file uploads
+ALLOWED_UPLOAD_MODULES = {"documents", "notes", "diary", "archive"}
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/uploads", tags=["uploads"])
@@ -63,27 +66,61 @@ async def upload_chunk(
     try:
         from app.services.chunk_service import chunk_manager
         
-        # Parse metadata JSON
+        # Parse metadata JSON with proper error chaining
         try:
             metadata_dict = json.loads(metadata)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as err:
             raise HTTPException(
                 status_code=400,
                 detail="Invalid metadata JSON format"
-            )
-        
-        # Extract required fields from metadata
-        file_id = metadata_dict.get("file_id")
-        chunk_number = metadata_dict.get("chunk_number")
-        total_chunks = metadata_dict.get("total_chunks")
-        filename = metadata_dict.get("filename")
-        total_size = metadata_dict.get("total_size")
-        module = metadata_dict.get("module", "documents")
-        
-        if not all([file_id, chunk_number is not None, total_chunks, filename]):
+            ) from err
+
+        # Extract and coerce required fields with type safety
+        file_id = str(metadata_dict.get("file_id", "")).strip()
+        filename = str(metadata_dict.get("filename", "")).strip()
+        module = str(metadata_dict.get("module", "documents")).strip() or "documents"
+
+        # Coerce numeric fields with error handling
+        try:
+            chunk_number = int(metadata_dict.get("chunk_number"))
+            total_chunks = int(metadata_dict.get("total_chunks"))
+            total_size = int(metadata_dict.get("total_size", 0))
+        except (TypeError, ValueError) as err:
             raise HTTPException(
                 status_code=400,
-                detail="Missing required metadata fields: file_id, chunk_number, total_chunks, filename"
+                detail="Invalid numeric fields in metadata (chunk_number, total_chunks, total_size must be integers)"
+            ) from err
+
+        # Validate module against whitelist
+        if module not in ALLOWED_UPLOAD_MODULES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid module: {module}. Must be one of: {ALLOWED_UPLOAD_MODULES}"
+            )
+
+        # Validate field presence and ranges
+        if not file_id or not filename:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required fields: file_id and filename are required"
+            )
+
+        if total_chunks <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid total_chunks: must be > 0"
+            )
+
+        if not (0 <= chunk_number < total_chunks):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid chunk_number: must be 0 <= chunk_number < total_chunks (got {chunk_number}, total: {total_chunks})"
+            )
+
+        if total_size < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid total_size: must be >= 0"
             )
         
         # Read chunk data

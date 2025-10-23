@@ -19,7 +19,7 @@ from app.models.document import Document
 from app.models.note import Note
 from app.models.todo import Todo
 from app.models.tag import Tag
-from app.models.associations import todo_projects, document_projects, note_projects
+from app.models.associations import project_items, document_projects, note_projects
 from app.models.enums import TodoStatus, TaskPriority
 from app.models.tag_associations import project_tags
 from app.schemas.project import (
@@ -109,7 +109,7 @@ class ProjectCRUDService:
             
             # BATCH LOAD: Get all todo counts in a single query to avoid N+1
             project_uuids = [p.uuid for p in projects]
-            todo_counts = await self._batch_get_project_counts(db, project_uuids)
+            todo_counts = await self._batch_get_project_counts(db, project_uuids, user_uuid)
             
             # Build responses
             responses = []
@@ -143,7 +143,7 @@ class ProjectCRUDService:
         if not project:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
-        todo_count, completed_count = await self._get_project_counts(db, project.uuid)
+        todo_count, completed_count = await self._get_project_counts(db, project.uuid, user_uuid)
         return self._convert_project_to_response(project, todo_count, completed_count)
 
     async def update_project(
@@ -183,7 +183,7 @@ class ProjectCRUDService:
         # Invalidate dashboard cache
         dashboard_service.invalidate_user_cache(user_uuid, "project_updated")
         
-        todo_count, completed_count = await self._get_project_counts(db, project.uuid)
+        todo_count, completed_count = await self._get_project_counts(db, project.uuid, user_uuid)
         return self._convert_project_to_response(project, todo_count, completed_count)
 
     async def delete_project(self, db: AsyncSession, user_uuid: str, project_uuid: str):
@@ -261,13 +261,28 @@ class ProjectCRUDService:
                 await tag_service.handle_tags(db, new_project, tag_names, user_uuid, None, project_tags)
             
             # Copy associations based on duplicate_data settings
-            if duplicate_data.include_todos and original_project.todos_multi:
-                for todo in original_project.todos_multi:
-                    # Create association in todo_projects table
+            if duplicate_data.include_todos:
+                # Get todos from original project via project_items
+                original_todos_result = await db.execute(
+                    select(Todo)
+                    .join(project_items, Todo.uuid == project_items.c.item_uuid)
+                    .where(
+                        and_(
+                            project_items.c.project_uuid == original_project.uuid,
+                            project_items.c.item_type == 'Todo'
+                        )
+                    )
+                )
+                original_todos = original_todos_result.scalars().all()
+                
+                for todo in original_todos:
+                    # Create association in project_items table
                     await db.execute(
-                        todo_projects.insert().values(
-                            todo_uuid=todo.uuid,
+                        project_items.insert().values(
                             project_uuid=new_project.uuid,
+                            item_type='Todo',
+                            item_uuid=todo.uuid,
+                            is_exclusive=False,  # Default to non-exclusive
                             sort_order=0,  # Default sort order
                             created_at=datetime.now(NEPAL_TZ),
                             updated_at=datetime.now(NEPAL_TZ)
@@ -392,18 +407,19 @@ class ProjectCRUDService:
                 
         elif item_type == "todos":
             result = await db.execute(
-                select(Todo).join(todo_projects).where(
+                select(Todo).join(project_items, Todo.uuid == project_items.c.item_uuid).where(
                     and_(
-                        todo_projects.c.project_uuid == project_uuid,
+                        project_items.c.project_uuid == project_uuid,
+                        project_items.c.item_type == 'Todo',
                         Todo.created_by == user_uuid
                     )
-                ).order_by(todo_projects.c.sort_order)
+                ).order_by(project_items.c.sort_order)
             )
             todos = result.scalars().all()
             
             # BATCH LOAD: Get all project badges in a single query to avoid N+1
             todo_uuids = [todo.uuid for todo in todos]
-            project_badges_map = await shared_utilities_service.batch_get_project_badges(db, todo_uuids, todo_projects, "todo_uuid")
+            project_badges_map = await shared_utilities_service.batch_get_project_badges_polymorphic(db, todo_uuids, 'Todo')
             
             # Build project badges for each todo
             for todo in todos:
@@ -596,26 +612,35 @@ class ProjectCRUDService:
         # Invalidate dashboard cache
         dashboard_service.invalidate_user_cache(user_uuid, "project_sections_reordered")
 
-    async def _get_project_counts(self, db: AsyncSession, project_uuid: str) -> Tuple[int, int]:
+    async def _get_project_counts(self, db: AsyncSession, project_uuid: str, user_uuid: str) -> Tuple[int, int]:
         """Get todo count and completed count for a project."""
         from app.services.dashboard_stats_service import dashboard_stats_service
-        return await dashboard_stats_service.get_project_todo_counts(db, project_uuid)
+        return await dashboard_stats_service.get_project_todo_counts(db, project_uuid, user_uuid)
 
-    async def _batch_get_project_counts(self, db: AsyncSession, project_uuids: List[str]) -> Dict[str, Tuple[int, int]]:
+    async def _batch_get_project_counts(self, db: AsyncSession, project_uuids: List[str], user_uuid: str) -> Dict[str, Tuple[int, int]]:
         """Batch load todo counts for multiple projects to avoid N+1 queries."""
         if not project_uuids:
             return {}
         
-        # Single query to get all todo counts for all projects
+        # Single query to get all todo counts for all projects with proper filters and ownership validation
         result = await db.execute(
             select(
-                todo_projects.c.project_uuid,
-                func.count(todo_projects.c.todo_uuid).label('total_count'),
+                project_items.c.project_uuid,
+                func.count(project_items.c.item_uuid).label('total_count'),
                 func.sum(case((Todo.status == TodoStatus.DONE, 1), else_=0)).label('completed_count')
             )
-            .join(Todo, todo_projects.c.todo_uuid == Todo.uuid)
-            .where(todo_projects.c.project_uuid.in_(project_uuids))
-            .group_by(todo_projects.c.project_uuid)
+            .join(Todo, project_items.c.item_uuid == Todo.uuid)
+            .join(Project, project_items.c.project_uuid == Project.uuid)
+            .where(
+                and_(
+                    project_items.c.project_uuid.in_(project_uuids),
+                    project_items.c.item_type == 'Todo',
+                    Project.created_by == user_uuid,  # Ownership validation
+                    Todo.is_deleted.is_(False),
+                    Todo.is_archived.is_(False)
+                )
+            )
+            .group_by(project_items.c.project_uuid)
         )
         
         counts = {}
@@ -650,9 +675,12 @@ class ProjectCRUDService:
     async def _build_todo_project_badges(
         self, db: AsyncSession, todo_uuid: str, is_project_exclusive: bool
     ) -> List[ProjectBadge]:
-        """Build project badges for a todo."""
-        from app.services.project_service import project_service
-        return await project_service.build_badges(db, todo_uuid, is_project_exclusive, todo_projects, "todo_uuid")
+        """Build project badges for a todo using polymorphic project_items."""
+        from app.services.shared_utilities_service import shared_utilities_service
+        badges_map = await shared_utilities_service.batch_get_project_badges_polymorphic(
+            db, [todo_uuid], 'Todo'
+        )
+        return badges_map.get(todo_uuid, [])
 
     def _convert_project_to_response(
         self, project: Project, todo_count: int = 0, completed_count: int = 0

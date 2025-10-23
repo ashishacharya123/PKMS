@@ -5,7 +5,7 @@ Advanced connection pooling with monitoring and optimization
 
 import asyncio
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
 from sqlalchemy.pool import QueuePool, StaticPool
@@ -34,6 +34,8 @@ class ConnectionPoolService:
         self.metrics_history: List[PoolMetrics] = []
         self.optimization_enabled = True
         self._monitoring_task = None
+        self._pool_size: int = 0
+        self._max_overflow: int = 0
     
     async def create_optimized_engine(
         self, 
@@ -61,6 +63,8 @@ class ConnectionPoolService:
             database_url,
             **pool_config
         )
+        self._pool_size = pool_size
+        self._max_overflow = max_overflow
         
         # Add event listeners for monitoring
         self._add_pool_listeners()
@@ -77,19 +81,19 @@ class ConnectionPoolService:
             return
         
         @event.listens_for(self.engine.sync_engine, "connect")
-        def on_connect(dbapi_connection, connection_record):
+        def on_connect(_dbapi_connection, _connection_record):
             """Called when a new connection is created"""
             logger.debug("New database connection created")
         
         @event.listens_for(self.engine.sync_engine, "checkout")
-        def on_checkout(dbapi_connection, connection_record, connection_proxy):
+        def on_checkout(_dbapi_connection, connection_record, _connection_proxy):
             """Called when a connection is checked out from the pool"""
             start_time = time.time()
             connection_record.info['checkout_start'] = start_time
             logger.debug("Connection checked out from pool")
         
         @event.listens_for(self.engine.sync_engine, "checkin")
-        def on_checkin(dbapi_connection, connection_record):
+        def on_checkin(_dbapi_connection, connection_record):
             """Called when a connection is checked back into the pool"""
             if 'checkout_start' in connection_record.info:
                 checkout_time = time.time() - connection_record.info['checkout_start']
@@ -108,8 +112,8 @@ class ConnectionPoolService:
             try:
                 await asyncio.sleep(30)  # Monitor every 30 seconds
                 await self._collect_metrics()
-            except Exception as e:
-                logger.error(f"Pool monitoring error: {e}")
+            except Exception:
+                logger.exception("Pool monitoring error")
     
     async def _collect_metrics(self):
         """Collect current pool metrics"""
@@ -123,12 +127,12 @@ class ConnectionPoolService:
             metrics = PoolMetrics(
                 total_connections=pool.size() + pool.overflow(),
                 active_connections=pool.checkedout(),
-                idle_connections=pool.checkedin(),
+                idle_connections=max(pool.size() - pool.checkedout(), 0),
                 overflow_connections=pool.overflow(),
                 checkout_time=0.0,  # Would need custom tracking
                 checkin_time=0.0,   # Would need custom tracking
-                pool_size=pool.size(),
-                max_overflow=pool._max_overflow
+                pool_size=self._pool_size or pool.size(),
+                max_overflow=self._max_overflow
             )
             
             self.metrics_history.append(metrics)
@@ -141,8 +145,8 @@ class ConnectionPoolService:
             if metrics.active_connections > metrics.pool_size * 0.8:
                 logger.warning(f"High connection usage: {metrics.active_connections}/{metrics.pool_size}")
             
-        except Exception as e:
-            logger.error(f"Failed to collect pool metrics: {e}")
+        except Exception:
+            logger.exception("Failed to collect pool metrics")
     
     async def get_pool_status(self) -> Dict[str, Any]:
         """Get current connection pool status"""
@@ -153,7 +157,7 @@ class ConnectionPoolService:
             pool = self.engine.pool
             return {
                 "pool_size": pool.size(),
-                "max_overflow": pool._max_overflow,
+                "max_overflow": self._max_overflow,
                 "checked_out": pool.checkedout(),
                 "checked_in": pool.checkedin(),
                 "overflow": pool.overflow(),

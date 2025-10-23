@@ -338,23 +338,41 @@ class DashboardStatsService:
         return streak
     
     @staticmethod
-    async def get_project_todo_counts(db: AsyncSession, project_uuid: str) -> tuple[int, int]:
-        """Get todo count and completed count for a specific project"""
-        from app.models.associations import todo_projects
+    async def get_project_todo_counts(db: AsyncSession, project_uuid: str, user_uuid: str) -> tuple[int, int]:
+        """Get todo count and completed count for a specific project with ownership validation"""
+        from app.models.associations import project_items
         
-        # Count total todos
+        # Count total todos with proper filters and ownership validation
         total_result = await db.execute(
-            select(func.count(Todo.uuid)).select_from(Todo).join(todo_projects).where(
-                todo_projects.c.project_uuid == project_uuid
+            select(func.count(Todo.uuid))
+            .select_from(Todo)
+            .join(project_items, Todo.uuid == project_items.c.item_uuid)
+            .join(Project, project_items.c.project_uuid == Project.uuid)
+            .where(
+                and_(
+                    project_items.c.project_uuid == project_uuid,
+                    project_items.c.item_type == 'Todo',
+                    Project.created_by == user_uuid,  # Ownership validation
+                    Todo.is_deleted.is_(False),
+                    Todo.is_archived.is_(False)
+                )
             )
         )
         total_count = total_result.scalar() or 0
         
-        # Count completed todos
+        # Count completed todos with same filters
         completed_result = await db.execute(
-            select(func.count(Todo.uuid)).select_from(Todo).join(todo_projects).where(
+            select(func.count(Todo.uuid))
+            .select_from(Todo)
+            .join(project_items, Todo.uuid == project_items.c.item_uuid)
+            .join(Project, project_items.c.project_uuid == Project.uuid)
+            .where(
                 and_(
-                    todo_projects.c.project_uuid == project_uuid,
+                    project_items.c.project_uuid == project_uuid,
+                    project_items.c.item_type == 'Todo',
+                    Project.created_by == user_uuid,  # Ownership validation
+                    Todo.is_deleted.is_(False),
+                    Todo.is_archived.is_(False),
                     Todo.status == TodoStatus.DONE
                 )
             )

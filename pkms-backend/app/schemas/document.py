@@ -27,10 +27,10 @@ class DocumentUpdate(CamelCaseModel):
     tags: Optional[List[str]] = Field(None, max_items=20)
     is_favorite: Optional[bool] = None
     is_archived: Optional[bool] = None
-    project_ids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this document to")
-    @field_validator('project_ids')
+    project_uuids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this document to")
+    @field_validator('project_uuids')
     @classmethod
-    def _validate_project_ids(cls, v):
+    def _validate_project_uuids(cls, v):
         if not v:
             return v
         import uuid as _uuid
@@ -71,16 +71,16 @@ class CommitDocumentUploadRequest(CamelCaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=1000)
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
-    project_ids: List[str] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this document to")
+    project_uuids: List[str] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this document to")
     # is_project_exclusive and is_diary_exclusive removed - exclusivity now handled via association tables
 
     @field_validator('tags')
     def validate_tags(cls, v):
         from app.utils.security import sanitize_tags
         return sanitize_tags(v or [])
-    @field_validator('project_ids')
+    @field_validator('project_uuids')
     @classmethod
-    def _validate_project_ids(cls, v):
+    def _validate_project_uuids(cls, v):
         if not v:
             return v
         import uuid as _uuid

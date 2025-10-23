@@ -53,20 +53,9 @@ document_diary = Table(
 )
 Index('ix_docdiary_entry_order', document_diary.c.diary_entry_uuid, document_diary.c.sort_order)
 
-# Junction table for Todo-Project many-to-many relationship
-todo_projects = Table(
-    'todo_projects', 
-    Base.metadata,
-    Column('id', Integer, primary_key=True, autoincrement=True),  # Surrogate PK
-    Column('todo_uuid', String(36), ForeignKey('todos.uuid', ondelete='CASCADE'), nullable=False, index=True),
-    Column('project_uuid', String(36), ForeignKey('projects.uuid', ondelete='CASCADE'), nullable=False, index=True),
-    Column('is_project_exclusive', Boolean, default=False),  # Per-association project exclusive flag
-    Column('sort_order', Integer, nullable=False, default=0),
-    Column('created_at', DateTime(timezone=True), server_default=func.now(), nullable=False),
-    Column('updated_at', DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False),
-    UniqueConstraint('todo_uuid', 'project_uuid', name='uq_todo_projects_todo_project')  # Prevent duplicates
-)
-Index('ix_todoproj_project_order', todo_projects.c.project_uuid, todo_projects.c.sort_order)
+# REMOVED: todo_projects table - migrated to polymorphic project_items table
+# See migration: remove_todo_projects_migrate_to_project_items.py
+# All todo-project associations now use project_items with item_type='Todo'
 
 # Junction table for Todo Dependencies (replaces blocked_by JSON field)
 # Represents: blocked_todo depends on blocking_todo (blocking_todo blocks blocked_todo)

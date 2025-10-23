@@ -17,7 +17,9 @@ from fastapi import HTTPException, status
 from app.config import NEPAL_TZ
 from app.models.todo import Todo
 from app.models.tag import Tag
-from app.models.associations import todo_projects
+from app.models.associations import project_items
+from app.models.project import Project
+from sqlalchemy import insert, delete
 from app.models.enums import ModuleType, TodoStatus, TaskPriority
 from app.models.tag_associations import todo_tags
 from app.schemas.todo import TodoCreate, TodoUpdate, TodoResponse
@@ -27,6 +29,7 @@ from app.services.project_service import project_service
 from app.services.search_service import search_service
 from app.services.dashboard_service import dashboard_service
 from app.services.shared_utilities_service import shared_utilities_service
+from app.services.todo_dependency_service import todo_dependency_service
 
 logger = logging.getLogger(__name__)
 
@@ -46,18 +49,46 @@ class TodoCRUDService:
         """Create a new todo with project associations and tags"""
         try:
             payload = todo_data.model_dump()
-            project_ids = payload.pop("project_ids", []) or []
+            project_uuids = payload.pop("project_uuids", []) or []
             
             # Create todo
             todo = Todo(**payload, created_by=user_uuid)
             db.add(todo)
             await db.flush()  # Get UUID for associations
             
-            # Handle project associations
-            if project_ids:
-                await project_service.handle_associations(
-                    db, todo, project_ids, user_uuid, todo_projects, "todo_uuid"
+            # Handle project associations using polymorphic project_items
+            if project_uuids:
+                # Verify user owns all projects
+                projects_result = await db.execute(
+                    select(Project).where(
+                        and_(
+                            Project.uuid.in_(project_uuids),
+                            Project.created_by == user_uuid,
+                            Project.is_deleted.is_(False)
+                        )
+                    )
                 )
+                owned_projects = projects_result.scalars().all()
+                owned_project_uuids = {p.uuid for p in owned_projects}
+                
+                invalid_uuids = set(project_uuids) - owned_project_uuids
+                if invalid_uuids:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid or inaccessible project UUIDs: {list(invalid_uuids)}"
+                    )
+                
+                # Insert into polymorphic project_items table
+                for idx, project_uuid in enumerate(project_uuids):
+                    await db.execute(
+                        insert(project_items).values(
+                            project_uuid=project_uuid,
+                            item_type='Todo',  # Polymorphic discriminator
+                            item_uuid=todo.uuid,
+                            is_exclusive=False,  # Default to non-exclusive
+                            sort_order=idx
+                        )
+                    )
             
             # Handle tags
             tags = payload.get("tags", [])
@@ -66,13 +97,27 @@ class TodoCRUDService:
                     db, todo, tags, user_uuid, ModuleType.TODOS, todo_tags
                 )
             
+            # Handle dependencies if provided
+            blocked_by_uuids = payload.get("blocked_by_uuids", [])
+            if blocked_by_uuids:
+                for blocker_uuid in blocked_by_uuids:
+                    try:
+                        await todo_dependency_service.add_dependency(
+                            db,
+                            blocked_todo_uuid=todo.uuid,
+                            blocking_todo_uuid=blocker_uuid,
+                            user_uuid=user_uuid
+                        )
+                    except ValueError as e:
+                        logger.warning(f"Failed to add dependency: {e}")
+            
             # Index in search
             await search_service.index_item(db, todo, 'todo')
             await db.commit()
             
             # OPTIMIZED: Use batch badge loading for single item to avoid N+1
-            project_badges = await shared_utilities_service.batch_get_project_badges(
-                db, [todo.uuid], todo_projects, "todo_uuid"
+            project_badges = await shared_utilities_service.batch_get_project_badges_polymorphic(
+                db, [todo.uuid], 'Todo'
             )
             project_badges = project_badges.get(todo.uuid, [])
             
@@ -135,10 +180,13 @@ class TodoCRUDService:
                 ))
             
             if project_uuid:
-                # Join with todo_projects to filter by project
+                # Join with project_items to filter by project
                 cond = and_(cond, Todo.uuid.in_(
-                    select(todo_projects.c.todo_uuid).where(
-                        todo_projects.c.project_uuid == project_uuid
+                    select(project_items.c.item_uuid).where(
+                        and_(
+                            project_items.c.project_uuid == project_uuid,
+                            project_items.c.item_type == 'Todo'
+                        )
                     )
                 ))
             
@@ -191,12 +239,16 @@ class TodoCRUDService:
                 raise HTTPException(status_code=404, detail="Todo not found")
             
             # OPTIMIZED: Use batch badge loading for single item to avoid N+1
-            project_badges = await shared_utilities_service.batch_get_project_badges(
-                db, [todo.uuid], todo_projects, "todo_uuid"
+            project_badges = await shared_utilities_service.batch_get_project_badges_polymorphic(
+                db, [todo.uuid], 'Todo'
             )
             project_badges = project_badges.get(todo.uuid, [])
             
-            return self._convert_todo_to_response(todo, project_badges)
+            # Load dependency info
+            blocking_todos = await todo_dependency_service.get_blocking_todos(db, todo.uuid)
+            blocked_todos = await todo_dependency_service.get_blocked_todos(db, todo.uuid)
+            
+            return self._convert_todo_to_response(todo, project_badges, blocking_todos, blocked_todos)
             
         except HTTPException:
             raise
@@ -231,19 +283,53 @@ class TodoCRUDService:
             update_dict = update_data.model_dump(exclude_unset=True)
             
             # Handle project associations
-            if "project_ids" in update_dict:
-                project_ids = update_dict.pop("project_ids", []) or []
-                
-                # Remove existing associations
-                await db.execute(
-                    delete(todo_projects).where(todo_projects.c.todo_uuid == todo_uuid)
-                )
-                
-                # Add new associations
-                if project_ids:
-                    await project_service.handle_associations(
-                        db, todo, project_ids, user_uuid, todo_projects, "todo_uuid"
+            if "project_uuids" in update_dict:
+                project_uuids = update_dict.pop("project_uuids", []) or []
+
+                # Handle project associations using polymorphic project_items
+                if project_uuids is not None:  # Allow clearing with empty list
+                    # Delete existing associations for this todo
+                    await db.execute(
+                        delete(project_items).where(
+                            and_(
+                                project_items.c.item_type == 'Todo',
+                                project_items.c.item_uuid == todo.uuid
+                            )
+                        )
                     )
+                    
+                    if project_uuids:  # If not empty, add new associations
+                        # Verify ownership
+                        projects_result = await db.execute(
+                            select(Project).where(
+                                and_(
+                                    Project.uuid.in_(project_uuids),
+                                    Project.created_by == user_uuid,
+                                    Project.is_deleted.is_(False)
+                                )
+                            )
+                        )
+                        owned_projects = projects_result.scalars().all()
+                        owned_project_uuids = {p.uuid for p in owned_projects}
+                        
+                        invalid_uuids = set(project_uuids) - owned_project_uuids
+                        if invalid_uuids:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Invalid or inaccessible project UUIDs"
+                            )
+                        
+                        # Insert new associations
+                        for idx, project_uuid in enumerate(project_uuids):
+                            await db.execute(
+                                insert(project_items).values(
+                                    project_uuid=project_uuid,
+                                    item_type='Todo',
+                                    item_uuid=todo.uuid,
+                                    is_exclusive=False,
+                                    sort_order=idx
+                                )
+                            )
             
             # Handle tags
             if "tags" in update_dict:
@@ -251,6 +337,26 @@ class TodoCRUDService:
                 await tag_service.handle_tags(
                     db, todo, tags, user_uuid, ModuleType.TODOS, todo_tags
                 )
+            
+            # Handle dependency modifications
+            if "add_blocker_uuids" in update_dict:
+                add_blocker_uuids = update_dict.pop("add_blocker_uuids", [])
+                if add_blocker_uuids:
+                    for blocker_uuid in add_blocker_uuids:
+                        try:
+                            await todo_dependency_service.add_dependency(
+                                db, todo.uuid, blocker_uuid, user_uuid
+                            )
+                        except ValueError as e:
+                            logger.warning(f"Failed to add blocker: {e}")
+            
+            if "remove_blocker_uuids" in update_dict:
+                remove_blocker_uuids = update_dict.pop("remove_blocker_uuids", [])
+                if remove_blocker_uuids:
+                    for blocker_uuid in remove_blocker_uuids:
+                        await todo_dependency_service.remove_dependency(
+                            db, todo.uuid, blocker_uuid
+                        )
             
             # Update other fields
             for field, value in update_dict.items():
@@ -464,10 +570,15 @@ class TodoCRUDService:
     def _convert_todo_to_response(
         self, 
         todo: Todo, 
-        project_badges: Optional[List[ProjectBadge]] = None
+        project_badges: Optional[List[ProjectBadge]] = None,
+        blocking_todos: Optional[List[Dict]] = None,
+        blocked_todos: Optional[List[Dict]] = None
     ) -> TodoResponse:
         """Convert Todo model to TodoResponse"""
         badges = project_badges or []
+        blocking_list = blocking_todos or []
+        blocked_list = blocked_todos or []
+        
         return TodoResponse(
             uuid=todo.uuid,
             title=todo.title,
@@ -476,15 +587,18 @@ class TodoCRUDService:
             priority=todo.priority,
             is_archived=todo.is_archived,
             is_favorite=todo.is_favorite,
-            is_project_exclusive=todo.is_project_exclusive,
-            is_todo_exclusive=todo.is_todo_exclusive,
+            # REMOVED: is_project_exclusive and is_todo_exclusive - now handled via project_items
             start_date=todo.start_date,
             due_date=todo.due_date,
             created_at=todo.created_at,
             updated_at=todo.updated_at,
             completed_at=todo.completed_at,
             tags=[t.name for t in todo.tag_objs] if todo.tag_objs else [],
-            projects=badges
+            projects=badges,
+            # NEW: Dependency info
+            blocking_todos=blocking_list if blocking_list else None,
+            blocked_by_todos=blocked_list if blocked_list else None,
+            blocker_count=len([b for b in blocked_list if not b.get('is_completed', False)])
         )
 
 

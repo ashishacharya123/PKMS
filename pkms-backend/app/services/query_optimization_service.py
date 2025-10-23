@@ -28,10 +28,11 @@ class QueryOptimizationService:
     """Service for query optimization and performance monitoring"""
     
     def __init__(self):
-        self.query_cache: Dict[str, Any] = {}
+        self.query_cache: Dict[str, Any] = {}  # Future: Cache optimized query results
         self.slow_queries: List[QueryMetrics] = []
         self.optimization_rules = self._load_optimization_rules()
-        self.metrics_enabled = True
+        self.metrics_enabled = True  # Feature flag for enabling/disabling metrics
+        self.max_slow_queries = 100  # Limit to prevent memory issues
     
     def _load_optimization_rules(self) -> Dict[str, Any]:
         """Load query optimization rules"""
@@ -58,7 +59,7 @@ class QueryOptimizationService:
         self, 
         db: AsyncSession, 
         query: Any, 
-        query_id: str = None
+        query_id: Optional[str] = None
     ) -> Tuple[Any, QueryMetrics]:
         """Optimize a query and return metrics"""
         start_time = time.time()
@@ -68,7 +69,7 @@ class QueryOptimizationService:
         
         # Execute query
         result = await db.execute(optimized_query)
-        rows = result.fetchall() if hasattr(result, 'fetchall') else []
+        rows = result.scalars().all() if hasattr(result, 'scalars') else []
         
         execution_time = time.time() - start_time
         
@@ -82,9 +83,12 @@ class QueryOptimizationService:
             optimization_applied=self._get_applied_optimizations(optimized_query)
         )
         
-        # Track slow queries
+        # Track slow queries with bounded growth
         if execution_time > 1.0:  # Queries taking more than 1 second
             self.slow_queries.append(metrics)
+            # Keep only the most recent slow queries to prevent memory issues
+            if len(self.slow_queries) > self.max_slow_queries:
+                self.slow_queries.pop(0)  # Remove oldest
             logger.warning(f"Slow query detected: {execution_time:.2f}s - {metrics.sql[:100]}...")
         
         return result, metrics

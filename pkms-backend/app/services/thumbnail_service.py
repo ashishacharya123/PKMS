@@ -12,6 +12,9 @@ from PIL import Image, ImageOps
 import logging
 from io import BytesIO
 
+# Note: Pillow is now included in both requirements.txt and requirements-slim.txt
+# for full thumbnail generation support. Compatible with python:3.11-slim base image.
+
 logger = logging.getLogger(__name__)
 
 class ThumbnailService:

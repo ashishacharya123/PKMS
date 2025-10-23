@@ -271,7 +271,7 @@ class DiaryDocumentService:
         await db.commit()
         dashboard_service.invalidate_user_cache(user_uuid, "diary_documents_reordered")
 
-        except Exception as e:
+    except Exception as e:
             # Rollback on any error and re-raise
             await db.rollback()
             logger.error(f"Failed to reorder diary documents for entry {diary_entry_uuid}: {e}")

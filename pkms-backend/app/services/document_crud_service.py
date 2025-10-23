@@ -60,7 +60,7 @@ class DocumentCRUDService:
                     "title": payload.title,
                     "description": payload.description,
                     "tags": payload.tags,
-                    "project_ids": payload.project_ids,
+                    "project_uuids": payload.project_uuids,
                     "is_project_exclusive": payload.is_project_exclusive,
                     "is_diary_exclusive": payload.is_diary_exclusive,
                 }
@@ -125,6 +125,10 @@ class DocumentCRUDService:
         - Items with is_diary_exclusive=True are HIDDEN from main list (only in diary entries)
         - Items with both flags=False are ALWAYS shown (linked mode)
         """
+        # Validate bounds to match router constraints (1-100)
+        limit = min(max(limit, 1), 100)
+        offset = max(offset, 0)
+        
         try:
             logger.info(f"Listing documents for user {user_uuid} - archived: {archived}, search: {search}, tag: {tag}")
             
@@ -334,9 +338,9 @@ class DocumentCRUDService:
             await tag_service.handle_tags(db, doc, sanitized_tags, user_uuid, ModuleType.DOCUMENTS, document_tags)
 
         # Handle projects if provided (with ownership verification)
-        if "project_ids" in update_data:
+        if "project_uuids" in update_data:
             await project_service.handle_associations(
-                db, doc, update_data.pop("project_ids"), user_uuid, document_projects, "document_uuid"
+                db, doc, update_data.pop("project_uuids"), user_uuid, document_projects, "document_uuid"
             )
 
         # SECURITY: Validate and sanitize update fields

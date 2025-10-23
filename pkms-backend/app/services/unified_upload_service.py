@@ -279,14 +279,14 @@ class UnifiedUploadService:
             association_tables = {"documents": document_tags, "notes": note_tags, "archive": archive_item_tags}
             await tag_service.handle_tags(db, record, metadata["tags"], user, None, association_tables[module])
         
-        if module in ["documents", "notes"] and metadata.get("project_ids"):
+        if module in ["documents", "notes"] and metadata.get("project_uuids"):
             from app.models.associations import project_items
             from sqlalchemy import insert
             # Create project_items associations with exclusivity
-            for project_id in metadata["project_ids"]:
+            for project_uuid in metadata["project_uuids"]:
                 await db.execute(
                     insert(project_items).values(
-                        project_uuid=project_id,
+                        project_uuid=project_uuid,
                         item_type="Document" if module == "documents" else "Note",
                         item_uuid=record.uuid,
                         sort_order=metadata.get("sort_order", 0),

@@ -591,8 +591,9 @@ class ArchiveFolderService:
         
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             for item in all_items:
-                # Build relative path within ZIP
-                relative_path = self._build_zip_path(item, folder.name)
+                # Sanitize archive names to prevent path traversal (Zip Slip protection)
+                safe_name = Path(item.original_filename).name
+                relative_path = f"{Path(folder.name).name}/{safe_name}"
                 
                 # Add file to ZIP
                 try:
@@ -607,7 +608,7 @@ class ArchiveFolderService:
         zip_buffer.seek(0)
         
         return StreamingResponse(
-            io.BytesIO(zip_buffer.read()),
+            zip_buffer,
             media_type="application/zip",
             headers={"Content-Disposition": f"attachment; filename={folder.name}.zip"}
         )
@@ -649,8 +650,9 @@ class ArchiveFolderService:
                 all_items = await self._get_all_items_recursive(db, user_uuid, folder.uuid)
                 
                 for item in all_items:
-                    # Build relative path within ZIP
-                    relative_path = self._build_zip_path(item, folder.name)
+                    # Sanitize archive names to prevent path traversal (Zip Slip protection)
+                    safe_name = Path(item.original_filename).name
+                    relative_path = f"{Path(folder.name).name}/{safe_name}"
                     
                     # Add file to ZIP
                     try:
@@ -665,7 +667,7 @@ class ArchiveFolderService:
         zip_buffer.seek(0)
         
         return StreamingResponse(
-            io.BytesIO(zip_buffer.read()),
+            zip_buffer,
             media_type="application/zip",
             headers={"Content-Disposition": "attachment; filename=archive_folders.zip"}
         )

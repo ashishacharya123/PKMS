@@ -36,7 +36,8 @@ class UnifiedCacheService(Generic[T]):
         data = cache.get("user:123")
         
         # Invalidate specific key
-        cache.invalidate("user:123")
+        from app.services.cache_invalidation_service import cache_invalidation_service
+        cache_invalidation_service.invalidate_key("user:123")
         
         # Invalidate by pattern (all keys starting with prefix)
         cache.invalidate_pattern("user:")

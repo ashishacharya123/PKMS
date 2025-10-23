@@ -45,6 +45,7 @@ from app.services.habit_data_service import habit_data_service
 from app.services.diary_crud_service import diary_crud_service
 from app.services.diary_document_service import diary_document_service
 from app.services.daily_insights_service import DailyInsightsService
+from app.services.unified_habit_analytics_service import unified_habit_analytics_service
 
 logger = logging.getLogger(__name__)
 
@@ -690,7 +691,7 @@ async def get_wellness_score_analytics_unified(
         analytics_result = await unified_analytics_service.get_analytics_with_unified_timeframes(
             db=db,
             user_uuid=current_user.uuid,
-            analytics_function=DiaryMetadataService.get_wellness_stats,
+            analytics_function=unified_habit_analytics_service.get_wellness_stats,
             analytics_type="wellness_stats",
             days=days,
             include_chart_data=True

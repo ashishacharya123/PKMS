@@ -19,6 +19,7 @@ from app.auth.dependencies import get_current_user
 from app.schemas.todo import TodoCreate, TodoUpdate, TodoResponse
 from app.services.todo_crud_service import todo_crud_service
 from app.services.todo_workflow_service import todo_workflow_service
+from app.services.todo_dependency_service import todo_dependency_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -300,4 +301,90 @@ async def get_todo_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get todo stats"
+        )
+
+
+# Dependency Management Endpoints
+
+@router.post("/{todo_uuid}/dependencies/{blocker_uuid}")
+async def add_dependency(
+    todo_uuid: str,
+    blocker_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Add a dependency: blocker_uuid must complete before todo_uuid can proceed"""
+    try:
+        await todo_dependency_service.add_dependency(
+            db, todo_uuid, blocker_uuid, current_user.uuid
+        )
+        return {"message": "Dependency added successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Error adding dependency")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to add dependency"
+        )
+
+
+@router.delete("/{todo_uuid}/dependencies/{blocker_uuid}")
+async def remove_dependency(
+    todo_uuid: str,
+    blocker_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Remove a dependency between todos"""
+    try:
+        await todo_dependency_service.remove_dependency(
+            db, todo_uuid, blocker_uuid
+        )
+        return {"message": "Dependency removed successfully"}
+    except Exception as e:
+        logger.exception("Error removing dependency")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to remove dependency"
+        )
+
+
+@router.get("/{todo_uuid}/blocking")
+async def get_blocking_todos(
+    todo_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get todos that this todo is blocking (others waiting on this one)"""
+    try:
+        blocking_todos = await todo_dependency_service.get_blocking_todos(
+            db, todo_uuid
+        )
+        return {"blocking_todos": blocking_todos}
+    except Exception as e:
+        logger.exception("Error getting blocking todos")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get blocking todos"
+        )
+
+
+@router.get("/{todo_uuid}/blocked-by")
+async def get_blocked_by_todos(
+    todo_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get todos that are blocking this one (this todo is waiting on these)"""
+    try:
+        blocked_todos = await todo_dependency_service.get_blocked_todos(
+            db, todo_uuid
+        )
+        return {"blocked_by_todos": blocked_todos}
+    except Exception as e:
+        logger.exception("Error getting blocked todos")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get blocked todos"
         )

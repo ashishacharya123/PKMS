@@ -228,7 +228,7 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_documents_archived ON documents(is_archived);",
 
                 # Document model composite indexes for optimal performance
-                "CREATE INDEX IF NOT EXISTS idx_doc_user_archived_exclusive ON documents(created_by, is_archived, is_project_exclusive, is_diary_exclusive);",
+                "CREATE INDEX IF NOT EXISTS idx_doc_user_archived ON documents(created_by, is_archived);",
                 "CREATE INDEX IF NOT EXISTS idx_doc_user_deleted ON documents(created_by, is_deleted);",
                 "CREATE INDEX IF NOT EXISTS idx_doc_user_created_desc ON documents(created_by, created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_doc_user_favorite ON documents(created_by, is_favorite);",

@@ -2,13 +2,14 @@ import { apiService } from './api';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
 import { 
   Todo, 
-  TodoCreate, 
-  TodoUpdate, 
+  CreateTodoRequest as TodoCreate, 
+  UpdateTodoRequest as TodoUpdate, 
   TodoSummary, 
   TodoStats, 
   TodoListParams,
-  ChecklistItem 
+  BlockingTodoSummary
 } from '../types/todo';
+import { ChecklistItem } from '../types/common';
 import { ProjectBadge } from '../types/project';
 import { TodoStatus, TaskPriority, TodoType } from '../types/enums';
 
@@ -224,6 +225,38 @@ class TodosService {
     };
     return colors[status as keyof typeof colors] || '#757575';
   }
+
+  // NEW: Dependency Management Methods
+  
+  /**
+   * Add a dependency: blocker_uuid must complete before todo_uuid can proceed
+   */
+  async addDependency(todoUuid: string, blockerUuid: string): Promise<void> {
+    await apiService.post(`${this.baseUrl}/${todoUuid}/dependencies/${blockerUuid}`);
+  }
+
+  /**
+   * Remove a dependency between todos
+   */
+  async removeDependency(todoUuid: string, blockerUuid: string): Promise<void> {
+    await apiService.delete(`${this.baseUrl}/${todoUuid}/dependencies/${blockerUuid}`);
+  }
+
+  /**
+   * Get todos that this todo is blocking (others waiting on this one)
+   */
+  async getBlockingTodos(todoUuid: string): Promise<BlockingTodoSummary[]> {
+    const response = await apiService.get(`${this.baseUrl}/${todoUuid}/blocking`);
+    return (response.data as any).blocking_todos;
+  }
+
+  /**
+   * Get todos that are blocking this one (this todo is waiting on these)
+   */
+  async getBlockedByTodos(todoUuid: string): Promise<BlockingTodoSummary[]> {
+    const response = await apiService.get(`${this.baseUrl}/${todoUuid}/blocked-by`);
+    return (response.data as any).blocked_by_todos;
+  }
 }
 
 export const todosService = new TodosService();
@@ -252,7 +285,12 @@ export const {
   getDaysUntilDue,
   isOverdue,
   getPriorityColor,
-  getStatusColor
+  getStatusColor,
+  // NEW: Dependency management methods
+  addDependency,
+  removeDependency,
+  getBlockingTodos,
+  getBlockedByTodos
 } = todosService; 
 
 // Subtask management functions
