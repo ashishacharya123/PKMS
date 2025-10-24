@@ -1,4 +1,9 @@
-import { apiService } from './api';
+/**
+ * Dashboard Service - Frontend-first caching with unified cache system
+ * Local-first approach: Chromium-optimized caching with IndexedDB persistence
+ */
+
+import { dashboardCache } from './unifiedCacheService';
 
 export interface DashboardStats {
   notes: {
@@ -12,30 +17,24 @@ export interface DashboardStats {
   todos: {
     total: number;
     pending: number;
-    in_progress?: number;  // Status-based count
-    blocked?: number;     // Status-based count
-    done?: number;        // Status-based count
-    cancelled?: number;   // Status-based count
-    completed: number;    // Legacy field
+    completed: number;
     overdue: number;
-    due_today?: number;
-    completed_today?: number;
+  };
+  projects: {
+    total: number;
+    active: number;
   };
   diary: {
     entries: number;
     streak: number;
   };
   archive: {
-    folders: number;
     items: number;
-  };
-  projects?: {
-    active: number;
   };
   last_updated: string;
 }
 
-export interface ModuleActivity {
+interface ModuleActivity {
   recent_notes: number;
   recent_documents: number;
   recent_todos: number;
@@ -49,56 +48,104 @@ export interface QuickStats {
   overdue_todos: number;
   current_diary_streak: number;
   storage_used_mb: number;
-  storage_by_module?: Record<string, number>;
+  storage_by_module: {
+    documents_mb: number;
+    archive_mb: number;
+    notes_mb: number;
+    diary_media_mb: number;
+    diary_text_mb: number;
+  };
 }
 
 class DashboardService {
-  private baseUrl = '/dashboard';
 
   /**
-   * Get aggregated dashboard statistics for all modules
-   * This is optimized for fast loading and returns all stats in one call
+   * Get main dashboard data - unified cache with IndexedDB persistence
    */
-  async getDashboardStats(): Promise<DashboardStats> {
+  async getMainDashboardData(): Promise<DashboardStats> {
+    const cacheKey = 'main_dashboard';
+    
+    // Check unified cache first (memory + IndexedDB)
+    const cached = await dashboardCache.get(cacheKey);
+    if (cached) {
+      console.log(`🎯 CACHE HIT: Main dashboard data - INSTANT response!`);
+      return cached;
+    }
+
+    console.log(`❌ CACHE MISS: Main dashboard data - fetching from backend`);
+    
+    const startTime = performance.now();
     try {
-      const response = await apiService.get<DashboardStats>(`${this.baseUrl}/stats`);
-      return response.data;
+      const response = await fetch('/api/v1/dashboard/stats');
+      const responseTime = performance.now() - startTime;
+      
+      if (!response.ok) {
+        throw new Error(`Dashboard API returned ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Cache with tags for easy invalidation
+      await dashboardCache.set(cacheKey, data, 120000, ['dashboard', 'stats']);
+      
+      console.log(`✅ CACHE SET: Main dashboard data cached (${responseTime.toFixed(0)}ms)`);
+      
+      return data;
     } catch (error) {
-      console.error('Failed to load dashboard stats:', error);
-      // Return default stats on error to prevent dashboard crash
+      const responseTime = performance.now() - startTime;
+      
+      console.error(`❌ ERROR: Main dashboard data (${responseTime.toFixed(0)}ms):`, error);
+      
+      // Return default values on error
       return {
         notes: { total: 0, recent: 0 },
         documents: { total: 0, recent: 0 },
-        todos: { 
-          total: 0, 
-          pending: 0, 
-          in_progress: 0,
-          blocked: 0,
-          done: 0,
-          cancelled: 0,
-          completed: 0, 
-          overdue: 0,
-          due_today: 0,
-          completed_today: 0
-        },
+        todos: { total: 0, pending: 0, completed: 0, overdue: 0 },
+        projects: { total: 0, active: 0 },
         diary: { entries: 0, streak: 0 },
-        archive: { folders: 0, items: 0 },
-        projects: { active: 0 },
+        archive: { items: 0 },
         last_updated: new Date().toISOString()
       };
     }
   }
 
   /**
-   * Get recent activity across all modules
-   * @param days Number of days to look back (default: 7)
+   * Get recent activity data - unified cache with IndexedDB persistence
    */
   async getRecentActivity(days: number = 7): Promise<ModuleActivity> {
+    const cacheKey = `activity_${days}`;
+    
+    // Check unified cache first
+    const cached = await dashboardCache.get(cacheKey);
+    if (cached) {
+      console.log(`🎯 CACHE HIT: Activity data (${days} days) - INSTANT response!`);
+      return cached;
+    }
+
+    console.log(`❌ CACHE MISS: Activity data (${days} days) - fetching from backend`);
+    
+    const startTime = performance.now();
     try {
-      const response = await apiService.get<ModuleActivity>(`${this.baseUrl}/activity?days=${days}`);
-      return response.data;
+      const response = await fetch(`/api/v1/dashboard/activity?days=${days}`);
+      const responseTime = performance.now() - startTime;
+      
+      if (!response.ok) {
+        throw new Error(`Activity API returned ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Cache with tags
+      await dashboardCache.set(cacheKey, data, 120000, ['dashboard', 'activity']);
+      
+      console.log(`✅ CACHE SET: Activity data cached (${responseTime.toFixed(0)}ms)`);
+      
+      return data;
     } catch (error) {
-      console.error('Failed to load recent activity:', error);
+      const responseTime = performance.now() - startTime;
+      
+      console.error(`❌ ERROR: Activity data (${responseTime.toFixed(0)}ms):`, error);
+      
       return {
         recent_notes: 0,
         recent_documents: 0,
@@ -110,99 +157,156 @@ class DashboardService {
   }
 
   /**
-   * Get quick overview statistics for dashboard widgets
+   * Get quick stats - unified cache with IndexedDB persistence
    */
   async getQuickStats(): Promise<QuickStats> {
+    const cacheKey = 'quick_stats';
+    
+    // Check unified cache first
+    const cached = await dashboardCache.get(cacheKey);
+    if (cached) {
+      console.log(`🎯 CACHE HIT: Quick stats - INSTANT response!`);
+      return cached;
+    }
+
+    console.log(`❌ CACHE MISS: Quick stats - fetching from backend`);
+    
+    const startTime = performance.now();
     try {
-      const response = await apiService.get<QuickStats>(`${this.baseUrl}/quick-stats`);
-      return response.data;
+      const response = await fetch('/api/v1/dashboard/quick-stats');
+      const responseTime = performance.now() - startTime;
+      
+      if (!response.ok) {
+        throw new Error(`Quick stats API returned ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Cache with tags
+      await dashboardCache.set(cacheKey, data, 120000, ['dashboard', 'stats']);
+      
+      console.log(`✅ CACHE SET: Quick stats cached (${responseTime.toFixed(0)}ms)`);
+      
+      return data;
     } catch (error) {
-      console.error('Failed to load quick stats:', error);
+      const responseTime = performance.now() - startTime;
+      
+      console.error(`❌ ERROR: Quick stats (${responseTime.toFixed(0)}ms):`, error);
+      
       return {
         total_items: 0,
         active_projects: 0,
         overdue_todos: 0,
         current_diary_streak: 0,
-        storage_used_mb: 0
+        storage_used_mb: 0,
+        storage_by_module: {
+          documents_mb: 0,
+          archive_mb: 0,
+          notes_mb: 0,
+          diary_media_mb: 0,
+          diary_text_mb: 0
+        }
       };
     }
   }
 
   /**
-   * Format file size for display
+   * Get module-specific detailed data using existing backend APIs
+   * Only use APIs that are already cached by backend
    */
-  formatFileSize(sizeInMB: number): string {
-    if (sizeInMB < 1) {
-      return `${Math.round(sizeInMB * 1024)} KB`;
-    } else if (sizeInMB < 1024) {
-      return `${sizeInMB.toFixed(1)} MB`;
-    } else {
-      return `${(sizeInMB / 1024).toFixed(2)} GB`;
+  async getModuleDashboardData(module: string): Promise<any> {
+    try {
+      switch (module) {
+        case 'todos':
+          return await this.fetchTodosDetailedData();
+        case 'diary':
+          return await this.fetchDiaryDetailedData();
+        default:
+          console.warn(`Module ${module} doesn't have cached analytics endpoints yet`);
+          return {};
+      }
+    } catch (error) {
+      console.error(`Failed to fetch ${module} dashboard data:`, error);
+      return {};
     }
   }
 
   /**
-   * Calculate percentage for completion stats
+   * Force refresh by invalidating all caches
    */
-  calculateCompletionPercentage(completed: number, total: number): number {
-    if (total === 0) return 0;
-    return Math.round((completed / total) * 100);
-  }
-
-  /**
-   * Get streak status message
-   */
-  getStreakStatus(streak: number): string {
-    if (streak === 0) {
-      return "No streak yet";
-    } else if (streak === 1) {
-      return "1 day streak";
-    } else if (streak < 7) {
-      return `${streak} days streak`;
-    } else if (streak < 30) {
-      return `${streak} days streak 🔥`;
-    } else {
-      return `${streak} days streak 🚀`;
-    }
-  }
-
-  /**
-   * Get priority color for overdue todos
-   */
-  getOverdueColor(overdue: number): string {
-    if (overdue === 0) return 'green';
-    if (overdue <= 2) return 'orange';
-    return 'red';
-  }
-
-  /**
-   * Check if stats are recent (within last hour)
-   */
-  areStatsRecent(lastUpdated: string): boolean {
-    const updateTime = new Date(lastUpdated);
-    const now = new Date();
-    const diffInMinutes = (now.getTime() - updateTime.getTime()) / (1000 * 60);
-    return diffInMinutes < 60;
-  }
-
-  /**
-   * Format last updated time
-   */
-  formatLastUpdated(lastUpdated: string): string {
-    const updateTime = new Date(lastUpdated);
-    const now = new Date();
-    const diffInMinutes = Math.floor((now.getTime() - updateTime.getTime()) / (1000 * 60));
+  async forceRefresh() {
+    console.log(`🔄 FORCE REFRESH: Invalidating all caches`);
     
-    if (diffInMinutes < 1) {
-      return 'Just now';
-    } else if (diffInMinutes < 60) {
-      return `${diffInMinutes} minute${diffInMinutes === 1 ? '' : 's'} ago`;
-    } else {
-      const diffInHours = Math.floor(diffInMinutes / 60);
-      return `${diffInHours} hour${diffInHours === 1 ? '' : 's'} ago`;
+    // Invalidate dashboard cache
+    await dashboardCache.invalidatePattern('dashboard');
+    
+    // Invalidate backend cache
+    try {
+      await fetch('/api/v1/dashboard/cache/invalidate', { method: 'POST' });
+      console.log(`✅ Backend cache invalidated`);
+    } catch (error) {
+      console.error('Failed to invalidate backend cache:', error);
+    }
+  }
+
+  /**
+   * Get cache statistics for debugging
+   */
+  getCacheStats() {
+    return dashboardCache.getStats();
+  }
+
+  /**
+   * Log cache statistics
+   */
+  logCacheStats() {
+    dashboardCache.logStats();
+  }
+
+  // Module-specific data fetchers using existing backend APIs
+  private async fetchTodosDetailedData(): Promise<any> {
+    try {
+      const response = await fetch('/api/v1/todos/stats');
+      if (!response.ok) {
+        throw new Error(`Todos stats API returned ${response.status}`);
+      }
+      const stats = await response.json();
+      
+      return {
+        stats,
+        completionRate: stats.total > 0 ? (stats.completed / stats.total) * 100 : 0,
+        // Add more calculated metrics as needed
+      };
+    } catch (error) {
+      console.error('Failed to fetch todos detailed data:', error);
+      return {};
+    }
+  }
+
+  private async fetchDiaryDetailedData(): Promise<any> {
+    try {
+      const [habitsResponse, wellnessResponse] = await Promise.all([
+        fetch('/api/v1/diary/habits/analytics'),
+        fetch('/api/v1/diary/habits/wellness-score-analytics')
+      ]);
+
+      const [habits, wellness] = await Promise.all([
+        habitsResponse.ok ? habitsResponse.json() : {},
+        wellnessResponse.ok ? wellnessResponse.json() : {}
+      ]);
+
+      return {
+        habits,
+        wellness,
+        wellnessScore: wellness.overall_wellness_score || 0,
+        habitStreaks: habits.streaks || {}
+      };
+    } catch (error) {
+      console.error('Failed to fetch diary detailed data:', error);
+      return {};
     }
   }
 }
 
 export const dashboardService = new DashboardService();
-export default dashboardService; 
+export default dashboardService;

@@ -12,6 +12,7 @@ import { IconUpload, IconLink } from '@tabler/icons-react';
 import { FileUploadModal } from './FileUploadModal';
 import { AudioRecorderModal } from './AudioRecorderModal';
 import FileList from './FileList';
+import { projectApi } from '../../services/projectApi';
 
 interface FileItem {
   uuid: string;
@@ -22,6 +23,7 @@ interface FileItem {
   description?: string;
   created_at: string;
   media_type?: string;
+  is_encrypted?: boolean;  // NEW: Track if file is encrypted (for diary files)
 }
 
 interface FileSectionProps {
@@ -108,6 +110,32 @@ export const FileSection: React.FC<FileSectionProps> = ({
         is_exclusive: isExclusive 
       });
     }
+  };
+
+  // Preflight check for exclusivity checkbox
+  const handleExclusivityChange = async (checked: boolean) => {
+    if (checked && files.length > 0) {
+      // Check each existing file for conflicts
+      for (const file of files) {
+        try {
+          const preflight = await projectApi.getDeletePreflight('document', file.uuid);
+          if (preflight.linkCount > 0) {
+            const confirmed = window.confirm(
+              `⚠️ Warning: "${file.filename || file.original_name}" is currently used in ${preflight.linkCount} other place(s).\n\n` +
+              `${preflight.warningMessage}\n\n` +
+              `Making it exclusive will hide it from those views. Continue?`
+            );
+            if (!confirmed) {
+              return; // Don't change exclusivity
+            }
+          }
+        } catch (error) {
+          console.error('Error checking file conflicts:', error);
+          // Continue anyway - don't block user if preflight fails
+        }
+      }
+    }
+    setIsExclusive(checked);
   };
 
   const handleUpload = async (selectedFiles: File[], metadata: { title?: string; description?: string; tags?: string[]; is_exclusive?: boolean }) => {
@@ -291,7 +319,7 @@ export const FileSection: React.FC<FileSectionProps> = ({
             <input 
               type="checkbox" 
               checked={isExclusive} 
-              onChange={(e) => setIsExclusive(e.target.checked)}
+              onChange={(e) => handleExclusivityChange(e.target.checked)}
               style={{ margin: 0 }}
             />
             <span style={{ fontSize: '0.9rem', color: '#666' }}>

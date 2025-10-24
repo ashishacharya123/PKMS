@@ -63,11 +63,30 @@ export class ProjectApiService {
    */
   static async linkDocuments(
     projectUuid: string, 
-    documentUuids: string[]
+    documentUuids: string[],
+    areItemsExclusive: boolean = false
   ): Promise<void> {
+    // --- PREFLIGHT CHECK ---
+    if (areItemsExclusive) {
+      for (const docUuid of documentUuids) {
+        const preflight = await this.getDeletePreflight('document', docUuid);
+        if (preflight.linkCount > 0) {
+          const confirmed = window.confirm(
+            `⚠️ Warning: Document is used in ${preflight.linkCount} other place(s).\n\n` +
+            `${preflight.warningMessage}\n\n` +
+            `Making it exclusive to this project will hide it from other views. Continue?`
+          );
+          if (!confirmed) {
+            throw new Error("User cancelled linking due to exclusivity conflict.");
+          }
+        }
+      }
+    }
+    // --- END PREFLIGHT ---
+
     await apiService.post(
       `/projects/${projectUuid}/documents:link`,
-      { documentUuids }
+      { documentUuids, areItemsExclusive }
     );
   }
 
@@ -107,7 +126,7 @@ export class ProjectApiService {
     const response = await apiService.get(
       `/delete-preflight/${itemType}/${itemUuid}/delete-preflight`
     );
-    return response as DeletePreflightResponse;
+    return response.data as DeletePreflightResponse;
   }
 
   /**

@@ -1,35 +1,31 @@
 /**
  * Tag TypeScript interfaces matching backend schemas exactly
+ * NO COLOR - removed per user decision (not needed for 100+ tags)
  */
 
 export interface Tag {
   uuid: string;
   name: string;
-  // NO color field - backend removed for professional management
+  description: string | null;
   usageCount: number;
-  // NO moduleType - tags are GLOBAL (backend removed)
+  isSystem: boolean;  // System tags can't be deleted
+  isArchived: boolean;  // Soft delete support
+  createdAt: string;
 }
 
 export interface TagResponse {
   uuid: string;
   name: string;
-  // NO color field - backend removed for professional management
   usageCount: number;
+  // NO color field
 }
 
-export interface TagAutocompleteResponse {
-  uuid: string;
-  name: string;
-  // NO color field - backend removed for professional management
-  usageCount: number;
-}
+// TagAutocompleteResponse DELETED - not needed (endpoint returns List[TagResponse] directly)
 
 export interface CreateTagRequest {
   name: string;
-  // NO color field - backend removed for professional management
 }
 
 export interface UpdateTagRequest {
   name?: string;
-  // NO color field - backend removed for professional management
 }

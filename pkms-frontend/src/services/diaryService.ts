@@ -211,11 +211,11 @@ class DiaryService {
         });
       }
 
-      // Step 1: Upload file as Document using core chunk upload service
+      // Step 1: Upload chunks
       const uploadFileId = await coreUploadService.uploadFile(fileToUpload, {
-        module: 'documents', // Upload as document, not diary
+        module: 'documents',
         onProgress: onProgress ? (progress) => {
-          const baseProgress = key ? 10 : 0; // Reserve 0-10% for encryption if encrypting
+          const baseProgress = key ? 10 : 0;
           const uploadProgress = baseProgress + (progress.progress * (85 - baseProgress) / 100);
           onProgress({ 
             progress: Math.round(uploadProgress), 
@@ -225,35 +225,25 @@ class DiaryService {
       });
 
       if (onProgress) {
-        onProgress({ progress: 90, status: 'Creating document...' });
+        onProgress({ progress: 90, status: 'Finalizing...' });
       }
 
-      // Step 2: Commit the upload as a Document
-      const commitResponse = await apiService.post('/api/v1/documents/commit', {
+      // Step 2: ATOMIC commit - backend handles document creation + diary linking
+      const document = await apiService.post('/api/v1/documents/commit', {
         file_id: uploadFileId,
-        title: file.name, // Use filename as title
+        title: file.name,
         description: caption || null,
-        tags: [], // No tags for diary files
-        project_ids: [], // No project associations
-        is_project_exclusive: false,
-        is_diary_exclusive: true, // Hide from main document list (diary-only)
+        tags: [],
+        diary_entry_uuid: entryUuid,  // Backend creates document_diary association
+        is_encrypted: key !== undefined,  // Track encryption status
         original_name: file.name
-      });
-
-      if (onProgress) {
-        onProgress({ progress: 95, status: 'Linking to diary...' });
-      }
-
-      // Step 3: Link the document to the diary entry
-      await apiService.post(`${this.baseUrl}/entries/${entryUuid}/documents:link`, {
-        document_uuids: [(commitResponse.data as any).uuid]
       });
 
       if (onProgress) {
         onProgress({ progress: 100, status: 'Complete' });
       }
 
-      return commitResponse.data;
+      return document.data;
     } catch (error) {
       console.error('❌ Diary file upload failed:', error);
       throw error;
@@ -332,6 +322,35 @@ class DiaryService {
   async reorderFiles(entryUuid: string, documentUuids: string[]): Promise<void> {
     await apiService.patch(`${this.baseUrl}/entries/${entryUuid}/documents/reorder`, {
       document_uuids: documentUuids
+    });
+  }
+
+  async linkExistingDocument(
+    entryUuid: string,
+    documentUuid: string,
+    isEncrypted: boolean = false
+  ): Promise<void> {
+    // CRITICAL: Check for conflicts BEFORE linking
+    // Linking to diary makes document exclusive (hidden from other views)
+    const { projectApi } = await import('./projectApi');
+    const preflight = await projectApi.getDeletePreflight('document', documentUuid);
+    
+    if (preflight.linkCount > 0) {
+      const confirmed = window.confirm(
+        `⚠️ Warning: This document is currently used in ${preflight.linkCount} other place(s).\n\n` +
+        `${preflight.warningMessage}\n\n` +
+        `Linking it to your diary will make it exclusive and hide it from those views. Continue?`
+      );
+      
+      if (!confirmed) {
+        return; // User canceled - no changes made
+      }
+    }
+
+    // Proceed with linking (with is_encrypted flag)
+    await apiService.post(`${this.baseUrl}/entries/${entryUuid}/documents:link`, {
+      document_uuids: [documentUuid],
+      is_encrypted: isEncrypted
     });
   }
 
@@ -492,6 +511,17 @@ class DiaryService {
   ): Promise<any> {
     const response = await apiService.post(
       `${this.baseUrl}/daily-metadata/${date}/habits/${habitType}`,
+      data
+    );
+    return response.data;
+  }
+
+  async updateDailyHabitsUnified(
+    date: string,
+    data: { default_habits: Record<string, number>, defined_habits: Record<string, number> }
+  ): Promise<any> {
+    const response = await apiService.post(
+      `${this.baseUrl}/daily-metadata/${date}/habits`,  // No habit_type in URL
       data
     );
     return response.data;

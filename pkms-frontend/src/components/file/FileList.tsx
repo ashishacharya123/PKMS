@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Pause, Download, Trash2, Image, FileText, Mic, Video, Unlink, GripVertical } from 'lucide-react';
+import { IconPlayerPlay, IconPlayerPause, IconDownload, IconTrash, IconPhoto, IconFileText, IconMicrophone, IconVideo, IconUnlink, IconGripVertical } from '@tabler/icons-react';
 import { apiService } from '../../services/api';
+import { diaryService } from '../../services/diaryService';
+import { fileService } from '../../services/fileCacheService';
 import { reorderArray, getDragPreviewStyles, getDropZoneStyles } from '../../utils/dragAndDrop';
 
 interface FileItem {
@@ -12,6 +14,7 @@ interface FileItem {
   description?: string;
   created_at: string;
   media_type?: string;
+  is_encrypted?: boolean;  // NEW: Track if file is encrypted (for diary files)
   // Optional: relative path in storage (if available from backend)
   file_path?: string;
   // Optional: direct or relative API path to thumbnail provided by backend
@@ -68,20 +71,6 @@ export const FileList: React.FC<FileListProps> = ({
     return `/${currentModule}/files/${fileUuid}/download`;
   };
 
-  const getThumbnailUrl = (file: FileItem, size: 'small' | 'medium' | 'large' = 'small'): string | null => {
-    // Prefer explicit thumbnail_path from backend DB if present
-    if (file.thumbnail_path) {
-      return file.thumbnail_path;
-    }
-    // Else construct from file_path via thumbnails router
-    if (file.file_path) {
-      const basePath = file.file_path.replace(/\\/g, '/');
-      return `/api/v1/thumbnails/file/${basePath}?size=${size}`;
-    }
-    // No thumbnail available
-    return null;
-  };
-
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -90,17 +79,21 @@ export const FileList: React.FC<FileListProps> = ({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const getFileIcon = (mimeType: string, mediaType?: string) => {
-    if (mediaType === 'voice' || mimeType.startsWith('audio/')) {
-      return <Mic className="w-5 h-5 text-green-500" />;
+  const getModuleFromProps = (): 'documents' | 'archive' | 'diary' => {
+    switch (module) {
+      case 'documents':
+        return 'documents';
+      case 'archive':
+        return 'archive';
+      case 'diary':
+        return 'diary';
+      case 'notes':
+        return 'documents'; // Notes use documents cache
+      case 'projects':
+        return 'documents'; // Projects use documents cache
+      default:
+        return 'documents';
     }
-    if (mimeType.startsWith('image/')) {
-      return <Image className="w-5 h-5 text-blue-500" />;
-    }
-    if (mimeType.startsWith('video/')) {
-      return <Video className="w-5 h-5 text-purple-500" />;
-    }
-    return <FileText className="w-5 h-5 text-gray-500" />;
   };
 
   const isAudioFile = (mimeType: string, mediaType?: string) => {
@@ -157,20 +150,77 @@ export const FileList: React.FC<FileListProps> = ({
 
   const handleDownload = async (file: FileItem) => {
     try {
-      const downloadUrl = getDownloadUrl(module, file.uuid);
-      const response = await apiService.get(downloadUrl, {
-        responseType: 'blob',
-      });
+      // Smart decryption: Check if file is encrypted and handle accordingly
+      if (module === 'diary' && file.is_encrypted) {
+        // For encrypted diary files, use diaryService with password prompt
+        const password = prompt('This file is encrypted. Please enter your diary password:');
+        if (!password) {
+          return; // User cancelled
+        }
+        
+        // Get encryption key from password
+        const { key } = await diaryService.unlockSession(password);
+        if (!key) {
+          alert('Invalid password');
+          return;
+        }
+        
+        // Download with decryption
+        const blob = await diaryService.downloadFile(file.uuid, key, file.original_name);
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.original_name;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else {
+        // Try to get from cache first
+        const cacheKey = file.uuid;
+        const moduleType = getModuleFromProps();
+        
+        let blob: Blob | null = null;
+        
+        try {
+          // Check cache first
+          blob = await fileService.getCachedFile(cacheKey, moduleType);
+          if (blob) {
+            console.log(`🎯 FILE CACHE HIT: ${file.original_name}`);
+          }
+        } catch (error) {
+          console.warn('Failed to get cached file:', error);
+        }
 
-      const blob = response.data as Blob;
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.original_name;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+        if (!blob) {
+          // Download and cache
+          const downloadUrl = getDownloadUrl(module, file.uuid);
+          const response = await apiService.get(downloadUrl, {
+            responseType: 'blob',
+          });
+          blob = response.data as Blob;
+          
+          // Cache the file for future use
+          try {
+            await fileService.downloadFile(downloadUrl, moduleType, {
+              cacheKey,
+              maxSize: 50 // 50MB limit
+            });
+            console.log(`✅ FILE CACHED: ${file.original_name}`);
+          } catch (error) {
+            console.warn('Failed to cache file:', error);
+          }
+        }
+
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.original_name;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      }
 
     } catch (error) {
       console.error('Download error:', error);
@@ -277,27 +327,11 @@ export const FileList: React.FC<FileListProps> = ({
           <div className="flex items-center flex-1 min-w-0">
             {enableDragDrop && (
               <div className="mr-2 cursor-grab">
-                <GripVertical className="w-4 h-4 text-gray-400" />
+                <IconGripVertical className="w-4 h-4 text-gray-400" />
               </div>
             )}
             {/* Thumbnail or fallback icon */}
-            {(() => {
-              const thumbUrl = getThumbnailUrl(file, 'small');
-              if (thumbUrl && file.mime_type.startsWith('image/')) {
-                return (
-                  <img
-                    src={thumbUrl}
-                    alt={file.original_name}
-                    className="w-10 h-10 rounded object-cover bg-gray-100 border border-gray-200"
-                    onError={(e) => {
-                      // Fallback to icon on error
-                      (e.currentTarget as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
-                );
-              }
-              return getFileIcon(file.mime_type, file.media_type);
-            })()}
+            <ThumbnailRenderer file={file} module={module} />
             <div className="ml-3 flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-900 truncate">
                 {file.original_name}
@@ -324,9 +358,9 @@ export const FileList: React.FC<FileListProps> = ({
                 title={playingAudio === file.uuid ? 'Pause' : 'Play'}
               >
                 {playingAudio === file.uuid ? (
-                  <Pause className="w-4 h-4" />
+                  <IconPlayerPause className="w-4 h-4" />
                 ) : (
-                  <Play className="w-4 h-4" />
+                  <IconPlayerPlay className="w-4 h-4" />
                 )}
               </button>
             )}
@@ -336,7 +370,7 @@ export const FileList: React.FC<FileListProps> = ({
               className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
               title="Download"
             >
-              <Download className="w-4 h-4" />
+              <IconDownload className="w-4 h-4" />
             </button>
             
             {showUnlink ? (
@@ -345,7 +379,7 @@ export const FileList: React.FC<FileListProps> = ({
                 className="p-1 text-gray-400 hover:text-orange-600 transition-colors"
                 title="Unlink from project"
               >
-                <Unlink className="w-4 h-4" />
+                <IconUnlink className="w-4 h-4" />
               </button>
             ) : (
               <button
@@ -353,7 +387,7 @@ export const FileList: React.FC<FileListProps> = ({
                 className="p-1 text-gray-400 hover:text-red-600 transition-colors"
                 title="Delete"
               >
-                <Trash2 className="w-4 h-4" />
+                <IconTrash className="w-4 h-4" />
               </button>
             )}
           </div>
@@ -363,6 +397,112 @@ export const FileList: React.FC<FileListProps> = ({
       <audio ref={audioRef} style={{ display: 'none' }} preload="none" />
     </div>
   );
+};
+
+// Thumbnail renderer component with caching
+const ThumbnailRenderer: React.FC<{ file: FileItem; module: string }> = ({ file, module }) => {
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const getThumbnailUrl = async (file: FileItem, size: 'small' | 'medium' | 'large' = 'small'): Promise<string | null> => {
+    // First check if we have a cached thumbnail
+    const cacheKey = `${file.uuid}_thumbnail`;
+    const module = getModuleFromProps();
+    
+    try {
+      const cachedThumbnail = await fileService.getThumbnail(cacheKey, module);
+      if (cachedThumbnail) {
+        console.log(`🎯 THUMBNAIL CACHE HIT: ${file.original_name}`);
+        return URL.createObjectURL(cachedThumbnail);
+      }
+    } catch (error) {
+      console.warn('Failed to get cached thumbnail:', error);
+    }
+
+    // Fallback to backend thumbnail
+    if (file.thumbnail_path) {
+      return file.thumbnail_path;
+    }
+    if (file.file_path) {
+      const basePath = file.file_path.replace(/\\/g, '/');
+      return `/api/v1/thumbnails/file/${basePath}?size=${size}`;
+    }
+    return null;
+  };
+
+  const getModuleFromProps = (): 'documents' | 'archive' | 'diary' => {
+    switch (module) {
+      case 'documents':
+        return 'documents';
+      case 'archive':
+        return 'archive';
+      case 'diary':
+        return 'diary';
+      case 'notes':
+        return 'documents'; // Notes use documents cache
+      case 'projects':
+        return 'documents'; // Projects use documents cache
+      default:
+        return 'documents';
+    }
+  };
+
+  const getFileIcon = (mimeType: string, mediaType?: string) => {
+    if (mediaType === 'voice' || mimeType.startsWith('audio/')) {
+      return <IconMicrophone className="w-5 h-5 text-green-500" />;
+    }
+    if (mimeType.startsWith('image/')) {
+      return <IconPhoto className="w-5 h-5 text-blue-500" />;
+    }
+    if (mimeType.startsWith('video/')) {
+      return <IconVideo className="w-5 h-5 text-purple-500" />;
+    }
+    return <IconFileText className="w-5 h-5 text-gray-500" />;
+  };
+
+  useEffect(() => {
+    const loadThumbnail = async () => {
+      if (!file.mime_type.startsWith('image/')) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const url = await getThumbnailUrl(file, 'small');
+        setThumbUrl(url);
+      } catch (error) {
+        console.warn('Failed to load thumbnail:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadThumbnail();
+  }, [file]);
+
+  if (isLoading) {
+    return (
+      <div className="w-10 h-10 rounded bg-gray-100 border border-gray-200 animate-pulse flex items-center justify-center">
+        <IconPhoto className="w-4 h-4 text-gray-400" />
+      </div>
+    );
+  }
+
+  if (thumbUrl && file.mime_type.startsWith('image/')) {
+    return (
+      <img
+        src={thumbUrl}
+        alt={file.original_name}
+        className="w-10 h-10 rounded object-cover bg-gray-100 border border-gray-200"
+        onError={(e) => {
+          // Fallback to icon on error
+          (e.currentTarget as HTMLImageElement).style.display = 'none';
+        }}
+      />
+    );
+  }
+
+  return getFileIcon(file.mime_type, file.media_type);
 };
 
 export default FileList;

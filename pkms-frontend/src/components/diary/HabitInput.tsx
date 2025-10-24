@@ -98,7 +98,7 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
       };
 
       // Call the service with the correct, unified payload
-      const result = await diaryService.updateDailyHabits('unified', dateKey, payload);
+      const result = await diaryService.updateDailyHabitsUnified(dateKey, payload);
       
       if (result.streaks) {
         setDefinedStreaks(result.streaks);

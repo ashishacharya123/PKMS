@@ -280,7 +280,7 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                   )}
 
                   {/* Time tracking removed - backend no longer supports estimate_minutes */}
-                    
+                  <Group gap={4}>
                   </Group>
 
                   <Menu>

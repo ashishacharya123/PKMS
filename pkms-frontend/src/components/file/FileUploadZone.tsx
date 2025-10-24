@@ -5,10 +5,15 @@
  */
 
 import { Group, Text, Stack, Button, Progress } from '@mantine/core';
-import { Dropzone } from '@mantine/dropzone';
+import { Dropzone, FileRejection } from '@mantine/dropzone';
 import { IconUpload, IconX, IconFile, IconPhoto, IconFileText, IconMusic, IconVideo } from '@tabler/icons-react';
 import { useState, useCallback } from 'react';
 import { notifications } from '@mantine/notifications';
+
+interface DropzoneError {
+  code: string;
+  message: string;
+}
 
 interface FileUploadZoneProps {
   accept?: string[];
@@ -146,11 +151,11 @@ export function FileUploadZone({
     <Stack gap="md">
       <Dropzone
         onDrop={handleDrop}
-        onReject={(files: any[]) => {
-          files.forEach((file: any) => {
+        onReject={(files: FileRejection[]) => {
+          files.forEach((file: FileRejection) => {
             notifications.show({
               title: 'File Rejected',
-              message: file.errors.map((e: any) => e.message).join(', '),
+              message: file.errors.map((e: DropzoneError) => e.message).join(', '),
               color: 'red',
             });
           });

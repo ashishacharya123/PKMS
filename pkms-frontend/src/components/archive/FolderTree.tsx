@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Box, Text, Collapse, Loader, TextInput, Button, Group } from '@mantine/core';
 import { IconFolder, IconFolderOpen, IconChevronRight } from '@tabler/icons-react';
+import { notifications } from '@mantine/notifications';
 import { useArchiveStore } from '../../stores/archiveStore';
 import { FolderTree as FolderTreeType } from '../../types/archive';
 
@@ -26,7 +27,12 @@ const FolderNode: React.FC<FolderNodeProps> = ({ node, onSelect, selectedId, lev
         // For now, we'll just set a flag to indicate children exist
         setChildren([{ folder: node.folder, children: [], items: [] }]);
       } catch (error) {
-        console.error('Failed to load folder children:', error);
+        notifications.show({
+          title: 'Error',
+          message: 'Failed to load folder children',
+          color: 'red',
+          autoClose: 5000
+        });
       } finally {
         setIsLoading(false);
       }
@@ -126,16 +132,9 @@ export const FolderTree: React.FC<FolderTreeProps> = ({ onSelect, selectedId }) 
   const isLoading = useArchiveStore(state => state.isLoading);
 
   const [search, setSearch] = useState('');
-  const [lastUpdate, setLastUpdate] = useState(Date.now());
-
   useEffect(() => {
     loadFolders();
   }, [loadFolders]);
-
-  // Force re-render when tree changes
-  useEffect(() => {
-    setLastUpdate(Date.now());
-  }, [folderTree]);
 
   const handleSearch = async () => {
     if (search.trim()) {
@@ -197,9 +196,9 @@ export const FolderTree: React.FC<FolderTreeProps> = ({ onSelect, selectedId }) 
           {isLoading && <Loader size="xs" mt="sm" />}
         </Box>
       ) : (
-        (folderTree || []).map((node: FolderTreeType, index) => (
+        (folderTree || []).map((node: FolderTreeType) => (
           <FolderNode
-            key={`${node.folder.uuid}-${lastUpdate}-${index}`}
+            key={node.folder.uuid}
             node={node}
             onSelect={onSelect}
             selectedId={selectedId}

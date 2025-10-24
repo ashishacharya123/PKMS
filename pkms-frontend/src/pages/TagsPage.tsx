@@ -33,7 +33,6 @@ import { useDisclosure } from '@mantine/hooks';
 
 export function TagsPage() {
   const {
-    tags,
     isLoading,
     error,
     searchQuery,
@@ -52,6 +51,8 @@ export function TagsPage() {
   
   const [createModalOpened, { open: openCreateModal, close: closeCreateModal }] = useDisclosure(false);
   const [editModalOpened, { open: openEditModal, close: closeEditModal }] = useDisclosure(false);
+  const [deleteModalOpened, { open: openDeleteModal, close: closeDeleteModal }] = useDisclosure(false);
+  const [tagToDelete, setTagToDelete] = useState<{ uuid: string; name: string; usageCount: number } | null>(null);
 
   useEffect(() => {
     loadTags();
@@ -108,11 +109,14 @@ export function TagsPage() {
     openEditModal();
   };
 
-  const getTagUsageCount = (tagName: string): number => {
-    // This would typically come from the backend
-    // For now, return a mock count
-    return Math.floor(Math.random() * 10);
+  const confirmDeleteTag = async () => {
+    if (!tagToDelete) return;
+    await handleDeleteTag(tagToDelete.uuid, tagToDelete.name);
+    closeDeleteModal();
+    setTagToDelete(null);
   };
+
+  // getTagUsageCount function deleted - using real tag.usageCount from backend
 
   return (
     <Container size="lg" py="md">
@@ -180,7 +184,7 @@ export function TagsPage() {
                       </Table.Td>
                       <Table.Td>
                         <Badge variant="light" color="blue">
-                          {getTagUsageCount(tag.name)} items
+                          {tag.usageCount} items
                         </Badge>
                       </Table.Td>
                       <Table.Td>
@@ -203,7 +207,14 @@ export function TagsPage() {
                             variant="light"
                             color="red"
                             size="sm"
-                            onClick={() => handleDeleteTag(tag.uuid, tag.name)}
+                            onClick={() => {
+                              setTagToDelete({ 
+                                uuid: tag.uuid, 
+                                name: tag.name,
+                                usageCount: tag.usageCount 
+                              });
+                              openDeleteModal();
+                            }}
                             title="Delete"
                           >
                             <IconTrash size={14} />
@@ -274,6 +285,30 @@ export function TagsPage() {
               disabled={!editTagName.trim()}
             >
               Update Tag
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        opened={deleteModalOpened}
+        onClose={closeDeleteModal}
+        title="Confirm Deletion"
+        centered
+        size="sm"
+      >
+        <Stack gap="md">
+          <Text>
+            Are you sure you want to delete the tag "<strong>{tagToDelete?.name}</strong>"?
+            This will remove it from <strong>{tagToDelete?.usageCount || 0} items</strong>.
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="light" onClick={closeDeleteModal}>
+              Cancel
+            </Button>
+            <Button color="red" onClick={confirmDeleteTag}>
+              Delete Tag
             </Button>
           </Group>
         </Stack>

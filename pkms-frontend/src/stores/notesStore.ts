@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { notesService } from '../services/notesService';
-import { Note, NoteSummary, CreateNoteRequest, UpdateNoteRequest } from '../types/note';
+import { Note, NoteSummary, CreateNoteRequest, UpdateNoteRequest } from '../services/notesService';
+import { notesCacheAware } from '../services/cacheAwareService';
 
 interface NotesState {
   // Data
@@ -66,13 +67,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     set({ isLoading: true, error: null, offset: 0 });
     
     try {
-      const notes = await notesService.listNotes({
-        tag: state.currentTag || undefined,
-        search: state.searchQuery || undefined,
-        archived: state.showArchived,
-        limit: state.limit,
-        offset: 0
-      });
+      // 🎯 AUTOMATIC: Cache checking, API calls, and revalidation handled automatically
+      const notes = await notesCacheAware.getNotes();
       
       set({ 
         notes, 
@@ -103,8 +99,26 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         offset: state.offset
       });
       
+      // Convert service NoteSummary to types NoteSummary
+      const convertedNotes: NoteSummary[] = newNotes.map(note => ({
+        uuid: note.uuid,
+        name: note.title, // BaseItem requires 'name'
+        title: note.title,
+        content: note.content || '',
+        description: note.description,
+        fileCount: note.fileCount,
+        isArchived: note.isArchived,
+        isFavorite: note.isFavorite || false, // BaseItem requires 'isFavorite'
+        isProjectExclusive: note.isProjectExclusive ?? false,
+        createdBy: note.createdBy || 'system', // BaseItem requires 'createdBy'
+        projects: note.projects || [],
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+        tags: note.tags || []
+      }));
+      
       set({ 
-        notes: [...state.notes, ...newNotes],
+        notes: [...state.notes, ...convertedNotes],
         isLoading: false,
         hasMore: newNotes.length === state.limit,
         offset: state.offset + newNotes.length
@@ -121,8 +135,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const note = await notesService.getNote(uuid);
-      set({ currentNote: note, isLoading: false });
+      const serviceNote = await notesService.getNote(uuid);
+      
+      // Use service Note directly - no conversion needed
+      set({ currentNote: serviceNote, isLoading: false });
     } catch (error) {
       set({ 
         error: error instanceof Error ? error.message : 'Failed to load note', 
@@ -131,7 +147,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
   
-  createNote: async (data: CreateNoteRequest) => {
+  createNote: async (data: CreateNoteRequest): Promise<Note | null> => {
     set({ isCreating: true, error: null });
     
     try {
@@ -140,21 +156,24 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       // Convert Note to NoteSummary for the list
       const noteSummary: NoteSummary = {
         uuid: note.uuid,
+        name: note.title, // BaseItem requires 'name'
         title: note.title,
-        file_count: note.file_count,
-        is_favorite: note.is_favorite,
-        is_archived: note.is_archived,
-        isExclusiveMode: (note as any).isExclusiveMode ?? false,
-        created_at: note.created_at,
-        updated_at: note.updated_at,
-        tags: note.tags,
-        preview: note.content.substring(0, 200) + (note.content.length > 200 ? '...' : ''),
-        projects: (note as any).projects ?? []
+        content: note.content,
+        description: note.description,
+        fileCount: note.fileCount,
+        isArchived: note.isArchived,
+        isFavorite: note.isFavorite || false, // BaseItem requires 'isFavorite'
+        isProjectExclusive: note.isProjectExclusive ?? false,
+        createdBy: note.createdBy || 'system', // BaseItem requires 'createdBy'
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+        tags: note.tags || [],
+        projects: note.projects ?? []
       };
       
       // Add to notes list if it matches current filters
       const state = get();
-      const shouldAdd = (!state.currentTag || note.tags.includes(state.currentTag)) &&
+      const shouldAdd = (!state.currentTag || (note.tags || []).includes(state.currentTag)) &&
                        (!state.searchQuery || note.title.toLowerCase().includes(state.searchQuery.toLowerCase()));
       
       if (shouldAdd) {
@@ -166,6 +185,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         set({ isCreating: false });
       }
       
+      // Use service Note directly - no conversion needed
       return note;
     } catch (error) {
       set({ 
@@ -176,7 +196,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
   
-  updateNote: async (uuid: string, data: UpdateNoteRequest) => {
+  updateNote: async (uuid: string, data: UpdateNoteRequest): Promise<Note | null> => {
     set({ isUpdating: true, error: null });
     
     try {
@@ -185,15 +205,18 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       // Convert Note to NoteSummary for the list
       const noteSummary: NoteSummary = {
         uuid: updatedNote.uuid,
+        name: updatedNote.title, // BaseItem requires 'name'
         title: updatedNote.title,
-        file_count: updatedNote.file_count,
-        is_favorite: updatedNote.is_favorite,
-        is_archived: updatedNote.is_archived,
-        isExclusiveMode: updatedNote.isExclusiveMode ?? false,
-        created_at: updatedNote.created_at,
-        updated_at: updatedNote.updated_at,
-        tags: updatedNote.tags,
-        preview: updatedNote.content ? updatedNote.content.substring(0, 200) + (updatedNote.content.length > 200 ? '...' : '') : '',
+        content: updatedNote.content,
+        description: updatedNote.description,
+        fileCount: updatedNote.fileCount,
+        isArchived: updatedNote.isArchived,
+        isFavorite: updatedNote.isFavorite || false, // BaseItem requires 'isFavorite'
+        isProjectExclusive: updatedNote.isProjectExclusive ?? false,
+        createdBy: updatedNote.createdBy || 'system', // BaseItem requires 'createdBy'
+        createdAt: updatedNote.createdAt,
+        updatedAt: updatedNote.updatedAt,
+        tags: updatedNote.tags || [],
         projects: updatedNote.projects ?? []
       };
       
@@ -206,6 +229,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         isUpdating: false
       }));
       
+      // Use service Note directly - no conversion needed
       return updatedNote;
     } catch (error) {
       set({ 

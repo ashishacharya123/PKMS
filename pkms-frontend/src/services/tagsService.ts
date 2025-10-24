@@ -4,7 +4,8 @@
  */
 
 import { BaseService } from './BaseService';
-import { Tag, TagAutocompleteResponse, CreateTagRequest, UpdateTagRequest } from '../types/tag';
+import { apiService } from './api';
+import { Tag, TagResponse, CreateTagRequest, UpdateTagRequest } from '../types/tag';
 
 class TagsService extends BaseService<Tag, CreateTagRequest, UpdateTagRequest> {
   constructor() {
@@ -19,20 +20,28 @@ class TagsService extends BaseService<Tag, CreateTagRequest, UpdateTagRequest> {
   }
 
   /**
-   * Get tags for autocomplete
+   * Get tags for autocomplete using the upgraded /autocomplete endpoint
+   * Backend now returns List[TagResponse] directly (not wrapped)
    */
-  async getAutocompleteTags(query?: string): Promise<TagAutocompleteResponse[]> {
-    const params = query ? { search: query } : {};
-    const response = await this.search(params);
-    return response as TagAutocompleteResponse[];
+  async getAutocompleteTags(query: string): Promise<TagResponse[]> {
+    const endpoint = `${this.baseUrl}/autocomplete`;
+    const response = await apiService.get<TagResponse[]>(endpoint, { 
+      params: { q: query, limit: 20 } 
+    });
+    
+    // Backend returns List[TagResponse] directly
+    return response.data;
   }
 
   /**
-   * Get tags by usage count
+   * Get most popular tags (for quick filters widget)
    */
-  async getPopularTags(limit: number = 10): Promise<Tag[]> {
-    const response = await this.getAll({ sortBy: 'usageCount', sortOrder: 'desc', limit });
-    return response;
+  async getPopularTags(limit: number = 10): Promise<TagResponse[]> {
+    const endpoint = `${this.baseUrl}/autocomplete`;
+    const response = await apiService.get<TagResponse[]>(endpoint, { 
+      params: { q: '', limit }  // Empty query returns most-used tags
+    });
+    return response.data;
   }
 
   /**

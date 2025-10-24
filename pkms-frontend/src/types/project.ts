@@ -16,6 +16,24 @@ export interface ProjectBadge {
   isDeleted: boolean;  // True if project was deleted (using snapshot name)
 }
 
+export interface ProjectCreate extends BaseCreateRequest {
+  name: string;
+  description?: string;
+  priority?: TaskPriority;
+  dueDate?: string;
+  status?: ProjectStatus;
+  tags?: string[];
+}
+
+export interface ProjectUpdate extends BaseUpdateRequest {
+  name?: string;
+  description?: string;
+  priority?: TaskPriority;
+  dueDate?: string;
+  status?: ProjectStatus;
+  tags?: string[];
+}
+
 export interface Project extends BaseEntity {
   name: string;
   description?: string;

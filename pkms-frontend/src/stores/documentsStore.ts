@@ -7,6 +7,7 @@ import {
   type SearchResult,
   type DocumentsListParams 
 } from '../services/documentsService';
+import { documentsCacheAware } from '../services/cacheAwareService';
 
 interface DocumentsState {
   // Data
@@ -103,23 +104,8 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     set({ isLoading: true, error: null, offset: 0 });
     
     try {
-      const params: DocumentsListParams = {
-        mime_type: state.currentMimeType || undefined,
-        tag: state.currentTag || undefined,
-        search: state.searchQuery || undefined,
-        archived: state.showArchived,
-        is_favorite: state.showFavoritesOnly || undefined,
-        project_uuid: state.currentProjectId || undefined,
-        // Fixed: Don't send conflicting filters
-        // - If showProjectOnly is true: send project_only=true (show only docs WITH projects)
-        // - If showProjectOnly is false: send nothing (show ALL docs, both with and without projects)
-        project_only: state.showProjectOnly || undefined,
-        // REMOVED: unassigned_only - was backwards logic causing uploaded docs to be hidden
-        limit: state.limit,
-        offset: 0
-      };
-      
-      const documents = await documentsService.listDocuments(params);
+      // 🎯 AUTOMATIC: Cache checking, API calls, and revalidation handled automatically
+      const documents = await documentsCacheAware.getDocuments();
       
       set({ 
         documents, 
@@ -241,14 +227,13 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       // If document was uploaded but doesn't match filters, user might be confused
       // Debug: Uploaded document does not match current filters
       if (!shouldAdd) {
-        // Document filtered out based on current view settings
-            mimeType: state.currentMimeType,
-            tag: state.currentTag,
-            search: state.searchQuery,
-            showArchived: state.showArchived,
-            showFavoritesOnly: state.showFavoritesOnly,
-            showProjectOnly: state.showProjectOnly
-          }
+        console.log('Document filtered out based on current view settings:', {
+          mimeType: state.currentMimeType,
+          tag: state.currentTag,
+          search: state.searchQuery,
+          showArchived: state.showArchived,
+          showFavoritesOnly: state.showFavoritesOnly,
+          showProjectOnly: state.showProjectOnly
         });
       }
       

@@ -64,6 +64,7 @@ import { DateRangePicker } from '../components/common/DateRangePicker';
 import { CalendarView } from '../components/todos/CalendarView';
 import { TimelineView } from '../components/todos/TimelineView';
 import { todosService, TodoSummary } from '../services/todosService';
+import { Todo } from '../types/todo';
 
 type SortField = 'title' | 'created_at' | 'due_date' | 'priority';
 type SortOrder = 'asc' | 'desc';
@@ -130,7 +131,7 @@ export function TodosPage() {
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectUploadModalOpen, setProjectUploadModalOpen] = useState(false);
-  const [editingTodo, setEditingTodo] = useState<any>(null);
+  const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const itemsPerPage = 20;
 
   // Form state
@@ -325,6 +326,17 @@ export function TodosPage() {
   };
 
   const handleCreateTodo = async () => {
+    // Context-aware warning: If creating exclusive todo from main list, warn user
+    if (todoForm.isExclusive && todoForm.projectIds.length > 0) {
+      const confirmed = window.confirm(
+        `⚠️ Warning: Making this todo exclusive to project(s) will hide it from the main todo list.\n\n` +
+        `It will only be visible within the project dashboard(s). Continue?`
+      );
+      if (!confirmed) {
+        return; // User cancelled
+      }
+    }
+
     const success = await createTodo({
       ...todoForm,
       due_date: todoForm.due_date || undefined,

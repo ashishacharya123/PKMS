@@ -9,6 +9,9 @@ export interface ArchiveFolder {
   item_count: number;
   subfolder_count: number;
   total_size: number;
+  // Missing fields from database
+  is_favorite: boolean;
+  depth: number;
 }
 
 export interface ArchiveItem {
@@ -24,10 +27,12 @@ export interface ArchiveItem {
   metadata: Record<string, any>;
   thumbnail_path?: string;
   is_favorite: boolean;
-  version: string;
   created_at: string;
   updated_at: string;
   tags: string[];
+  // Missing fields from database
+  file_path: string;
+  file_hash?: string;
 }
 
 export interface ArchiveItemSummary {
@@ -42,6 +47,9 @@ export interface ArchiveItemSummary {
   updated_at: string;
   tags: string[];
   preview: string;
+  // Missing fields from database
+  file_hash?: string;
+  thumbnail_path?: string;
 }
 
 export interface FolderTree {
@@ -91,6 +99,28 @@ export interface ArchiveFilters {
   search?: string;
   mime_type?: string;
   tag?: string;
+}
+
+export interface ArchivePreviewImage {
+  uuid: string;
+  name: string;
+  mime_type: string;
+  file_size: number;
+  thumbnail_path?: string;
+  original_filename: string;
+  stored_filename: string;
+  file_path: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ArchiveSelectedItem {
+  uuid: string;
+  name: string;
+  mime_type: 'folder' | 'file';
+  // Add additional fields as needed
+  description?: string;
+  file_size?: number;
 }
 
 export interface ArchiveState {

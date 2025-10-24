@@ -13,6 +13,7 @@ export interface Document extends BaseEntity {
   mimeType: string;
   description?: string;
   isArchived: boolean;
+  isEncrypted?: boolean;  // NEW: Track if file is encrypted (for diary files)
   projects: ProjectBadge[];
   // NO uploadStatus (backend removed)
 }

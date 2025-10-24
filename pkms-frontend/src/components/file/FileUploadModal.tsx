@@ -3,7 +3,7 @@
  * Provides consistent file upload experience across all modules
  */
 
-import { Modal, Stack, Text, Group, Button, TextInput, Textarea, Divider } from '@mantine/core';
+import { Modal, Stack, Text, Group, Button, TextInput, Textarea, Divider, TagsInput } from '@mantine/core';
 import { IconUpload, IconX } from '@tabler/icons-react';
 import { FileUploadZone } from './FileUploadZone';
 import { useState } from 'react';
@@ -156,6 +156,16 @@ export function FileUploadModal({
             disabled={loading}
             minRows={2}
             maxRows={4}
+          />
+          
+          <TagsInput
+            label="Tags"
+            placeholder="Add tags (optional)"
+            value={metadata.tags || []}
+            onChange={(tags) => setMetadata(prev => ({ ...prev, tags }))}
+            disabled={loading}
+            splitChars={[',', ' ']}
+            description="Separate tags with comma or space"
           />
         </Stack>
 

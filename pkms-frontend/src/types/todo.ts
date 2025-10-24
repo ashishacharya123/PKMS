@@ -18,43 +18,84 @@ export interface BlockingTodoSummary {
 // Re-export enums for convenience
 export { TodoStatus, TaskPriority, TodoType };
 
+export interface TodoCreate extends BaseCreateRequest {
+  title: string;
+  description?: string;
+  status?: TodoStatus;
+  priority?: TaskPriority;
+  type?: TodoType;
+  startDate?: string;
+  dueDate?: string;
+  projectIds?: string[];
+  tags?: string[];
+  subtasks?: ChecklistItem[];
+  blockingTodos?: string[];
+  blockedByTodos?: string[];
+}
+
+export interface TodoUpdate extends BaseUpdateRequest {
+  title?: string;
+  description?: string;
+  status?: TodoStatus;
+  priority?: TaskPriority;
+  type?: TodoType;
+  startDate?: string;
+  dueDate?: string;
+  projectIds?: string[];
+  tags?: string[];
+  subtasks?: ChecklistItem[];
+  blockingTodos?: string[];
+  blockedByTodos?: string[];
+}
+
 export interface Todo extends BaseEntity {
   title: string;
   description?: string;
-  status: TodoStatus; // Enum type
-  priority: TaskPriority; // Enum type
-  type?: TodoType; // Renamed from todoType for consistency
-  startDate: string | null;
-  dueDate: string | null;
-  orderIndex: number; // For drag-and-drop ordering
-  completedAt: string | null;
-  // Backend project relationship fields
-  projectUuid?: string; // Single project reference (backend field)
-  projectName?: string; // Single project name (backend field)
-  projects: ProjectBadge[]; // Multiple projects (backend field)
-  checklistItems?: ChecklistItem[];
-  subtasks?: Todo[]; // For subtask support
-  completionPercentage?: number; // For progress tracking
-  isArchived?: boolean; // For archive support
-  projectIds?: string[]; // For form handling
-  // REMOVED: isExclusiveMode - exclusivity now handled via project_items association table
+  status: TodoStatus;
+  priority: TaskPriority;
+  isArchived: boolean;
+  isFavorite: boolean;
+  orderIndex: number;
+  parentUuid?: string;
+  subtasks: Todo[];
+  startDate?: string;
+  dueDate?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  tags: string[];
+  projects: ProjectBadge[];
   
-  // NEW: Dependency management fields
-  blockingTodos?: BlockingTodoSummary[]; // Todos I'm blocking (others waiting on me)
-  blockedByTodos?: BlockingTodoSummary[]; // Todos blocking me (I'm waiting on these)
-  blockerCount?: number; // Number of incomplete todos blocking this one
+  // Dependency management fields
+  blockingTodos?: BlockingTodoSummary[];
+  blockedByTodos?: BlockingTodoSummary[];
+  blockerCount: number;
   
-  // NO estimateMinutes (backend removed)
-  // Calculate days: dueDate - startDate
+  // Single project fields (for backward compatibility)
+  projectUuid?: string;
+  projectName?: string;
 }
 
 export interface TodoSummary extends BaseSummary {
   status: TodoStatus;
   priority: TaskPriority;
-  startDate: string | null;
-  dueDate: string | null;
-  completedAt: string | null;
+  isArchived: boolean;
+  isFavorite: boolean;
+  orderIndex: number;
+  startDate?: string;
+  dueDate?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  tags: string[];
   projects: ProjectBadge[];
+  projectUuid?: string;
+  projectName?: string;
+  parentUuid?: string;
+  subtasks: Todo[];
+  blockingTodos?: BlockingTodoSummary[];
+  blockedByTodos?: BlockingTodoSummary[];
+  blockerCount: number;
   daysUntilDue?: number;
 }
 

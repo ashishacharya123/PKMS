@@ -39,6 +39,10 @@ import { notesService, NoteSummary } from '../services/notesService';
 import { documentsService, DocumentSummary } from '../services/documentsService';
 import { projectApi } from '../services/projectApi';
 import { reorderArray, generateDocumentReorderUpdate, getDragPreviewStyles, getDropZoneStyles } from '../utils/dragAndDrop';
+import { TodosLayout } from '../components/todos/TodosLayout';
+import { ModuleLayout } from '../components/common/ModuleLayout';
+import { ModuleHeader } from '../components/common/ModuleHeader';
+import { ModuleFilters } from '../components/common/ModuleFilters';
 
 export function ProjectDashboardPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -541,6 +545,15 @@ export function ProjectDashboardPage() {
             <Tabs.Tab value="all">
               All Items ({notes.length + documents.length + todos.length})
             </Tabs.Tab>
+            <Tabs.Tab value="todos" leftSection={<IconCheckbox size={14} />}>
+              Todos ({todos.length})
+            </Tabs.Tab>
+            <Tabs.Tab value="notes" leftSection={<IconNote size={14} />}>
+              Notes ({notes.length})
+            </Tabs.Tab>
+            <Tabs.Tab value="documents" leftSection={<IconFile size={14} />}>
+              Documents ({documents.length})
+            </Tabs.Tab>
             <Tabs.Tab value="exclusive" leftSection={<IconLock size={14} />}>
               Exclusive ({exclusiveNotes.length + exclusiveDocs.length + exclusiveTodos.length})
             </Tabs.Tab>
@@ -838,6 +851,141 @@ export function ProjectDashboardPage() {
                 </Paper>
               )}
             </Stack>
+          </Tabs.Panel>
+
+          {/* Todos Tab - Modular Kanban/Timeline View */}
+          <Tabs.Panel value="todos" pt="md">
+            <TodosLayout
+              todos={todos.map(todo => ({
+                uuid: todo.uuid,
+                title: todo.title,
+                description: todo.description,
+                status: todo.status,
+                priority: todo.priority,
+                dueDate: todo.dueDate,
+                isFavorite: todo.is_favorite,
+                isArchived: todo.is_archived,
+                tags: todo.tags || [],
+                projects: todo.projects || [],
+                subtasks: todo.subtasks || [],
+                created_at: todo.created_at,
+                updated_at: todo.updated_at
+              }))}
+              isLoading={loading}
+              activeTab="ongoing"
+              onCreateTodo={() => {
+                // Navigate to create todo with project pre-selected
+                navigate(`/todos/new?project=${projectId}`);
+              }}
+              onRefresh={() => {
+                // Refresh todos for this project
+                loadProjectData();
+              }}
+              onTabChange={() => {}}
+              viewMode="kanban"
+              ViewMenu={() => null}
+              onItemClick={(item) => navigate(`/todos/${item.uuid}`)}
+              onToggleFavorite={(item) => {
+                // Toggle favorite for todo
+                console.log('Toggle favorite:', item);
+              }}
+              onToggleArchive={(item) => {
+                // Toggle archive for todo
+                console.log('Toggle archive:', item);
+              }}
+              onDelete={(item) => {
+                // Delete todo
+                console.log('Delete todo:', item);
+              }}
+              onEdit={(item) => {
+                // Edit todo
+                navigate(`/todos/${item.uuid}/edit`);
+              }}
+              onComplete={(item) => {
+                // Complete todo
+                console.log('Complete todo:', item);
+              }}
+              renderIcon={(item) => <IconCheckbox size={16} />}
+              renderContent={(item) => (
+                <div>
+                  <Text size="sm" fw={500}>{item.title}</Text>
+                  {item.description && (
+                    <Text size="xs" c="dimmed" lineClamp={2}>{item.description}</Text>
+                  )}
+                </div>
+              )}
+              projects={[project]}
+            />
+          </Tabs.Panel>
+
+          {/* Notes Tab - Modular View */}
+          <Tabs.Panel value="notes" pt="md">
+            <ModuleLayout
+              items={notes.map(note => ({
+                uuid: note.uuid,
+                title: note.title,
+                description: note.content,
+                isFavorite: note.is_favorite,
+                isArchived: note.is_archived,
+                tags: note.tags || [],
+                created_at: note.created_at,
+                updated_at: note.updated_at
+              }))}
+              isLoading={loading}
+              viewMode="list"
+              onItemClick={(item) => navigate(`/notes/${item.uuid}`)}
+              onToggleFavorite={(item) => {
+                console.log('Toggle favorite note:', item);
+              }}
+              onToggleArchive={(item) => {
+                console.log('Toggle archive note:', item);
+              }}
+              onDelete={(item) => {
+                console.log('Delete note:', item);
+              }}
+              renderIcon={(item) => <IconNote size={16} />}
+              renderContent={(item) => (
+                <div>
+                  <Text size="sm" fw={500}>{item.title}</Text>
+                  <Text size="xs" c="dimmed" lineClamp={2}>{item.description}</Text>
+                </div>
+              )}
+            />
+          </Tabs.Panel>
+
+          {/* Documents Tab - Modular View */}
+          <Tabs.Panel value="documents" pt="md">
+            <ModuleLayout
+              items={documents.map(doc => ({
+                uuid: doc.uuid,
+                title: doc.title,
+                description: doc.description,
+                isFavorite: doc.is_favorite,
+                isArchived: doc.is_archived,
+                tags: doc.tags || [],
+                created_at: doc.created_at,
+                updated_at: doc.updated_at
+              }))}
+              isLoading={loading}
+              viewMode="list"
+              onItemClick={(item) => navigate(`/documents/${item.uuid}`)}
+              onToggleFavorite={(item) => {
+                console.log('Toggle favorite document:', item);
+              }}
+              onToggleArchive={(item) => {
+                console.log('Toggle archive document:', item);
+              }}
+              onDelete={(item) => {
+                console.log('Delete document:', item);
+              }}
+              renderIcon={(item) => <IconFile size={16} />}
+              renderContent={(item) => (
+                <div>
+                  <Text size="sm" fw={500}>{item.title}</Text>
+                  <Text size="xs" c="dimmed" lineClamp={2}>{item.description}</Text>
+                </div>
+              )}
+            />
           </Tabs.Panel>
         </Tabs>
       </Stack>

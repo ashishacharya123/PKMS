@@ -40,6 +40,7 @@ import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { UnifiedSearchEmbedded } from '../components/search/UnifiedSearchEmbedded';
 import { ActionMenu } from '../components/common/ActionMenu';
 import { notesService } from '../services/notesService';
+import { PopularTagsWidget } from '../components/common/PopularTagsWidget';
 
 type SortField = 'title' | 'created_at' | 'updated_at';
 type SortOrder = 'asc' | 'desc';
@@ -309,6 +310,13 @@ export function NotesPage() {
                 </Button>
               </Group>
             </Group>
+
+            {/* Popular Tags Widget */}
+            <PopularTagsWidget 
+              onTagClick={(tagName) => setTag(tagName)}
+              currentTag={currentTag}
+              limit={10}
+            />
 
             {/* Error Alert */}
             {error && (

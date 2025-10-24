@@ -1,7 +1,7 @@
 /**
  * Enhanced DiaryPage with Full Backend Power
  * Shows all the advanced analytics, habit tracking, and search capabilities
- * Optimized with React.memo for performance
+ * Now uses modular components where appropriate while preserving all existing functionality
  */
 
 import React, { useState } from 'react';
@@ -28,19 +28,30 @@ import {
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 
-// Import our new unified analytics components
+// Import our existing analytics components (preserve all functionality)
 import HabitDashboard from '../components/diary/HabitDashboard';
 import { HabitInput } from '../components/diary/HabitInput';
 import HabitAnalyticsView from '../components/diary/HabitAnalyticsView';
 import { HabitManagement } from '../components/diary/HabitManagement';
 import { AdvancedSearchAnalytics } from '../components/diary/AdvancedSearchAnalytics';
 
+// Import modular components for consistent UI
+import ModuleHeader from '../components/common/ModuleHeader';
+import { dashboardService } from '../services/dashboardService';
+
+interface SearchStats {
+  total_searches?: number;
+  performance_metrics?: {
+    average_response_time?: number;
+  };
+}
+
 export const DiaryPage = React.memo(function DiaryPage() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(false);
   const [wellnessScore, setWellnessScore] = useState<number | null>(null);
   const [habitStreaks, setHabitStreaks] = useState<Record<string, number>>({});
-  const [searchStats, setSearchStats] = useState<any>(null);
+  const [searchStats, setSearchStats] = useState<SearchStats | null>(null);
 
   useAuthenticatedEffect(() => {
     loadDashboardData();
@@ -49,30 +60,23 @@ export const DiaryPage = React.memo(function DiaryPage() {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      // Load wellness score
-      const wellnessResponse = await fetch('/api/v1/diary/habits/wellness-score-analytics?days=7');
-      const wellnessData = await wellnessResponse.json();
-      setWellnessScore(wellnessData.overall_wellness_score);
-
-      // Load habit streaks
-      const habitsResponse = await fetch('/api/v1/diary/habits/analytics?days=30');
-      const habitsData = await habitsResponse.json();
-      const streaks: Record<string, number> = {};
-      Object.entries(habitsData).forEach(([habit, data]: [string, any]) => {
-        streaks[habit] = data.current_streak;
-      });
-      setHabitStreaks(streaks);
-
-      // Load search stats
-      const searchResponse = await fetch('/api/v1/search/analytics');
-      const searchData = await searchResponse.json();
-      setSearchStats(searchData);
+      // Use the new dashboard service for cached data
+      const dashboardData = await dashboardService.getModuleDashboardData('diary');
+      
+      setWellnessScore(dashboardData.wellnessScore || null);
+      setHabitStreaks(dashboardData.habitStreaks || {});
+      setSearchStats(dashboardData.analytics || null);
     } catch (error) {
+      console.error('Failed to load dashboard data:', error);
       notifications.show({
         title: 'Error',
-        message: 'Failed to load dashboard data',
+        message: 'Failed to load dashboard data. Please check your connection and try again.',
         color: 'red'
       });
+      // Set default values for graceful degradation
+      setWellnessScore(null);
+      setHabitStreaks({});
+      setSearchStats(null);
     } finally {
       setLoading(false);
     }
@@ -93,24 +97,21 @@ export const DiaryPage = React.memo(function DiaryPage() {
   return (
     <Container size="xl" py="md">
       <Stack gap="lg">
-        {/* Header */}
-        <Group justify="space-between" align="center">
-          <Group>
-            <IconBook size={32} color="blue" />
-            <div>
-              <Title order={1}>🧠 Advanced Diary</Title>
-              <Text c="dimmed">Unlock the full power of your wellness data</Text>
-            </div>
-          </Group>
-          <Button
-            leftSection={<IconRefresh size={16} />}
-            onClick={loadDashboardData}
-            loading={loading}
-            variant="light"
-          >
-            Refresh Data
-          </Button>
-        </Group>
+        {/* Header - Using modular component for consistency */}
+        <ModuleHeader
+          title="🧠 Advanced Diary"
+          itemCount={Object.keys(habitStreaks).length}
+          onRefresh={loadDashboardData}
+          showFilters={false}
+          showCreate={false}
+          showRefresh={true}
+          isLoading={loading}
+          customActions={
+            <Text c="dimmed" size="sm">
+              Unlock the full power of your wellness data
+            </Text>
+          }
+        />
 
         {/* Quick Stats Overview */}
         <SimpleGrid cols={{ base: 1, sm: 2, md: 4 }} spacing="md">
@@ -123,7 +124,7 @@ export const DiaryPage = React.memo(function DiaryPage() {
               {wellnessScore ? Math.round(wellnessScore) : 'N/A'}/100
             </Text>
             <Text size="sm" c="dimmed">
-              {wellnessScore ? getScoreIcon(wellnessScore) : 'Start tracking!'}
+              {wellnessScore ? getScoreIcon(wellnessScore) : 'No data available'}
             </Text>
           </Card>
 
@@ -136,7 +137,10 @@ export const DiaryPage = React.memo(function DiaryPage() {
               {Object.keys(habitStreaks).length}
             </Text>
             <Text size="sm" c="dimmed">
-              {Object.values(habitStreaks).filter(s => s > 0).length} with streaks
+              {Object.keys(habitStreaks).length > 0 
+                ? `${Object.values(habitStreaks).filter(s => s > 0).length} with streaks`
+                : 'No habits tracked yet'
+              }
             </Text>
           </Card>
 
@@ -149,7 +153,10 @@ export const DiaryPage = React.memo(function DiaryPage() {
               {searchStats?.total_searches || 0}
             </Text>
             <Text size="sm" c="dimmed">
-              {searchStats?.performance_metrics?.average_response_time || 0}ms avg
+              {searchStats?.performance_metrics?.average_response_time 
+                ? `${searchStats.performance_metrics.average_response_time}ms avg`
+                : 'No search data available'
+              }
             </Text>
           </Card>
 
@@ -167,7 +174,7 @@ export const DiaryPage = React.memo(function DiaryPage() {
           </Card>
         </SimpleGrid>
 
-        {/* Main Content Tabs */}
+        {/* Main Content Tabs - Preserve all existing functionality */}
         <Tabs value={activeTab} onChange={(value) => setActiveTab(value || 'dashboard')}>
           <Tabs.List>
             <Tabs.Tab value="dashboard" leftSection={<IconChartLine size={16} />}>
@@ -211,3 +218,5 @@ export const DiaryPage = React.memo(function DiaryPage() {
     </Container>
   );
 });
+
+export default DiaryPage;

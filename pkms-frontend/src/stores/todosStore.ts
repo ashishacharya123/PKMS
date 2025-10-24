@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { todosService } from '../services/todosService';
-import { Todo, TodoSummary, CreateTodoRequest, UpdateTodoRequest, TodoStats, TodoListParams } from '../types/todo';
+import { Todo, TodoSummary, CreateTodoRequest, UpdateTodoRequest, TodoStats, TodoListParams, TodoStatus, TaskPriority } from '../types/todo';
 import { Project, ProjectCreate, ProjectUpdate } from '../types/project';
+import { todosCacheAware } from '../services/cacheAwareService';
 
 interface TodosState {
   // Data
@@ -18,8 +19,8 @@ interface TodosState {
   error: string | null;
   
   // Filters
-  currentStatus: string | null;
-  currentPriority: number | null;
+  currentStatus: TodoStatus | null;
+  currentPriority: TaskPriority | null;
   currentProjectId: string | null;
   currentTag: string | null;
   searchQuery: string;
@@ -54,8 +55,8 @@ interface TodosState {
   loadStats: () => Promise<void>;
   
   // Filters
-  setStatus: (status: string | null) => void;
-  setPriority: (priority: number | null) => void;
+  setStatus: (status: TodoStatus | null) => void;
+  setPriority: (priority: TaskPriority | null) => void;
   setProjectFilter: (projectId: string | null) => void;
   setTag: (tag: string | null) => void;
   setSearch: (query: string) => void;
@@ -99,19 +100,8 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     set({ isLoading: true, error: null, offset: 0 });
     
     try {
-      const params: TodoListParams = {
-        status: state.currentStatus || undefined,
-        priority: state.currentPriority || undefined,
-        project_uuid: state.currentProjectId || undefined,
-        tag: state.currentTag || undefined,
-        search: state.searchQuery || undefined,
-        overdue: state.showOverdue || undefined,
-        is_archived: state.isArchivedFilter !== null ? state.isArchivedFilter : undefined,
-        limit: state.limit,
-        offset: 0
-      };
-      
-      const todos = await todosService.getTodos(params);
+      // 🎯 AUTOMATIC: Cache checking, API calls, and revalidation handled automatically
+      const todos = await todosCacheAware.getTodos();
       
       set({ 
         todos, 
@@ -137,12 +127,11 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       const params: TodoListParams = {
         status: state.currentStatus || undefined,
         priority: state.currentPriority || undefined,
-        project_uuid: state.currentProjectId || undefined,
-        tag: state.currentTag || undefined,
+        projectId: state.currentProjectId || undefined,
         search: state.searchQuery || undefined,
-        overdue: state.showOverdue || undefined,
+        isArchived: state.isArchivedFilter || undefined,
         limit: state.limit,
-        offset: state.offset
+        page: Math.floor(state.offset / state.limit) + 1
       };
       
       const newTodos = await todosService.getTodos(params);
@@ -175,27 +164,39 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     }
   },
   
-  createTodo: async (data: TodoCreate) => {
+  createTodo: async (data: CreateTodoRequest) => {
     set({ isCreating: true, error: null });
     
     try {
       const todo = await todosService.createTodo(data);
       
+      // 🎯 AUTOMATIC: Smart cache invalidation
+      await todosCacheAware.invalidateAll();
+      
       // Convert Todo to TodoSummary for the list
       const todoSummary: TodoSummary = {
         uuid: todo.uuid,
+        name: todo.title, // BaseItem requires 'name'
         title: todo.title,
-        project_name: todo.project_name,
-        isExclusiveMode: todo.isExclusiveMode,
-        due_date: todo.dueDate,
+        projectUuid: todo.projectUuid,
+        projectName: todo.projectName,
+        dueDate: todo.dueDate,
         priority: todo.priority,
         status: todo.status,
-        order_index: todo.order_index || 0,
-        created_at: todo.created_at,
+        orderIndex: todo.orderIndex,
+        createdAt: todo.createdAt,
+        updatedAt: todo.updatedAt,
         tags: todo.tags,
-        days_until_due: todo.days_until_due,
-        is_archived: todo.is_archived,
-        projects: todo.projects || []
+        isArchived: todo.isArchived,
+        isFavorite: todo.isFavorite,
+        createdBy: todo.createdBy || 'system', // BaseItem requires 'createdBy'
+        projects: todo.projects || [],
+        subtasks: todo.subtasks || [],
+        blockingTodos: todo.blockingTodos || [],
+        blockedByTodos: todo.blockedByTodos || [],
+        blockerCount: todo.blockerCount || 0,
+        startDate: todo.startDate,
+        completedAt: todo.completedAt
       };
       
       // Add to todos list if it matches current filters
@@ -203,7 +204,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       const shouldAdd = (!state.currentStatus || todo.status === state.currentStatus) &&
                        (!state.currentPriority || todo.priority === state.currentPriority) &&
                        (!state.currentProjectId || (todo.projects || []).some(pb => pb.uuid === state.currentProjectId)) &&
-                       (!state.currentTag || todo.tags.includes(state.currentTag)) &&
+                       (!state.currentTag || (todo.tags || []).includes(state.currentTag)) &&
                        (!state.searchQuery || todo.title.toLowerCase().includes(state.searchQuery.toLowerCase()));
       
       if (shouldAdd) {
@@ -228,7 +229,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     }
   },
   
-  updateTodo: async (uuid: string, data: TodoUpdate) => {
+  updateTodo: async (uuid: string, data: UpdateTodoRequest) => {
     set({ isUpdating: true, error: null });
     
     try {
@@ -275,18 +276,27 @@ export const useTodosStore = create<TodosState>((set, get) => ({
       // Convert Todo to TodoSummary for the list
       const todoSummary: TodoSummary = {
         uuid: completedTodo.uuid,
+        name: completedTodo.title, // BaseItem requires 'name'
         title: completedTodo.title,
-        project_name: completedTodo.project_name,
-        isExclusiveMode: completedTodo.isExclusiveMode,
-        due_date: completedTodo.due_date,
+        projectUuid: completedTodo.projectUuid,
+        projectName: completedTodo.projectName,
+        dueDate: completedTodo.dueDate,
         priority: completedTodo.priority,
         status: completedTodo.status,
-        order_index: completedTodo.order_index || 0,
-        created_at: completedTodo.created_at,
+        orderIndex: completedTodo.orderIndex,
+        createdAt: completedTodo.createdAt,
+        updatedAt: completedTodo.updatedAt,
         tags: completedTodo.tags,
-        days_until_due: completedTodo.days_until_due,
-        is_archived: completedTodo.is_archived,
-        projects: completedTodo.projects || []
+        isArchived: completedTodo.isArchived,
+        isFavorite: completedTodo.isFavorite,
+        createdBy: completedTodo.createdBy || 'system', // BaseItem requires 'createdBy'
+        projects: completedTodo.projects || [],
+        subtasks: completedTodo.subtasks || [],
+        blockingTodos: completedTodo.blockingTodos || [],
+        blockedByTodos: completedTodo.blockedByTodos || [],
+        blockerCount: completedTodo.blockerCount || 0,
+        startDate: completedTodo.startDate,
+        completedAt: completedTodo.completedAt
       };
       
       // Update in todos list
@@ -367,7 +377,8 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const projects = await todosService.getProjects();
+      // Use cache-aware service for projects
+      const projects = await todosCacheAware.getProjects();
       set({ projects, isLoading: false });
     } catch (error) {
       set({ 
@@ -395,7 +406,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     set({ isCreating: true, error: null });
     
     try {
-      const project = await todosService.createProject(data);
+      const project = await todosCacheAware.createProject(data);
       
       // Add to projects list
       set(state => ({ 
@@ -417,7 +428,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     set({ isUpdating: true, error: null });
     
     try {
-      const updatedProject = await todosService.updateProject(uuid, data);
+      const updatedProject = await todosCacheAware.updateProject(uuid, data);
       
       // Update in projects list
       set(state => ({
@@ -483,12 +494,12 @@ export const useTodosStore = create<TodosState>((set, get) => ({
   },
   
   // Filter actions
-  setStatus: (status: string | null) => {
+  setStatus: (status: TodoStatus | null) => {
     set({ currentStatus: status });
     get().loadTodos();
   },
   
-  setPriority: (priority: number | null) => {
+  setPriority: (priority: TaskPriority | null) => {
     set({ currentPriority: priority });
     get().loadTodos();
   },

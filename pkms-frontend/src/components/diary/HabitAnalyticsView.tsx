@@ -14,7 +14,7 @@
  * - Support for default habits, defined habits, and comprehensive analytics
  */
 
-import React, { useReducer, useEffect, useCallback } from 'react';
+import { useReducer, useEffect, useCallback } from 'react';
 import {
   Paper,
   Stack,
@@ -23,21 +23,16 @@ import {
   Button,
   Alert,
   Text,
-  Badge,
   Card,
   SimpleGrid,
-  Accordion,
   Loader,
   Center,
-  Divider,
 } from '@mantine/core';
 import {
   IconChartLine,
-  IconClipboardList,
   IconAlertCircle,
   IconRefresh,
   IconTrendingUp,
-  IconUsers,
   IconTarget,
 } from '@tabler/icons-react';
 import HabitCharts from './HabitCharts';
@@ -254,7 +249,7 @@ export default function HabitAnalyticsView() {
     if (state.isLoading) {
       return (
         <Center style={{ height: 400 }}>
-          <Stack align="center" spacing="sm">
+          <Stack align="center" gap="sm">
             <Loader size="md" />
             <Text size="sm" color="dimmed">Loading analytics data...</Text>
           </Stack>
@@ -443,11 +438,11 @@ export default function HabitAnalyticsView() {
 
   return (
     <Paper p="md">
-      <Stack spacing="md">
+      <Stack gap="md">
         {/* Header */}
         <Group position="apart">
           <div>
-            <Text size="xl" weight={700}>
+            <Text size="xl" fw={700}>
               Habit Analytics
             </Text>
             <Text size="sm" color="dimmed">
@@ -455,7 +450,7 @@ export default function HabitAnalyticsView() {
             </Text>
           </div>
           <Button
-            leftIcon={<IconRefresh size={16} />}
+            leftSection={<IconRefresh size={16} />}
             variant="light"
             onClick={handleRefresh}
             loading={state.isLoading}
@@ -469,7 +464,7 @@ export default function HabitAnalyticsView() {
 
         {/* Controls */}
         <Card withBorder p="md">
-          <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
+          <SimpleGrid cols={{ base: 1, md: 3 }} gap="md">
             {/* Type selector */}
             <Select
               label="Analytics Type"

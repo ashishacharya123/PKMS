@@ -54,7 +54,7 @@ export interface DiaryEntry {
   from_template_id?: string | null;
   created_at: string;
   updated_at: string;
-  media_count: number;
+  file_count: number;
   tags: string[];
   content_length?: number;
 }
@@ -76,7 +76,7 @@ export interface DiaryEntrySummary {
   is_template?: boolean;
   from_template_id?: string | null;
   created_at: string;
-  media_count: number;
+  file_count: number;
   encrypted_blob: string;
   encryption_iv: string;
   tags: string[];
@@ -124,7 +124,7 @@ export interface DiaryCalendarData {
   date: string;
   has_entry: boolean;
   mood?: number;
-  media_count: number;
+  file_count: number;
 }
 
 export interface MoodStats {

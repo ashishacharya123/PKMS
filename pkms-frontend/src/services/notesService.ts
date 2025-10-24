@@ -20,17 +20,19 @@ export interface ProjectBadge {
 
 export interface Note {
   uuid: string;
+  name: string; // BaseItem requires 'name'
   title: string;
   content: string;
   description?: string;  // Brief description for FTS5 search
-  file_count: number;
-  is_favorite: boolean;
-  is_archived: boolean;
-  isExclusiveMode: boolean;
-  created_at: string;
-  updated_at: string;
+  fileCount: number;
+  isFavorite: boolean;
+  isArchived: boolean;
+  isProjectExclusive: boolean;
+  createdAt: string;
+  updatedAt: string;
   tags: string[];
   projects: ProjectBadge[];
+  createdBy?: string;
   
   // Additional metadata fields
   /** Version number for note content tracking */
@@ -39,15 +41,20 @@ export interface Note {
 
 export interface NoteSummary {
   uuid: string;
+  name: string; // BaseItem requires 'name'
   title: string;
-  file_count: number;
-  is_favorite: boolean;
-  is_archived: boolean;
-  isExclusiveMode: boolean;
-  created_at: string;
-  updated_at: string;
+  content?: string;
+  description?: string;
+  fileCount: number;
+  isFavorite: boolean;
+  isArchived: boolean;
+  isExclusiveMode?: boolean;
+  isProjectExclusive?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
   tags: string[];
-  preview: string;
+  preview?: string;
   projects: ProjectBadge[];
   
   // NEW: Additional fields

@@ -6,7 +6,9 @@
 
 import { MultiSelect, Badge, Group, Text } from '@mantine/core';
 import { useState, useEffect } from 'react';
-import { Tag } from '../../types/tag';
+import { useDebouncedValue } from '@mantine/hooks';  // ADD
+import { TagResponse } from '../../types/tag';  // CHANGE from Tag
+import { tagsService } from '../../services/tagsService';  // ADD
 
 interface TagSelectorProps {
   value: string[];
@@ -31,57 +33,61 @@ export function TagSelector({
   maxValues,
   // creatable = true // Removed
 }: TagSelectorProps) {
-  const [availableTags, setAvailableTags] = useState<Tag[]>([]);
-  const [, setLoading] = useState(false);
+  const [data, setData] = useState<TagResponse[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery] = useDebouncedValue(searchQuery, 300);  // 300ms debounce
 
-  // Load available tags
+  // Dynamic search handler
+  const handleSearch = async (query: string) => {
+    setSearchQuery(query);  // Update search query (will trigger debounce)
+  };
+
+  // Effect to call API when debounced query changes
   useEffect(() => {
-    const loadTags = async () => {
+    const fetchTags = async () => {
+      if (!debouncedQuery.trim()) {
+        setData([]);
+        return;
+      }
+      
       setLoading(true);
       try {
-        // TODO: Replace with actual API call when tagsService is implemented
-        // const tags = await tagsService.getAll();
-        // setAvailableTags(tags);
-        
-        // Mock data for now
-        setAvailableTags([
-          { uuid: '1', name: 'work', color: '#228be6', usageCount: 15 },
-          { uuid: '2', name: 'personal', color: '#40c057', usageCount: 8 },
-          { uuid: '3', name: 'urgent', color: '#fa5252', usageCount: 3 },
-          { uuid: '4', name: 'project', color: '#fd7e14', usageCount: 12 },
-          { uuid: '5', name: 'meeting', color: '#9775fa', usageCount: 6 },
-        ]);
+        const tags = await tagsService.getAutocompleteTags(debouncedQuery);
+        setData(tags);
       } catch (error) {
-        console.error('Failed to load tags:', error);
+        console.error('Failed to search tags:', error);
+        setData([]);
       } finally {
         setLoading(false);
       }
     };
 
-    loadTags();
-  }, []);
+    fetchTags();
+  }, [debouncedQuery]);  // Only runs when debounced query changes
 
-  const tagOptions = availableTags.map(tag => ({
+  // Note: Inline tag creation disabled for now (Mantine MultiSelect doesn't support creatable)
+  // const handleCreate = (query: string) => {
+  //   const newTag: TagResponse = {
+  //     uuid: `temp-${Date.now()}`,
+  //     name: query,
+  //     usageCount: 0
+  //   };
+  //   setData((current) => [...current, newTag]);
+  //   onChange([...value, query]);
+  //   return { value: query, label: query };
+  // };
+
+  const tagOptions = data.map(tag => ({
     value: tag.name,
     label: tag.name,
-    color: tag.color,
     usageCount: tag.usageCount
+    // NO color
   }));
 
   const renderTagOption = ({ option }: { option: any; checked?: boolean }) => (
     <Group gap="xs" justify="space-between" style={{ width: '100%' }}>
-      <Group gap="xs">
-        <div
-          style={{
-            width: 12,
-            height: 12,
-            borderRadius: '50%',
-            backgroundColor: option.color,
-            flexShrink: 0
-          }}
-        />
-        <Text size="sm">{option.label}</Text>
-      </Group>
+      <Text size="sm">{option.label}</Text>
       <Badge size="xs" variant="light" color="gray">
         {option.usageCount}
       </Badge>
@@ -102,6 +108,11 @@ export function TagSelector({
       disabled={disabled}
       maxValues={maxValues}
       searchable
+      onSearchChange={handleSearch}  // ADD: Dynamic search
+      nothingFoundMessage={loading ? "Searching..." : "Nothing found"}  // ADD
+      // creatable  // ADD: Enable inline tag creation
+      // getCreateLabel={(query: string) => `+ Create "${query}"`}  // ADD
+      // onCreate={handleCreate}  // ADD
       renderOption={renderTagOption}
       clearable
       hidePickedOptions
