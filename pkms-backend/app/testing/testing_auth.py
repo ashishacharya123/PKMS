@@ -17,14 +17,14 @@ import logging
 # Set up logger
 logger = logging.getLogger(__name__)
 
-from ..database import get_db
-from ..auth.dependencies import get_current_user
-from ..models.user import User, Session
-from ..models.diary import DiaryEntry
-from ..services.diary_crypto_service import DiaryCryptoService
-from ..models.associations import document_diary
+from app.database import get_db
+from app.auth.dependencies import get_current_user
+from app.models.user import User, Session
+from app.models.diary import DiaryEntry
+from app.services.diary_crypto_service import DiaryCryptoService
+from app.models.associations import document_diary
 
-from ..config import NEPAL_TZ, get_data_dir
+from app.config import NEPAL_TZ, get_data_dir
 
 router = APIRouter(prefix="/testing/auth", tags=["testing-auth"])
 
@@ -36,7 +36,7 @@ async def get_session_status(
 ):
     """Get current session status and timing information for testing session extension."""
     try:
-        from ..models.user import Session
+        from app.models.user import Session
         from datetime import datetime
 
         # Get current user's active session

@@ -21,17 +21,17 @@ import logging
 # Set up logger
 logger = logging.getLogger(__name__)
 
-from ..database import get_db
-from ..auth.dependencies import get_current_user
-from ..models.user import User
-from ..models.note import Note
-from ..models.document import Document
-from ..models.todo import Todo, TodoStatus
-from ..models.project import Project
-from ..models.diary import DiaryEntry
-from ..models.archive import ArchiveFolder, ArchiveItem
+from app.database import get_db
+from app.auth.dependencies import get_current_user
+from app.models.user import User
+from app.models.note import Note
+from app.models.document import Document
+from app.models.todo import Todo, TodoStatus
+from app.models.project import Project
+from app.models.diary import DiaryEntry
+from app.models.archive import ArchiveFolder, ArchiveItem
 
-from ..config import NEPAL_TZ, get_data_dir
+from app.config import NEPAL_TZ, get_data_dir
 
 router = APIRouter(prefix="/testing/crud", tags=["testing-crud"])
 

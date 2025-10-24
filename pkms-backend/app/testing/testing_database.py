@@ -17,19 +17,19 @@ import logging
 # Set up logger
 logger = logging.getLogger(__name__)
 
-from ..database import get_db
-from ..auth.dependencies import get_current_user
-from ..models.user import User
-from ..models.note import Note
-from ..models.document import Document
-from ..models.todo import Todo
-from ..models.project import Project
-from ..models.diary import DiaryEntry, DiaryDailyMetadata
-from ..models.archive import ArchiveFolder, ArchiveItem
-from ..models.tag import Tag
-from ..models.associations import document_diary
+from app.database import get_db
+from app.auth.dependencies import get_current_user
+from app.models.user import User
+from app.models.note import Note
+from app.models.document import Document
+from app.models.todo import Todo
+from app.models.project import Project
+from app.models.diary import DiaryEntry, DiaryDailyMetadata
+from app.models.archive import ArchiveFolder, ArchiveItem
+from app.models.tag import Tag
+from app.models.associations import document_diary
 
-from ..config import NEPAL_TZ, get_data_dir
+from app.config import NEPAL_TZ, get_data_dir
 
 router = APIRouter(prefix="/testing/database", tags=["testing-database"])
 
@@ -614,7 +614,7 @@ async def get_diary_tables_info(
         entries_stats = entries_result.fetchone()
 
         # Get document attachments via document_diary association
-        from ..models.associations import document_diary
+        from app.models.associations import document_diary
         media_query = select(
             func.count().label('total_media'),
             func.count(func.distinct(document_diary.c.diary_entry_uuid)).label('entries_with_media'),
@@ -674,7 +674,7 @@ async def get_diary_tables_info(
             })
 
         # Get sample documents attached to diary entries
-        from ..models.associations import document_diary
+        from app.models.associations import document_diary
         sample_media_query = (
             select(Document.uuid, document_diary.c.diary_entry_uuid,
                    Document.mime_type, Document.file_size, Document.created_at,
