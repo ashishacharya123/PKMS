@@ -62,13 +62,17 @@ export interface ModuleFilters {
   [key: string]: any;
 }
 
+/**
+ * Generic action menu item for any type of content item
+ * Uses BaseItem since all supported items (Archive, Todo, Note, Document) extend BaseItem
+ */
 export interface ActionMenuItem {
   label: string;
   icon: React.ComponentType<any>;
-  onClick: (item: any) => void;
+  onClick: (item: BaseItem) => void;  // ✅ Use BaseItem instead of any
   color?: string;
   disabled?: boolean;
-  hidden?: (item: any) => boolean;
+  hidden?: (item: BaseItem) => boolean;  // ✅ Use BaseItem instead of any
 }
 
 export interface ModuleHeaderProps {

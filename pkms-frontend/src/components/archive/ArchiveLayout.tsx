@@ -27,7 +27,7 @@ interface ArchiveLayoutProps {
   
   // View mode
   viewMode: 'small-icons' | 'medium-icons' | 'list' | 'details';
-  ViewMenu: React.ComponentType<any>;
+  ViewMenu: React.ComponentType<{ viewMode: string; setViewMode: (mode: string) => void }>;
   
   // File upload
   archiveFiles: ArchiveItem[];
