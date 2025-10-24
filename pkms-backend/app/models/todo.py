@@ -11,7 +11,7 @@ import enum
 from app.models.base import Base
 from app.config import nepal_now
 from app.models.tag_associations import todo_tags, project_tags
-from app.models.associations import todo_projects, todo_dependencies
+from app.models.associations import todo_dependencies
 from app.models.enums import TodoStatus, TodoType, TaskPriority
 
 
@@ -42,8 +42,7 @@ class Todo(Base):
     # Existing fields
     is_archived = Column(Boolean, default=False, nullable=False)
     is_favorite = Column(Boolean, default=False, nullable=False)
-    is_project_exclusive = Column(Boolean, default=False, nullable=False)  # If True, todo is deleted when any of its projects are deleted
-    is_todo_exclusive = Column(Boolean, default=False, nullable=False)  # If True, todo is exclusive to parent todo (subtask-only)
+    # REMOVED: is_project_exclusive and is_todo_exclusive - exclusivity now handled via project_items association table
     priority = Column(Enum(TaskPriority), default=TaskPriority.MEDIUM, nullable=False)
     start_date = Column(Date, nullable=True)
     due_date = Column(Date, nullable=True)
@@ -76,7 +75,7 @@ class Todo(Base):
     # Relationships
     user = relationship("User", back_populates="todos")
     tag_objs = relationship("Tag", secondary=todo_tags, back_populates="todos")
-    projects = relationship("Project", secondary=todo_projects, back_populates="todos_multi")
+    # REMOVED: projects relationship - now handled via polymorphic project_items table
     
     # Phase 2: Dependency relationships (replaces blocked_by JSON field)
     blocking_todos = relationship(

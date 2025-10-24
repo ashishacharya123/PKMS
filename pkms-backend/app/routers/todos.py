@@ -19,6 +19,7 @@ from app.auth.dependencies import get_current_user
 from app.schemas.todo import TodoCreate, TodoUpdate, TodoResponse
 from app.services.todo_crud_service import todo_crud_service
 from app.services.todo_workflow_service import todo_workflow_service
+from app.services.todo_dependency_service import todo_dependency_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -45,7 +46,7 @@ async def create_todo(
 
 @router.get("/", response_model=List[TodoResponse])
 async def list_todos(
-    status: Optional[str] = Query(None, description="Filter by status"),
+    todo_status: Optional[str] = Query(None, description="Filter by status"),
     priority: Optional[str] = Query(None, description="Filter by priority"),
     project_uuid: Optional[str] = Query(None, description="Filter by project UUID"),
     is_favorite: Optional[bool] = Query(None, description="Filter by favorite status"),
@@ -61,8 +62,8 @@ async def list_todos(
     """List todos with filters and pagination"""
     try:
         return await todo_crud_service.list_todos(
-            db, current_user.uuid, status, priority, project_uuid, 
-            is_favorite, is_archived, due_date_from, due_date_to, 
+            db, current_user.uuid, todo_status, priority, project_uuid,
+            is_favorite, is_archived, due_date_from, due_date_to,
             search, limit, offset
         )
     except HTTPException:
@@ -285,6 +286,46 @@ async def auto_update_overdue_todos(
         )
 
 
+@router.post("/{todo_uuid}/duplicate", response_model=TodoResponse)
+async def duplicate_todo(
+    todo_uuid: str,
+    new_title: Optional[str] = Query(None, description="Optional new title for the duplicated todo"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Duplicate a single todo.
+    
+    - Creates a new, independent todo
+    - Status reset to PENDING (fresh start)
+    - NO dependencies (clean placeholder)
+    - Original description, priority, tags copied
+    - Can optionally provide a new title
+    """
+    from app.services.duplication_service import duplication_service
+    
+    try:
+        # Use the same _deep_copy_todo helper from duplication_service
+        renames = {todo_uuid: new_title} if new_title else {}
+        new_todo_uuid = await duplication_service._deep_copy_todo(
+            db=db,
+            user_uuid=current_user.uuid,
+            old_todo_uuid=todo_uuid,
+            renames=renames
+        )
+        
+        # Return the new todo
+        return await todo_crud_service.get_todo(db, current_user.uuid, new_todo_uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error duplicating todo {todo_uuid} for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to duplicate todo: {str(e)}"
+        )
+
+
 @router.get("/stats")
 async def get_todo_stats(
     current_user: User = Depends(get_current_user),
@@ -300,4 +341,90 @@ async def get_todo_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get todo stats"
+        )
+
+
+# Dependency Management Endpoints
+
+@router.post("/{todo_uuid}/dependencies/{blocker_uuid}")
+async def add_dependency(
+    todo_uuid: str,
+    blocker_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Add a dependency: blocker_uuid must complete before todo_uuid can proceed"""
+    try:
+        await todo_dependency_service.add_dependency(
+            db, todo_uuid, blocker_uuid, current_user.uuid
+        )
+        return {"message": "Dependency added successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Error adding dependency")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to add dependency"
+        )
+
+
+@router.delete("/{todo_uuid}/dependencies/{blocker_uuid}")
+async def remove_dependency(
+    todo_uuid: str,
+    blocker_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Remove a dependency between todos"""
+    try:
+        await todo_dependency_service.remove_dependency(
+            db, todo_uuid, blocker_uuid
+        )
+        return {"message": "Dependency removed successfully"}
+    except Exception as e:
+        logger.exception("Error removing dependency")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to remove dependency"
+        )
+
+
+@router.get("/{todo_uuid}/blocking")
+async def get_blocking_todos(
+    todo_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get todos that this todo is blocking (others waiting on this one)"""
+    try:
+        blocking_todos = await todo_dependency_service.get_blocking_todos(
+            db, todo_uuid
+        )
+        return {"blocking_todos": blocking_todos}
+    except Exception as e:
+        logger.exception("Error getting blocking todos")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get blocking todos"
+        )
+
+
+@router.get("/{todo_uuid}/blocked-by")
+async def get_blocked_by_todos(
+    todo_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get todos that are blocking this one (this todo is waiting on these)"""
+    try:
+        blocked_todos = await todo_dependency_service.get_blocked_todos(
+            db, todo_uuid
+        )
+        return {"blocked_by_todos": blocked_todos}
+    except Exception as e:
+        logger.exception("Error getting blocked todos")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get blocked todos"
         )

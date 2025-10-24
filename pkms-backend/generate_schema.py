@@ -18,7 +18,9 @@ def to_sql(metadata_obj):
         sql.append(str(CreateTable(table).compile(engine)).strip() + ";")
     return "\n\n".join(sql)
 
-# Get the SQL and print it
+# Get the SQL and output it
 schema_sql = to_sql(metadata)
-print(schema_sql)
+# Output schema to stdout for piping to files
+import sys
+sys.stdout.write(schema_sql)
 

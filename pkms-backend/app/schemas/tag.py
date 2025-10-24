@@ -11,9 +11,10 @@ class CamelCaseModel(BaseModel):
     )
 
 class TagResponse(CamelCaseModel):
+    uuid: str  # ADD
     name: str
-    color: Optional[str]
-    # module_type removed - tags are now universal across all modules
+    usage_count: int  # ADD (renamed from usageCount for backend consistency)
+    # color removed - not needed
+    # module_type removed - deleted from model
 
-class TagAutocompleteResponse(CamelCaseModel):
-    tags: List[TagResponse]
+# TagAutocompleteResponse DELETED - not needed (endpoint returns List[TagResponse] directly)

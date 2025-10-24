@@ -13,9 +13,9 @@ import {
   ActionIcon
 } from '@mantine/core';
 import { IconCalendar, IconMapPin, IconEye, IconAlertCircle } from '@tabler/icons-react';
-import { useDiaryStore } from '../../stores/diaryStore';
 import { DiaryEntrySummary } from '../../types/diary';
-import { format, parseISO, subDays, subWeeks, subMonths, subYears } from 'date-fns';
+import { format, subDays, subWeeks, subMonths, subYears } from 'date-fns';
+import { diaryService } from '../../services/diaryService';
 
 interface HistoricalPeriod {
   key: string;
@@ -76,33 +76,39 @@ const moodColors: Record<number, string> = {
 };
 
 export function HistoricalEntries({ onViewEntry, selectedDate }: { onViewEntry: (entry: DiaryEntrySummary) => void; selectedDate?: Date }) {
-  const { entries, isUnlocked } = useDiaryStore();
   const [historicalEntries, setHistoricalEntries] = useState<Record<string, DiaryEntrySummary | null>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [isUnlocked, setIsUnlocked] = useState(false);
   const dateToId = (d: Date) => `hist-${format(d, 'yyyy-MM-dd')}`;
 
   useEffect(() => {
-    if (!isUnlocked || !entries.length) return;
+    loadHistoricalEntries();
+  }, []);
 
+  const loadHistoricalEntries = async () => {
     setIsLoading(true);
-    const historical: Record<string, DiaryEntrySummary | null> = {};
-
-    historicalPeriods.forEach(period => {
-      const targetDate = period.getDate();
-      const dateStr = format(targetDate, 'yyyy-MM-dd');
+    try {
+      // Get the specific dates we need
+      const dates = historicalPeriods.map(period => format(period.getDate(), 'yyyy-MM-dd'));
       
-      // Find entry for this specific date
-      const entry = entries.find((e: DiaryEntrySummary) => {
-        const entryDate = format(parseISO(e.date), 'yyyy-MM-dd');
-        return entryDate === dateStr;
+      // Make efficient API call for specific dates only
+      const entries = await diaryService.getHistoricalEntries(dates);
+      
+      const historical: Record<string, DiaryEntrySummary | null> = {};
+      historicalPeriods.forEach(period => {
+        const dateStr = format(period.getDate(), 'yyyy-MM-dd');
+        const entry = entries.find(e => e.date === dateStr);
+        historical[period.key] = entry || null;
       });
 
-      historical[period.key] = entry || null;
-    });
-
-    setHistoricalEntries(historical);
-    setIsLoading(false);
-  }, [entries, isUnlocked]);
+      setHistoricalEntries(historical);
+      setIsUnlocked(true);
+    } catch (error) {
+      console.error('Failed to load historical entries:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Auto-scroll to selected date’s card if present
   useEffect(() => {

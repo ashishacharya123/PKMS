@@ -2,7 +2,7 @@
 
 # Import all models to ensure they are registered with SQLAlchemy
 from .user import User, Session
-from .note import Note, NoteFile
+from .note import Note
 from .document import Document
 from .todo import Todo
 from .project import Project
@@ -13,7 +13,7 @@ from .config import AppConfig
 
 __all__ = [
     "User", "Session",
-    "Note", "NoteFile", "Document", "Todo", "Project",
+    "Note", "Document", "Todo", "Project",
     "DiaryEntry", "DiaryDailyMetadata", "ArchiveFolder", "ArchiveItem",
     "Tag", "AppConfig"
 ]

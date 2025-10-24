@@ -56,8 +56,8 @@ async def list_documents(
     is_favorite: Optional[bool] = Query(None),
     project_only: Optional[bool] = Query(False, description="Only documents attached to a project"),
     unassigned_only: Optional[bool] = Query(False, description="Only documents without project associations"),
-    limit: int = Query(50, le=100),
-    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100, description="Maximum number of documents to return"),
+    offset: int = Query(0, ge=0, description="Number of documents to skip"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):

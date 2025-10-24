@@ -1,31 +1,16 @@
 export interface DiaryDailyMetrics {
-  // Physical Activity
-  did_exercise?: boolean;
-  exercise_minutes?: number;  // Only if did_exercise is true
-  time_outside?: number;
+  // Core wellness metrics (matching backend default_habits_json)
+  sleep_duration?: number;     // hours
+  stress_level?: number;       // 1-5 scale  
+  exercise_minutes?: number;   // minutes
+  meditation_minutes?: number; // minutes
+  screen_time?: number;       // hours
+  steps?: number;             // step count
+  learning?: number;           // learning minutes
+  outdoor?: number;           // outdoor hours
+  social?: number;            // social interaction hours
   
-  // Sleep
-  sleep_duration?: number;
-  
-  // Mental Wellness
-  did_meditation?: boolean;
-  energy_level?: number;      // 1-5 scale
-  stress_level?: number;       // 1-5 scale
-  gratitude_practice?: boolean;
-  
-  // Daily Habits
-  water_intake?: number;       // glasses
-  screen_time?: number;        // hours
-  reading_time?: number;       // minutes
-  social_interaction?: boolean;
-  
-  // Financial (simple, NPR)
-  daily_income?: number;
-  daily_expense?: number;
-  
-  // Context
-  is_office_day?: boolean;
-  
+  // Custom fields for user-defined habits
   custom_fields?: Record<string, any>;
 }
 
@@ -38,13 +23,13 @@ export interface DiaryDailyMetadata {
 }
 
 export const WEATHER_CODES = [
-  { value: 0, label: 'Clear' },
-  { value: 1, label: 'Partly Cloudy' },
-  { value: 2, label: 'Cloudy' },
-  { value: 3, label: 'Rain' },
-  { value: 4, label: 'Storm' },
-  { value: 5, label: 'Snow' },
-  { value: 6, label: 'Scorching Sun' },
+  { value: 0, label: 'Freezing (0-5°C)' },
+  { value: 1, label: 'Cold (5-10°C)' },
+  { value: 2, label: 'Cool (10-15°C)' },
+  { value: 3, label: 'Mild (15-20°C)' },
+  { value: 4, label: 'Warm (20-25°C)' },
+  { value: 5, label: 'Hot (25-35°C)' },
+  { value: 6, label: 'Scorching (35°C+)' },
 ] as const;
 
 export type WeatherCode = typeof WEATHER_CODES[number]['value'];
@@ -61,11 +46,15 @@ export interface DiaryEntry {
   weather_label?: string;
   location?: string;
   daily_metrics: DiaryDailyMetrics;
+  // Top-level financial fields (backend structure)
+  daily_income?: number;
+  daily_expense?: number;
+  is_office_day?: boolean;
   is_template?: boolean;
   from_template_id?: string | null;
   created_at: string;
   updated_at: string;
-  media_count: number;
+  file_count: number;
   tags: string[];
   content_length?: number;
 }
@@ -80,10 +69,14 @@ export interface DiaryEntrySummary {
   weather_label?: string;
   location?: string;
   daily_metrics: DiaryDailyMetrics;
+  // Top-level financial fields (backend structure)
+  daily_income?: number;
+  daily_expense?: number;
+  is_office_day?: boolean;
   is_template?: boolean;
   from_template_id?: string | null;
   created_at: string;
-  media_count: number;
+  file_count: number;
   encrypted_blob: string;
   encryption_iv: string;
   tags: string[];
@@ -131,7 +124,7 @@ export interface DiaryCalendarData {
   date: string;
   has_entry: boolean;
   mood?: number;
-  media_count: number;
+  file_count: number;
 }
 
 export interface MoodStats {
@@ -183,20 +176,29 @@ export interface WellnessStats {
   screenTimeTrend: WellnessTrendPoint[];
   averageScreenTime: number | null;
   
-  // Energy & Stress
-  energyTrend: WellnessTrendPoint[];
+  // Stress
   stressTrend: WellnessTrendPoint[];
-  averageEnergy: number | null;
   averageStress: number | null;
   
-  // Hydration
-  hydrationTrend: WellnessTrendPoint[];
-  averageWaterIntake: number | null;
+  // Meditation
+  meditationTrend: WellnessTrendPoint[];
+  averageMeditation: number | null;
   
-  // Mental wellness habits
-  meditationDays: number;
-  gratitudeDays: number;
-  socialInteractionDays: number;
+  // Steps
+  stepsTrend: WellnessTrendPoint[];
+  averageSteps: number | null;
+  
+  // Learning
+  learningTrend: WellnessTrendPoint[];
+  averageLearning: number | null;
+  
+  // Outdoor
+  outdoorTrend: WellnessTrendPoint[];
+  averageOutdoor: number | null;
+  
+  // Social
+  socialTrend: WellnessTrendPoint[];
+  averageSocial: number | null;
   
   // Correlations
   moodSleepCorrelation: Array<{ mood: number | null; sleep: number | null }>;

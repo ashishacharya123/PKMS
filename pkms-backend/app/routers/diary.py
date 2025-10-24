@@ -41,10 +41,11 @@ from app.schemas.document import DocumentResponse
 
 # Import our new services
 from app.services.diary_session_service import diary_session_service
-from app.services.diary_metadata_service import diary_metadata_service
+from app.services.habit_data_service import habit_data_service
 from app.services.diary_crud_service import diary_crud_service
 from app.services.diary_document_service import diary_document_service
 from app.services.daily_insights_service import DailyInsightsService
+from app.services.unified_habit_analytics_service import unified_habit_analytics_service
 
 logger = logging.getLogger(__name__)
 
@@ -426,7 +427,7 @@ async def get_calendar_data(
 ):
     """Get calendar data for a specific month, showing which days have entries."""
     try:
-        return await diary_metadata_service.get_calendar_data(
+        return await habit_data_service.get_calendar_data(
             db=db,
             user_uuid=current_user.uuid,
             year=year,
@@ -448,7 +449,7 @@ async def get_mood_stats(
 ):
     """Get mood statistics."""
     try:
-        return await diary_metadata_service.get_mood_stats(
+        return await habit_data_service.get_mood_stats(
             db=db,
             user_uuid=current_user.uuid
         )
@@ -467,9 +468,11 @@ async def get_wellness_stats(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get comprehensive wellness analytics including mood, sleep, exercise, screen time, energy, stress, and correlations."""
+    """Get comprehensive wellness analytics including mood, sleep, exercise, screen time, stress, and correlations."""
     try:
-        return await diary_metadata_service.get_wellness_stats(
+        from app.services.unified_habit_analytics_service import unified_habit_analytics_service
+        
+        return await unified_habit_analytics_service.get_wellness_stats(
             db=db,
             user_uuid=current_user.uuid,
             days=days
@@ -490,7 +493,7 @@ async def get_weekly_highlights(
 ):
     """Return a simple weekly highlights summary across modules and diary finances."""
     try:
-        return await diary_metadata_service.get_weekly_highlights(
+        return await habit_data_service.get_weekly_highlights(
             db=db,
             user_uuid=current_user.uuid
         )
@@ -511,10 +514,20 @@ async def get_daily_metadata(
 ):
     """Get daily metadata for a specific date."""
     try:
-        return await diary_metadata_service.get_daily_metadata(
+        # Convert string path param to date object
+        try:
+            date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid date format. Expected YYYY-MM-DD"
+            )
+        
+        # Call service with date object
+        return await habit_data_service.get_daily_metadata(
             db=db,
             user_uuid=current_user.uuid,
-            target_date=target_date
+            target_date=date_obj
         )
         
     except ValueError as e:
@@ -536,10 +549,16 @@ async def update_daily_metadata(
 ):
     """Update daily metadata for a specific date."""
     try:
-        return await diary_metadata_service.update_daily_metadata(
+        # Convert string to date
+        try:
+            date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD")
+        
+        return await habit_data_service.update_daily_metadata(
             db=db,
             user_uuid=current_user.uuid,
-            target_date=target_date,
+            target_date=date_obj,
             payload=payload
         )
         
@@ -573,7 +592,7 @@ async def update_daily_habits(
         )
 
     try:
-        updated_habits = await diary_metadata_service.update_daily_habits(
+        updated_habits = await habit_data_service.update_daily_habits(
             db=db,
             user_uuid=current_user.uuid,
             target_date=date_obj,
@@ -585,9 +604,8 @@ async def update_daily_habits(
 
         return {
             "message": "Habits updated successfully",
-            "habits": updated_habits["habits"],
-            "streaks": updated_habits["streaks"],
-            "units": updated_habits["units"]
+            "date": updated_habits["date"],
+            "habits": updated_habits["updated_habits"]
         }
 
     except Exception as e:
@@ -614,7 +632,7 @@ async def get_daily_habits(
         )
 
     try:
-        habits_data = await diary_metadata_service.get_today_habits(
+        habits_data = await habit_data_service.get_today_habits(
             db=db,
             user_uuid=current_user.uuid,
             target_date=date_obj
@@ -637,7 +655,9 @@ async def get_habits_analytics(
 ):
     """Get comprehensive habit analytics."""
     try:
-        analytics = await diary_metadata_service.get_habit_analytics(
+        from app.services.unified_habit_analytics_service import unified_habit_analytics_service
+        
+        analytics = await unified_habit_analytics_service.get_comprehensive_analytics(
             db=db,
             user_uuid=current_user.uuid,
             days=days
@@ -652,6 +672,98 @@ async def get_habits_analytics(
             detail="Failed to get habit analytics"
         )
 
+
+@router.get("/habits/wellness-score-analytics")
+async def get_wellness_score_analytics_unified(
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get unified wellness score analytics across multiple time periods with smart caching.
+
+    **Features:**
+    - 📊 All timeframes (day, week, month, 3 months, 6 months, 1 year)
+    - 🧠 Smart cascade caching (1-year calculation caches all shorter periods)
+    - 📈 Quantized chart data for efficient visualization
+    - ⚡ Loading states for long calculations
+    - 💾 Memory-efficient cache with automatic cleanup
+
+    **Performance:**
+    - Standard calculations: < 2 seconds
+    - 6-month calculations: < 15 seconds
+    - 1-year calculations: < 30 seconds
+    - Cached results: < 100ms
+
+    **Memory Usage:** ~120KB per user (last 10 calculations)
+    """
+    try:
+        from app.services.unified_analytics_service import unified_analytics_service
+        from app.services.habit_data_service import DiaryMetadataService
+
+        # Get loading state info for frontend
+        loading_info = unified_analytics_service.get_loading_state_info(days)
+
+        # Use unified analytics service
+        analytics_result = await unified_analytics_service.get_analytics_with_unified_timeframes(
+            db=db,
+            user_uuid=current_user.uuid,
+            analytics_function=unified_habit_analytics_service.get_wellness_stats,
+            analytics_type="wellness_stats",
+            days=days,
+            include_chart_data=True
+        )
+
+        # Add loading info to response
+        analytics_result["loading_info"] = loading_info
+
+        return analytics_result
+
+    except Exception as e:
+        logger.error(f"Error getting unified wellness score analytics for user {current_user.uuid}: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get wellness score analytics"
+        )
+
+
+@router.get("/analytics/cache-stats")
+async def get_analytics_cache_stats(
+    current_user: User = Depends(get_current_user)
+):
+    """Get analytics cache statistics (for monitoring and debugging)"""
+    try:
+        from app.services.unified_analytics_service import unified_analytics_service
+
+        return unified_analytics_service.get_cache_stats()
+
+    except Exception as e:
+        logger.error(f"Error getting cache stats: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get cache statistics"
+        )
+
+
+@router.delete("/analytics/cache")
+async def clear_analytics_cache(
+    current_user: User = Depends(get_current_user)
+):
+    """Clear analytics cache for current user"""
+    try:
+        from app.services.unified_analytics_service import unified_analytics_service
+
+        unified_analytics_service.invalidate_user_cache(current_user.uuid)
+
+        return {"message": "Analytics cache cleared successfully"}
+
+    except Exception as e:
+        logger.error(f"Error clearing cache: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to clear analytics cache"
+        )
+
 @router.get("/habits/active")
 async def get_active_habits(
     days: int = Query(30, ge=1, le=90),
@@ -660,7 +772,7 @@ async def get_active_habits(
 ):
     """Get list of all habits user has tracked recently."""
     try:
-        active_habits = await diary_metadata_service.get_active_habit_keys(
+        active_habits = await habit_data_service.get_active_habit_keys(
             db=db,
             user_uuid=current_user.uuid,
             days=days
@@ -683,7 +795,7 @@ async def get_habit_insights(
 ):
     """Get personalized habit insights and recommendations."""
     try:
-        insights = await diary_metadata_service.get_habit_insights(
+        insights = await habit_data_service.get_habit_insights(
             db=db,
             user_uuid=current_user.uuid,
             days=days
@@ -715,16 +827,36 @@ async def get_habit_streak(
         )
 
     try:
-        streak = await diary_metadata_service.calculate_habit_streak(
-            db=db,
-            user_uuid=current_user.uuid,
-            habit_key=habit_key,
-            end_date=date_obj
+        from app.services.habit_trend_analysis_service import habit_trend_analysis_service
+        from datetime import timedelta
+        
+        # Fetch habit data for the date range
+        end_date_obj = date_obj
+        start_date_obj = end_date_obj - timedelta(days=90)  # Look back 90 days for streak
+        
+        metadata_records = await habit_data_service._get_metadata_in_date_range(
+            db, current_user.uuid, start_date_obj, end_date_obj
+        )
+        
+        # Extract habit values into format expected by calculate_habit_streaks
+        habit_data = []
+        for record in metadata_records:
+            habits_json = json.loads(record.default_habits_json or "{}")
+            if habit_key in habits_json:
+                habit_data.append({
+                    "date": record.date.strftime("%Y-%m-%d"),
+                    habit_key: habits_json[habit_key]
+                })
+        
+        # Call the PLURAL function (static method)
+        streak_result = habit_trend_analysis_service.calculate_habit_streaks(
+            habit_data=habit_data,
+            habit_id=habit_key
         )
 
         return {
             "habit_key": habit_key,
-            "current_streak": streak,
+            "current_streak": streak_result.get("current_streak", 0),
             "end_date": end_date
         }
 
@@ -742,13 +874,14 @@ async def get_habit_streak(
 async def link_documents_to_diary_entry(
     entry_uuid: str,
     link_data: ProjectDocumentsLinkRequest,  # Reuse the same schema
+    is_encrypted: bool = Query(False, description="Whether the linked documents are encrypted"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Link existing documents to a diary entry."""
     try:
         await diary_document_service.link_documents_to_diary_entry(
-            db, current_user.uuid, entry_uuid, link_data.document_uuids
+            db, current_user.uuid, entry_uuid, link_data.document_uuids, is_encrypted
         )
     except HTTPException:
         raise
@@ -818,12 +951,11 @@ async def get_diary_entry_documents(
         
         # Convert to DocumentResponse format
         from app.services.document_crud_service import document_crud_service
-        from app.models.associations import document_projects
-        
-        # Get project badges for each document (batch load to avoid N+1)
+        # Get project badges for each document using polymorphic project_items
         document_uuids = [doc.uuid for doc in documents]
-        project_badges_map = await document_crud_service._batch_get_project_badges(
-            db, document_uuids, document_projects, "document_uuid"
+        from app.services.shared_utilities_service import shared_utilities_service
+        project_badges_map = await shared_utilities_service.batch_get_project_badges_polymorphic(
+            db, document_uuids, 'Document'
         )
         
         return [
@@ -839,6 +971,7 @@ async def get_diary_entry_documents(
                 is_favorite=doc.is_favorite,
                 is_archived=doc.is_archived,
                 is_project_exclusive=doc.is_project_exclusive,
+                is_encrypted=getattr(doc, 'is_encrypted', False),  # NEW: From document_diary join
                 thumbnail_path=doc.thumbnail_path,
                 created_at=doc.created_at,
                 updated_at=doc.updated_at,
@@ -964,11 +1097,11 @@ async def update_daily_habits(
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     
     if habit_type == "default":
-        return await diary_metadata_service.update_default_habits(
+        return await habit_data_service.update_default_habits(
             db, current_user.uuid, date_obj, data
         )
     else:
-        return await diary_metadata_service.update_defined_habits(
+        return await habit_data_service.update_defined_habits(
             db, current_user.uuid, date_obj, data
         )
 
@@ -989,7 +1122,7 @@ async def get_daily_habits(
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     
     # Get daily metadata
-    daily_metadata = await diary_metadata_service.get_daily_metadata(db, current_user.uuid, date_obj)
+    daily_metadata = await habit_data_service.get_daily_metadata(db, current_user.uuid, date_obj)
     
     if not daily_metadata:
         return []
@@ -1005,6 +1138,286 @@ async def get_daily_habits(
         return json.loads(column_data)
     except json.JSONDecodeError:
         return []
+
+
+# === HABIT ANALYTICS ENDPOINTS ===
+
+@router.get("/habits/analytics/default")
+async def get_default_habits_analytics(
+    days: int = Query(30, ge=7, le=365),
+    include_sma: bool = Query(False),
+    sma_windows: List[int] = Query([7, 14, 30]),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get analytics for 9 default habits (sleep, stress, exercise, meditation,
+    screen_time, steps, learning, outdoor, social) with optional SMA overlays.
+    
+    **Features:**
+    - 📊 9 core wellness habits with trend analysis
+    - 📈 Optional Simple Moving Average overlays (7, 14, 30 day windows)
+    - 🎯 Goal tracking and completion rates
+    - 📅 Flexible time periods (7-365 days)
+    - ⚡ Smart caching for performance
+    
+    **Default Habits:**
+    - Sleep (hours)
+    - Stress (1-5 scale)
+    - Exercise (minutes)
+    - Meditation (minutes)
+    - Screen Time (hours)
+    - Steps (count)
+    - Learning (minutes)
+    - Outdoor Time (minutes)
+    - Social Connection (1-5 scale)
+    """
+    try:
+        from app.services.unified_habit_analytics_service import unified_habit_analytics_service
+        
+        analytics = await unified_habit_analytics_service.get_default_habits_analytics(
+            db=db,
+            user_uuid=current_user.uuid,
+            days=days,
+            include_sma=include_sma,
+            sma_windows=sma_windows
+        )
+        
+        return analytics
+        
+    except Exception as e:
+        logger.error(f"Error getting default habits analytics for user {current_user.uuid}: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get default habits analytics"
+        )
+
+
+@router.get("/habits/analytics/defined")
+async def get_defined_habits_analytics(
+    days: int = Query(30, ge=7, le=365),
+    normalize: bool = Query(False),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get analytics for user-defined custom habits with optional normalization.
+    
+    **Features:**
+    - 🎯 Custom habit tracking with flexible units
+    - 📊 Normalization to percentage of target goals
+    - 📈 Trend analysis and streak tracking
+    - 🔄 Support for any habit type and unit
+    - ⚡ Smart caching for performance
+    
+    **Normalization:**
+    - When enabled, values are converted to percentage of target
+    - Useful for comparing habits with different scales
+    - Example: 8 glasses / 10 target = 80% completion
+    """
+    try:
+        from app.services.unified_habit_analytics_service import unified_habit_analytics_service
+        
+        analytics = await unified_habit_analytics_service.get_defined_habits_analytics(
+            db=db,
+            user_uuid=current_user.uuid,
+            days=days,
+            normalize=normalize
+        )
+        
+        return analytics
+        
+    except Exception as e:
+        logger.error(f"Error getting defined habits analytics for user {current_user.uuid}: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get defined habits analytics"
+        )
+
+
+@router.get("/habits/analytics/comprehensive")
+async def get_comprehensive_analytics(
+    days: int = Query(30, ge=7, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get unified view of all habits + mood + financial + insights.
+    
+    **Features:**
+    - 🔄 Combines default habits, defined habits, mood, and financial data
+    - 📊 Comprehensive wellness overview
+    - 💰 Financial wellness correlation
+    - 🧠 Mood analysis and trends
+    - ⚡ Optimized for dashboard display
+    
+    **Includes:**
+    - All 9 default habits with trends
+    - User-defined custom habits
+    - Mood analysis and averages
+    - Financial income/expense trends
+    - Cross-habit correlations
+    """
+    try:
+        from app.services.unified_habit_analytics_service import unified_habit_analytics_service
+        
+        analytics = await unified_habit_analytics_service.get_comprehensive_analytics(
+            db=db,
+            user_uuid=current_user.uuid,
+            days=days
+        )
+        
+        return analytics
+        
+    except Exception as e:
+        logger.error(f"Error getting comprehensive analytics for user {current_user.uuid}: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get comprehensive analytics"
+        )
+
+
+@router.get("/habits/correlation")
+async def get_habit_correlation(
+    habit_x: str = Query(..., description="First habit identifier (e.g., 'sleep', 'exercise', custom habit ID)"),
+    habit_y: str = Query(..., description="Second habit identifier (e.g., 'mood', 'stress', custom habit ID)"),
+    days: int = Query(90, ge=7, le=365),
+    normalize: bool = Query(False),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Calculate correlation between any two habits (default, defined, mood, financial).
+    
+    **Features:**
+    - 🔗 Pearson correlation coefficient calculation
+    - 📊 Scatter plot data for visualization
+    - 🎯 Works with any habit combination
+    - 📈 Trend analysis and interpretation
+    - ⚡ Fast correlation calculations
+    
+    **Supported Habit Types:**
+    - Default habits: sleep, stress, exercise, meditation, screen_time, steps, learning, outdoor, social
+    - Defined habits: Any custom habit ID
+    - Mood: mood (from diary entries)
+    - Financial: daily_income, daily_expense
+    
+    **Example Correlations:**
+    - sleep vs mood (positive correlation expected)
+    - exercise vs stress (negative correlation expected)
+    - meditation vs screen_time (negative correlation expected)
+    """
+    try:
+        from app.services.unified_habit_analytics_service import unified_habit_analytics_service
+        
+        correlation = await unified_habit_analytics_service.get_habit_correlation(
+            db=db,
+            user_uuid=current_user.uuid,
+            habit_x=habit_x,
+            habit_y=habit_y,
+            days=days,
+            normalize=normalize
+        )
+        
+        return correlation
+        
+    except Exception as e:
+        logger.error(f"Error calculating habit correlation for user {current_user.uuid}: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to calculate habit correlation"
+        )
+
+
+@router.get("/habits/trend/{habit_key}")
+async def get_habit_trend(
+    habit_key: str,
+    days: int = Query(90, ge=7, le=365),
+    include_sma: bool = Query(True),
+    sma_windows: List[int] = Query([7, 14, 30]),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get trend data for specific habit with SMA overlays.
+    
+    **Features:**
+    - 📈 Detailed trend analysis for any habit
+    - 📊 Simple Moving Average overlays (7, 14, 30 day windows)
+    - 🎯 Trend direction analysis (bullish/bearish/stable)
+    - 📅 Flexible time periods (7-365 days)
+    - ⚡ Optimized for chart visualization
+    
+    **SMA Windows:**
+    - 7 days: Short-term trends (recent changes)
+    - 14 days: Medium-term trends (established patterns)
+    - 30 days: Long-term trends (overall direction)
+    
+    **Trend Analysis:**
+    - Bullish: Values above moving average, improving
+    - Bearish: Values below moving average, declining
+    - Stable: Values near moving average, consistent
+    """
+    try:
+        from app.services.unified_habit_analytics_service import unified_habit_analytics_service
+        
+        trend = await unified_habit_analytics_service.get_habit_trend_with_sma(
+            db=db,
+            user_uuid=current_user.uuid,
+            habit_key=habit_key,
+            days=days,
+            include_sma=include_sma,
+            sma_windows=sma_windows
+        )
+        
+        return trend
+        
+    except Exception as e:
+        logger.error(f"Error getting habit trend for user {current_user.uuid}: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get habit trend"
+        )
+
+
+@router.get("/habits/dashboard")
+async def get_habits_dashboard(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get lightweight dashboard summary for instant load (< 100ms).
+    
+    **Features:**
+    - ⚡ Ultra-fast response (< 100ms)
+    - 📊 Key metrics overview
+    - 🎯 Missing data warnings
+    - 💡 Personalized insights
+    - 🔄 30-second cache for instant loads
+    
+    **Returns:**
+    - sleep_avg_7d: 7-day sleep average
+    - exercise_streak: Current exercise streak
+    - mood_today: Today's mood rating
+    - missing_today: List of unfilled habits
+    - top_insights: Personalized recommendations
+    """
+    try:
+        from app.services.unified_habit_analytics_service import unified_habit_analytics_service
+        
+        dashboard = await unified_habit_analytics_service.get_dashboard_summary(
+            db=db,
+            user_uuid=current_user.uuid
+        )
+        
+        return dashboard
+        
+    except Exception as e:
+        logger.error(f"Error getting habits dashboard for user {current_user.uuid}: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get habits dashboard"
+        )
 
 
 # === ADVANCED ANALYTICS ENDPOINTS ===

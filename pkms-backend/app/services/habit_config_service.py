@@ -54,6 +54,12 @@ class HabitConfigService:
             {"habitId": "exercise", "name": "EXERCISE", "unit": "minutes"},
             {"habitId": "meditation", "name": "MEDITATION", "unit": "minutes"},
             {"habitId": "screen_time", "name": "SCREEN TIME", "unit": "hours"},
+
+            # Enhanced wellness metrics
+            {"habitId": "steps", "name": "STEPS", "unit": "count"},
+            {"habitId": "learning", "name": "LEARNING", "unit": "minutes"},
+            {"habitId": "outdoor", "name": "OUTDOOR", "unit": "hours"},
+            {"habitId": "social", "name": "SOCIAL", "unit": "hours"},
         ]
     
     @staticmethod

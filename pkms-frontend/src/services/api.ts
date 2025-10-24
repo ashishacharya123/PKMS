@@ -399,6 +399,23 @@ class ApiService {
     }
   }
 
+  async buildThumbnails(size: 'small' | 'medium' | 'large' = 'medium'): Promise<{
+    status: string;
+    created: number;
+    existing: number;
+    failed: number;
+    total_scanned: number;
+  }> {
+    const res = await this.post<{
+      status: string;
+      created: number;
+      existing: number;
+      failed: number;
+      total_scanned: number;
+    }>(`/thumbnails/build?size=${size}`, {});
+    return res.data;
+  }
+
   private async refreshToken(): Promise<void> {
     await this.post('/auth/refresh', {});
     // Cookie is set automatically by server

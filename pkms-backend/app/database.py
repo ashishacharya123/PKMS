@@ -18,7 +18,8 @@ from app.config import get_database_url, settings, get_data_dir
 # This ensures all tables are created by Base.metadata.create_all()
 from app.models.base import Base
 from app.models.user import User, Session, RecoveryKey
-from app.models.note import Note, NoteFile
+from app.models.note import Note
+# NoteFile model removed - notes now use Document + note_documents association
 from app.models.document import Document
 from app.models.todo import Todo
 from app.models.project import Project
@@ -45,9 +46,11 @@ engine_kwargs = {
         else {"check_same_thread": False, "timeout": 20} if db_url.startswith("sqlite") else {}
     ),
 }
-    if sqlite_aiosqlite and make_url(db_url).database == ":memory:":
+
+if sqlite_aiosqlite and make_url(db_url).database == ":memory:":
     # StaticPool ensures the same in-memory DB across connections
     engine_kwargs["poolclass"] = StaticPool
+
 engine = create_async_engine(db_url, **engine_kwargs)
 
 # SQLite Foreign Key Event Listener
@@ -218,9 +221,18 @@ async def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_documents_created_by ON documents(created_by);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_user_mime ON documents(created_by, mime_type);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_documents_updated_at ON documents(updated_at DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_documents_user_mime_created ON documents(created_by, mime_type, created_at DESC);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_uuid ON documents(uuid);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_title ON documents(title);",
                 "CREATE INDEX IF NOT EXISTS idx_documents_archived ON documents(is_archived);",
+
+                # Document model composite indexes for optimal performance
+                "CREATE INDEX IF NOT EXISTS idx_doc_user_archived ON documents(created_by, is_archived);",
+                "CREATE INDEX IF NOT EXISTS idx_doc_user_deleted ON documents(created_by, is_deleted);",
+                "CREATE INDEX IF NOT EXISTS idx_doc_user_created_desc ON documents(created_by, created_at DESC);",
+                "CREATE INDEX IF NOT EXISTS idx_doc_user_favorite ON documents(created_by, is_favorite);",
+                "CREATE INDEX IF NOT EXISTS idx_doc_mime_type ON documents(mime_type, created_by);",
                 
                 # Todos indexes
                 "CREATE INDEX IF NOT EXISTS idx_todos_created_by ON todos(created_by);",
@@ -247,7 +259,6 @@ async def init_db():
                 # Archive indexes
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_created_by ON archive_folders(created_by);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_parent ON archive_folders(parent_uuid);",
-                "CREATE INDEX IF NOT EXISTS idx_archive_folders_path ON archive_folders(path);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_name ON archive_folders(name);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_folders_archived ON archive_folders(is_archived);",
                 "CREATE INDEX IF NOT EXISTS idx_archive_items_created_by ON archive_items(created_by);",

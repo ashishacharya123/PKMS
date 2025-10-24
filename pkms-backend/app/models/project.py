@@ -13,7 +13,7 @@ from app.models.base import Base
 from app.config import nepal_now
 from app.models.enums import ProjectStatus, TodoStatus, TaskPriority
 from app.models.tag_associations import project_tags
-from app.models.associations import note_projects, document_projects, todo_projects
+from app.models.associations import project_items
 
 
 class Project(Base):
@@ -62,25 +62,9 @@ class Project(Base):
     user = relationship("User", back_populates="projects", foreign_keys=[created_by])
     tag_objs = relationship("Tag", secondary=project_tags, back_populates="projects")
 
-    # Many-to-many relationships (ordered via association sort_order)
-    notes = relationship(
-        "Note",
-        secondary=note_projects,
-        back_populates="projects",
-        order_by=note_projects.c.sort_order
-    )
-    documents_multi = relationship(
-        "Document",
-        secondary=document_projects,
-        back_populates="projects",
-        order_by=document_projects.c.sort_order
-    )
-    todos_multi = relationship(
-        "Todo",
-        secondary=todo_projects,
-        back_populates="projects",
-        order_by=todo_projects.c.sort_order
-    )
+    # REMOVED: notes relationship - notes now linked via polymorphic project_items
+    # REMOVED: documents_multi relationship - replaced with polymorphic project_items
+    # REMOVED: todos_multi relationship - todos now linked via polymorphic project_items association
 
     def duplicate(self, session, name_suffix="Copy", include_associated_items=False):
         """
@@ -119,15 +103,11 @@ class Project(Base):
 
         # Optionally copy associated items
         if include_associated_items:
-            # Copy todos (create new todos, not reference existing ones)
-            for todo in self.todos_multi:
-                # This would need to be implemented in todo service
-                # For now, just create relationship without duplication
-                new_project.todos_multi.append(todo)
+            # TODO: Copy todo links via project_items (polymorphic bridge) if include_associated_items
+            # For now, todos are not copied during project duplication
 
-            # Copy documents (reference existing documents)
-            for document in self.documents_multi:
-                new_project.documents_multi.append(document)
+            # TODO: Copy document links via project_items (polymorphic bridge) if needed
+            # Documents are now linked via polymorphic project_items association
 
             # Copy notes (reference existing notes)
             for note in self.notes:
@@ -161,14 +141,14 @@ class Project(Base):
         """
 
         # Count associated items
-        todo_count = len(self.todos_multi) if self.todos_multi else 0
-        document_count = len(self.documents_multi) if self.documents_multi else 0
+        # TODO: Update to use project_items polymorphic queries (requires async session)
+        # For now, return 0 for todos and documents until refactored
+        todo_count = 0  # TODO: query project_items where item_type='Todo'
+        document_count = 0  # TODO: query project_items where item_type='Document'
         note_count = len(self.notes) if self.notes else 0
 
         # Count completed todos
-        completed_todos = 0
-        if self.todos_multi:
-            completed_todos = sum(1 for todo in self.todos_multi if todo.status == TodoStatus.DONE)
+        completed_todos = 0  # TODO: query project_items + Todo.status == DONE
 
         # Calculate actual progress if not manually set
         if todo_count > 0:

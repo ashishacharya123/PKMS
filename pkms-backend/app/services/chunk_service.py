@@ -34,6 +34,9 @@ from datetime import datetime, timedelta
 from app.config import settings, get_data_dir, NEPAL_TZ
 from app.models.enums import ChunkUploadStatus
 
+# File size validation
+from app.services.file_size_service import file_size_service
+
 logger = logging.getLogger(__name__)
 
 # Constants
@@ -125,27 +128,30 @@ class ChunkUploadManager:
             logger.error(f"Failed to load upload state: {e}")
             # Continue with empty state if loading fails
     
-    async def save_chunk(self, file_id: str, chunk_number: int, chunk_data: BinaryIO, filename: str, total_chunks: int, total_size: int, created_by: str) -> Dict:
+    async def save_chunk(self, file_id: str, chunk_number: int, chunk_data: BinaryIO, metadata: Dict) -> Dict:
         """Save a chunk to disk and update progress"""
         try:
             # Initialize upload tracking if not exists
             if file_id not in self.uploads:
                 self.uploads[file_id] = {
-                    'filename': filename,
-                    'total_chunks': total_chunks,
+                    'filename': metadata.get('filename', 'unknown'),
+                    'total_chunks': metadata.get('total_chunks', 0),
                     'received_chunks': set(),
-                    'total_size': total_size,
+                    'total_size': metadata.get('total_size', 0),
                     'bytes_received': 0,
                     'status': ChunkUploadStatus.UPLOADING,
                     'started_at': datetime.now(NEPAL_TZ),
                     'last_update': datetime.now(NEPAL_TZ),
                     'chunk_hashes': {},
-                    'created_by': created_by
+                    'created_by': metadata.get('created_by'),
+                    'module': metadata.get('module', 'documents'),
+                    'mime_type': metadata.get('mime_type', 'application/octet-stream')
                 }
             
             upload = self.uploads[file_id]
             
             # Validate chunk number
+            total_chunks = metadata.get('total_chunks', 0)
             if chunk_number < 0 or chunk_number >= total_chunks:
                 raise ValueError(f"Invalid chunk number {chunk_number}, total chunks: {total_chunks}")
             
@@ -176,11 +182,11 @@ class ChunkUploadManager:
             
             return {
                 'file_id': file_id,
-                'filename': filename,
+                'filename': upload['filename'],
                 'bytes_uploaded': upload['bytes_received'],
-                'total_size': total_size,
+                'total_size': upload['total_size'],
                 'status': upload['status'],
-                'progress': len(upload['received_chunks']) / total_chunks * 100 if total_chunks > 0 else 0
+                'progress': len(upload['received_chunks']) / upload['total_chunks'] * 100 if upload['total_chunks'] > 0 else 0
             }
             
         except Exception as e:
@@ -206,9 +212,11 @@ class ChunkUploadManager:
                 
                 # SECURITY: Validate total file size before reading chunks into memory
                 # This prevents large files from crashing the server
-                MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
-                if upload['total_size'] > MAX_FILE_SIZE:
-                    raise ValueError(f"File too large: {upload['total_size']} bytes (max: {MAX_FILE_SIZE})")
+                if upload['total_size'] > file_size_service.get_size_limit():
+                    raise ValueError(
+                        f"File too large: {file_size_service.format_file_size(upload['total_size'])} "
+                        f"(max: {file_size_service.get_size_limit_mb()}MB)"
+                    )
                 
                 # Assemble chunks with verification
                 async with aiofiles.open(output_path, 'wb') as outfile:

@@ -3,6 +3,8 @@ import { archiveService } from '../services/archiveService';
 import { ArchiveFolder, ArchiveItem } from '../types/archive';
 import { UploadProgress } from '../services/shared/coreUploadService';
 import { FolderTree } from '../types/archive';
+import { archiveCacheAware } from '../services/cacheAwareService';
+import { logger } from '../utils/logger';
 
 interface ArchiveState {
   currentFolder: ArchiveFolder | null;
@@ -50,8 +52,10 @@ export const useArchiveStore = create<ArchiveState>((set, get) => ({
     }
     set({ isLoading: true });
     try {
-      const folderDetails = await archiveService.getFolder(folderId);
+      // 🎯 AUTOMATIC: Cache checking, API calls, and revalidation handled automatically
+      const folderDetails = await archiveCacheAware.getFolder(folderId);
       set({ currentFolder: folderDetails });
+      
       await Promise.all([
         get().loadItems(folderId),
         get().loadFolders(folderId), // load subfolders for this folder
@@ -79,7 +83,8 @@ export const useArchiveStore = create<ArchiveState>((set, get) => ({
   loadItems: async (folderId) => {
     set({ isLoadingItems: true, error: null });
     try {
-      const items = await archiveService.getFolderItems(folderId);
+      // 🎯 AUTOMATIC: Cache checking, API calls, and revalidation handled automatically
+      const items = await archiveCacheAware.getFolderItems(folderId);
       set({ items, isLoadingItems: false });
     } catch (error) {
       set({ error: 'Failed to load items', isLoadingItems: false });
@@ -96,10 +101,50 @@ export const useArchiveStore = create<ArchiveState>((set, get) => ({
     try {
       // Support description from temporary state if present
       const description = (get() as any)._pendingFolderDescription as string | undefined;
-      await archiveService.createFolder(name, parentUuid || undefined, description);
+      const newFolder = await archiveService.createFolder(name, parentUuid || undefined, description);
       // Clear temp description
       (get() as any)._pendingFolderDescription = undefined;
-      await get().loadFolders(parentUuid || undefined);
+      
+      // 🎯 AUTOMATIC: Smart cache invalidation
+      await archiveCacheAware.invalidateAll();
+      
+      // OPTIMISTIC UPDATE: Add to state immediately instead of refetching
+      set((state) => {
+        const addNodeToTree = (tree: FolderTree[], newFolder: ArchiveFolder, parentUuid?: string): FolderTree[] => {
+          if (!parentUuid) {
+            // Add to root
+            return [...tree, { folder: newFolder, children: [], items: [] }];
+          }
+          
+          // Recursively find parent and add child
+          return tree.map((node) => {
+            if (node.folder.uuid === parentUuid) {
+              return {
+                ...node,
+                children: [
+                  ...(node.children || []),
+                  { folder: newFolder, children: [], items: [] }
+                ]
+              };
+            }
+            if (node.children && node.children.length > 0) {
+              return {
+                ...node,
+                children: addNodeToTree(node.children, newFolder, parentUuid)
+              };
+            }
+            return node;
+          });
+        };
+        
+        return {
+          isLoading: false,
+          folderTree: addNodeToTree(state.folderTree, newFolder, parentUuid),
+          folders: parentUuid === state.currentFolder?.uuid
+            ? [...state.folders, newFolder]
+            : state.folders
+        };
+      });
     } catch (error) {
       set({ error: 'Failed to create folder', isLoading: false });
     }

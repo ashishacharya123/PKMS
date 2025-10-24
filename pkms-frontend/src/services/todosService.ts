@@ -1,188 +1,73 @@
 import { apiService } from './api';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
+import { 
+  Todo, 
+  CreateTodoRequest as TodoCreate, 
+  UpdateTodoRequest as TodoUpdate, 
+  TodoSummary, 
+  TodoStats, 
+  TodoListParams,
+  BlockingTodoSummary
+} from '../types/todo';
+import { ChecklistItem } from '../types/common';
+import { ProjectBadge } from '../types/project';
+import { TodoStatus, TaskPriority, TodoType } from '../types/enums';
 
-// Types for todos
-export interface ProjectBadge {
-  uuid: string | null;  // null if project is deleted
-  name: string;
-  color: string;
-  isProjectExclusive: boolean;
-  isDeleted: boolean;  // True if project was deleted (using snapshot name)
-}
+// Re-export types from centralized location
+export type { TodoCreate, TodoUpdate, TodoSummary, TodoStats, TodoListParams, ChecklistItem };
 
-export interface Project {
+// Legacy interfaces for backward compatibility - will be removed
+export interface LegacyProject {
   uuid: string;
   name: string;
   description?: string;
-  color: string;
+  // color field removed - backend removed for professional management
   is_archived: boolean;
   created_at: string;
   updated_at: string;
   todo_count: number;
   completed_count: number;
-  
-  // NEW: Additional fields
   status?: string;
   start_date?: string;
   end_date?: string;
   progress_percentage?: number;
 }
 
-export interface ProjectCreate {
+export interface LegacyProjectCreate {
   name: string;
   description?: string;
-  color?: string;
+  // color field removed - backend removed for professional management
 }
 
-export interface ProjectUpdate {
+export interface LegacyProjectUpdate {
   name?: string;
   description?: string;
-  color?: string;
+  // color field removed - backend removed for professional management
   is_archived?: boolean;
-}
-
-export interface Todo {
-  id: number;
-  uuid: string;
-  title: string;
-  description?: string;
-  project_id?: number;  // Legacy single project
-  project_name?: string;  // Legacy single project name
-  isExclusiveMode: boolean;
-  start_date?: string;
-  due_date?: string;
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: string;  // Now matches backend
-  todo_type?: 'task' | 'checklist' | 'subtask';
-  order_index: number;  // New field for Kanban ordering
-  parent_id?: number;  // For subtasks
-  subtasks?: Todo[];  // Nested subtasks
-  completed_at?: string;
-  created_at: string;
-  updated_at: string;
-  tags: string[];
-  days_until_due?: number;
-  is_archived: boolean;
-  is_favorite?: boolean;
-  projects: ProjectBadge[];
-  
-  // NEW: Additional fields
-  completion_percentage?: number;
-  estimate_minutes?: number;
-  actual_minutes?: number;
-  
-  // NEW: Checklist functionality
-  checklist_items?: ChecklistItem[];
-}
-
-export interface ChecklistItem {
-  text: string;
-  completed: boolean;
-  order: number;
-}
-
-export interface TodoCreate {
-  title: string;
-  description?: string;
-  project_id?: number;  // Legacy single project
-  projectIds?: string[];  // Multi-project support (UUIDs)
-  isExclusiveMode?: boolean;
-  parent_id?: number;  // For creating subtasks
-  start_date?: string;
-  due_date?: string;
-  priority?: number;
-  status?: string;  // Allow setting initial status
-  order_index?: number;  // Allow setting initial order
-  tags?: string[];
-  is_archived?: boolean;
-}
-
-export interface TodoUpdate {
-  title?: string;
-  description?: string;
-  project_id?: number;  // Legacy single project
-  projectIds?: string[];  // Multi-project support (UUIDs)
-  isExclusiveMode?: boolean;
-  parent_id?: number;  // For moving subtasks
-  start_date?: string;
-  due_date?: string;
-  priority?: number;
-  status?: string;
-  order_index?: number;  // Allow updating order
-  tags?: string[];
-  is_archived?: boolean;
-  is_favorite?: boolean;
-}
-
-export interface TodoSummary {
-  id: number;
-  uuid: string;
-  title: string;
-  project_name?: string;  // Legacy single project name
-  isExclusiveMode: boolean;
-  start_date?: string;
-  due_date?: string;
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: string;
-  order_index: number;  // New field for ordering
-  parent_id?: number;  // For subtasks
-  subtasks?: TodoSummary[];  // Nested subtasks
-  created_at: string;
-  tags: string[];
-  days_until_due?: number;
-  is_archived: boolean;
-  is_favorite?: boolean;
-  projects: ProjectBadge[];
-}
-
-export interface TodoStats {
-  total: number;
-  pending: number;
-  in_progress: number;
-  blocked: number;
-  done: number;
-  cancelled: number;
-  overdue: number;
-  due_today: number;
-  due_this_week: number;
-}
-
-export interface TodoListParams {
-  status?: string;
-  priority?: number;
-  project_uuid?: string;
-  due_date?: string;
-  overdue?: boolean;
-  tag?: string;
-  search?: string;
-  limit?: number;
-  offset?: number;
-  is_archived?: boolean;
-  is_favorite?: boolean;
 }
 
 class TodosService {
   private baseUrl = '/todos';
 
-  // Project methods
-  async createProject(projectData: ProjectCreate): Promise<Project> {
-    const response = await apiService.post<Project>(`${this.baseUrl}/projects`, projectData);
+  // Project methods (legacy - will be moved to projectsService)
+  async createProject(projectData: LegacyProjectCreate): Promise<LegacyProject> {
+    const response = await apiService.post<LegacyProject>(`${this.baseUrl}/projects`, projectData);
     return response.data;
   }
 
-  async getProjects(archived: boolean = false): Promise<Project[]> {
+  async getProjects(archived: boolean = false): Promise<LegacyProject[]> {
     const url = `${this.baseUrl}/projects?archived=${archived}`;
-    const response = await apiService.get<Project[]>(url);
+    const response = await apiService.get<LegacyProject[]>(url);
     return response.data;
   }
 
-  async getProject(projectUuid: string): Promise<Project> {
-    const response = await apiService.get<Project>(`${this.baseUrl}/projects/${projectUuid}`);
+  async getProject(projectUuid: string): Promise<LegacyProject> {
+    const response = await apiService.get<LegacyProject>(`${this.baseUrl}/projects/${projectUuid}`);
     return response.data;
   }
 
-  async updateProject(projectUuid: string, projectData: ProjectUpdate): Promise<Project> {
-    const response = await apiService.put<Project>(`${this.baseUrl}/projects/${projectUuid}`, projectData);
+  async updateProject(projectUuid: string, projectData: LegacyProjectUpdate): Promise<LegacyProject> {
+    const response = await apiService.put<LegacyProject>(`${this.baseUrl}/projects/${projectUuid}`, projectData);
     return response.data;
   }
 
@@ -223,7 +108,7 @@ class TodosService {
     return response.data;
   }
 
-  async updateTodoStatus(todoUuid: string, status: string): Promise<Todo> {
+  async updateTodoStatus(todoUuid: string, status: TodoStatus): Promise<Todo> {
     const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoUuid}/status?status=${status}`);
     return response.data;
   }
@@ -340,6 +225,38 @@ class TodosService {
     };
     return colors[status as keyof typeof colors] || '#757575';
   }
+
+  // NEW: Dependency Management Methods
+  
+  /**
+   * Add a dependency: blocker_uuid must complete before todo_uuid can proceed
+   */
+  async addDependency(todoUuid: string, blockerUuid: string): Promise<void> {
+    await apiService.post(`${this.baseUrl}/${todoUuid}/dependencies/${blockerUuid}`);
+  }
+
+  /**
+   * Remove a dependency between todos
+   */
+  async removeDependency(todoUuid: string, blockerUuid: string): Promise<void> {
+    await apiService.delete(`${this.baseUrl}/${todoUuid}/dependencies/${blockerUuid}`);
+  }
+
+  /**
+   * Get todos that this todo is blocking (others waiting on this one)
+   */
+  async getBlockingTodos(todoUuid: string): Promise<BlockingTodoSummary[]> {
+    const response = await apiService.get(`${this.baseUrl}/${todoUuid}/blocking`);
+    return (response.data as any).blocking_todos;
+  }
+
+  /**
+   * Get todos that are blocking this one (this todo is waiting on these)
+   */
+  async getBlockedByTodos(todoUuid: string): Promise<BlockingTodoSummary[]> {
+    const response = await apiService.get(`${this.baseUrl}/${todoUuid}/blocked-by`);
+    return (response.data as any).blocked_by_todos;
+  }
 }
 
 export const todosService = new TodosService();
@@ -368,7 +285,12 @@ export const {
   getDaysUntilDue,
   isOverdue,
   getPriorityColor,
-  getStatusColor
+  getStatusColor,
+  // NEW: Dependency management methods
+  addDependency,
+  removeDependency,
+  getBlockingTodos,
+  getBlockedByTodos
 } = todosService; 
 
 // Subtask management functions

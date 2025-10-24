@@ -99,7 +99,7 @@ class ArchiveFolderService:
         )
         
         db.add(folder)
-        await db.commit()
+        await db.flush()
         await db.refresh(folder)
         
         # Get folder with stats
@@ -197,14 +197,116 @@ class ArchiveFolderService:
         db: AsyncSession, 
         user_uuid: str, 
         parent_uuid: Optional[str] = None,
-        max_depth: Optional[int] = None
+        max_depth: Optional[int] = None,
+        search: Optional[str] = None  # NEW parameter
     ) -> List[FolderTree]:
         """Build folder tree structure with lazy loading support"""
+        
+        # If searching, return flat search results
+        if search:
+            return await self._search_folders_flat(db, user_uuid, search)
+        
+        # Otherwise, return hierarchical tree
         hierarchy = await self.path_service.build_hierarchy(
             db, user_uuid, parent_uuid, max_depth
         )
         
         return [FolderTree(**folder_data) for folder_data in hierarchy]
+    
+    async def _search_folders_flat(
+        self,
+        db: AsyncSession,
+        user_uuid: str,
+        search_query: str
+    ) -> List[FolderTree]:
+        """
+        Perform flat search for folders and return results with paths.
+        OPTIMIZED: Uses a batch query to get all subfolder counts at once.
+        """
+        
+        # 1. Find all matching folders
+        result = await db.execute(
+            select(ArchiveFolder)
+            .where(
+                and_(
+                    ArchiveFolder.created_by == user_uuid,
+                    ArchiveFolder.is_deleted == False,
+                    ArchiveFolder.name.ilike(f"%{search_query}%")
+                )
+            )
+            .order_by(ArchiveFolder.name)
+        )
+        folders = result.scalars().all()
+        
+        if not folders:
+            return []
+
+        # --- START NEW OPTIMIZATION (Fixes N+1) ---
+        
+        # 2. BATCH QUERY: Get subfolder counts for ALL found folders in one query
+        folder_uuids = [folder.uuid for folder in folders]
+        
+        sub_count_result = await db.execute(
+            select(
+                ArchiveFolder.parent_uuid, 
+                func.count(ArchiveFolder.uuid).label("count")
+            )
+            .where(
+                and_(
+                    ArchiveFolder.parent_uuid.in_(folder_uuids),
+                    ArchiveFolder.created_by == user_uuid,
+                    ArchiveFolder.is_deleted == False
+                )
+            )
+            .group_by(ArchiveFolder.parent_uuid)
+        )
+        
+        # 3. Create an in-memory map for O(1) lookups
+        #    { "parent_uuid_1": 5, "parent_uuid_2": 2 }
+        subfolder_counts_map = {
+            row.parent_uuid: row.count for row in sub_count_result.all()
+        }
+        
+        # --- END NEW OPTIMIZATION ---
+
+        # Get paths for all found folders (uses P1 optimized service)
+        search_results = []
+        for folder in folders:
+            breadcrumb = await self.path_service.get_folder_breadcrumb(
+                folder.uuid, db, user_uuid
+            )
+            path_str = "/" + "/".join([b["name"] for b in breadcrumb]) if breadcrumb else f"/{folder.name}"
+            
+            # 4. Get subfolder count from the in-memory map (no query)
+            subfolder_count = subfolder_counts_map.get(folder.uuid, 0)
+            
+            folder_data = {
+                "uuid": folder.uuid,
+                "name": folder.name,
+                "description": folder.description,
+                "parent_uuid": folder.parent_uuid,
+                "is_favorite": folder.is_favorite,
+                "depth": folder.depth,
+                "item_count": folder.item_count,
+                "total_size": folder.total_size,
+                "created_at": folder.created_at,
+                "updated_at": folder.updated_at,
+                "path": path_str,
+                "subfolder_count": subfolder_count,  # <-- Now from the map
+                # Additional fields from database model
+                "is_deleted": folder.is_deleted,
+                "created_by": folder.created_by
+            }
+            
+            search_results.append(
+                FolderTree(
+                    folder=folder_data,
+                    children=[],  # Search results are flat
+                    items=[]
+                )
+            )
+        
+        return search_results
     
     async def get_folder(
         self, 
@@ -350,7 +452,7 @@ class ArchiveFolderService:
             # Update depth for all descendants
             await self._update_descendant_depths(db, folder_uuid, new_depth + 1)
         
-        await db.commit()
+        await db.flush()
         await db.refresh(folder)
         
         return await self.get_folder(db, user_uuid, folder.uuid)
@@ -359,7 +461,8 @@ class ArchiveFolderService:
         self, 
         db: AsyncSession, 
         user_uuid: str, 
-        folder_uuid: str
+        folder_uuid: str,
+        force: bool = False  # NEW parameter
     ) -> None:
         """Delete folder and all contents (soft delete)"""
         # Get folder with all descendants
@@ -379,7 +482,48 @@ class ArchiveFolderService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Folder not found"
             )
-        
+
+        # NEW VALIDATION: Check if folder is empty (unless force=True)
+        if not force:
+            # Check for child items
+            item_count_result = await db.execute(
+                select(func.count(ArchiveItem.uuid))
+                .where(
+                    and_(
+                        ArchiveItem.folder_uuid == folder_uuid,
+                        ArchiveItem.created_by == user_uuid,
+                        ArchiveItem.is_deleted == False
+                    )
+                )
+            )
+            item_count = item_count_result.scalar() or 0
+            
+            if item_count > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Folder contains {item_count} item(s). Use force=true to delete all contents."
+                )
+            
+            # Check for child folders
+            folder_count_result = await db.execute(
+                select(func.count(ArchiveFolder.uuid))
+                .where(
+                    and_(
+                        ArchiveFolder.parent_uuid == folder_uuid,
+                        ArchiveFolder.created_by == user_uuid,
+                        ArchiveFolder.is_deleted == False
+                    )
+                )
+            )
+            folder_count = folder_count_result.scalar() or 0
+            
+            if folder_count > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Folder contains {folder_count} subfolder(s). Use force=true to delete all contents."
+                )
+
+        # Continue with existing delete logic...
         # Get all descendant folders
         descendant_uuids = await self._get_descendant_uuids(db, folder_uuid, user_uuid)
         all_folder_uuids = [folder_uuid] + descendant_uuids
@@ -408,7 +552,7 @@ class ArchiveFolderService:
             .values(is_deleted=True)
         )
         
-        await db.commit()
+        # Remove this line entirely - router will commit
     
     async def get_breadcrumb(
         self, 
@@ -446,10 +590,11 @@ class ArchiveFolderService:
                     detail="Destination folder not found"
                 )
         
-        # Move folders
+        # Move folders with cycle prevention and depth recalculation
         if move_request.folder_uuids:
-            await db.execute(
-                update(ArchiveFolder)
+            # Validate folder existence and collect current data
+            folder_results = await db.execute(
+                select(ArchiveFolder.uuid, ArchiveFolder.parent_uuid, ArchiveFolder.depth)
                 .where(
                     and_(
                         ArchiveFolder.uuid.in_(move_request.folder_uuids),
@@ -457,8 +602,72 @@ class ArchiveFolderService:
                         ArchiveFolder.is_deleted.is_(False)
                     )
                 )
-                .values(parent_uuid=move_request.destination_folder_uuid)
             )
+            existing_folders = folder_results.all()
+
+            if not existing_folders:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="No valid folders found to move"
+                )
+
+            existing_folder_uuids = {row.uuid for row in existing_folders}
+            moved_uuids = existing_folder_uuids
+
+            # Get destination folder depth
+            dest_depth = 0
+            if move_request.destination_folder_uuid:
+                dest_result = await db.execute(
+                    select(ArchiveFolder.depth)
+                    .where(
+                        and_(
+                            ArchiveFolder.uuid == move_request.destination_folder_uuid,
+                            ArchiveFolder.created_by == user_uuid,
+                            ArchiveFolder.is_deleted.is_(False)
+                        )
+                    )
+                )
+                dest_depth = dest_result.scalar() or 0
+
+                # Check for cycles: destination cannot be inside any moved folder subtree
+                for folder_uuid in moved_uuids:
+                    has_cycle = await self.path_service.detect_cycle(
+                        folder_uuid, move_request.destination_folder_uuid, db, user_uuid
+                    )
+                    if has_cycle:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Cannot move folder {folder_uuid}: would create circular reference"
+                        )
+
+            # Calculate depth changes for each folder
+            folder_depth_updates = []
+            for row in existing_folders:
+                old_depth = row.depth
+                new_parent_uuid = move_request.destination_folder_uuid
+
+                # Calculate new depth
+                if new_parent_uuid:
+                    # Get destination folder depth
+                    new_depth = dest_depth + 1
+                else:
+                    new_depth = 0  # Moving to root
+
+                depth_delta = new_depth - old_depth
+                folder_depth_updates.append((row.uuid, new_parent_uuid, new_depth, depth_delta))
+
+            # Apply parent_uuid changes
+            for folder_uuid, new_parent_uuid, new_depth, depth_delta in folder_depth_updates:
+                await db.execute(
+                    update(ArchiveFolder)
+                    .where(ArchiveFolder.uuid == folder_uuid)
+                    .values(parent_uuid=new_parent_uuid, depth=new_depth)
+                )
+
+            # Update depths for all descendants
+            for folder_uuid, new_parent_uuid, new_depth, depth_delta in folder_depth_updates:
+                if depth_delta != 0:
+                    await self._update_descendant_depths_by_delta(db, folder_uuid, user_uuid, depth_delta)
         
         # Move items
         if move_request.item_uuids:
@@ -474,7 +683,7 @@ class ArchiveFolderService:
                 .values(folder_uuid=move_request.destination_folder_uuid)
             )
         
-        await db.commit()
+        # Remove this line entirely - router will commit
         
         # Update folder stats for affected folders
         affected_folders = set()
@@ -526,8 +735,9 @@ class ArchiveFolderService:
         
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             for item in all_items:
-                # Build relative path within ZIP
-                relative_path = self._build_zip_path(item, folder.name)
+                # Sanitize archive names to prevent path traversal (Zip Slip protection)
+                safe_name = Path(item.original_filename).name
+                relative_path = f"{Path(folder.name).name}/{safe_name}"
                 
                 # Add file to ZIP
                 try:
@@ -542,7 +752,7 @@ class ArchiveFolderService:
         zip_buffer.seek(0)
         
         return StreamingResponse(
-            io.BytesIO(zip_buffer.read()),
+            zip_buffer,
             media_type="application/zip",
             headers={"Content-Disposition": f"attachment; filename={folder.name}.zip"}
         )
@@ -584,8 +794,9 @@ class ArchiveFolderService:
                 all_items = await self._get_all_items_recursive(db, user_uuid, folder.uuid)
                 
                 for item in all_items:
-                    # Build relative path within ZIP
-                    relative_path = self._build_zip_path(item, folder.name)
+                    # Sanitize archive names to prevent path traversal (Zip Slip protection)
+                    safe_name = Path(item.original_filename).name
+                    relative_path = f"{Path(folder.name).name}/{safe_name}"
                     
                     # Add file to ZIP
                     try:
@@ -600,7 +811,7 @@ class ArchiveFolderService:
         zip_buffer.seek(0)
         
         return StreamingResponse(
-            io.BytesIO(zip_buffer.read()),
+            zip_buffer,
             media_type="application/zip",
             headers={"Content-Disposition": "attachment; filename=archive_folders.zip"}
         )
@@ -633,7 +844,29 @@ class ArchiveFolderService:
             
             # Recursively update descendants
             await self._update_descendant_depths(db, child.uuid, new_depth + 1)
-    
+
+    async def _update_descendant_depths_by_delta(
+        self,
+        db: AsyncSession,
+        parent_uuid: str,
+        user_uuid: str,
+        depth_delta: int
+    ) -> None:
+        """Update depth for all descendant folders by applying a depth delta"""
+        if depth_delta == 0:
+            return
+
+        # Get all descendant UUIDs recursively
+        descendant_uuids = await self._get_descendant_uuids(db, parent_uuid, user_uuid)
+
+        if descendant_uuids:
+            # Apply depth delta to all descendants in a single query
+            await db.execute(
+                update(ArchiveFolder)
+                .where(ArchiveFolder.uuid.in_(descendant_uuids))
+                .values(depth=ArchiveFolder.depth + depth_delta)
+            )
+
     async def _get_descendant_uuids(
         self, 
         db: AsyncSession, 
@@ -665,7 +898,7 @@ class ArchiveFolderService:
         
         return descendant_uuids
     
-    async def _update_folder_stats(
+    async def update_folder_stats(
         self, 
         db: AsyncSession, 
         user_uuid: str, 
@@ -837,7 +1070,7 @@ class ArchiveFolderService:
                 )
             )
         
-        await db.commit()
+        await db.flush()
     
     def _build_zip_path(self, item: ArchiveItem, root_folder_name: str) -> str:
         """Build relative path for item within ZIP"""

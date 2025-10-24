@@ -4,7 +4,7 @@ Tag Model for Content Organization
 
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Boolean, ForeignKey,
-    UniqueConstraint, Enum
+    UniqueConstraint, Enum, Index
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -44,6 +44,10 @@ class Tag(Base):
     # CRITICAL: Ensures a user can't have duplicate tag names (universal across all modules).
     __table_args__ = (
         UniqueConstraint('name', 'created_by', name='_user_tag_uc'),
+        Index('ix_tag_user_usage', 'created_by', 'usage_count'),
+        Index('ix_tag_user_archived', 'created_by', 'is_archived'),
+        Index('ix_tag_user_system', 'created_by', 'is_system'),
+        Index('ix_tag_name_search', 'name', 'created_by'),
     )
     
     # Relationships

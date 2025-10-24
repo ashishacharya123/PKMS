@@ -10,15 +10,10 @@ import {
   Stack,
   Button,
   TextInput,
-  TagsInput,
   Badge,
-  ActionIcon,
-  Menu,
   Alert,
   Pagination,
   Paper,
-  FileInput,
-  Progress,
   Modal,
   Tooltip
 } from '@mantine/core';
@@ -26,7 +21,6 @@ import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import ViewModeLayouts, { formatDate, formatFileSize } from '../components/common/ViewModeLayouts';
 import { useViewPreferences } from '../hooks/useViewPreferences';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
-import { MultiProjectSelector } from '../components/common/MultiProjectSelector';
 import { ProjectBadges } from '../components/common/ProjectBadges';
 import {
   IconUpload,
@@ -35,12 +29,8 @@ import {
   IconSortAscending,
   IconSortDescending,
   IconEye,
-  IconDownload,
-  IconTrash,
-  IconDots,
   IconFolder,
   IconArchive,
-  IconArchiveOff,
   IconStar
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
@@ -48,6 +38,8 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { searchService } from '../services/searchService';
 import { useDocumentsStore } from '../stores/documentsStore';
+import { ActionMenu } from '../components/common/ActionMenu';
+import { FileUploadModal } from '../components/file/FileUploadModal';
 
 type SortField = 'original_name' | 'file_size' | 'created_at' | 'updated_at';
 type SortOrder = 'asc' | 'desc';
@@ -171,7 +163,7 @@ export function DocumentsPage() {
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         // Page became visible, reload documents to ensure fresh data
-        console.log('Page became visible, reloading documents...');
+        // Page became visible, reloading documents for fresh data
         loadDocuments();
       }
     };
@@ -180,7 +172,7 @@ export function DocumentsPage() {
     
     // Also handle window focus as a backup
     const handleWindowFocus = () => {
-      console.log('Window focused, reloading documents...');
+      // Window focused, reloading documents for fresh data
       loadDocuments();
     };
     
@@ -324,42 +316,23 @@ export function DocumentsPage() {
   };
 
   const renderActionMenu = (document: any, size: 'sm' | 'md' = 'md') => (
-    <Menu shadow="md" width={200}>
-      <Menu.Target>
-        <ActionIcon variant="subtle" color="gray" size={size} onClick={(e) => e.stopPropagation()}>
-          <IconDots size={size === 'sm' ? 14 : 16} />
-        </ActionIcon>
-      </Menu.Target>
-      <Menu.Dropdown onClick={(e) => e.stopPropagation()}>
-        <Menu.Item 
-          leftSection={<IconEye size={14} />}
-          onClick={(e) => { e.stopPropagation(); handlePreview(document); }}
-        >
-          Preview
-        </Menu.Item>
-        <Menu.Item 
-          leftSection={<IconDownload size={14} />}
-          onClick={(e) => { e.stopPropagation(); handleDownloadFile(document); }}
-        >
-          Download
-        </Menu.Item>
-        <Menu.Divider />
-        <Menu.Item 
-          leftSection={document.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
-          onClick={(e) => { e.stopPropagation(); handleToggleArchive(document); }}
-        >
-          {document.is_archived ? 'Unarchive' : 'Archive'}
-        </Menu.Item>
-        <Menu.Divider />
-        <Menu.Item 
-          leftSection={<IconTrash size={14} />}
-          color="red"
-          onClick={(e) => { e.stopPropagation(); handleDeleteDocument(document.uuid, document.original_name); }}
-        >
-          Delete
-        </Menu.Item>
-      </Menu.Dropdown>
-    </Menu>
+    <ActionMenu
+      onDownload={() => handleDownloadFile(document)}
+      onArchive={document.is_archived ? undefined : () => handleToggleArchive(document)}
+      onUnarchive={document.is_archived ? () => handleToggleArchive(document) : undefined}
+      onDelete={() => handleDeleteDocument(document.uuid, document.original_name)}
+      isArchived={document.is_archived}
+      variant="subtle"
+      color="gray"
+      size={size === 'sm' ? 14 : 16}
+      customActions={[
+        {
+          label: 'Preview',
+          icon: <IconEye size={14} />,
+          onClick: () => handlePreview(document)
+        }
+      ]}
+    />
   );
 
   // Handle preview: inline modal for images, fallback to existing behavior
@@ -736,7 +709,7 @@ export function DocumentsPage() {
                       Archived
                     </Badge>
                   )}
-                  {/* upload_status removed - backend no longer tracks upload status */}
+                  {/* upload_status field removed - backend no longer tracks upload status */}
                   {document.is_favorite && (
                     <Badge size="xs" variant="light" color="pink">Favorite</Badge>
                   )}
@@ -817,74 +790,30 @@ export function DocumentsPage() {
       </Modal>
 
       {/* Upload Modal */}
-      <Modal
+      <FileUploadModal
         opened={uploadModalOpen}
         onClose={() => setUploadModalOpen(false)}
-        title="Upload Document"
-        size="md"
-      >
-        <Stack gap="md">
-          <FileInput
-            label="Select File"
-            placeholder="Choose a file to upload"
-            value={uploadFile}
-            onChange={setUploadFile}
-            accept=".pdf,.docx,.doc,.txt,.jpg,.jpeg,.png,.gif,.webp"
-          />
-          
-          <TagsInput
-            label="Tags"
-            placeholder="Type to search and add tags"
-            value={uploadTags}
-            onChange={setUploadTags}
-            data={tagSuggestions}
-            clearable
-            onSearchChange={handleTagSearch}
-            splitChars={[',', ' ']}
-            description="Add tags separated by comma or space. Start typing to see suggestions."
-          />
-
-          <MultiProjectSelector
-            value={uploadProjectIds}
-            onChange={(ids) => setUploadProjectIds(ids)}
-            isExclusive={uploadIsExclusive}
-            onExclusiveChange={setUploadIsExclusive}
-            description="Link this document to one or more projects"
-            disabled={isUploading}
-          />
-
-          {isUploading && uploadProgress !== null && (
-            <div style={{ position: 'relative' }}>
-              <Progress 
-                value={uploadProgress} 
-                size="lg" 
-                radius="xl"
-                style={{ position: 'relative' }}
-              />
-              <Text size="xs" ta="center" style={{ position: 'absolute', width: '100%', top: 0, left: 0 }}>
-                {uploadProgress}%
-              </Text>
-            </div>
-          )}
-          
-          <Group justify="flex-end">
-            <Button
-              variant="subtle"
-              onClick={() => setUploadModalOpen(false)}
-              disabled={isUploading}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleUpload}
-              loading={isUploading}
-              disabled={!uploadFile}
-            >
-              Upload
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+        onUpload={async (files, metadata) => {
+          try {
+            for (const file of files) {
+              await uploadDocument(file, metadata.tags || [], uploadProjectIds, uploadIsExclusive);
+            }
+            setUploadModalOpen(false);
+            notifications.show({
+              title: 'Upload Successful',
+              message: `Successfully uploaded ${files.length} file(s)`,
+              color: 'green'
+            });
+          } catch (error) {
+            notifications.show({
+              title: 'Upload Failed',
+              message: 'Failed to upload files. Please try again.',
+              color: 'red'
+            });
+          }
+        }}
+        multiple={true}
+      />
     </Container>
   );
 }

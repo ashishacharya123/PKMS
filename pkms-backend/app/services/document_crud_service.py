@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse
 from app.config import NEPAL_TZ, get_file_storage_dir
 from app.models.document import Document
 from app.models.project import Project
-from app.models.associations import document_projects
+from app.models.associations import project_items
 from app.models.enums import ModuleType
 from app.schemas.document import (
     DocumentResponse,
@@ -60,9 +60,9 @@ class DocumentCRUDService:
                     "title": payload.title,
                     "description": payload.description,
                     "tags": payload.tags,
-                    "project_ids": payload.project_ids,
-                    "is_project_exclusive": payload.is_project_exclusive,
-                    "is_diary_exclusive": payload.is_diary_exclusive,
+                    "project_uuids": payload.project_uuids,
+                    "are_projects_exclusive": payload.are_projects_exclusive,
+                    # REMOVED: is_diary_exclusive - diary association handled via diary_entry_uuid
                 }
             )
 
@@ -79,10 +79,11 @@ class DocumentCRUDService:
             await db.commit()
 
             # OPTIMIZED: Use batch badge loading for single item to avoid N+1
-            project_badges = await self._batch_get_project_badges(
-                db, [document_with_tags.uuid], document_projects, "document_uuid"
+            from app.services.shared_utilities_service import shared_utilities_service
+            project_badges_map = await shared_utilities_service.batch_get_project_badges_polymorphic(
+                db, [document_with_tags.uuid], 'Document'
             )
-            project_badges = project_badges.get(document_with_tags.uuid, [])
+            project_badges = project_badges_map.get(document_with_tags.uuid, [])
 
             # Invalidate dashboard cache
             dashboard_service.invalidate_user_cache(user_uuid, "document_uploaded")
@@ -125,6 +126,10 @@ class DocumentCRUDService:
         - Items with is_diary_exclusive=True are HIDDEN from main list (only in diary entries)
         - Items with both flags=False are ALWAYS shown (linked mode)
         """
+        # Validate bounds to match router constraints (1-100)
+        limit = min(max(limit, 1), 100)
+        offset = max(offset, 0)
+        
         try:
             logger.info(f"Listing documents for user {user_uuid} - archived: {archived}, search: {search}, tag: {tag}")
             
@@ -154,8 +159,7 @@ class DocumentCRUDService:
                         Document.is_archived == archived,
                         Document.is_deleted.is_(False),  # Exclude deleted items
                         Document.uuid.in_(doc_uuids),
-                        Document.is_project_exclusive.is_(False),  # Only show linked (non-project-exclusive) items
-                        Document.is_diary_exclusive.is_(False)  # Only show non-diary-exclusive items
+                        # REMOVED: is_project_exclusive and is_diary_exclusive - exclusivity now handled in association tables
                     )
                 )
                 # Apply filters
@@ -168,11 +172,16 @@ class DocumentCRUDService:
                     query = query.where(Document.is_favorite == is_favorite)
                 if project_only:
                     # Filter documents that have project associations
-                    query = query.join(document_projects, Document.uuid == document_projects.c.document_uuid)
+                    query = query.join(project_items, Document.uuid == project_items.c.item_uuid).where(
+                        project_items.c.item_type == 'Document'
+                    )
                 elif unassigned_only:
                     # Filter documents that have NO project associations
-                    query = query.outerjoin(document_projects, Document.uuid == document_projects.c.document_uuid)
-                    query = query.where(document_projects.c.document_uuid.is_(None))
+                    query = query.outerjoin(project_items, and_(
+                        Document.uuid == project_items.c.item_uuid,
+                        project_items.c.item_type == 'Document'
+                    ))
+                    query = query.where(project_items.c.item_uuid.is_(None))
                 result = await db.execute(query.order_by(Document.is_favorite.desc(), Document.created_at.desc()))
                 documents = result.scalars().unique().all()
                 logger.info(f"FTS5 query returned {len(documents)} documents")
@@ -189,9 +198,8 @@ class DocumentCRUDService:
                     and_(
                         Document.created_by == user_uuid,
                         Document.is_archived == archived,
-                        Document.is_deleted.is_(False),  # Exclude deleted items
-                        Document.is_project_exclusive.is_(False),  # Only show linked (non-project-exclusive) items
-                        Document.is_diary_exclusive.is_(False)  # Only show non-diary-exclusive items
+                        Document.is_deleted.is_(False)  # Exclude deleted items
+                        # REMOVED: is_project_exclusive and is_diary_exclusive - exclusivity now handled in association tables
                     )
                 )
                 # Apply filters
@@ -204,11 +212,16 @@ class DocumentCRUDService:
                     query = query.where(Document.is_favorite == is_favorite)
                 if project_only:
                     # Filter documents that have project associations
-                    query = query.join(document_projects, Document.uuid == document_projects.c.document_uuid)
+                    query = query.join(project_items, Document.uuid == project_items.c.item_uuid).where(
+                        project_items.c.item_type == 'Document'
+                    )
                 elif unassigned_only:
                     # Filter documents that have NO project associations
-                    query = query.outerjoin(document_projects, Document.uuid == document_projects.c.document_uuid)
-                    query = query.where(document_projects.c.document_uuid.is_(None))
+                    query = query.outerjoin(project_items, and_(
+                        Document.uuid == project_items.c.item_uuid,
+                        project_items.c.item_type == 'Document'
+                    ))
+                    query = query.where(project_items.c.item_uuid.is_(None))
                 query = query.order_by(Document.is_favorite.desc(), Document.created_at.desc()).offset(offset).limit(limit)
                 result = await db.execute(query)
                 ordered_docs = result.scalars().unique().all()
@@ -219,66 +232,16 @@ class DocumentCRUDService:
             if ordered_docs:
                 # Collect all document UUIDs
                 doc_uuids2 = [d.uuid for d in ordered_docs]
-            
-                # Single query to fetch all document-project junctions
-                junction_result = await db.execute(
-                    select(document_projects)
-                    .where(document_projects.c.document_uuid.in_(doc_uuids2))
+                
+                # Use shared_utilities_service for polymorphic badge loading
+                from app.services.shared_utilities_service import shared_utilities_service
+                project_badges_map = await shared_utilities_service.batch_get_project_badges_polymorphic(
+                    db, doc_uuids2, 'Document'
                 )
-                junctions = junction_result.fetchall()
-            
-                # Collect all project UUIDs (both live and deleted)
-                project_uuids = set()
-                for junction in junctions:
-                    pj = junction._mapping["project_uuid"]
-                    if pj:
-                        project_uuids.add(pj)
-
-                # Single query to fetch all live projects
-                projects = []
-                if project_uuids:
-                    project_result = await db.execute(
-                        select(Project)
-                        .where(Project.uuid.in_(project_uuids))
-                    )
-                    projects = project_result.scalars().all()
-
-                # Create project lookup map
-                project_map = {p.uuid: p for p in projects}
-
-                # Group junctions by document_uuid
-                junctions_by_doc: Dict[str, list] = {}
-                for junction in junctions:
-                    doc_uuid = junction._mapping["document_uuid"]
-                    if doc_uuid not in junctions_by_doc:
-                        junctions_by_doc[doc_uuid] = []
-                    junctions_by_doc[doc_uuid].append(junction)
-            
-                # Build project badges for each document
+                
+                # Build response with badges
                 for document in ordered_docs:
-                    doc_junctions = junctions_by_doc.get(document.uuid, [])
-                    project_badges: List[ProjectBadge] = []
-                    
-                    for junction in doc_junctions:
-                        pj = junction._mapping["project_uuid"]
-                        if pj and pj in project_map:
-                            # Live project
-                            project = project_map[pj]
-                            project_badges.append(ProjectBadge(
-                                uuid=project.uuid,
-                                name=project.name,
-                                is_project_exclusive=junction._mapping["is_project_exclusive"],
-                                is_deleted=False
-                            ))
-                        elif junction._mapping["project_name_snapshot"]:
-                            # Deleted project (snapshot)
-                            project_badges.append(ProjectBadge(
-                                uuid=None,
-                                name=junction._mapping["project_name_snapshot"],
-                                is_project_exclusive=junction._mapping["is_project_exclusive"],
-                                is_deleted=True
-                            ))
-                    
+                    project_badges = project_badges_map.get(document.uuid, [])
                     response.append(self._convert_doc_to_response(document, project_badges))
         
             logger.info(f"Returning {len(response)} documents in response")
@@ -304,10 +267,11 @@ class DocumentCRUDService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
         
         # OPTIMIZED: Use batch badge loading for single item to avoid N+1
-        project_badges = await self._batch_get_project_badges(
-            db, [doc.uuid], document_projects, "document_uuid"
+        from app.services.shared_utilities_service import shared_utilities_service
+        project_badges_map = await shared_utilities_service.batch_get_project_badges_polymorphic(
+            db, [doc.uuid], 'Document'
         )
-        project_badges = project_badges.get(doc.uuid, [])
+        project_badges = project_badges_map.get(doc.uuid, [])
         
         return self._convert_doc_to_response(doc, project_badges)
 
@@ -334,9 +298,17 @@ class DocumentCRUDService:
             await tag_service.handle_tags(db, doc, sanitized_tags, user_uuid, ModuleType.DOCUMENTS, document_tags)
 
         # Handle projects if provided (with ownership verification)
-        if "project_ids" in update_data:
-            await project_service.handle_associations(
-                db, doc, update_data.pop("project_ids"), user_uuid, document_projects, "document_uuid"
+        if "project_uuids" in update_data:
+            project_uuids = update_data.pop("project_uuids")
+            are_projects_exclusive = update_data.pop("are_projects_exclusive", False)
+            await project_service.handle_polymorphic_associations(
+                db=db,
+                item=doc,
+                project_uuids=project_uuids,
+                created_by=user_uuid,
+                association_table=project_items,
+                item_type='Document',
+                is_exclusive=are_projects_exclusive
             )
 
         # SECURITY: Validate and sanitize update fields
@@ -358,10 +330,11 @@ class DocumentCRUDService:
         await db.commit()
         
         # OPTIMIZED: Use batch badge loading for single item to avoid N+1
-        project_badges = await self._batch_get_project_badges(
-            db, [doc.uuid], document_projects, "document_uuid"
+        from app.services.shared_utilities_service import shared_utilities_service
+        project_badges_map = await shared_utilities_service.batch_get_project_badges_polymorphic(
+            db, [doc.uuid], 'Document'
         )
-        project_badges = project_badges.get(doc.uuid, [])
+        project_badges = project_badges_map.get(doc.uuid, [])
 
         # Invalidate dashboard cache
         dashboard_service.invalidate_user_cache(user_uuid, "document_updated")
@@ -446,8 +419,7 @@ class DocumentCRUDService:
             description=doc.description,
             is_favorite=doc.is_favorite,
             is_archived=doc.is_archived,
-            is_project_exclusive=doc.is_project_exclusive,
-            is_diary_exclusive=doc.is_diary_exclusive,
+            # REMOVED: is_project_exclusive and is_diary_exclusive - exclusivity now handled in association tables
             is_deleted=doc.is_deleted,
             created_at=doc.created_at,
             updated_at=doc.updated_at,

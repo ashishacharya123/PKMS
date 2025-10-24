@@ -319,12 +319,12 @@ class SearchService:
         try:
             if item_type == 'note':
                 # Always explicitly load files to avoid lazy-load greenlet issues
-                note_with_files = await db.execute(
-                    select(Note).options(selectinload(Note.files)).where(Note.uuid == item.uuid)
+                note_with_documents = await db.execute(
+                    select(Note).options(selectinload(Note.documents)).where(Note.uuid == item.uuid)
                 )
-                note = note_with_files.scalar_one_or_none()
-                if note and note.files:
-                    attachments.extend([f.filename for f in note.files if f.filename])
+                note = note_with_documents.scalar_one_or_none()
+                if note and note.documents:
+                    attachments.extend([d.filename for d in note.documents if d.filename])
             
             elif item_type == 'document':
                 filename = getattr(item, 'filename', None)

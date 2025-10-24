@@ -7,6 +7,17 @@ from app.models.enums import TodoStatus, TaskPriority
 from app.schemas.project import ProjectBadge
 
 
+class BlockingTodoSummary(CamelCaseModel):
+    """Summary of a todo that's blocking or blocked by this one"""
+    uuid: str
+    title: str
+    status: TodoStatus
+    priority: TaskPriority
+    is_completed: bool
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
 class CamelCaseModel(BaseModel):
     model_config = ConfigDict(
         alias_generator=to_camel,
@@ -18,19 +29,25 @@ class CamelCaseModel(BaseModel):
 class TodoCreate(CamelCaseModel):
     title: str = Field(..., min_length=1)
     description: Optional[str] = None
-    project_ids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this todo to")
-    is_project_exclusive: Optional[bool] = Field(default=False, description="If True, todo is exclusive to projects and deleted when any project is deleted")
-    is_todo_exclusive: Optional[bool] = Field(default=False, description="If True, todo is exclusive to parent todo (subtask-only)")
+    project_uuids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this todo to")
+    are_projects_exclusive: Optional[bool] = Field(False, description="Apply exclusive flag to all project associations")
+    # REMOVED: is_project_exclusive and is_todo_exclusive - exclusivity now handled via project_items association table
     
-    @field_validator('project_ids')
-    def validate_project_ids_are_uuid4(cls, v: Optional[List[str]]):
+    # NEW: Set dependencies on creation
+    blocked_by_uuids: Optional[List[str]] = Field(
+        default_factory=list,
+        description="UUIDs of todos that must complete before this one"
+    )
+    
+    @field_validator('project_uuids')
+    def validate_project_uuids_are_uuid4(cls, v: Optional[List[str]]):
         if not v:
             return v
         import re
         uuid4 = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
         for pid in v:
             if not isinstance(pid, str) or not uuid4.match(pid):
-                raise ValueError("project_ids must contain valid UUID4 strings")
+                raise ValueError("project_uuids must contain valid UUID4 strings")
         return v
     start_date: Optional[date] = None
     due_date: Optional[date] = None
@@ -59,19 +76,29 @@ class TodoUpdate(CamelCaseModel):
     description: Optional[str] = None
     status: Optional[TodoStatus] = None
     order_index: Optional[int] = None
-    project_ids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this todo to")
-    is_project_exclusive: Optional[bool] = Field(None, description="If True, todo is exclusive to projects and deleted when any project is deleted")
-    is_todo_exclusive: Optional[bool] = Field(None, description="If True, todo is exclusive to parent todo (subtask-only)")
+    project_uuids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this todo to")
+    are_projects_exclusive: Optional[bool] = Field(None, description="Apply exclusive flag to all project associations")
+    # REMOVED: is_project_exclusive and is_todo_exclusive - exclusivity now handled via project_items association table
     
-    @field_validator('project_ids')
-    def validate_project_ids_are_uuid4_update(cls, v: Optional[List[str]]):
+    # NEW: Modify dependencies
+    add_blocker_uuids: Optional[List[str]] = Field(
+        None,
+        description="UUIDs of todos to add as blockers"
+    )
+    remove_blocker_uuids: Optional[List[str]] = Field(
+        None,
+        description="UUIDs of blocking todos to remove"
+    )
+    
+    @field_validator('project_uuids')
+    def validate_project_uuids_are_uuid4_update(cls, v: Optional[List[str]]):
         if v is None:
             return v
         import re
         uuid4 = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
         for pid in v:
             if not isinstance(pid, str) or not uuid4.match(pid):
-                raise ValueError("project_ids must contain valid UUID4 strings")
+                raise ValueError("project_uuids must contain valid UUID4 strings")
         return v
     start_date: Optional[date] = None
     due_date: Optional[date] = None
@@ -98,8 +125,7 @@ class TodoResponse(CamelCaseModel):
     status: TodoStatus
     is_archived: bool
     is_favorite: bool
-    is_project_exclusive: bool
-    is_todo_exclusive: bool
+    # REMOVED: is_project_exclusive and is_todo_exclusive - exclusivity now handled via project_items association table
     priority: TaskPriority
     project_uuid: Optional[str]  # Single project reference
     project_name: Optional[str]  # Single project name
@@ -113,6 +139,20 @@ class TodoResponse(CamelCaseModel):
     updated_at: datetime
     tags: List[str]
     projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this todo belongs to")
+    
+    # NEW: Dependency info (populated on request)
+    blocking_todos: Optional[List[BlockingTodoSummary]] = Field(
+        default=None,
+        description="Todos I'm blocking (others waiting on me)"
+    )
+    blocked_by_todos: Optional[List[BlockingTodoSummary]] = Field(
+        default=None,
+        description="Todos blocking me (I'm waiting on these)"
+    )
+    blocker_count: int = Field(
+        default=0,
+        description="Number of incomplete todos blocking this one"
+    )
     
     # Time tracking calculated in frontend:
     # estimate_days = (due_date - start_date).days if both exist

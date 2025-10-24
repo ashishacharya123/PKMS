@@ -63,8 +63,9 @@ const uploadMultipleFiles = async (
   folderUuid: string,
   tags: string[] = [],
   onProgress?: (progress: { fileIndex: number; fileName: string; progress: UploadProgress }) => void,
-): Promise<ArchiveItem[]> => {
-  const results: ArchiveItem[] = [];
+): Promise<{ succeeded: Array<any>, failed: Array<{ file: string, error: string }> }> => {
+  const results: Array<any> = [];
+  const failed: Array<{ file: string, error: string }> = [];
   
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
@@ -77,18 +78,20 @@ const uploadMultipleFiles = async (
           onProgress?.({
             fileIndex: i,
             fileName: file.name,
-            progress
+            progress,
           });
         }
       );
-      results.push(result);
+      results.push({ success: true, item: result, filename: file.name });
     } catch (error) {
-      console.error(`Failed to upload ${file.name}:`, error);
-      // Continue with other files even if one fails
+      failed.push({
+        file: file.name,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   }
   
-  return results;
+  return { succeeded: results, failed };
 };
 
 /* -------------------------------------------------------------------------- */
@@ -125,6 +128,11 @@ export const archiveService = {
     return resp.data;
   },
 
+  async updateItem(uuid: string, data: Partial<ArchiveItem>): Promise<ArchiveItem> {
+    const resp = await apiService.put<ArchiveItem>(`${API_PREFIX}/items/${uuid}`, data);
+    return resp.data;
+  },
+
   async deleteFolder(uuid: string, force: boolean = false): Promise<void> {
     const url = force ? `${folderPath(uuid)}?force=true` : folderPath(uuid);
     await apiService.delete(url);
@@ -149,7 +157,7 @@ export const archiveService = {
     folderUuid: string,
     tags: string[] = [],
     onProgress?: (progress: { fileIndex: number; fileName: string; progress: UploadProgress }) => void,
-  ): Promise<ArchiveItem[]> {
+  ): Promise<{ succeeded: Array<any>, failed: Array<{ file: string, error: string }> }> {
     return uploadMultipleFiles(files, folderUuid, tags, onProgress);
   },
 
@@ -173,15 +181,11 @@ export const archiveService = {
 
   // New management endpoints
   async renameFolder(folderUuid: string, newName: string): Promise<any> {
-    const formData = new FormData();
-    formData.append('new_name', newName);
-    return apiService.patch(`${API_PREFIX}/folders/${folderUuid}/rename`, formData);
+    return apiService.put(`${API_PREFIX}/folders/${folderUuid}`, { name: newName });
   },
 
   async renameItem(itemUuid: string, newName: string): Promise<any> {
-    const formData = new FormData();
-    formData.append('new_name', newName);
-    return apiService.patch(`${API_PREFIX}/items/${itemUuid}/rename`, formData);
+    return apiService.put(`${API_PREFIX}/items/${itemUuid}`, { name: newName });
   },
 
   async deleteItem(itemUuid: string): Promise<any> {

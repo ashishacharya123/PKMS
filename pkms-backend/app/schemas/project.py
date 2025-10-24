@@ -132,23 +132,51 @@ class ProjectBadge(CamelCaseModel):
     uuid: Optional[str] = None  # None if project is deleted (snapshot)
     name: str
     # color removed - deemed unnecessary for professional project management
-    is_project_exclusive: bool
+    # is_project_exclusive removed - exclusivity now handled via project_items association
     is_deleted: bool  # True if project was deleted (using snapshot name)
 
 
 class ProjectDuplicateRequest(CamelCaseModel):
-    """Schema for project duplication requests"""
-    name_suffix: str = Field(default="Copy", max_length=50)
-    include_associated_items: bool = Field(default=False, description="Whether to copy associated todos, documents, notes")
+    """
+    Advanced schema for project duplication with deep/shallow copy support.
+    """
+    # REQUIRED: User must provide the new project name (solves "prj_a_copy" issue)
+    new_project_name: str = Field(..., min_length=1, max_length=255, description="Name for the duplicated project")
+    
+    # Optional: Description override
+    description: Optional[str] = Field(None, description="Description for new project (defaults to original)")
+    
+    # Duplication mode (solves "shallow vs deep" issue)
+    duplication_mode: Literal["shallow_link", "deep_copy"] = Field(
+        default="deep_copy",
+        description="shallow_link: reuse existing items, deep_copy: create new independent items"
+    )
+    
+    # Item renaming map for deep copies (solves "what name to use" issue)
+    item_renames: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Map of old item UUID to new desired name (for deep copies only)"
+    )
+    
+    # Selective copying options
+    include_todos: bool = Field(default=True, description="Include todos in duplication")
+    include_notes: bool = Field(default=True, description="Include notes in duplication")
+    include_documents: bool = Field(default=True, description="Include documents in duplication")
 
 
 class ProjectDuplicateResponse(CamelCaseModel):
-    """Schema for project duplication responses"""
+    """Enhanced response for project duplication with error tracking"""
     original_uuid: str
-    new_uuid: str
+    duplicate_uuid: str
     name: str
-    items_copied: int = 0
-    message: str
+    duplication_mode: str
+    items_copied: Dict[str, int] = Field(
+        description="Count of items copied by type: {todos: 5, notes: 3, documents: 2}"
+    )
+    errors: List[str] = Field(
+        default_factory=list,
+        description="List of any errors encountered during duplication (e.g., 'Note uuid-123 failed to copy: Permission denied')"
+    )
 
 
 # Reorder & Link/Unlink DTOs
@@ -159,6 +187,7 @@ class ProjectDocumentsReorderRequest(CamelCaseModel):
 
 class ProjectDocumentsLinkRequest(CamelCaseModel):
     document_uuids: List[str]
+    are_items_exclusive: bool = Field(False, description="Apply exclusive flag to these linked items")
 
 
 class ProjectDocumentUnlinkRequest(CamelCaseModel):

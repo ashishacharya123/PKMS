@@ -42,6 +42,41 @@ import {
   type BackupFile 
 } from '../../services/backupService';
 
+interface BackupOperation {
+  status: 'success' | 'error';
+  message: string;
+  backup_filename?: string;
+  file_size_bytes?: number;
+  timestamp: string;
+  warning?: string;
+}
+
+interface WalAnalysis {
+  current_size_mb?: number;
+  percentage_of_threshold?: number;
+  status_color?: 'green' | 'yellow' | 'orange' | 'gray' | 'red';
+  status?: string;
+  recommendation?: string;
+}
+
+interface WalFiles {
+  main_db?: {
+    size_mb?: number;
+  };
+  wal?: {
+    size_mb?: number;
+  };
+  shm?: {
+    size_kb?: number;
+  };
+}
+
+interface WalStatus {
+  status: 'success' | 'error';
+  wal_analysis?: WalAnalysis;
+  files?: WalFiles;
+}
+
 interface BackupRestoreModalProps {
   opened: boolean;
   onClose: () => void;
@@ -54,8 +89,8 @@ export function BackupRestoreModal({ opened, onClose }: BackupRestoreModalProps)
   const [backupListLoading, setBackupListLoading] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState<string>('');
   const [confirmRestore, setConfirmRestore] = useState(false);
-  const [lastOperation, setLastOperation] = useState<any>(null);
-  const [walStatus, setWalStatus] = useState<any>(null);
+  const [lastOperation, setLastOperation] = useState<BackupOperation | null>(null);
+  const [walStatus, setWalStatus] = useState<WalStatus | null>(null);
   const [walLoading, setWalLoading] = useState(false);
   const [projectDir, setProjectDir] = useState<string>(() => {
     if (typeof window !== 'undefined') {

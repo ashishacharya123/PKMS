@@ -16,7 +16,7 @@ import logging
 from app.database import get_db
 from app.models.user import User
 from app.auth.dependencies import get_current_user
-from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFileResponse, CommitNoteFileRequest
+from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary
 from app.services.note_crud_service import note_crud_service
 from app.services.chunk_service import chunk_manager
 
@@ -148,23 +148,9 @@ async def archive_note(
         )
 
 
-@router.get("/{note_uuid}/files", response_model=List[NoteFileResponse])
-async def get_note_files(
-    note_uuid: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get all files attached to a note"""
-    try:
-        return await note_crud_service.get_note_files(db, current_user.uuid, note_uuid)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error getting files for note {note_uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get note files: {str(e)}"
-        )
+# Note file endpoints removed - file handling now done via Document + note_documents association
+# Note file handling now done via Document + note_documents association
+# Use document endpoints instead of note-specific file endpoints
 
 
 @router.post("/{note_uuid}/files/upload")
@@ -229,6 +215,45 @@ async def commit_note_file_upload(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to commit file upload"
         ) from e
+
+
+@router.post("/{note_uuid}/duplicate", response_model=NoteResponse)
+async def duplicate_note(
+    note_uuid: str,
+    new_title: Optional[str] = Query(None, description="Optional new title for the duplicated note"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Duplicate a single note.
+    
+    - Creates a new, independent note
+    - Content duplicated (including large content files)
+    - Original tags copied
+    - Can optionally provide a new title
+    """
+    from app.services.duplication_service import duplication_service
+    
+    try:
+        # Use the same _deep_copy_note helper from duplication_service
+        renames = {note_uuid: new_title} if new_title else {}
+        new_note_uuid = await duplication_service._deep_copy_note(
+            db=db,
+            user_uuid=current_user.uuid,
+            old_note_uuid=note_uuid,
+            renames=renames
+        )
+        
+        # Return the new note
+        return await note_crud_service.get_note_with_relations(db, new_note_uuid, current_user.uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error duplicating note {note_uuid} for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to duplicate note: {str(e)}"
+        )
 
 
 @router.delete("/files/{file_uuid}")

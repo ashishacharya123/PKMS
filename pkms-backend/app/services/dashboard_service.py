@@ -221,10 +221,13 @@ class DashboardService:
             )
         ) or 0
         
-        # Diary media storage (via document_diary association)
-        diary_media_bytes = await db.scalar(
-            select(func.coalesce(func.sum(Document.file_size), 0))
-            .select_from(Document)
+        # Diary media storage (via document_diary association) - count each document only once
+        subquery = (
+            select(
+                Document.uuid,
+                Document.file_size
+            )
+            .distinct()
             .join(document_diary, document_diary.c.document_uuid == Document.uuid)
             .join(DiaryEntry, document_diary.c.diary_entry_uuid == DiaryEntry.uuid)
             .where(
@@ -233,6 +236,12 @@ class DashboardService:
                 Document.is_deleted.is_(False),
                 Document.is_archived.is_(False),
             )
+            .subquery()
+        )
+
+        diary_media_bytes = await db.scalar(
+            select(func.coalesce(func.sum(subquery.c.file_size), 0))
+            .select_from(subquery)
         ) or 0
         
         # Diary text storage (approximate from content length)

@@ -116,7 +116,7 @@ class DiaryCRUDService:
         Returns:
             DiaryEntryResponse with created entry data
         """
-        from app.services.diary_metadata_service import diary_metadata_service
+        from app.services.habit_data_service import habit_data_service
         
         logger.info(f"Creating diary entry for user {user_uuid} on {entry_data.date}")
         
@@ -124,12 +124,12 @@ class DiaryCRUDService:
         day_of_week = DiaryCRUDService.calculate_day_of_week(entry_data.date)
         
         # Upsert daily metadata snapshot for this day
-        daily_metadata = await diary_metadata_service.get_or_create_daily_metadata(
+        daily_metadata = await habit_data_service.get_or_create_daily_metadata(
             db=db,
             user_uuid=user_uuid,
-            entry_date=entry_date,
+            target_date=entry_date,
+            day_of_week=day_of_week,
             nepali_date=entry_data.nepali_date,
-            metrics=entry_data.daily_metrics or {},
             daily_income=entry_data.daily_income,
             daily_expense=entry_data.daily_expense,
             is_office_day=entry_data.is_office_day,
@@ -475,9 +475,9 @@ class DiaryCRUDService:
             return []
         
         # Get daily metadata for this date
-        from app.services.diary_metadata_service import diary_metadata_service
+        from app.services.habit_data_service import habit_data_service
         try:
-            daily_metadata = await diary_metadata_service.get_daily_metadata(
+            daily_metadata = await habit_data_service.get_daily_metadata(
                 db, user_uuid, entry_date.strftime("%Y-%m-%d")
             )
         except ValueError:
@@ -575,9 +575,9 @@ class DiaryCRUDService:
         encrypted_blob = ""
         
         # Get daily metadata
-        from app.services.diary_metadata_service import diary_metadata_service
+        from app.services.habit_data_service import habit_data_service
         try:
-            daily_metadata = await diary_metadata_service.get_daily_metadata(
+            daily_metadata = await habit_data_service.get_daily_metadata(
                 db, user_uuid, entry.date.strftime("%Y-%m-%d")
             )
         except ValueError:
@@ -672,9 +672,9 @@ class DiaryCRUDService:
             raise HTTPException(status_code=404, detail=f"Diary entry not found: {entry_ref}")
         
         # Get daily metadata
-        from app.services.diary_metadata_service import diary_metadata_service
+        from app.services.habit_data_service import habit_data_service
         try:
-            daily_metadata = await diary_metadata_service.get_daily_metadata(
+            daily_metadata = await habit_data_service.get_daily_metadata(
                 db, user_uuid, entry.date.strftime("%Y-%m-%d")
             )
         except ValueError:
@@ -798,8 +798,8 @@ class DiaryCRUDService:
             updates.is_office_day is not None or 
             updates.nepali_date is not None):
             
-            from app.services.diary_metadata_service import diary_metadata_service
-            await diary_metadata_service.get_or_create_daily_metadata(
+            from app.services.habit_data_service import habit_data_service
+            await habit_data_service.get_or_create_daily_metadata(
                 db=db,
                 user_uuid=user_uuid,
                 entry_date=entry.date,
@@ -886,15 +886,24 @@ class DiaryCRUDService:
         Returns:
             Updated habits data with streaks
         """
-        from app.services.diary_metadata_service import diary_metadata_service
+        from app.services.habit_data_service import habit_data_service
 
         logger.info(f"Updating habits for user {user_uuid} on {target_date}")
 
         try:
-            habits_result = await diary_metadata_service.update_daily_habits(
+            # Convert ISO date string to date object
+            try:
+                parsed_date = date.fromisoformat(target_date)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid date format '{target_date}'. Expected YYYY-MM-DD format."
+                ) from e
+
+            habits_result = await habit_data_service.update_daily_habits(
                 db=db,
                 user_uuid=user_uuid,
-                target_date=target_date,
+                target_date=parsed_date,
                 habits_data=habits_data,
                 units=units
             )
@@ -926,10 +935,10 @@ class DiaryCRUDService:
         Returns:
             Dictionary of habits data or empty dict if not found
         """
-        from app.services.diary_metadata_service import diary_metadata_service
+        from app.services.habit_data_service import habit_data_service
 
         try:
-            daily_metadata = await diary_metadata_service.get_daily_metadata(
+            daily_metadata = await habit_data_service.get_daily_metadata(
                 db=db,
                 user_uuid=user_uuid,
                 target_date=target_date
@@ -969,13 +978,14 @@ class DiaryCRUDService:
         Returns:
             Habit analytics data
         """
-        from app.services.diary_metadata_service import diary_metadata_service
+        from app.services.unified_habit_analytics_service import UnifiedHabitAnalyticsService
 
         try:
-            analytics = await diary_metadata_service.get_habit_analytics(
+            analytics = await UnifiedHabitAnalyticsService.get_default_habits_analytics(
                 db=db,
                 user_uuid=user_uuid,
-                days=days
+                days=days,
+                include_sma=False
             )
 
             logger.info(f"Retrieved habit analytics for user {user_uuid} over {days} days")
@@ -1005,13 +1015,15 @@ class DiaryCRUDService:
         Returns:
             Habit insights data
         """
-        from app.services.diary_metadata_service import diary_metadata_service
+        from app.services.unified_habit_analytics_service import UnifiedHabitAnalyticsService
 
         try:
-            insights = await diary_metadata_service.get_habit_insights(
+            insights = await UnifiedHabitAnalyticsService.get_default_habits_analytics(
                 db=db,
                 user_uuid=user_uuid,
-                days=days
+                days=days,
+                include_sma=True,
+                sma_windows=[7, 14, 30]
             )
 
             logger.info(f"Retrieved habit insights for user {user_uuid} over {days} days")
@@ -1041,14 +1053,21 @@ class DiaryCRUDService:
         Returns:
             List of active habit names
         """
-        from app.services.diary_metadata_service import diary_metadata_service
+        from app.services.unified_habit_analytics_service import UnifiedHabitAnalyticsService
 
         try:
-            active_habits = await diary_metadata_service.get_active_habits(
+            # Get analytics for all habits
+            analytics = await UnifiedHabitAnalyticsService.get_default_habits_analytics(
                 db=db,
                 user_uuid=user_uuid,
                 days=days
             )
+
+            # Extract habit names that have data
+            active_habits = [
+                habit_key for habit_key, habit_data in analytics.get("habits", {}).items()
+                if habit_data.get("data_points", 0) > 0
+            ]
 
             logger.info(f"Found {len(active_habits)} active habits for user {user_uuid}")
             return active_habits
@@ -1079,15 +1098,27 @@ class DiaryCRUDService:
         Returns:
             Current streak count
         """
-        from app.services.diary_metadata_service import diary_metadata_service
+        from app.services.unified_habit_analytics_service import UnifiedHabitAnalyticsService
+        from datetime import datetime
 
         try:
-            streak = await diary_metadata_service.calculate_habit_streak(
+            # Parse end_date or use today
+            if end_date:
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+            else:
+                from app.config import NEPAL_TZ
+                end_dt = datetime.now(NEPAL_TZ).date()
+
+            # Get analytics which includes streak data
+            analytics = await UnifiedHabitAnalyticsService.get_default_habits_analytics(
                 db=db,
                 user_uuid=user_uuid,
-                habit_key=habit_key,
-                end_date=end_date
+                days=90  # Use 90 days to capture longer streaks
             )
+
+            # Extract streak for the specific habit
+            habit_data = analytics.get("habits", {}).get(habit_key, {})
+            streak = habit_data.get("current_streak", 0)
 
             logger.info(f"Retrieved streak {streak} for habit '{habit_key}' for user {user_uuid}")
             return streak

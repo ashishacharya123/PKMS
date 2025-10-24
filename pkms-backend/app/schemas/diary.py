@@ -211,6 +211,15 @@ class WellnessStats(CamelCaseModel):
     meditation_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     average_screen_time: Optional[float] = None
     screen_time_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    # Additional wellness metrics
+    average_steps: Optional[float] = None
+    steps_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    average_learning: Optional[float] = None
+    learning_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    average_outdoor: Optional[float] = None
+    outdoor_trend: List[WellnessTrendPoint] = Field(default_factory=list)
+    average_social: Optional[float] = None
+    social_trend: List[WellnessTrendPoint] = Field(default_factory=list)
     # Financial tracking
     financial_trend: List[Dict[str, float]] = Field(default_factory=list)
     total_income: float = 0.0
@@ -223,6 +232,9 @@ class WellnessStats(CamelCaseModel):
     average_daily_expense_3m: Optional[float] = None
     average_daily_income_6m: Optional[float] = None
     average_daily_expense_6m: Optional[float] = None
+    # Overall wellness score (0-100)
+    overall_wellness_score: Optional[float] = None
+    score_components: Dict[str, float] = Field(default_factory=dict)
     # Defined habits summary (user-customizable)
     defined_habits_summary: Dict[str, Any] = Field(default_factory=dict)
     insights: List[Dict[str, Any]] = Field(default_factory=list)

@@ -34,30 +34,47 @@ class ArchivePathService:
         self.MAX_PATH_DEPTH = 10
         self.MAX_TOTAL_PATH_LENGTH = 1000
     
+    async def _get_all_folders_map(
+        self,
+        db: AsyncSession,
+        created_by: str
+    ) -> Dict[str, ArchiveFolder]:
+        """
+        Fetch all folders for user in a single query and return as UUID->Folder map.
+        This enables O(1) lookups for path traversal without additional queries.
+        """
+        result = await db.execute(
+            select(ArchiveFolder).where(
+                and_(
+                    ArchiveFolder.created_by == created_by,
+                    ArchiveFolder.is_deleted == False
+                )
+            )
+        )
+        folders = result.scalars().all()
+        return {folder.uuid: folder for folder in folders}
+    
     async def get_filesystem_path(
         self, 
         folder_uuid: str, 
         db: AsyncSession, 
         created_by: Optional[str] = None
     ) -> str:
-        """Build UUID-based path for actual file storage"""
+        """Build UUID-based path for actual file storage (OPTIMIZED)"""
         if not folder_uuid:
             return "/"
         
-        # Get the folder
-        cond = (ArchiveFolder.uuid == folder_uuid)
-        if created_by:
-            cond = and_(cond, ArchiveFolder.created_by == created_by)
-        result = await db.execute(select(ArchiveFolder).where(cond))
-        folder = result.scalar_one_or_none()
+        # OPTIMIZATION: Fetch all folders once
+        folder_map = await self._get_all_folders_map(db, created_by)
         
+        folder = folder_map.get(folder_uuid)
         if not folder:
             return "/"
         
-        # Build path by traversing up the hierarchy using UUIDs
+        # Build path by traversing in-memory map
         path_parts = [folder.uuid]
         current_parent = folder.parent_uuid
-        visited: Set[str] = {folder.uuid}  # Track visited folders to detect cycles
+        visited: Set[str] = {folder.uuid}
         
         while current_parent:
             if current_parent in visited:
@@ -65,12 +82,7 @@ class ArchivePathService:
                 break
             visited.add(current_parent)
             
-            parent_cond = (ArchiveFolder.uuid == current_parent)
-            if created_by:
-                parent_cond = and_(parent_cond, ArchiveFolder.created_by == created_by)
-            parent_result = await db.execute(select(ArchiveFolder).where(parent_cond))
-            parent_folder = parent_result.scalar_one_or_none()
-            
+            parent_folder = folder_map.get(current_parent)
             if not parent_folder:
                 break
                 
@@ -85,24 +97,21 @@ class ArchivePathService:
         db: AsyncSession, 
         created_by: Optional[str] = None
     ) -> str:
-        """Build name-based path for user display"""
+        """Build name-based path for user display (OPTIMIZED)"""
         if not folder_uuid:
             return "/"
         
-        # Get the folder
-        cond = (ArchiveFolder.uuid == folder_uuid)
-        if created_by:
-            cond = and_(cond, ArchiveFolder.created_by == created_by)
-        result = await db.execute(select(ArchiveFolder).where(cond))
-        folder = result.scalar_one_or_none()
+        # OPTIMIZATION: Fetch all folders once
+        folder_map = await self._get_all_folders_map(db, created_by)
         
+        folder = folder_map.get(folder_uuid)
         if not folder:
             return "/"
         
-        # Build path by traversing up the hierarchy using names
+        # Build path by traversing in-memory map
         path_parts = [folder.name]
         current_parent = folder.parent_uuid
-        visited: Set[str] = {folder.uuid}  # Track visited folders to detect cycles
+        visited: Set[str] = {folder.uuid}
         
         while current_parent:
             if current_parent in visited:
@@ -110,12 +119,7 @@ class ArchivePathService:
                 break
             visited.add(current_parent)
             
-            parent_cond = (ArchiveFolder.uuid == current_parent)
-            if created_by:
-                parent_cond = and_(parent_cond, ArchiveFolder.created_by == created_by)
-            parent_result = await db.execute(select(ArchiveFolder).where(parent_cond))
-            parent_folder = parent_result.scalar_one_or_none()
-            
+            parent_folder = folder_map.get(current_parent)
             if not parent_folder:
                 break
                 
@@ -326,7 +330,13 @@ class ArchivePathService:
         db: AsyncSession, 
         created_by: str
     ) -> List[Dict[str, str]]:
-        """Get breadcrumb path for folder navigation"""
+        """Get breadcrumb path for folder navigation (OPTIMIZED)"""
+        if not folder_uuid:
+            return []
+        
+        # OPTIMIZATION: Fetch all folders once
+        folder_map = await self._get_all_folders_map(db, created_by)
+        
         breadcrumb = []
         current_uuid = folder_uuid
         visited: Set[str] = set()
@@ -337,17 +347,7 @@ class ArchivePathService:
                 break
             
             visited.add(current_uuid)
-            
-            result = await db.execute(
-                select(ArchiveFolder).where(
-                    and_(
-                        ArchiveFolder.uuid == current_uuid,
-                        ArchiveFolder.created_by == created_by,
-                        ArchiveFolder.is_deleted == False
-                    )
-                )
-            )
-            folder = result.scalar_one_or_none()
+            folder = folder_map.get(current_uuid)
             
             if not folder:
                 break

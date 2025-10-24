@@ -10,6 +10,7 @@ from typing import List, Optional, Dict, Any, Set
 from datetime import datetime, date, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
+from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
 from app.config import NEPAL_TZ
@@ -17,6 +18,7 @@ from app.models.todo import Todo
 from app.models.enums import TodoStatus, TaskPriority
 from app.schemas.todo import TodoResponse
 from app.schemas.project import ProjectBadge
+from app.services.shared_utilities_service import shared_utilities_service
 
 logger = logging.getLogger(__name__)
 
@@ -50,23 +52,37 @@ class TodoWorkflowService:
             
             result = await db.execute(
                 select(Todo)
+                .options(selectinload(Todo.tag_objs))  # Eager load tags to avoid N+1
                 .where(
                     and_(
                         Todo.created_by == user_uuid,
                         Todo.due_date < cutoff_date,
-                        Todo.status.in_([TodoStatus.PENDING.value, TodoStatus.IN_PROGRESS.value]),
-                        Todo.is_archived == False
+                        Todo.status.in_([TodoStatus.PENDING, TodoStatus.IN_PROGRESS, TodoStatus.BLOCKED]),  # Include blocked todos - they can be overdue too!
+                        Todo.is_archived.is_(False)
                     )
                 )
                 .order_by(Todo.due_date.asc())
             )
             todos = result.scalars().all()
             
+            if not todos:
+                return []
+            
+            # Batch load project badges to avoid N+1 queries
+            todo_uuids = [todo.uuid for todo in todos]
+            project_badges_map = await shared_utilities_service.batch_get_project_badges_polymorphic(
+                db, todo_uuids, 'Todo'
+            )
+            
             # Convert to response format
             todo_responses = []
             for todo in todos:
                 # Calculate days overdue
                 days_overdue_count = (today - todo.due_date).days
+                
+                # Get tags and project badges
+                tags = [tag.name for tag in todo.tag_objs] if todo.tag_objs else []
+                project_badges = project_badges_map.get(todo.uuid, [])
                 
                 todo_response = TodoResponse(
                     uuid=todo.uuid,
@@ -76,15 +92,14 @@ class TodoWorkflowService:
                     priority=todo.priority,
                     is_archived=todo.is_archived,
                     is_favorite=todo.is_favorite,
-                    is_project_exclusive=todo.is_project_exclusive,
-                    is_todo_exclusive=todo.is_todo_exclusive,
+                    # REMOVED: is_project_exclusive and is_todo_exclusive - now handled via project_items
                     start_date=todo.start_date,
                     due_date=todo.due_date,
                     created_at=todo.created_at,
                     updated_at=todo.updated_at,
                     completed_at=todo.completed_at,
-                    tags=[],  # Will be populated if needed
-                    projects=[]  # Will be populated if needed
+                    tags=tags,
+                    projects=project_badges
                 )
                 
                 # Add metadata
@@ -123,24 +138,38 @@ class TodoWorkflowService:
             
             result = await db.execute(
                 select(Todo)
+                .options(selectinload(Todo.tag_objs))  # Eager load tags to avoid N+1
                 .where(
                     and_(
                         Todo.created_by == user_uuid,
                         Todo.due_date >= today,
                         Todo.due_date <= future_date,
-                        Todo.status.in_([TodoStatus.PENDING.value, TodoStatus.IN_PROGRESS.value]),
-                        Todo.is_archived == False
+                        Todo.status.in_([TodoStatus.PENDING, TodoStatus.IN_PROGRESS, TodoStatus.BLOCKED]),  # Include blocked todos - they can be overdue too!
+                        Todo.is_archived.is_(False)
                     )
                 )
                 .order_by(Todo.due_date.asc())
             )
             todos = result.scalars().all()
             
+            if not todos:
+                return []
+            
+            # Batch load project badges to avoid N+1 queries
+            todo_uuids = [todo.uuid for todo in todos]
+            project_badges_map = await shared_utilities_service.batch_get_project_badges_polymorphic(
+                db, todo_uuids, 'Todo'
+            )
+            
             # Convert to response format
             todo_responses = []
             for todo in todos:
                 # Calculate days until due
                 days_until_due = (todo.due_date - today).days
+                
+                # Get tags and project badges
+                tags = [tag.name for tag in todo.tag_objs] if todo.tag_objs else []
+                project_badges = project_badges_map.get(todo.uuid, [])
                 
                 todo_response = TodoResponse(
                     uuid=todo.uuid,
@@ -150,15 +179,14 @@ class TodoWorkflowService:
                     priority=todo.priority,
                     is_archived=todo.is_archived,
                     is_favorite=todo.is_favorite,
-                    is_project_exclusive=todo.is_project_exclusive,
-                    is_todo_exclusive=todo.is_todo_exclusive,
+                    # REMOVED: is_project_exclusive and is_todo_exclusive - now handled via project_items
                     start_date=todo.start_date,
                     due_date=todo.due_date,
                     created_at=todo.created_at,
                     updated_at=todo.updated_at,
                     completed_at=todo.completed_at,
-                    tags=[],
-                    projects=[]
+                    tags=tags,
+                    projects=project_badges
                 )
                 
                 # Add metadata
@@ -183,11 +211,13 @@ class TodoWorkflowService:
         try:
             result = await db.execute(
                 select(Todo)
+                .options(selectinload(Todo.tag_objs))  # Eager load tags to avoid N+1
                 .where(
                     and_(
                         Todo.created_by == user_uuid,
                         Todo.priority == TaskPriority.HIGH.value,
-                        Todo.status != TodoStatus.COMPLETED.value,
+                        Todo.status != TodoStatus.DONE,
+                        # Include blocked todos - they can be high priority too!
                         Todo.is_archived == False
                     )
                 )
@@ -195,9 +225,22 @@ class TodoWorkflowService:
             )
             todos = result.scalars().all()
             
+            if not todos:
+                return []
+            
+            # Batch load project badges to avoid N+1 queries
+            todo_uuids = [todo.uuid for todo in todos]
+            project_badges_map = await shared_utilities_service.batch_get_project_badges_polymorphic(
+                db, todo_uuids, 'Todo'
+            )
+            
             # Convert to response format
             todo_responses = []
             for todo in todos:
+                # Get tags and project badges
+                tags = [tag.name for tag in todo.tag_objs] if todo.tag_objs else []
+                project_badges = project_badges_map.get(todo.uuid, [])
+                
                 todo_response = TodoResponse(
                     uuid=todo.uuid,
                     title=todo.title,
@@ -206,15 +249,14 @@ class TodoWorkflowService:
                     priority=todo.priority,
                     is_archived=todo.is_archived,
                     is_favorite=todo.is_favorite,
-                    is_project_exclusive=todo.is_project_exclusive,
-                    is_todo_exclusive=todo.is_todo_exclusive,
+                    # REMOVED: is_project_exclusive and is_todo_exclusive - now handled via project_items
                     start_date=todo.start_date,
                     due_date=todo.due_date,
                     created_at=todo.created_at,
                     updated_at=todo.updated_at,
                     completed_at=todo.completed_at,
-                    tags=[],
-                    projects=[]
+                    tags=tags,
+                    projects=project_badges
                 )
                 todo_responses.append(todo_response)
             
@@ -338,7 +380,7 @@ class TodoWorkflowService:
                 .where(
                     and_(
                         Todo.created_by == user_uuid,
-                        Todo.status == TodoStatus.COMPLETED.value
+                        Todo.status == TodoStatus.DONE
                     )
                 )
             )
@@ -349,7 +391,7 @@ class TodoWorkflowService:
                     and_(
                         Todo.created_by == user_uuid,
                         Todo.due_date < datetime.now(NEPAL_TZ).date(),
-                        Todo.status.in_([TodoStatus.PENDING.value, TodoStatus.IN_PROGRESS.value])
+                        Todo.status.in_([TodoStatus.PENDING, TodoStatus.IN_PROGRESS])
                     )
                 )
             )
@@ -360,7 +402,7 @@ class TodoWorkflowService:
                     and_(
                         Todo.created_by == user_uuid,
                         Todo.priority == TaskPriority.HIGH.value,
-                        Todo.status != TodoStatus.COMPLETED.value
+                        Todo.status != TodoStatus.DONE
                     )
                 )
             )
@@ -430,8 +472,8 @@ class TodoWorkflowService:
                     and_(
                         Todo.created_by == user_uuid,
                         Todo.due_date < today,
-                        Todo.status.in_([TodoStatus.PENDING.value, TodoStatus.IN_PROGRESS.value]),
-                        Todo.is_archived == False
+                        Todo.status.in_([TodoStatus.PENDING, TodoStatus.IN_PROGRESS, TodoStatus.BLOCKED]),  # Include blocked todos - they can be overdue too!
+                        Todo.is_archived.is_(False)
                     )
                 )
             )

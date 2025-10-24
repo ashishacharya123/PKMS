@@ -3,6 +3,7 @@ import { diaryService } from '../services/diaryService';
 import { apiService } from '../services/api';
 import { DiaryEntry, DiaryEntrySummary, DiaryEntryCreatePayload, DiaryCalendarData, MoodStats, DiaryDailyMetadata } from '../types/diary';
 import { logger } from '../utils/logger';
+import { diaryCacheAware } from '../services/cacheAwareService';
 
 interface DiaryState {
   entries: DiaryEntrySummary[];
@@ -183,7 +184,26 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
     lockSession: () => {
       // Stop monitoring unlock status
       get().stopUnlockStatusMonitoring();
-      set({ encryptionKey: null, isUnlocked: false });
+      
+      // Clear all diary-related cache and sensitive data
+      set({ 
+        encryptionKey: null, 
+        isUnlocked: false,
+        entries: [],
+        currentEntry: null,
+        calendarData: [],
+        moodStats: null,
+        dailyMetadataCache: {},
+        searchQuery: '',
+        currentDayOfWeek: null,
+        currentHasMedia: null,
+        error: null
+      });
+      
+      // Clear any cached Nepali dates
+      if (typeof window !== 'undefined' && window.nepaliDateCache) {
+        window.nepaliDateCache.clear();
+      }
     },
 
     setEncryptionKey: (key: CryptoKey) => {
@@ -216,55 +236,20 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
           currentHasMedia: state.currentHasMedia
         });
         
-        // Build filter parameters from current state (only if they have meaningful values)
-        const filters: any = {};
+        // 🎯 AUTOMATIC: Cache checking, API calls, and revalidation handled automatically
+        const entries = await diaryCacheAware.getEntries();
         
-        // Only add filters if they are set to meaningful values
-        if (state.searchQuery && state.searchQuery.trim()) {
-          filters.search_title = state.searchQuery.trim();
-        }
-        if (state.currentDayOfWeek !== null && state.currentDayOfWeek !== undefined) {
-          filters.day_of_week = state.currentDayOfWeek;
-        }
-        if (state.currentHasMedia !== null && state.currentHasMedia !== undefined) {
-          filters.has_media = state.currentHasMedia;
-        }
+        set({ 
+          entries, 
+          isLoading: false 
+        });
         
-        // Add additional filters from the filters object if available
-        if (state.filters?.mood) {
-          filters.mood = state.filters.mood;
-        }
-        if (state.filters?.year) {
-          filters.year = state.filters.year;
-        }
-        if (state.filters?.month) {
-          filters.month = state.filters.month;
-        }
-        
-        console.log('[DIARY STORE] Using filters:', filters);
-        
-        // Only pass filters if there are any, otherwise let backend return all entries
-        const entries = Object.keys(filters).length > 0 
-          ? await diaryService.getEntries({ ...filters, templates: opts?.templates ?? false })
-          : await diaryService.getEntries({ templates: opts?.templates ?? false });
-          
-        console.log('[DIARY STORE] Loaded entries:', entries?.length, 'entries');
-        
-        // Ensure tags is properly structured for each entry
-        const processedEntries = entries.map(entry => ({
-          ...entry,
-          tags: entry.tags || []
-        }));
-          
-        set({ entries: processedEntries, error: null });
+        return;
       } catch (error) {
-        console.error('[DIARY STORE] Failed to load entries:', error);
-        // Only surface the error if unlocked; otherwise keep the locked view clean
-        if (get().isUnlocked) {
-          set({ error: 'Failed to load entries' });
-        }
-      } finally {
-        set({ isLoading: false });
+        set({ 
+          error: error instanceof Error ? error.message : 'Failed to load entries', 
+          isLoading: false 
+        });
       }
     },
 

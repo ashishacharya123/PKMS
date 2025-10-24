@@ -10,8 +10,6 @@ import {
   Button,
   TextInput,
   Badge,
-  ActionIcon,
-  Menu,
   Paper,
   Grid,
   Modal,
@@ -23,9 +21,6 @@ import {
 import {
   IconPlus,
   IconSearch,
-  IconDots,
-  IconEdit,
-  IconTrash,
   IconArchive,
   IconArchiveOff,
   IconFolder,
@@ -35,6 +30,7 @@ import {
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { todosService, Project } from '../services/todosService';
+import { ActionMenu } from '../components/common/ActionMenu';
 
 export function ProjectsPage() {
   const navigate = useNavigate();
@@ -309,44 +305,16 @@ export function ProjectsPage() {
                               {project.name}
                             </Text>
                           </Group>
-                          <Menu shadow="md" width={200}>
-                            <Menu.Target>
-                              <ActionIcon variant="subtle" color="gray" onClick={(e) => e.stopPropagation()}>
-                                <IconDots size={16} />
-                              </ActionIcon>
-                            </Menu.Target>
-                            <Menu.Dropdown>
-                              <Menu.Item
-                                leftSection={<IconEdit size={16} />}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openEditModal(project);
-                                }}
-                              >
-                                Edit
-                              </Menu.Item>
-                              <Menu.Item
-                                leftSection={project.is_archived ? <IconArchiveOff size={16} /> : <IconArchive size={16} />}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleArchiveToggle(project);
-                                }}
-                              >
-                                {project.is_archived ? 'Unarchive' : 'Archive'}
-                              </Menu.Item>
-                              <Menu.Divider />
-                              <Menu.Item
-                                leftSection={<IconTrash size={16} />}
-                                color="red"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDelete(project);
-                                }}
-                              >
-                                Delete
-                              </Menu.Item>
-                            </Menu.Dropdown>
-                          </Menu>
+                          <ActionMenu
+                            onEdit={() => openEditModal(project)}
+                            onArchive={project.is_archived ? undefined : () => handleArchiveToggle(project)}
+                            onUnarchive={project.is_archived ? () => handleArchiveToggle(project) : undefined}
+                            onDelete={() => handleDelete(project)}
+                            isArchived={project.is_archived}
+                            variant="subtle"
+                            color="gray"
+                            size={16}
+                          />
                         </Group>
 
                         {/* Description */}

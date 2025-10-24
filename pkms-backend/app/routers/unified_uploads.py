@@ -12,10 +12,12 @@ Benefits:
 - Easier to maintain and extend
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Dict, Any
+import json
+import io
 
 from app.database import get_db
 from app.auth.dependencies import get_current_user
@@ -32,9 +34,141 @@ from app.schemas.unified_upload import (
 )
 import logging
 
+# Allowed modules for file uploads
+ALLOWED_UPLOAD_MODULES = {"documents", "notes", "diary", "archive"}
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/uploads", tags=["uploads"])
+
+
+@router.post("/chunk")
+async def upload_chunk(
+    file: UploadFile = File(...),
+    metadata: str = Form(...),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Handle chunked file uploads.
+    
+    This is the missing endpoint that the frontend coreUploadService.ts
+    calls when uploading files in chunks. The frontend sends:
+    - file: The chunk data
+    - metadata: JSON string containing upload metadata
+    
+    Args:
+        file: Uploaded file chunk
+        metadata: JSON string with upload metadata
+        current_user: Authenticated user
+        
+    Returns:
+        Upload progress status
+    """
+    try:
+        from app.services.chunk_service import chunk_manager
+        
+        # Parse metadata JSON with proper error chaining
+        try:
+            metadata_dict = json.loads(metadata)
+        except json.JSONDecodeError as err:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid metadata JSON format"
+            ) from err
+
+        # Extract and coerce required fields with type safety
+        file_id = str(metadata_dict.get("file_id", "")).strip()
+        filename = str(metadata_dict.get("filename", "")).strip()
+        module = str(metadata_dict.get("module", "documents")).strip() or "documents"
+
+        # Coerce numeric fields with error handling
+        try:
+            chunk_number = int(metadata_dict.get("chunk_number"))
+            total_chunks = int(metadata_dict.get("total_chunks"))
+            total_size = int(metadata_dict.get("total_size", 0))
+        except (TypeError, ValueError) as err:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid numeric fields in metadata (chunk_number, total_chunks, total_size must be integers)"
+            ) from err
+
+        # Validate module against whitelist
+        if module not in ALLOWED_UPLOAD_MODULES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid module: {module}. Must be one of: {ALLOWED_UPLOAD_MODULES}"
+            )
+
+        # Validate field presence and ranges
+        if not file_id or not filename:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required fields: file_id and filename are required"
+            )
+
+        if total_chunks <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid total_chunks: must be > 0"
+            )
+
+        if not (0 <= chunk_number < total_chunks):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid chunk_number: must be 0 <= chunk_number < total_chunks (got {chunk_number}, total: {total_chunks})"
+            )
+
+        if total_size < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid total_size: must be >= 0"
+            )
+        
+        # Read chunk data as bytes and wrap in BytesIO for BinaryIO interface
+        chunk_bytes = await file.read()
+        chunk_data = io.BytesIO(chunk_bytes)
+
+        # Save chunk via chunk manager
+        await chunk_manager.save_chunk(
+            file_id=file_id,
+            chunk_number=chunk_number,
+            chunk_data=chunk_data,
+            metadata={
+                "filename": filename,
+                "total_size": total_size,
+                "total_chunks": total_chunks,
+                "module": module,
+                "created_by": current_user.uuid,
+                "mime_type": file.content_type or "application/octet-stream"
+            }
+        )
+        
+        # Check if all chunks received and auto-trigger assembly
+        progress = await chunk_manager.get_progress(file_id)
+        if progress and progress.get("chunks_completed", 0) >= total_chunks:
+            # All chunks received, trigger assembly
+            try:
+                await chunk_manager.assemble_file(file_id)
+            except Exception as e:
+                logger.error(f"Failed to assemble file {file_id}: {str(e)}")
+                # Don't raise here, let the status endpoint handle it
+        
+        # Return current progress
+        return {
+            "success": True,
+            "file_id": file_id,
+            "chunk_number": chunk_number,
+            "progress": progress
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error handling chunk upload for file {metadata_dict.get('file_id', 'unknown')}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process chunk: {str(e)}"
+        )
 
 
 @router.post("/commit/{module}", response_model=UnifiedCommitResponse)

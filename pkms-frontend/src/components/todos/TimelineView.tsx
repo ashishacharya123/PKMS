@@ -27,10 +27,10 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
 
   const timelineTodos = useMemo(() => {
     return todos
-      .filter(todo => todo.start_date && todo.due_date)
+      .filter(todo => todo.startDate && todo.dueDate)
       .map(todo => {
-        const startDate = new Date(todo.start_date!); // Filtered above
-        const endDate = new Date(todo.due_date!); // Filtered above
+        const startDate = new Date(todo.startDate!); // Filtered above
+        const endDate = new Date(todo.dueDate!); // Filtered above
         const duration = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
         
         return {
@@ -279,21 +279,8 @@ export const TimelineView: React.FC<TimelineViewProps> = ({
                     />
                   )}
 
-                  {/* NEW: Time Tracking & Collaboration Icons */}
-                  <Group gap={2} justify="space-between">
-                    <Group gap={2}>
-                      {todo.estimate_minutes && (
-                        <Tooltip label={`Est: ${Math.floor(todo.estimate_minutes / 60)}h ${todo.estimate_minutes % 60}m`}>
-                          <IconClock size={8} color="gray" />
-                        </Tooltip>
-                      )}
-                      {todo.actual_minutes && (
-                        <Tooltip label={`Actual: ${Math.floor(todo.actual_minutes / 60)}h ${todo.actual_minutes % 60}m`}>
-                          <IconClock size={8} color="blue" />
-                        </Tooltip>
-                      )}
-                    </Group>
-                    
+                  {/* Time tracking removed - backend no longer supports estimate_minutes */}
+                  <Group gap={4}>
                   </Group>
 
                   <Menu>

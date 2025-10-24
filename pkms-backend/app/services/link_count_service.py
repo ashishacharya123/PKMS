@@ -3,7 +3,7 @@ Link Count Service - Unified service for checking item deletion safety
 
 Handles all types of relationships:
 - DiaryFile: Always exclusive (cascade delete)
-- NoteFile: Can be exclusive or shared across notes
+- Document: Can be exclusive or shared across notes via note_documents
 - Document: Can be linked to projects and notes
 - Note: Can be linked to projects
 - Todo: Can be linked to projects
@@ -16,11 +16,11 @@ from fastapi import HTTPException, status
 import logging
 
 from app.models.document import Document
-from app.models.note import Note, NoteFile
+from app.models.note import Note
 from app.models.todo import Todo
 # DiaryFile removed - diary files now use Document + document_diary
 from app.models.project import Project
-from app.models.associations import document_projects, note_projects, todo_projects
+from app.models.associations import project_items
 
 logger = logging.getLogger(__name__)
 
@@ -100,13 +100,6 @@ class LinkCountService:
             item = await db.get(Todo, item_uuid)
             return item if item and item.created_by == user_uuid else None
             
-        elif item_type == "note_file":
-            item = await db.get(NoteFile, item_uuid)
-            if not item:
-                return None
-            # Check ownership through parent note
-            note = await db.get(Note, item.note_uuid)
-            return item if note and note.created_by == user_uuid else None
             
         # DiaryFile removed - diary files now use Document + document_diary
         # No separate diary_file type needed
@@ -167,26 +160,29 @@ class LinkCountService:
     ) -> Dict[str, Any]:
         """Get project links for an item"""
         
-        if item_type == "document":
-            association_table = document_projects
-            item_uuid_col = document_projects.c.document_uuid
-        elif item_type == "note":
-            association_table = note_projects
-            item_uuid_col = note_projects.c.note_uuid
-        elif item_type == "todo":
-            association_table = todo_projects
-            item_uuid_col = todo_projects.c.todo_uuid
+        # All items now use polymorphic project_items table
+        if item_type in ["document", "note", "todo"]:
+            association_table = project_items
+            item_uuid_col = project_items.c.item_uuid
+            item_type_filter = {
+                "document": "Document",
+                "note": "Note", 
+                "todo": "Todo"
+            }[item_type]
         else:
             return {"items": [], "count": 0}
 
-        # Count links
+        # Count links using polymorphic project_items
         count_query = select(func.count()).select_from(association_table).where(
-            item_uuid_col == item_uuid
+            and_(
+                item_uuid_col == item_uuid,
+                project_items.c.item_type == item_type_filter
+            )
         )
         count_result = await db.execute(count_query)
         count = count_result.scalar() or 0
 
-        # Get project names
+        # Get project names using polymorphic project_items
         project_names = []
         if count > 0:
             projects_query = select(Project.name).select_from(
@@ -194,6 +190,7 @@ class LinkCountService:
             ).where(
                 and_(
                     item_uuid_col == item_uuid,
+                    project_items.c.item_type == item_type_filter,
                     Project.created_by == user_uuid
                 )
             )

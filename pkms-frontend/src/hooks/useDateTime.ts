@@ -1,47 +1,14 @@
+/**
+ * DateTime Hook
+ * 
+ * Provides current time, formatted time, and Nepali date/day information.
+ * Optimized for static date/day values with 60-second update frequency.
+ * Used in Layout component for time display and date information.
+ */
+
 import { useState, useEffect } from 'react';
 import NepaliDate from 'nepali-date-converter';
-
-// Nepali month names in Devanagari
-const nepaliMonths = [
-  'बैशाख', 'जेठ', 'असार', 'साउन', 
-  'भदौ', 'असोज', 'कार्तिक', 'मंसिर', 
-  'पौष', 'माघ', 'फाल्गुन', 'चैत'
-];
-
-// Nepali day names in Devanagari  
-/*
-const nepaliDays = [
-  'आइतबार',    // Sunday
-  'सोमबार',     // Monday  
-  'मंगलबार',    // Tuesday
-  'बुधबार',     // Wednesday
-  'बिहिबार',    // Thursday
-  'शुक्रबार',   // Friday
-  'शनिबार'     // Saturday
-];
-*/
-
-// English to Nepali day mapping 
-const englishToNepaliDay = {
-  'Sunday': 'आइतबार',
-  'Monday': 'सोमबार', 
-  'Tuesday': 'मंगलबार',
-  'Wednesday': 'बुधबार',
-  'Thursday': 'बिहिबार',
-  'Friday': 'शुक्रबार',
-  'Saturday': 'शनिबार'
-};
-
-// English to Devanagari numeral mapping
-const englishToDevanagariDigits = {
-  '0': '०', '1': '१', '2': '२', '3': '३', '4': '४',
-  '5': '५', '6': '६', '7': '७', '8': '८', '9': '९'
-};
-
-// Convert English numerals to Devanagari
-const convertToDevanagariNumerals = (text: string): string => {
-  return text.replace(/[0-9]/g, (digit) => englishToDevanagariDigits[digit as keyof typeof englishToDevanagariDigits] || digit);
-};
+import { NEPALI_MONTH_NAMES, NEPALI_DAY_NAMES, convertToDevanagari } from '../utils/nepaliConstants';
 
 export interface DateTimeInfo {
   currentTime: Date;
@@ -53,6 +20,10 @@ export interface DateTimeInfo {
   isLoading: boolean;
 }
 
+/**
+ * Custom hook for date/time management with Nepali calendar support.
+ * Returns current time, formatted time, and Nepali date information.
+ */
 export function useDateTime(): DateTimeInfo {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [nepaliDate, setNepaliDate] = useState('');
@@ -78,14 +49,14 @@ export function useDateTime(): DateTimeInfo {
         const nepDay = nepDate.getDate();
         
         // Format with Nepali month name and Devanagari numerals
-        const nepaliMonthName = nepaliMonths[nepMonth] || 'अज्ञात';
-        const devanagariDay = convertToDevanagariNumerals(nepDay.toString());
-        const devanagariYear = convertToDevanagariNumerals(nepYear.toString());
+        const nepaliMonthName = NEPALI_MONTH_NAMES[nepMonth] || 'अज्ञात';
+        const devanagariDay = convertToDevanagari(nepDay.toString());
+        const devanagariYear = convertToDevanagari(nepYear.toString());
         setNepaliDateFormatted(`${nepaliMonthName} ${devanagariDay}, ${devanagariYear}`);
         
         // Get Nepali day name
         const englishDayName = now.toLocaleDateString('en-US', { weekday: 'long' });
-        setNepaliDay(englishToNepaliDay[englishDayName as keyof typeof englishToNepaliDay] || 'अज्ञात');
+        setNepaliDay(NEPALI_DAY_NAMES[englishDayName] || 'अज्ञात');
         
       } catch (error) {
         console.warn('Failed to convert to Nepali date:', error);
@@ -98,7 +69,7 @@ export function useDateTime(): DateTimeInfo {
     };
 
     updateTime(); // Initial update
-    const interval = setInterval(updateTime, 10000); // Update every 10 seconds (changed from 60000)
+    const interval = setInterval(updateTime, 60_000); // Update every 60 seconds; UI only needs minute/day changes
 
     return () => clearInterval(interval);
   }, []);

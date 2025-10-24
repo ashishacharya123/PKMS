@@ -21,7 +21,7 @@ from app.schemas.project import (
     ProjectDocumentsReorderRequest, ProjectDocumentsLinkRequest, ProjectDocumentUnlinkRequest,
     ProjectSectionReorderRequest
 )
-from app.services.project_crud_service import project_crud_service
+from app.services.project_service import project_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -36,7 +36,7 @@ async def create_project(
 ):
     """Create a new project."""
     try:
-        return await project_crud_service.create_project(db, current_user.uuid, project_data)
+        return await project_service.create_project(db, current_user.uuid, project_data)
     except HTTPException:
         raise
     except Exception as e:
@@ -57,7 +57,7 @@ async def list_projects(
 ):
     """List all projects for the current user."""
     try:
-        return await project_crud_service.list_projects(db, current_user.uuid, archived, tag)
+        return await project_service.list_projects(db, current_user.uuid, archived, tag)
     except HTTPException:
         raise
     except Exception as e:
@@ -76,7 +76,7 @@ async def get_project(
 ):
     """Get a specific project by UUID."""
     try:
-        return await project_crud_service.get_project(db, current_user.uuid, project_uuid)
+        return await project_service.get_project(db, current_user.uuid, project_uuid)
     except HTTPException:
         raise
     except Exception as e:
@@ -96,7 +96,7 @@ async def update_project(
 ):
     """Update project metadata and tags."""
     try:
-        return await project_crud_service.update_project(db, current_user.uuid, project_uuid, project_data)
+        return await project_service.update_project(db, current_user.uuid, project_uuid, project_data)
     except HTTPException:
         raise
     except Exception as e:
@@ -115,7 +115,7 @@ async def delete_project(
 ):
     """Delete a project (soft delete)."""
     try:
-        await project_crud_service.delete_project(db, current_user.uuid, project_uuid)
+        await project_service.delete_project(db, current_user.uuid, project_uuid)
     except HTTPException:
         raise
     except Exception as e:
@@ -129,13 +129,29 @@ async def delete_project(
 @router.post("/{project_uuid}/duplicate", response_model=ProjectDuplicateResponse)
 async def duplicate_project(
     project_uuid: str,
-    duplicate_data: ProjectDuplicateRequest,
+    request: ProjectDuplicateRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Duplicate a project with all its associations."""
+    """
+    Duplicate a project with advanced options:
+    
+    - **Shallow Copy**: Links existing items to new project (fast, shared items)
+    - **Deep Copy**: Creates new, independent copies of items (slower, isolated items)
+    - **Item Renaming**: Optionally provide new names for deep-copied items
+    - **Selective**: Choose which item types to include
+    
+    Note: Documents are always shallow-linked due to hash-based deduplication.
+    """
+    from app.services.duplication_service import duplication_service
+    
     try:
-        return await project_crud_service.duplicate_project(db, current_user.uuid, project_uuid, duplicate_data)
+        return await duplication_service.duplicate_project(
+            db=db,
+            user_uuid=current_user.uuid,
+            original_project_uuid=project_uuid,
+            request=request
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -143,6 +159,77 @@ async def duplicate_project(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to duplicate project: {str(e)}"
+        )
+
+
+@router.get("/{project_uuid}/items-summary")
+async def get_project_items_summary(
+    project_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get a summary of all items in a project (for duplication UI).
+    
+    Returns:
+    {
+        "todos": [{"uuid": "...", "title": "Task 1"}, ...],
+        "notes": [{"uuid": "...", "title": "Note 1"}, ...],
+        "documents": [{"uuid": "...", "title": "Doc 1"}, ...]
+    }
+    """
+    try:
+        # Get all items from project via project_items
+        result = await db.execute(
+            select(
+                project_items.c.item_type,
+                project_items.c.item_uuid
+            ).where(project_items.c.project_uuid == project_uuid)
+        )
+        items = result.all()
+        
+        summary = {"todos": [], "notes": [], "documents": []}
+        
+        for item_type, item_uuid in items:
+            try:
+                if item_type == "Todo":
+                    from app.models.todo import Todo
+                    todo_result = await db.execute(
+                        select(Todo.title).where(Todo.uuid == item_uuid)
+                    )
+                    title = todo_result.scalar_one_or_none()
+                    if title:
+                        summary["todos"].append({"uuid": item_uuid, "title": title})
+                        
+                elif item_type == "Note":
+                    from app.models.note import Note
+                    note_result = await db.execute(
+                        select(Note.title).where(Note.uuid == item_uuid)
+                    )
+                    title = note_result.scalar_one_or_none()
+                    if title:
+                        summary["notes"].append({"uuid": item_uuid, "title": title})
+                        
+                elif item_type == "Document":
+                    from app.models.document import Document
+                    doc_result = await db.execute(
+                        select(Document.filename).where(Document.uuid == item_uuid)
+                    )
+                    title = doc_result.scalar_one_or_none()
+                    if title:
+                        summary["documents"].append({"uuid": item_uuid, "title": title})
+                        
+            except Exception as e:
+                logger.warning(f"Failed to get title for {item_type} {item_uuid}: {e}")
+                continue
+        
+        return summary
+        
+    except Exception as e:
+        logger.exception(f"Error getting project items summary for {project_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get project items summary: {str(e)}"
         )
 
 
@@ -155,7 +242,7 @@ async def get_project_items(
 ):
     """Get all items (documents, notes, todos) associated with a project."""
     try:
-        return await project_crud_service.get_project_items(db, current_user.uuid, project_uuid, item_type)
+        return await project_service.get_project_items(db, current_user.uuid, project_uuid, item_type)
     except HTTPException:
         raise
     except Exception as e:
@@ -166,63 +253,69 @@ async def get_project_items(
         )
 
 
-@router.patch("/{project_uuid}/documents/reorder", status_code=status.HTTP_204_NO_CONTENT)
-async def reorder_project_documents(
+@router.patch("/{project_uuid}/items/{item_type}/reorder", status_code=status.HTTP_204_NO_CONTENT)
+async def reorder_project_items(
     project_uuid: str,
-    reorder_data: ProjectDocumentsReorderRequest,
+    item_type: str,
+    reorder_data: ProjectDocumentsReorderRequest,  # Keep same schema for now
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Reorder documents within a project."""
+    """Reorder items within a project."""
     try:
-        await project_crud_service.reorder_documents(db, current_user.uuid, project_uuid, reorder_data)
+        await project_service.reorder_project_items(db, current_user.uuid, project_uuid, item_type, reorder_data.document_uuids)
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error reordering documents for project {project_uuid} for user {current_user.uuid}")
+        logger.exception(f"Error reordering {item_type} for project {project_uuid} for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to reorder documents: {str(e)}"
+            detail=f"Failed to reorder {item_type}: {str(e)}"
         )
 
 
-@router.post("/{project_uuid}/documents:link", status_code=status.HTTP_204_NO_CONTENT)
-async def link_documents_to_project(
+@router.post("/{project_uuid}/items/{item_type}/link", status_code=status.HTTP_204_NO_CONTENT)
+async def link_items_to_project(
     project_uuid: str,
-    link_data: ProjectDocumentsLinkRequest,
+    item_type: str,
+    link_data: ProjectDocumentsLinkRequest,  # Keep same schema for now
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Link existing documents to a project."""
+    """Link existing items to a project."""
     try:
-        await project_crud_service.link_documents_to_project(db, current_user.uuid, project_uuid, link_data)
+        await project_service.link_items_to_project(
+            db, current_user.uuid, project_uuid, item_type, link_data.document_uuids,
+            is_exclusive=link_data.are_items_exclusive
+        )
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error linking documents to project {project_uuid} for user {current_user.uuid}")
+        logger.exception(f"Error linking {item_type} to project {project_uuid} for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to link documents: {str(e)}"
+            detail=f"Failed to link {item_type}: {str(e)}"
         )
 
 
-@router.post("/{project_uuid}/documents:unlink", status_code=status.HTTP_204_NO_CONTENT)
-async def unlink_document_from_project(
+@router.post("/{project_uuid}/items/{item_type}/unlink", status_code=status.HTTP_204_NO_CONTENT)
+async def unlink_item_from_project(
     project_uuid: str,
-    unlink_data: ProjectDocumentUnlinkRequest,
+    item_type: str,
+    unlink_data: ProjectDocumentUnlinkRequest,  # Keep same schema for now
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Unlink a document from a project."""
+    """Unlink an item from a project."""
     try:
-        await project_crud_service.unlink_document_from_project(db, current_user.uuid, project_uuid, unlink_data)
+        await project_service.unlink_item_from_project(db, current_user.uuid, project_uuid, item_type, unlink_data.document_uuid)
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error unlinking document from project {project_uuid} for user {current_user.uuid}")
+        logger.exception(f"Error unlinking {item_type} from project {project_uuid} for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to unlink document: {str(e)}"
+            detail=f"Failed to unlink {item_type}: {str(e)}"
         )
 
 
@@ -235,7 +328,7 @@ async def reorder_project_sections(
 ):
     """Reorder sections within a project."""
     try:
-        await project_crud_service.reorder_sections(db, current_user.uuid, project_uuid, reorder_data)
+        await project_service.reorder_sections(db, current_user.uuid, project_uuid, reorder_data)
     except HTTPException:
         raise
     except Exception as e:

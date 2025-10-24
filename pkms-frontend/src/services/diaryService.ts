@@ -106,6 +106,14 @@ class DiaryService {
     return response.data;
   }
 
+  async getHistoricalEntries(dates: string[]): Promise<DiaryEntrySummary[]> {
+    // Efficient API call for specific dates only
+    const response = await apiService.post<DiaryEntrySummary[]>(`${this.baseUrl}/entries/historical`, {
+      dates
+    });
+    return response.data;
+  }
+
   async getEntryById(id: number): Promise<DiaryEntry> {
     const response = await apiService.get<DiaryEntry>(`${this.baseUrl}/entries/${id}`);
     return response.data;
@@ -203,11 +211,11 @@ class DiaryService {
         });
       }
 
-      // Step 1: Upload file as Document using core chunk upload service
+      // Step 1: Upload chunks
       const uploadFileId = await coreUploadService.uploadFile(fileToUpload, {
-        module: 'documents', // Upload as document, not diary
+        module: 'documents',
         onProgress: onProgress ? (progress) => {
-          const baseProgress = key ? 10 : 0; // Reserve 0-10% for encryption if encrypting
+          const baseProgress = key ? 10 : 0;
           const uploadProgress = baseProgress + (progress.progress * (85 - baseProgress) / 100);
           onProgress({ 
             progress: Math.round(uploadProgress), 
@@ -217,35 +225,25 @@ class DiaryService {
       });
 
       if (onProgress) {
-        onProgress({ progress: 90, status: 'Creating document...' });
+        onProgress({ progress: 90, status: 'Finalizing...' });
       }
 
-      // Step 2: Commit the upload as a Document
-      const commitResponse = await apiService.post('/api/v1/documents/commit', {
+      // Step 2: ATOMIC commit - backend handles document creation + diary linking
+      const document = await apiService.post('/api/v1/documents/commit', {
         file_id: uploadFileId,
-        title: file.name, // Use filename as title
+        title: file.name,
         description: caption || null,
-        tags: [], // No tags for diary files
-        project_ids: [], // No project associations
-        is_project_exclusive: false,
-        is_diary_exclusive: true, // Hide from main document list (diary-only)
+        tags: [],
+        diary_entry_uuid: entryUuid,  // Backend creates document_diary association
+        is_encrypted: key !== undefined,  // Track encryption status
         original_name: file.name
-      });
-
-      if (onProgress) {
-        onProgress({ progress: 95, status: 'Linking to diary...' });
-      }
-
-      // Step 3: Link the document to the diary entry
-      await apiService.post(`${this.baseUrl}/entries/${entryUuid}/documents:link`, {
-        document_uuids: [(commitResponse.data as any).uuid]
       });
 
       if (onProgress) {
         onProgress({ progress: 100, status: 'Complete' });
       }
 
-      return commitResponse.data;
+      return document.data;
     } catch (error) {
       console.error('❌ Diary file upload failed:', error);
       throw error;
@@ -324,6 +322,35 @@ class DiaryService {
   async reorderFiles(entryUuid: string, documentUuids: string[]): Promise<void> {
     await apiService.patch(`${this.baseUrl}/entries/${entryUuid}/documents/reorder`, {
       document_uuids: documentUuids
+    });
+  }
+
+  async linkExistingDocument(
+    entryUuid: string,
+    documentUuid: string,
+    isEncrypted: boolean = false
+  ): Promise<void> {
+    // CRITICAL: Check for conflicts BEFORE linking
+    // Linking to diary makes document exclusive (hidden from other views)
+    const { projectApi } = await import('./projectApi');
+    const preflight = await projectApi.getDeletePreflight('document', documentUuid);
+    
+    if (preflight.linkCount > 0) {
+      const confirmed = window.confirm(
+        `⚠️ Warning: This document is currently used in ${preflight.linkCount} other place(s).\n\n` +
+        `${preflight.warningMessage}\n\n` +
+        `Linking it to your diary will make it exclusive and hide it from those views. Continue?`
+      );
+      
+      if (!confirmed) {
+        return; // User canceled - no changes made
+      }
+    }
+
+    // Proceed with linking (with is_encrypted flag)
+    await apiService.post(`${this.baseUrl}/entries/${entryUuid}/documents:link`, {
+      document_uuids: [documentUuid],
+      is_encrypted: isEncrypted
     });
   }
 
@@ -489,6 +516,17 @@ class DiaryService {
     return response.data;
   }
 
+  async updateDailyHabitsUnified(
+    date: string,
+    data: { default_habits: Record<string, number>, defined_habits: Record<string, number> }
+  ): Promise<any> {
+    const response = await apiService.post(
+      `${this.baseUrl}/daily-metadata/${date}/habits`,  // No habit_type in URL
+      data
+    );
+    return response.data;
+  }
+
   async getDailyHabits(
     habitType: 'default' | 'defined',
     date: string
@@ -497,6 +535,146 @@ class DiaryService {
       `${this.baseUrl}/daily-metadata/${date}/habits/${habitType}`
     );
     return response.data;
+  }
+
+  // --- New Analytics Methods ---
+
+  /**
+   * Get analytics for 9 default habits with optional SMA overlays
+   * @param days Number of days for analysis (7-365)
+   * @param includeSMA Whether to include Simple Moving Average overlays
+   * @param smaWindows List of SMA window sizes (default: [7, 14, 30])
+   * @returns Default habits analytics data
+   */
+  async getDefaultHabitsAnalytics(
+    days: number = 30,
+    includeSMA: boolean = false,
+    smaWindows: number[] = [7, 14, 30]
+  ): Promise<any> {
+    const params = new URLSearchParams({
+      days: days.toString(),
+      include_sma: includeSMA.toString(),
+      sma_windows: smaWindows.join(',')
+    });
+    
+    const response = await apiService.get<any>(
+      `${this.baseUrl}/habits/analytics/default?${params}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Get analytics for user-defined custom habits with optional normalization
+   * @param days Number of days for analysis (7-365)
+   * @param normalize Whether to normalize values to percentage of target
+   * @returns Defined habits analytics data
+   */
+  async getDefinedHabitsAnalytics(
+    days: number = 30,
+    normalize: boolean = false
+  ): Promise<any> {
+    const params = new URLSearchParams({
+      days: days.toString(),
+      normalize: normalize.toString()
+    });
+    
+    const response = await apiService.get<any>(
+      `${this.baseUrl}/habits/analytics/defined?${params}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Get unified view of all habits + mood + financial + insights
+   * @param days Number of days for analysis (7-365)
+   * @returns Comprehensive analytics data
+   */
+  async getComprehensiveAnalytics(days: number = 30): Promise<any> {
+    const response = await apiService.get<any>(
+      `${this.baseUrl}/habits/analytics/comprehensive?days=${days}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Calculate correlation between any two habits
+   * @param habitX First habit identifier
+   * @param habitY Second habit identifier
+   * @param days Number of days for analysis (7-365)
+   * @param normalize Whether to normalize defined habits to percentage of target
+   * @returns Correlation analysis data
+   */
+  async getHabitCorrelation(
+    habitX: string,
+    habitY: string,
+    days: number = 90,
+    normalize: boolean = false
+  ): Promise<any> {
+    const params = new URLSearchParams({
+      habit_x: habitX,
+      habit_y: habitY,
+      days: days.toString(),
+      normalize: normalize.toString()
+    });
+    
+    const response = await apiService.get<any>(
+      `${this.baseUrl}/habits/correlation?${params}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Get trend data for specific habit with SMA overlays
+   * @param habitKey Habit identifier
+   * @param days Number of days for analysis (7-365)
+   * @param includeSMA Whether to include SMA overlays
+   * @param smaWindows List of SMA window sizes (default: [7, 14, 30])
+   * @returns Habit trend data
+   */
+  async getHabitTrend(
+    habitKey: string,
+    days: number = 90,
+    includeSMA: boolean = true,
+    smaWindows: number[] = [7, 14, 30]
+  ): Promise<any> {
+    const params = new URLSearchParams({
+      days: days.toString(),
+      include_sma: includeSMA.toString(),
+      sma_windows: smaWindows.join(',')
+    });
+    
+    const response = await apiService.get<any>(
+      `${this.baseUrl}/habits/trend/${habitKey}?${params}`
+    );
+    return response.data;
+  }
+
+  /**
+   * Get lightweight dashboard summary for instant load (< 100ms)
+   * @returns Dashboard summary data
+   */
+  async getHabitsDashboardSummary(): Promise<any> {
+    const response = await apiService.get<any>(
+      `${this.baseUrl}/habits/dashboard`
+    );
+    return response.data;
+  }
+
+  /**
+   * Check if today's data is filled for habits
+   * @returns Object with filled status and missing habits list
+   */
+  async checkTodayDataFilled(): Promise<{ filled: boolean; missing: string[] }> {
+    try {
+      const dashboard = await this.getHabitsDashboardSummary();
+      return {
+        filled: dashboard.missing_today.length === 0,
+        missing: dashboard.missing_today || []
+      };
+    } catch (error) {
+      console.error('Failed to check today data:', error);
+      return { filled: false, missing: [] };
+    }
   }
 }
 

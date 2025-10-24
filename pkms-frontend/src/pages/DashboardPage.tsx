@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
+import { nepaliDateCache } from '../utils/nepaliDateCache';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -37,7 +38,8 @@ import {
 } from '@tabler/icons-react';
 import { useAuthStore } from '../stores/authStore';
 import { dashboardService, type DashboardStats, type QuickStats } from '../services/dashboardService';
-import { todosService, type Project } from '../services/todosService';
+import MainDashboard from '../components/dashboard/MainDashboard';
+import { todosService, type LegacyProject } from '../services/todosService';
 import { StorageBreakdownCard } from '../components/dashboard/StorageBreakdownCard';
 
 // Update interfaces to match backend response
@@ -269,6 +271,8 @@ export function DashboardPage() {
   const [quick, setQuick] = useState<QuickStats | null>(null);
 
   useAuthenticatedEffect(() => {
+    // Pre-cache Nepali dates for dashboard (past 7 + today + next 3 days)
+    nepaliDateCache.preCacheDashboard();
     loadDashboardData();
   }, []);
 
@@ -292,7 +296,7 @@ export function DashboardPage() {
     try {
       console.log('[Dashboard] Loading dashboard data…');
       const [dashboardStats, quickStats] = await Promise.all([
-        dashboardService.getDashboardStats(),
+        dashboardService.getMainDashboardData(),
         dashboardService.getQuickStats()
       ]);
       console.log('[Dashboard] Stats received:', dashboardStats);
@@ -541,6 +545,13 @@ export function DashboardPage() {
     );
   }
 
+  return (
+    <MainDashboard onRefresh={handleRefresh} />
+  );
+}
+
+// Keep the old implementation as backup
+function OldDashboardPage() {
   return (
     <Container size="xl">
       <Stack gap="xl">

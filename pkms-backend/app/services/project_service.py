@@ -1,63 +1,610 @@
 """
-ProjectService - Centralized project management functionality
+Project Service - Unified Project Management
 
-Handles:
-- Project associations (linking items to projects)
-- Project badge generation (for UI display)
-- Project ownership verification
-- Project snapshot management
+Handles all CRUD operations for projects including creation, reading, updating, deletion,
+project management, item associations, and comprehensive project views.
+
+Consolidates functionality from both project_crud_service.py and project_service.py
 """
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, and_, func, update
-from sqlalchemy.orm import selectinload
-from typing import List, Optional, Type
-from fastapi import HTTPException
-from pathlib import Path
 import logging
+from typing import List, Optional, Dict, Any, Tuple
+from datetime import datetime, date
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_, or_, delete, func, case, update
+from sqlalchemy.orm import selectinload
+from fastapi import HTTPException, status
+from pathlib import Path
 
-# Set up logger
-logger = logging.getLogger(__name__)
-
-from app.models.project import Project
-from app.models.associations import note_projects, document_projects, todo_projects
-from app.models.note import Note
+from app.config import NEPAL_TZ, get_file_storage_dir, get_data_dir
+from app.models.project import Project, ProjectSectionOrder
 from app.models.document import Document
+from app.models.note import Note
 from app.models.todo import Todo
-from app.schemas.project import ProjectBadge
+from app.models.tag import Tag
+from app.models.associations import project_items, note_documents
+from app.models.enums import TodoStatus, TaskPriority
+from app.models.tag_associations import project_tags
+from app.schemas.project import (
+    ProjectCreate, ProjectUpdate, ProjectResponse, ProjectBadge, 
+    ProjectDuplicateRequest, ProjectDuplicateResponse,
+    ProjectDocumentsReorderRequest, ProjectDocumentsLinkRequest, ProjectDocumentUnlinkRequest,
+    ProjectSectionReorderRequest
+)
 from app.services.tag_service import tag_service
 from app.services.search_service import search_service
-from app.config import get_file_storage_dir, get_data_dir
+from app.services.dashboard_service import dashboard_service
+from app.services.shared_utilities_service import shared_utilities_service
+
+logger = logging.getLogger(__name__)
 
 
 class ProjectService:
-    """Centralized service for project-related operations"""
+    """
+    Unified service for handling all project operations including CRUD,
+    project management, item associations, and comprehensive project views.
+    """
 
-    async def handle_associations(
+    async def create_project(
+        self, db: AsyncSession, user_uuid: str, project_data: ProjectCreate
+    ) -> ProjectResponse:
+        """Create a new project."""
+        try:
+            payload = project_data.model_dump()
+            tags = payload.pop("tags", []) or []
+
+            project = Project(**payload, created_by=user_uuid)
+            db.add(project)
+            await db.commit()
+            await db.refresh(project)
+            
+            if tags:
+                await tag_service.handle_tags(db, project, tags, user_uuid, None, project_tags)
+            
+            # Index in search and persist
+            await search_service.index_item(db, project, 'project')
+            await db.commit()
+            
+            # Invalidate dashboard cache
+            dashboard_service.invalidate_user_cache(user_uuid, "project_created")
+            
+            logger.info(f"Project created: {project.name}")
+            return self._convert_project_to_response(project, 0, 0)  # New project has 0 todos
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception("Error creating project")
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to create project: {str(e)}"
+            )
+
+    async def list_projects(
         self,
         db: AsyncSession,
-        item: any,
+        user_uuid: str,
+        archived: Optional[bool] = None,
+        tag: Optional[str] = None,
+    ) -> List[ProjectResponse]:
+        """List all projects for the current user."""
+        try:
+            # Build base query
+            query = select(Project).where(
+                and_(
+                    Project.created_by == user_uuid,
+                    Project.is_deleted.is_(False)
+                )
+            )
+            
+            # Apply filters
+            if archived is not None:
+                query = query.where(Project.is_archived.is_(archived))
+            
+            if tag:
+                query = query.join(project_tags).join(Tag).where(Tag.name == tag)
+            
+            # Execute query with eager loading for tags
+            query = query.options(selectinload(Project.tag_objs))  # Eager load tags to avoid N+1
+            result = await db.execute(query.order_by(Project.sort_order, Project.created_at.desc()))
+            projects = result.scalars().all()
+            
+            # BATCH LOAD: Get all todo counts in a single query to avoid N+1
+            project_uuids = [p.uuid for p in projects]
+            todo_counts = await self._batch_get_project_counts(db, project_uuids, user_uuid)
+            
+            # Build responses
+            responses = []
+            for project in projects:
+                todo_count, completed_count = todo_counts.get(project.uuid, (0, 0))
+                responses.append(self._convert_project_to_response(project, todo_count, completed_count))
+            
+            return responses
+            
+        except Exception as e:
+            logger.exception("Error listing projects")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to list projects: {str(e)}"
+            )
+
+    async def get_project(
+        self, db: AsyncSession, user_uuid: str, project_uuid: str
+    ) -> ProjectResponse:
+        """Get a specific project by UUID."""
+        result = await db.execute(
+            select(Project).where(
+                and_(
+                    Project.uuid == project_uuid,
+                    Project.created_by == user_uuid,
+                    Project.is_deleted.is_(False)
+                )
+            )
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+        todo_count, completed_count = await self._get_project_counts(db, project.uuid, user_uuid)
+        return self._convert_project_to_response(project, todo_count, completed_count)
+
+    async def update_project(
+        self, db: AsyncSession, user_uuid: str, project_uuid: str, project_data: ProjectUpdate
+    ) -> ProjectResponse:
+        """Update project metadata and tags."""
+        result = await db.execute(
+            select(Project).where(
+                and_(
+                    Project.uuid == project_uuid,
+                    Project.created_by == user_uuid,
+                    Project.is_deleted.is_(False)
+                )
+            )
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+        update_data = project_data.model_dump(exclude_unset=True)
+        
+        if "tags" in update_data:
+            tags = update_data.pop("tags")
+            await tag_service.handle_tags(db, project, tags, user_uuid, None, project_tags)
+
+        # Update fields
+        for key, value in update_data.items():
+            setattr(project, key, value)
+        
+        await db.commit()
+        await db.refresh(project)
+        
+        # Index in search and persist
+        await search_service.index_item(db, project, 'project')
+        await db.commit()
+        
+        # Invalidate dashboard cache
+        dashboard_service.invalidate_user_cache(user_uuid, "project_updated")
+        
+        todo_count, completed_count = await self._get_project_counts(db, project.uuid, user_uuid)
+        return self._convert_project_to_response(project, todo_count, completed_count)
+
+    async def delete_project(self, db: AsyncSession, user_uuid: str, project_uuid: str):
+        """Delete a project with exclusive item cleanup."""
+        result = await db.execute(
+            select(Project).where(
+                and_(
+                    Project.uuid == project_uuid,
+                    Project.created_by == user_uuid,
+                    Project.is_deleted.is_(False)
+                )
+            )
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+        # Get all exclusive items that should be deleted with the project
+        exclusive_items_result = await db.execute(
+            select(project_items.c.item_type, project_items.c.item_uuid)
+            .where(
+                and_(
+                    project_items.c.project_uuid == project_uuid,
+                    project_items.c.is_exclusive == True
+                )
+            )
+        )
+        exclusive_items = exclusive_items_result.all()
+
+        # Soft delete the project
+        project.is_deleted = True
+        project.updated_at = datetime.now(NEPAL_TZ)
+        
+        # Delete exclusive items
+        for item_type, item_uuid in exclusive_items:
+            if item_type == 'Note':
+                note_result = await db.execute(
+                    select(Note).where(Note.uuid == item_uuid)
+                )
+                note = note_result.scalar_one_or_none()
+                if note:
+                    note.is_deleted = True
+                    
+                    # Delete content file if it exists
+                    if note.content_file_path:
+                        from app.config import get_file_storage_dir
+                        full_path = get_file_storage_dir() / note.content_file_path
+                        if full_path.exists():
+                            try:
+                                full_path.unlink()
+                            except Exception as e:
+                                logger.warning(f"Could not delete note content file {full_path}: {e}")
+            elif item_type == 'Document':
+                doc_result = await db.execute(
+                    select(Document).where(Document.uuid == item_uuid)
+                )
+                doc = doc_result.scalar_one_or_none()
+                if doc:
+                    doc.is_deleted = True
+            elif item_type == 'Todo':
+                todo_result = await db.execute(
+                    select(Todo).where(Todo.uuid == item_uuid)
+                )
+                todo = todo_result.scalar_one_or_none()
+                if todo:
+                    todo.is_deleted = True
+        
+        await db.commit()
+        
+        # Remove from search index
+        await search_service.remove_item(db, project_uuid, 'project')
+        
+        # Invalidate dashboard cache
+        dashboard_service.invalidate_user_cache(user_uuid, "project_deleted")
+        
+        logger.info(f"Project deleted: {project.name}")
+
+    # REMOVED: duplicate_project method - moved to dedicated DuplicationService
+    # All project duplication logic now handled by app.services.duplication_service
+
+    async def get_project_items(
+        self, db: AsyncSession, user_uuid: str, project_uuid: str, item_type: str
+    ) -> Dict[str, Any]:
+        """Get all items (documents, notes, todos) associated with a project using polymorphic project_items."""
+        # Verify project exists and belongs to user
+        result = await db.execute(
+            select(Project).where(
+                and_(
+                    Project.uuid == project_uuid,
+                    Project.created_by == user_uuid,
+                    Project.is_deleted.is_(False)
+                )
+            )
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+        # Map API item_type to database item_type
+        item_type_map = {
+            'documents': 'Document',
+            'notes': 'Note',
+            'todos': 'Todo'
+        }
+        
+        db_item_type = item_type_map.get(item_type)
+        if not db_item_type:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid item type")
+
+        # Model mapping for polymorphic queries
+        model_map = {
+            'Document': Document,
+            'Note': Note,
+            'Todo': Todo
+        }
+        
+        model_class = model_map[db_item_type]
+        
+        # Single query for all types using polymorphic project_items
+        result = await db.execute(
+            select(model_class)
+            .join(project_items, model_class.uuid == project_items.c.item_uuid)
+            .where(
+                and_(
+                    project_items.c.project_uuid == project_uuid,
+                    project_items.c.item_type == db_item_type,
+                    model_class.created_by == user_uuid,
+                    model_class.is_deleted.is_(False)
+                )
+            )
+            .order_by(project_items.c.sort_order)
+        )
+        items = result.scalars().all()
+        
+        # BATCH LOAD: Get all project badges in a single query to avoid N+1
+        item_uuids = [item.uuid for item in items]
+        project_badges_map = await shared_utilities_service.batch_get_project_badges_polymorphic(
+            db, item_uuids, db_item_type
+        )
+        
+        # Build responses
+        responses = []
+        for item in items:
+            project_badges = project_badges_map.get(item.uuid, [])
+            if db_item_type == 'Document':
+                responses.append(self._convert_doc_to_response(item, project_badges))
+            elif db_item_type == 'Note':
+                responses.append(self._convert_note_to_response(item, project_badges))
+            elif db_item_type == 'Todo':
+                responses.append(self._convert_todo_to_response(item, project_badges))
+
+        return {"items": responses, "count": len(responses)}
+
+    async def reorder_project_items(
+        self, db: AsyncSession, user_uuid: str, project_uuid: str, item_type: str, item_uuids: List[str]
+    ):
+        """Reorder items within a project using polymorphic project_items."""
+        # Verify project exists and belongs to user
+        result = await db.execute(
+            select(Project).where(
+                and_(
+                    Project.uuid == project_uuid,
+                    Project.created_by == user_uuid,
+                    Project.is_deleted.is_(False)
+                )
+            )
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+        # Map API item_type to database item_type
+        item_type_map = {
+            'documents': 'Document',
+            'notes': 'Note',
+            'todos': 'Todo'
+        }
+        
+        db_item_type = item_type_map.get(item_type)
+        if not db_item_type:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid item type")
+
+        # Update sort_order for each item
+        for index, item_uuid in enumerate(item_uuids):
+            await db.execute(
+                update(project_items).where(
+                    and_(
+                        project_items.c.project_uuid == project_uuid,
+                        project_items.c.item_uuid == item_uuid,
+                        project_items.c.item_type == db_item_type
+                    )
+                ).values(sort_order=index, updated_at=datetime.now(NEPAL_TZ))
+            )
+        
+        await db.commit()
+        
+        # Invalidate dashboard cache
+        dashboard_service.invalidate_user_cache(user_uuid, f"project_{item_type}_reordered")
+
+    async def link_items_to_project(
+        self, db: AsyncSession, user_uuid: str, project_uuid: str, item_type: str, item_uuids: List[str],
+        is_exclusive: bool = False
+    ):
+        """Link existing items to a project using polymorphic project_items."""
+        # Verify project exists and belongs to user
+        result = await db.execute(
+            select(Project).where(
+                and_(
+                    Project.uuid == project_uuid,
+                    Project.created_by == user_uuid,
+                    Project.is_deleted.is_(False)
+                )
+            )
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+        # Map API item_type to database item_type
+        item_type_map = {
+            'documents': 'Document',
+            'notes': 'Note',
+            'todos': 'Todo'
+        }
+        
+        db_item_type = item_type_map.get(item_type)
+        if not db_item_type:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid item type")
+
+        # Model mapping for validation
+        model_map = {
+            'Document': Document,
+            'Note': Note,
+            'Todo': Todo
+        }
+        
+        model_class = model_map[db_item_type]
+
+        # Get current max sort_order for this project and item type
+        max_order_result = await db.execute(
+            select(func.max(project_items.c.sort_order)).where(
+                and_(
+                    project_items.c.project_uuid == project_uuid,
+                    project_items.c.item_type == db_item_type
+                )
+            )
+        )
+        max_order = max_order_result.scalar() or -1
+
+        # Link each item
+        for index, item_uuid in enumerate(item_uuids):
+            # Verify item exists and belongs to user
+            item_result = await db.execute(
+                select(model_class).where(
+                    and_(
+                        model_class.uuid == item_uuid,
+                        model_class.created_by == user_uuid,
+                        model_class.is_deleted.is_(False)
+                    )
+                )
+            )
+            if not item_result.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, 
+                    detail=f"{db_item_type} {item_uuid} not found"
+                )
+            
+            # Insert association
+            await db.execute(
+                project_items.insert().values(
+                    project_uuid=project_uuid,
+                    item_type=db_item_type,
+                    item_uuid=item_uuid,
+                    sort_order=max_order + index + 1,
+                    is_exclusive=is_exclusive,  # Use parameter instead of hardcoded False
+                    created_at=datetime.now(NEPAL_TZ),
+                    updated_at=datetime.now(NEPAL_TZ)
+                )
+            )
+        
+        await db.commit()
+        
+        # Invalidate dashboard cache
+        dashboard_service.invalidate_user_cache(user_uuid, f"project_{item_type}_linked")
+
+    async def unlink_item_from_project(
+        self, db: AsyncSession, user_uuid: str, project_uuid: str, item_type: str, item_uuid: str
+    ):
+        """Unlink an item from a project using polymorphic project_items."""
+        # Verify project exists and belongs to user
+        result = await db.execute(
+            select(Project).where(
+                and_(
+                    Project.uuid == project_uuid,
+                    Project.created_by == user_uuid,
+                    Project.is_deleted.is_(False)
+                )
+            )
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+        # Map API item_type to database item_type
+        item_type_map = {
+            'documents': 'Document',
+            'notes': 'Note',
+            'todos': 'Todo'
+        }
+        
+        db_item_type = item_type_map.get(item_type)
+        if not db_item_type:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid item type")
+
+        # Remove association
+        await db.execute(
+            delete(project_items).where(
+                and_(
+                    project_items.c.project_uuid == project_uuid,
+                    project_items.c.item_uuid == item_uuid,
+                    project_items.c.item_type == db_item_type
+                )
+            )
+        )
+        
+        await db.commit()
+        
+        # Invalidate dashboard cache
+        dashboard_service.invalidate_user_cache(user_uuid, f"project_{item_type}_unlinked")
+
+    async def reorder_sections(
+        self, db: AsyncSession, user_uuid: str, project_uuid: str, reorder_data: ProjectSectionReorderRequest
+    ):
+        """Reorder sections within a project."""
+        # Verify project exists and belongs to user
+        result = await db.execute(
+            select(Project).where(
+                and_(
+                    Project.uuid == project_uuid,
+                    Project.created_by == user_uuid,
+                    Project.is_deleted.is_(False)
+                )
+            )
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+        # Update section order
+        for index, section_type in enumerate(reorder_data.section_types):
+            # Check if section order exists
+            existing_result = await db.execute(
+                select(ProjectSectionOrder).where(
+                    and_(
+                        ProjectSectionOrder.project_uuid == project_uuid,
+                        ProjectSectionOrder.section_type == section_type
+                    )
+                )
+            )
+            existing = existing_result.scalar_one_or_none()
+            
+            if existing:
+                # Update existing
+                await db.execute(
+                    ProjectSectionOrder.__table__.update().where(
+                        and_(
+                            ProjectSectionOrder.project_uuid == project_uuid,
+                            ProjectSectionOrder.section_type == section_type
+                        )
+                    ).values(sort_order=index)
+                )
+            else:
+                # Insert new
+                await db.execute(
+                    ProjectSectionOrder.__table__.insert().values(
+                        project_uuid=project_uuid,
+                        section_type=section_type,
+                        sort_order=index
+                    )
+                )
+        
+        await db.commit()
+        
+        # Invalidate dashboard cache
+        dashboard_service.invalidate_user_cache(user_uuid, "project_sections_reordered")
+
+    # ===== POLYMORPHIC ASSOCIATION METHODS =====
+
+    async def handle_polymorphic_associations(
+        self,
+        db: AsyncSession,
+        item: Any,
         project_uuids: List[str],
         created_by: str,
-        association_table: Type,
-        item_uuid_field: str
-    ):
+        association_table: Any,
+        item_type: str,
+        is_exclusive: bool = False
+    ) -> None:
         """
-        Handle project associations for any content item.
+        Handle polymorphic project associations using project_items table.
         
         Args:
             db: Database session
             item: The content item (note, document, todo)
             project_uuids: List of project UUIDs to associate
             created_by: User UUID for ownership verification
-            association_table: The junction table (note_projects, document_projects, todo_projects)
-            item_uuid_field: The field name for the item UUID in the association table
+            association_table: The project_items table
+            item_type: The type of item ('Note', 'Document', 'Todo')
+            is_exclusive: Whether the association is exclusive
         """
         if not project_uuids:
             # Clear all associations if no projects provided
             await db.execute(
                 delete(association_table).where(
-                    getattr(association_table.c, item_uuid_field) == item.uuid
+                    and_(
+                        association_table.c.item_type == item_type,
+                        association_table.c.item_uuid == item.uuid
+                    )
                 )
             )
             return
@@ -78,14 +625,17 @@ class ProjectService:
         invalid_uuids = set(project_uuids) - owned_project_uuids
         if invalid_uuids:
             raise HTTPException(
-                status_code=400,
-                detail=f"Invalid or inaccessible project UUIDs: {list(invalid_uuids)}"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid project UUIDs: {list(invalid_uuids)}"
             )
 
         # Clear existing associations
         await db.execute(
             delete(association_table).where(
-                getattr(association_table.c, item_uuid_field) == item.uuid
+                and_(
+                    association_table.c.item_type == item_type,
+                    association_table.c.item_uuid == item.uuid
+                )
             )
         )
 
@@ -93,498 +643,147 @@ class ProjectService:
         for project_uuid in project_uuids:
             await db.execute(
                 association_table.insert().values(
-                    **{item_uuid_field: item.uuid, "project_uuid": project_uuid}
+                    project_uuid=project_uuid,
+                    item_type=item_type,
+                    item_uuid=item.uuid,
+                    is_exclusive=is_exclusive,
+                    sort_order=0,  # Default sort order
+                    created_at=datetime.now(NEPAL_TZ),
+                    updated_at=datetime.now(NEPAL_TZ)
                 )
             )
 
-    async def build_badges(
-        self,
-        db: AsyncSession,
-        item_uuid: str,
-        is_project_exclusive: bool,
-        association_table: Type,
-        item_uuid_field: str
-    ) -> List[ProjectBadge]:
-        """
-        Build project badges for any content item.
+    # REMOVED: build_badges method - legacy method no longer used
+    # All badge loading now uses shared_utilities_service.batch_get_project_badges_polymorphic()
+
+    async def get_project_counts(self, db: AsyncSession, project_uuid: str, user_uuid: str) -> Tuple[int, int]:
+        """Get todo count and completed count for a project."""
+        from app.services.dashboard_stats_service import dashboard_stats_service
+        return await dashboard_stats_service.get_project_todo_counts(db, project_uuid, user_uuid)
+
+    async def _batch_get_project_counts(self, db: AsyncSession, project_uuids: List[str], user_uuid: str) -> Dict[str, Tuple[int, int]]:
+        """Batch load todo counts for multiple projects to avoid N+1 queries."""
+        if not project_uuids:
+            return {}
         
-        Args:
-            db: Database session
-            item_uuid: The content item UUID
-            is_project_exclusive: Whether the item is in project exclusive mode
-            association_table: The junction table (note_projects, document_projects, todo_projects)
-            item_uuid_field: The field name for the item UUID in the association table
-            
-        Returns:
-            List of ProjectBadge objects
-        """
-        # Query junction table for this item
+        # Single query to get all todo counts for all projects with proper filters and ownership validation
         result = await db.execute(
             select(
-                association_table.c.project_uuid,
-                association_table.c.project_name_snapshot
-            ).where(
-                getattr(association_table.c, item_uuid_field) == item_uuid
+                project_items.c.project_uuid,
+                func.count(project_items.c.item_uuid).label('total_count'),
+                func.sum(case((Todo.status == TodoStatus.DONE, 1), else_=0)).label('completed_count')
             )
-        )
-        associations = result.fetchall()
-
-        if not associations:
-            return []
-
-        badges = []
-        project_uuids = [assoc[0] for assoc in associations if assoc[0] is not None]
-
-        # Fetch live project details for non-snapshot associations
-        if project_uuids:
-            projects_result = await db.execute(
-                select(Project).where(Project.uuid.in_(project_uuids))
-            )
-            live_projects = {p.uuid: p for p in projects_result.scalars().all()}
-        else:
-            live_projects = {}
-
-        # Build badges from live projects and snapshots
-        for project_uuid, project_name_snapshot in associations:
-            if project_uuid and project_uuid in live_projects:
-                # Live project
-                project = live_projects[project_uuid]
-                badge = ProjectBadge(
-                    uuid=project.uuid,
-                    name=project.name,
-                    # color removed - project color field deleted
-                    is_deleted=False,
-                    is_project_exclusive=is_project_exclusive
-                )
-            elif project_name_snapshot:
-                # Deleted project snapshot
-                badge = ProjectBadge(
-                    uuid=None,  # deleted/snapshotted project
-                    name=project_name_snapshot,
-                    is_deleted=True,
-                    is_project_exclusive=is_project_exclusive
-                )
-            else:
-                # Skip invalid associations
-                continue
-
-            badges.append(badge)
-
-        return badges
-
-    async def get_project_counts(
-        self,
-        db: AsyncSession,
-        project_uuid: str
-    ) -> tuple[int, int]:
-        """
-        Get todo counts for a project (total and completed).
-        
-        Args:
-            db: Database session
-            project_uuid: The project UUID
-            
-        Returns:
-            Tuple of (total_count, completed_count)
-        """
-        from app.models.todo import Todo, TodoStatus
-        
-        # Get total count via junction table
-        total_result = await db.execute(
-            select(func.count(todo_projects.c.todo_uuid)).where(todo_projects.c.project_uuid == project_uuid)
-        )
-        total_count = total_result.scalar() or 0
-        
-        # Get completed count via junction table
-        completed_result = await db.execute(
-            select(func.count(todo_projects.c.todo_uuid))
-            .join(Todo, Todo.uuid == todo_projects.c.todo_uuid)
-            .where(and_(
-                todo_projects.c.project_uuid == project_uuid,
-                Todo.status == TodoStatus.DONE
-            ))
-        )
-        completed_count = completed_result.scalar() or 0
-        
-        return total_count, completed_count
-
-    async def create_project(
-        self,
-        db: AsyncSession,
-        name: str,
-        description: Optional[str],
-        color: str,
-        created_by: str
-    ) -> Project:
-        """
-        Create a new project.
-        
-        Args:
-            db: Database session
-            name: Project name
-            description: Project description
-            color: Project color
-            created_by: User UUID
-            
-        Returns:
-            Created Project object
-        """
-        project = Project(
-            name=name,
-            description=description,
-            color=color,
-            created_by=created_by
-        )
-        db.add(project)
-        await db.flush()
-        return project
-
-    async def delete_project(
-        self,
-        db: AsyncSession,
-        project_uuid: str,
-        created_by: str
-    ):
-        """
-        Delete a project with proper cleanup.
-        
-        Args:
-            db: Database session
-            project_uuid: Project UUID to delete
-            created_by: User UUID for ownership verification
-        """
-        # Verify ownership
-        project_result = await db.execute(
-            select(Project).where(
-                and_(
-                    Project.uuid == project_uuid,
-                    Project.created_by == created_by
-                )
-            )
-        )
-        project = project_result.scalar_one_or_none()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-
-        # Step 1: Get exclusive items BEFORE nulling project_uuid
-        # This preserves the project name for linked (non-exclusive) items
-        # Get exclusive notes linked to this project
-        exclusive_notes_result = await db.execute(
-            select(Note)
-            .options(selectinload(Note.files))
-            .join(note_projects, Note.uuid == note_projects.c.note_uuid)
+            .join(Todo, project_items.c.item_uuid == Todo.uuid)
+            .join(Project, project_items.c.project_uuid == Project.uuid)
             .where(
                 and_(
-                    note_projects.c.project_uuid == project.uuid,
-                    Note.is_project_exclusive.is_(True)
+                    project_items.c.project_uuid.in_(project_uuids),
+                    project_items.c.item_type == 'Todo',
+                    Project.created_by == user_uuid,  # Ownership validation
+                    Todo.is_deleted.is_(False),
+                    Todo.is_archived.is_(False)
                 )
             )
+            .group_by(project_items.c.project_uuid)
         )
-        exclusive_notes = exclusive_notes_result.scalars().all()
-        for note in exclusive_notes:
-            if note.files:
-                base_dir = get_file_storage_dir().resolve()
-                for note_file in note.files:
-                    try:
-                        resolved_path = self._resolve_path(note_file.file_path).resolve()
-                        # Security Check: Prevent path traversal
-                        if str(resolved_path).startswith(str(base_dir)):
-                            if resolved_path.exists():
-                                resolved_path.unlink()
-                        else:
-                            logger.warning(f"Skipping deletion of note file due to potential path traversal: {note_file.file_path}")
-                    except Exception as e:
-                        logger.warning(f"Failed to delete file for note {note.uuid}: {str(e)}")
-            await search_service.remove_item(db, note.uuid)
-            await tag_service.decrement_tags_on_delete(db, note)
-            await db.delete(note)
         
-        # Get exclusive documents linked to this project
-        exclusive_docs_result = await db.execute(
-            select(Document)
-            .join(document_projects, Document.uuid == document_projects.c.document_uuid)
-            .where(
-                and_(
-                    document_projects.c.project_uuid == project.uuid,
-                    Document.is_project_exclusive.is_(True)
-                )
-            )
-        )
-        exclusive_docs = exclusive_docs_result.scalars().all()
-        for doc in exclusive_docs:
-            if doc.file_path:
-                base_dir = get_file_storage_dir().resolve()
-                try:
-                    resolved_path = self._resolve_path(doc.file_path).resolve()
-                    # Security Check: Prevent path traversal
-                    if str(resolved_path).startswith(str(base_dir)):
-                        if resolved_path.exists():
-                            resolved_path.unlink()
-                    else:
-                        logger.warning(f"Skipping deletion of document file due to potential path traversal: {doc.file_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to delete file for document {doc.uuid}: {str(e)}")
-            await search_service.remove_item(db, doc.uuid)
-            await tag_service.decrement_tags_on_delete(db, doc)
-            await db.delete(doc)
+        counts = {}
+        for row in result.all():
+            project_uuid = row.project_uuid
+            total_count = row.total_count or 0
+            completed_count = row.completed_count or 0
+            counts[project_uuid] = (total_count, completed_count)
         
-        # Get exclusive todos linked to this project
-        exclusive_todos_result = await db.execute(
-            select(Todo)
-            .join(todo_projects, Todo.uuid == todo_projects.c.todo_uuid)
-            .where(
-                and_(
-                    todo_projects.c.project_uuid == project.uuid,
-                    Todo.is_project_exclusive.is_(True)
-                )
-            )
-        )
-        exclusive_todos = exclusive_todos_result.scalars().all()
-        for todo in exclusive_todos:
-            await search_service.remove_item(db, todo.uuid)
-            await tag_service.decrement_tags_on_delete(db, todo)
-            await db.delete(todo)
+        # Fill in zeros for projects with no todos
+        for project_uuid in project_uuids:
+            if project_uuid not in counts:
+                counts[project_uuid] = (0, 0)
         
-        # Step 2: Snapshot project name in all junction records AFTER deleting exclusives
-        # This preserves the project name for linked (non-exclusive) items
-        for table in [note_projects, document_projects, todo_projects]:
-            await db.execute(
-                table.update()
-                .where(table.c.project_uuid == project_uuid)
-                .values(
-                    project_uuid=None,
-                    project_name_snapshot=project.name
-                )
-            )
-        
-        # Remove from search index BEFORE deleting project
-        await search_service.remove_item(db, project_uuid)
-        
-        # Step 3: Soft delete the project by setting the is_deleted flag.
-        # The project's status remains unchanged, preserving its state for historical reference.
-        project.is_deleted = True
-        db.add(project)
-        await db.commit()
+        return counts
 
-    def _resolve_path(self, p: str) -> Path:
-        """Resolve DB-stored file path to an absolute path under data_dir when appropriate."""
-        path = Path(p)
-        if path.is_absolute():
-            return path
-        # allow leading "/" as virtual root under data_dir
-        return (get_data_dir() / p.lstrip("/")).resolve()
+    # ===== RESPONSE CONVERSION METHODS =====
 
-    async def reorder_documents(
-        self,
-        db: AsyncSession,
-        project_uuid: str,
-        user_uuid: str,
-        document_uuids: List[str],
-        if_unmodified_since: Optional[str] = None
-    ):
-        """Reorder documents within a project (atomic)."""
-        # Verify project ownership
-        project_result = await db.execute(
-            select(Project).where(
-                and_(
-                    Project.uuid == project_uuid,
-                    Project.created_by == user_uuid
-                )
-            )
-        )
-        project = project_result.scalar_one_or_none()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-
-        # Optional optimistic locking
-        if if_unmodified_since:
-            from datetime import datetime
-            try:
-                since = datetime.fromisoformat(if_unmodified_since.replace('Z', '+00:00'))
-                if project.updated_at <= since:
-                    raise HTTPException(status_code=412, detail="Project was modified")
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid if_unmodified_since format")
-
-        # Verify all documents exist and are linked to this project
-        existing_result = await db.execute(
-            select(document_projects.c.document_uuid)
-            .where(document_projects.c.project_uuid == project_uuid)
-        )
-        existing_uuids = {row[0] for row in existing_result.fetchall()}
-
-        if set(document_uuids) != existing_uuids:
-            raise HTTPException(
-                status_code=400,
-                detail="Document list must match existing project documents exactly"
-            )
-
-        # Atomic reorder: update sort_order for all documents
-        for idx, doc_uuid in enumerate(document_uuids):
-            await db.execute(
-                update(document_projects)
-                .where(
-                    and_(
-                        document_projects.c.project_uuid == project_uuid,
-                        document_projects.c.document_uuid == doc_uuid
-                    )
-                )
-                .values(sort_order=idx)
-            )
-
-        # Update project timestamp
-        project.updated_at = func.now()
-        await db.commit()
-
-    async def link_documents(
-        self,
-        db: AsyncSession,
-        project_uuid: str,
-        user_uuid: str,
-        document_uuids: List[str]
-    ):
-        """Link existing documents to a project (append at end)."""
-        # Verify project ownership
-        project_result = await db.execute(
-            select(Project).where(
-                and_(
-                    Project.uuid == project_uuid,
-                    Project.created_by == user_uuid
-                )
-            )
-        )
-        project = project_result.scalar_one_or_none()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-
-        # Verify documents exist and user owns them
-        docs_result = await db.execute(
-            select(Document).where(
-                and_(
-                    Document.uuid.in_(document_uuids),
-                    Document.created_by == user_uuid,
-                    Document.is_deleted.is_(False)
-                )
-            )
-        )
-        owned_docs = {doc.uuid for doc in docs_result.scalars().all()}
-        invalid_uuids = set(document_uuids) - owned_docs
-        if invalid_uuids:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid or inaccessible document UUIDs: {list(invalid_uuids)}"
-            )
-
-        # Get current max sort_order
-        max_order_result = await db.execute(
-            select(func.max(document_projects.c.sort_order))
-            .where(document_projects.c.project_uuid == project_uuid)
-        )
-        max_order = max_order_result.scalar() or -1
-
-        # Link documents (skip if already linked)
-        for idx, doc_uuid in enumerate(document_uuids):
-            # Check if already linked
-            existing_result = await db.execute(
-                select(document_projects.c.id)
-                .where(
-                    and_(
-                        document_projects.c.project_uuid == project_uuid,
-                        document_projects.c.document_uuid == doc_uuid
-                    )
-                )
-            )
-            if existing_result.scalar_one_or_none():
-                continue  # Skip already linked
-
-            await db.execute(
-                document_projects.insert().values(
-                    project_uuid=project_uuid,
-                    document_uuid=doc_uuid,
-                    sort_order=max_order + 1 + idx
-                )
-            )
-
-        await db.commit()
-
-    async def unlink_document(
-        self,
-        db: AsyncSession,
-        project_uuid: str,
-        user_uuid: str,
-        document_uuid: str
-    ):
-        """Unlink a document from a project."""
-        # Verify project ownership
-        project_result = await db.execute(
-            select(Project).where(
-                and_(
-                    Project.uuid == project_uuid,
-                    Project.created_by == user_uuid
-                )
-            )
-        )
-        project = project_result.scalar_one_or_none()
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-
-        # Remove association
-        result = await db.execute(
-            delete(document_projects).where(
-                and_(
-                    document_projects.c.project_uuid == project_uuid,
-                    document_projects.c.document_uuid == document_uuid
-                )
-            )
+    def _convert_project_to_response(
+        self, project: Project, todo_count: int = 0, completed_count: int = 0
+    ) -> ProjectResponse:
+        """Convert Project model to ProjectResponse with todo counts."""
+        return ProjectResponse(
+            uuid=project.uuid,
+            name=project.name,
+            description=project.description,
+            sort_order=project.sort_order,
+            status=project.status,
+            priority=project.priority,
+            is_archived=project.is_archived,
+            is_favorite=project.is_favorite,
+            is_deleted=project.is_deleted,
+            progress_percentage=project.progress_percentage,
+            start_date=project.start_date,
+            due_date=project.due_date,
+            completion_date=project.completion_date,
+            created_by=project.created_by,
+            created_at=project.created_at,
+            updated_at=project.updated_at,
+            todo_count=todo_count,
+            completed_count=completed_count,
+            document_count=0,  # Will be calculated via project_items
+            note_count=0,  # Will be calculated via project_items
+            tag_count=len(project.tag_objs) if project.tag_objs else 0,
+            actual_progress=0,  # Will be calculated
+            days_remaining=None,  # Will be calculated
+            tags=[t.name for t in project.tag_objs] if project.tag_objs else []
         )
 
-        if result.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Document not linked to project")
+    def _convert_doc_to_response(
+        self, doc: Document, project_badges: Optional[List[ProjectBadge]] = None
+    ) -> Dict[str, Any]:
+        """Convert Document model to response format."""
+        return {
+            "uuid": doc.uuid,
+            "title": doc.title,
+            "description": doc.description,
+            "filename": doc.filename,
+            "mime_type": doc.mime_type,
+            "file_size": doc.file_size,
+            "is_archived": doc.is_archived,
+            "is_favorite": doc.is_favorite,
+            "created_at": doc.created_at,
+            "updated_at": doc.updated_at,
+            "projects": project_badges or []
+        }
 
-        await db.commit()
+    def _convert_note_to_response(
+        self, note: Note, project_badges: Optional[List[ProjectBadge]] = None
+    ) -> Dict[str, Any]:
+        """Convert Note model to response format."""
+        return {
+            "uuid": note.uuid,
+            "title": note.title,
+            "content": note.content,
+            "is_archived": note.is_archived,
+            "is_favorite": note.is_favorite,
+            "created_at": note.created_at,
+            "updated_at": note.updated_at,
+            "projects": project_badges or []
+        }
 
-    # Preflight methods removed - use unified LinkCountService instead
-    # See: app/services/link_count_service.py
-
-    async def reorder_sections(
-        self,
-        db: AsyncSession,
-        project_uuid: str,
-        user_uuid: str,
-        section_types: List[str]
-    ):
-        """Reorder sections within a project (atomic)."""
-        # Verify project exists and user owns it
-        project = await db.get(Project, project_uuid)
-        if not project or project.created_by != user_uuid:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-
-        # Validate section types
-        valid_types = {'documents', 'notes', 'todos'}
-        if not all(section in valid_types for section in section_types):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid section type. Must be one of: {valid_types}")
-        
-        if len(section_types) != len(set(section_types)):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Section types must be unique")
-
-        # Delete existing section order
-        from app.models.project import ProjectSectionOrder
-        delete_query = delete(ProjectSectionOrder).where(
-            ProjectSectionOrder.project_uuid == project_uuid
-        )
-        await db.execute(delete_query)
-
-        # Insert new section order
-        for sort_order, section_type in enumerate(section_types):
-            new_section_order = ProjectSectionOrder(
-                project_uuid=project_uuid,
-                section_type=section_type,
-                sort_order=sort_order
-            )
-            db.add(new_section_order)
-
-        await db.commit()
+    def _convert_todo_to_response(
+        self, todo: Todo, project_badges: Optional[List[ProjectBadge]] = None
+    ) -> Dict[str, Any]:
+        """Convert Todo model to response format."""
+        return {
+            "uuid": todo.uuid,
+            "title": todo.title,
+            "description": todo.description,
+            "status": todo.status,
+            "priority": todo.priority,
+            "is_archived": todo.is_archived,
+            "is_favorite": todo.is_favorite,
+            "created_at": todo.created_at,
+            "updated_at": todo.updated_at,
+            "projects": project_badges or []
+        }
 
 
-# Create singleton instance
+# Global instance
 project_service = ProjectService()

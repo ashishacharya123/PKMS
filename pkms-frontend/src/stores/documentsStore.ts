@@ -7,6 +7,7 @@ import {
   type SearchResult,
   type DocumentsListParams 
 } from '../services/documentsService';
+import { documentsCacheAware } from '../services/cacheAwareService';
 
 interface DocumentsState {
   // Data
@@ -103,23 +104,8 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     set({ isLoading: true, error: null, offset: 0 });
     
     try {
-      const params: DocumentsListParams = {
-        mime_type: state.currentMimeType || undefined,
-        tag: state.currentTag || undefined,
-        search: state.searchQuery || undefined,
-        archived: state.showArchived,
-        is_favorite: state.showFavoritesOnly || undefined,
-        project_uuid: state.currentProjectId || undefined,
-        // Fixed: Don't send conflicting filters
-        // - If showProjectOnly is true: send project_only=true (show only docs WITH projects)
-        // - If showProjectOnly is false: send nothing (show ALL docs, both with and without projects)
-        project_only: state.showProjectOnly || undefined,
-        // REMOVED: unassigned_only - was backwards logic causing uploaded docs to be hidden
-        limit: state.limit,
-        offset: 0
-      };
-      
-      const documents = await documentsService.listDocuments(params);
+      // 🎯 AUTOMATIC: Cache checking, API calls, and revalidation handled automatically
+      const documents = await documentsCacheAware.getDocuments();
       
       set({ 
         documents, 
@@ -209,7 +195,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         isExclusiveMode: (document as any).isExclusiveMode ?? false,
         is_favorite: document.is_favorite ?? false,
         is_archived: document.is_archived,
-        // upload_status: document.upload_status || 'completed',  // Removed - backend no longer tracks
+        // upload_status field removed - backend no longer tracks upload status
         created_at: document.created_at,
         updated_at: document.updated_at,
         tags: document.tags,
@@ -239,18 +225,15 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       });
       
       // If document was uploaded but doesn't match filters, user might be confused
-      // Log for debugging
+      // Debug: Uploaded document does not match current filters
       if (!shouldAdd) {
-        console.log('[Documents Store] Uploaded document does not match current filters:', {
-          document: document.original_name,
-          filters: {
-            mimeType: state.currentMimeType,
-            tag: state.currentTag,
-            search: state.searchQuery,
-            showArchived: state.showArchived,
-            showFavoritesOnly: state.showFavoritesOnly,
-            showProjectOnly: state.showProjectOnly
-          }
+        console.log('Document filtered out based on current view settings:', {
+          mimeType: state.currentMimeType,
+          tag: state.currentTag,
+          search: state.searchQuery,
+          showArchived: state.showArchived,
+          showFavoritesOnly: state.showFavoritesOnly,
+          showProjectOnly: state.showProjectOnly
         });
       }
       
@@ -288,7 +271,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         description: updatedDocument.description,
         is_favorite: updatedDocument.is_favorite,
         is_archived: updatedDocument.is_archived,
-        // upload_status: updatedDocument.upload_status,  // Removed - backend no longer tracks
+        // upload_status field removed - backend no longer tracks upload status
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
         tags: updatedDocument.tags,
@@ -356,7 +339,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         description: updatedDocument.description,
         is_favorite: updatedDocument.is_favorite,
         is_archived: updatedDocument.is_archived,
-        // upload_status: updatedDocument.upload_status,  // Removed - backend no longer tracks
+        // upload_status field removed - backend no longer tracks upload status
         created_at: updatedDocument.created_at,
         updated_at: updatedDocument.updated_at,
         tags: updatedDocument.tags,

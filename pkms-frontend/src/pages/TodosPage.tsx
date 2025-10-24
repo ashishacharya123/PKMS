@@ -12,8 +12,6 @@ import {
   TextInput,
   TagsInput,
   Badge,
-  ActionIcon,
-  Menu,
   Skeleton,
   Alert,
   Pagination,
@@ -42,9 +40,6 @@ import {
   IconSortAscending,
   IconSortDescending,
   IconCheck,
-  IconEdit,
-  IconTrash,
-  IconDots,
   IconChecklist,
   IconCalendar,
   IconAlertTriangle,
@@ -62,10 +57,14 @@ import { notifications } from '@mantine/notifications';
 import { searchService } from '../services/searchService';
 import { useTodosStore } from '../stores/todosStore';
 import { documentsService } from '../services/documentsService';
+import { UnifiedSearchEmbedded } from '../components/search/UnifiedSearchEmbedded';
 import { KanbanBoard } from '../components/todos/KanbanBoard';
+import { ActionMenu } from '../components/common/ActionMenu';
+import { DateRangePicker } from '../components/common/DateRangePicker';
 import { CalendarView } from '../components/todos/CalendarView';
 import { TimelineView } from '../components/todos/TimelineView';
 import { todosService, TodoSummary } from '../services/todosService';
+import { Todo } from '../types/todo';
 
 type SortField = 'title' | 'created_at' | 'due_date' | 'priority';
 type SortOrder = 'asc' | 'desc';
@@ -122,7 +121,7 @@ export function TodosPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   
   // Local state
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery] = useState('');
   const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -132,7 +131,7 @@ export function TodosPage() {
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectUploadModalOpen, setProjectUploadModalOpen] = useState(false);
-  const [editingTodo, setEditingTodo] = useState<any>(null);
+  const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const itemsPerPage = 20;
 
   // Form state
@@ -327,6 +326,17 @@ export function TodosPage() {
   };
 
   const handleCreateTodo = async () => {
+    // Context-aware warning: If creating exclusive todo from main list, warn user
+    if (todoForm.isExclusive && todoForm.projectIds.length > 0) {
+      const confirmed = window.confirm(
+        `⚠️ Warning: Making this todo exclusive to project(s) will hide it from the main todo list.\n\n` +
+        `It will only be visible within the project dashboard(s). Continue?`
+      );
+      if (!confirmed) {
+        return; // User cancelled
+      }
+    }
+
     const success = await createTodo({
       ...todoForm,
       due_date: todoForm.due_date || undefined,
@@ -522,8 +532,8 @@ export function TodosPage() {
                 project_id: (todo as any).project_id || null,
                 projectIds: (todo as any).projects?.map((p: any) => p.uuid) || [],
                 isExclusive: (todo as any).isExclusiveMode ?? (todo as any).is_exclusive_mode ?? false,
-                start_date: todo.start_date || '',
-                due_date: todo.due_date || '',
+                start_date: todo.startDate || '',
+                due_date: todo.dueDate || '',
                 priority: todo.priority,
                 tags: todo.tags || []
               });
@@ -552,8 +562,8 @@ export function TodosPage() {
                 project_id: (todo as any).project_id || null,
                 projectIds: (todo as any).projects?.map((p: any) => p.uuid) || [],
                 isExclusive: (todo as any).isExclusiveMode ?? (todo as any).is_exclusive_mode ?? false,
-                start_date: todo.start_date || '',
-                due_date: todo.due_date || '',
+                start_date: todo.startDate || '',
+                due_date: todo.dueDate || '',
                 priority: todo.priority,
                 tags: todo.tags || []
               });
@@ -591,8 +601,8 @@ export function TodosPage() {
                 project_id: todo.project_id,
                 projectIds: todo.projects?.map((p: any) => p.uuid) || [],
                 isExclusive: todo.isExclusiveMode ?? todo.is_exclusive_mode ?? false,
-                start_date: todo.start_date || '',
-                due_date: todo.due_date || '',
+                start_date: todo.startDate || '',
+                due_date: todo.dueDate || '',
                 priority: todo.priority,
                 tags: todo.tags || []
               });
@@ -621,13 +631,13 @@ export function TodosPage() {
                   <Badge size="xs" variant="light" color={getStatusColor(todo.status)}>
                     {String(todo.status).replace('_', ' ')}
                   </Badge>
-                  {todo.due_date && (
+                  {todo.dueDate && (
                     <Badge 
                       size="xs" 
                       variant="light" 
-                      color={isOverdue(todo.due_date) ? 'red' : 'blue'}
+                      color={isOverdue(todo.dueDate) ? 'red' : 'blue'}
                     >
-                      {isOverdue(todo.due_date) ? 'Overdue' : 'Due'}
+                      {isOverdue(todo.dueDate) ? 'Overdue' : 'Due'}
                     </Badge>
                   )}
                 </Group>
@@ -669,7 +679,7 @@ export function TodosPage() {
                             projectIds: [],
                             isExclusive: false,
                             start_date: '',
-                            due_date: todo.due_date || '',
+                            due_date: todo.dueDate || '',
                             priority: todo.priority,
                             tags: todo.tags || []
                           });
@@ -691,13 +701,13 @@ export function TodosPage() {
                           {String(todo.status).replace('_', ' ')}
                         </Badge>
                       )}
-                      {todo.due_date && (
+                      {todo.dueDate && (
                         <Badge 
                           size="xs" 
                           variant="light" 
-                          color={isOverdue(todo.due_date) ? 'red' : 'blue'}
+                          color={isOverdue(todo.dueDate) ? 'red' : 'blue'}
                         >
-                          {isOverdue(todo.due_date) ? 'Overdue' : 'Due'}: {formatDueDate(todo.due_date)}
+                          {isOverdue(todo.dueDate) ? 'Overdue' : 'Due'}: {formatDueDate(todo.due_date)}
                         </Badge>
                       )}
                       {todo.completed_at && (
@@ -720,76 +730,42 @@ export function TodosPage() {
                     </Group>
                   </Stack>
                 </Group>
-                <Menu shadow="md" width={200}>
-                  <Menu.Target>
-                    <ActionIcon variant="subtle" color="gray" onClick={(e) => e.stopPropagation()}>
-                      <IconDots size={16} />
-                    </ActionIcon>
-                  </Menu.Target>
-                  <Menu.Dropdown>
-                    <Menu.Item 
-                      leftSection={<IconEdit size={14} />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingTodo(todo);
-                         setTodoForm({
-                           title: todo.title,
-                           description: '',
-                           project_id: todo.project_id,
-                           projectIds: [],
-                           isExclusive: false,
-                           start_date: '',
-                           due_date: todo.due_date || '',
-                           priority: todo.priority,
-                           tags: todo.tags || []
-                         });
-                        setTodoModalOpen(true);
-                      }}
-                    >
-                      Edit
-                    </Menu.Item>
-                    <Menu.Item 
-                      leftSection={<IconPlus size={14} />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleAddSubtask(todo.uuid);
-                      }}
-                    >
-                      Add Subtask
-                    </Menu.Item>
-                    {todo.status !== 'done' && (
-                      <Menu.Item 
-                        leftSection={<IconCheck size={14} />}
-                    onClick={(e) => {
-                          e.stopPropagation();
-                        handleCompleteTodo(todo.uuid);
-                        }}
-                      >
-                        Complete
-                      </Menu.Item>
-                    )}
-                    <Menu.Divider />
-                    <Menu.Item 
-                      leftSection={todo.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        todo.is_archived ? unarchiveTodo(todo.uuid) : archiveTodo(todo.uuid);
-                      }}
-                    >
-                      {todo.is_archived ? 'Unarchive' : 'Archive'}
-                    </Menu.Item>
-                    <Menu.Item 
-                      leftSection={<IconTrash size={14} />}
-                      color="red"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteTodo(todo.uuid, todo.title);
-                      }}
-                    >
-                      Delete
-                    </Menu.Item>
-                  </Menu.Dropdown>
-                </Menu>
+                <ActionMenu
+                  onEdit={() => {
+                    setEditingTodo(todo);
+                    setTodoForm({
+                      title: todo.title,
+                      description: '',
+                      project_id: todo.project_id,
+                      projectIds: [],
+                      isExclusive: false,
+                      start_date: '',
+                      due_date: todo.dueDate || '',
+                      priority: todo.priority,
+                      tags: todo.tags || []
+                    });
+                    setTodoModalOpen(true);
+                  }}
+                  onArchive={todo.is_archived ? undefined : () => archiveTodo(todo.uuid)}
+                  onUnarchive={todo.is_archived ? () => unarchiveTodo(todo.uuid) : undefined}
+                  onDelete={() => handleDeleteTodo(todo.uuid, todo.title)}
+                  isArchived={todo.is_archived}
+                  variant="subtle"
+                  color="gray"
+                  size={16}
+                  customActions={[
+                    {
+                      label: 'Add Subtask',
+                      icon: <IconPlus size={14} />,
+                      onClick: () => handleAddSubtask(todo.uuid)
+                    },
+                    ...(todo.status !== 'done' ? [{
+                      label: 'Complete',
+                      icon: <IconCheck size={14} />,
+                      onClick: () => handleCompleteTodo(todo.uuid)
+                    }] : [])
+                  ]}
+                />
               </Group>
               
               {/* Subtask List */}
@@ -829,7 +805,7 @@ export function TodosPage() {
                        projectIds: todo.projects?.map((p: any) => p.uuid) || [],
                        isExclusive: todo.isExclusiveMode ?? todo.is_exclusive_mode ?? false,
                        start_date: '',
-                       due_date: todo.due_date || '',
+                       due_date: todo.dueDate || '',
                        priority: todo.priority,
                        tags: todo.tags || []
                      });
@@ -850,13 +826,13 @@ export function TodosPage() {
                 </Badge>
               </Group>,
               <Text key="duedate" size="xs" c="dimmed">
-                {todo.due_date ? (
+                {todo.dueDate ? (
                   <Badge 
                     size="xs" 
                     variant="light" 
-                    color={isOverdue(todo.due_date) ? 'red' : 'blue'}
+                    color={isOverdue(todo.dueDate) ? 'red' : 'blue'}
                   >
-                    {formatDueDate(todo.due_date)}
+                          {formatDueDate(todo.dueDate)}
                   </Badge>
                 ) : (
                   'No due date'
@@ -883,69 +859,40 @@ export function TodosPage() {
                 )}
               </Group>,
               <Text key="created" size="xs" c="dimmed">
-                {formatDate(todo.created_at)}
+                {formatDate(todo.createdAt)}
               </Text>,
-              <Menu key="actions" shadow="md" width={200}>
-                <Menu.Target>
-                  <ActionIcon variant="subtle" color="gray" size="sm" onClick={(e) => e.stopPropagation()}>
-                    <IconDots size={14} />
-                  </ActionIcon>
-                </Menu.Target>
-                <Menu.Dropdown>
-                  <Menu.Item 
-                    leftSection={<IconEdit size={14} />}
-                      onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingTodo(todo);
-                      setTodoForm({
-                        title: todo.title,
-                        description: '',
-                        project_id: todo.project_id,
-                        projectIds: todo.projects?.map((p: any) => p.uuid) || [],
-                        isExclusive: todo.isExclusiveMode ?? todo.is_exclusive_mode ?? false,
-                        start_date: '',
-                        due_date: todo.due_date || '',
-                        priority: todo.priority,
-                        tags: todo.tags || []
-                      });
-                      setTodoModalOpen(true);
-                    }}
-                  >
-                    Edit
-                  </Menu.Item>
-                  {todo.status !== 'done' && (
-                    <Menu.Item 
-                      leftSection={<IconCheck size={14} />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleCompleteTodo((todo as any).uuid);
-                      }}
-                    >
-                      Complete
-                    </Menu.Item>
-                  )}
-                  <Menu.Divider />
-                  <Menu.Item 
-                    leftSection={todo.is_archived ? <IconArchiveOff size={14} /> : <IconArchive size={14} />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                        (todo as any).is_archived ? unarchiveTodo((todo as any).uuid) : archiveTodo((todo as any).uuid);
-                    }}
-                  >
-                    {todo.is_archived ? 'Unarchive' : 'Archive'}
-                  </Menu.Item>
-                  <Menu.Item 
-                    leftSection={<IconTrash size={14} />}
-                    color="red"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                        handleDeleteTodo((todo as any).uuid, todo.title);
-                    }}
-                  >
-                    Delete
-                  </Menu.Item>
-                </Menu.Dropdown>
-              </Menu>
+              <ActionMenu
+                key="actions"
+                onEdit={() => {
+                  setEditingTodo(todo);
+                  setTodoForm({
+                    title: todo.title,
+                    description: '',
+                    project_id: todo.project_id,
+                    projectIds: todo.projects?.map((p: any) => p.uuid) || [],
+                    isExclusive: todo.isExclusiveMode ?? todo.is_exclusive_mode ?? false,
+                    start_date: '',
+                    due_date: todo.dueDate || '',
+                    priority: todo.priority,
+                    tags: todo.tags || []
+                  });
+                  setTodoModalOpen(true);
+                }}
+                onArchive={todo.is_archived ? undefined : () => archiveTodo((todo as any).uuid)}
+                onUnarchive={todo.is_archived ? () => unarchiveTodo((todo as any).uuid) : undefined}
+                onDelete={() => handleDeleteTodo((todo as any).uuid, todo.title)}
+                isArchived={todo.is_archived}
+                variant="subtle"
+                color="gray"
+                size={14}
+                customActions={[
+                  ...(todo.status !== 'done' ? [{
+                    label: 'Complete',
+                    icon: <IconCheck size={14} />,
+                    onClick: () => handleCompleteTodo((todo as any).uuid)
+                  }] : [])
+                ]}
+              />
             ]}
             detailHeaders={[
               'Task', 
@@ -1096,12 +1043,24 @@ export function TodosPage() {
               </Button>
             </Stack>
 
-            {/* Search */}
-            <TextInput
-              placeholder="Search todos..."
-              leftSection={<IconSearch size={16} />}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.currentTarget.value)}
+            {/* Unified Search */}
+            <UnifiedSearchEmbedded
+              initialQuery={searchQuery}
+              defaultModules={['todos']}
+              includeDiary={false}
+              showModuleSelector={false}
+              showSearchTypeToggle={false}
+              onResultClick={(result) => {
+                // Navigate to todo or show in modal
+                notifications.show({
+                  title: 'Todo Found',
+                  message: `Found todo: ${result.title}`,
+                  color: 'blue'
+                });
+              }}
+              emptyMessage="No todos found. Try different search terms."
+              resultsPerPage={10}
+              showPagination={false}
             />
 
             {/* Status Filter */}
@@ -1420,11 +1379,14 @@ export function TodosPage() {
             />
           </Group>
           
-          <TextInput
-            label="Due Date"
-            type="date"
-            value={todoForm.due_date}
-            onChange={(e) => setTodoForm({ ...todoForm, due_date: e.currentTarget.value })}
+          <DateRangePicker
+            startDate={todoForm.start_date ? new Date(todoForm.start_date) : null}
+            dueDate={todoForm.due_date ? new Date(todoForm.due_date) : null}
+            onStartDateChange={(date) => setTodoForm({ ...todoForm, start_date: date ? date.toISOString().split('T')[0] : '' })}
+            onDueDateChange={(date) => setTodoForm({ ...todoForm, due_date: date ? date.toISOString().split('T')[0] : '' })}
+            showStartDate={true}
+            showDueDate={true}
+            showCompletionDate={false}
           />
           
           <TagsInput

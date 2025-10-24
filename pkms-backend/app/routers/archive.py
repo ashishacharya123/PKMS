@@ -27,6 +27,7 @@ from app.schemas.archive import (
 from app.services.archive_folder_service import archive_folder_service
 from app.services.archive_item_service import archive_item_service
 from app.services.chunk_service import chunk_manager
+from app.services.file_validation import file_validation_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -41,11 +42,14 @@ async def create_folder(
 ):
     """Create a new folder"""
     try:
-        return await archive_folder_service.create_folder(db, current_user.uuid, folder_data)
+        result = await archive_folder_service.create_folder(db, current_user.uuid, folder_data)
+        await db.commit()
+        return result
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error creating folder for user %s", current_user.uuid)
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create folder: {str(e)}"
@@ -57,7 +61,7 @@ async def list_folders(
     parent_uuid: Optional[str] = Query(None, description="Parent folder UUID"),
     search: Optional[str] = Query(None, description="Search term for folder names"),
     is_favorite: Optional[bool] = Query(None, description="Filter by favorite status"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of folders to return"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of folders to return"),
     offset: int = Query(0, ge=0, description="Number of folders to skip"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -81,13 +85,14 @@ async def list_folders(
 async def get_folder_tree(
     parent_uuid: Optional[str] = Query(None, description="Root folder UUID for tree"),
     max_depth: Optional[int] = Query(None, ge=1, le=10, description="Maximum tree depth"),
+    search: Optional[str] = Query(None, description="Search term for folder names"),  # NEW
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get folder tree structure with lazy loading support"""
     try:
         return await archive_folder_service.get_folder_tree(
-            db, current_user.uuid, parent_uuid, max_depth
+            db, current_user.uuid, parent_uuid, max_depth, search=search
         )
     except HTTPException:
         raise
@@ -146,13 +151,16 @@ async def update_folder(
 ):
     """Update folder"""
     try:
-        return await archive_folder_service.update_folder(
+        result = await archive_folder_service.update_folder(
             db, current_user.uuid, folder_uuid, update_data
         )
+        await db.commit()
+        return result
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error updating folder %s", folder_uuid)
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update folder: {str(e)}"
@@ -162,17 +170,20 @@ async def update_folder(
 @router.delete("/folders/{folder_uuid}")
 async def delete_folder(
     folder_uuid: str,
+    force: bool = Query(False, description="Force delete non-empty folder"),  # NEW
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete folder and all contents"""
     try:
-        await archive_folder_service.delete_folder(db, current_user.uuid, folder_uuid)
+        await archive_folder_service.delete_folder(db, current_user.uuid, folder_uuid, force=force)
+        await db.commit()
         return {"message": "Folder deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error deleting folder %s", folder_uuid)
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete folder: {str(e)}"
@@ -190,11 +201,13 @@ async def bulk_move_items(
         result = await archive_folder_service.bulk_move_items(
             db, current_user.uuid, move_request
         )
+        await db.commit()
         return result
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error bulk moving items for user %s", current_user.uuid)
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to move items: {str(e)}"
@@ -213,9 +226,15 @@ async def create_item_in_folder(
 ):
     """Create items in folder by uploading files"""
     try:
+        # SECURITY: Validate all files before processing
+        for file in files:
+            await file_validation_service.validate_file(file)
+        
         results = await archive_item_service.upload_files(
             db, current_user.uuid, folder_uuid, files
         )
+        
+        await db.commit()
         
         # Return first successful upload
         for result in results:
@@ -231,6 +250,7 @@ async def create_item_in_folder(
         raise
     except Exception as e:
         logger.exception("Error creating items in folder %s", folder_uuid)
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create items"
@@ -292,13 +312,16 @@ async def update_item(
 ):
     """Update item"""
     try:
-        return await archive_item_service.update_item(
+        result = await archive_item_service.update_item(
             db, current_user.uuid, item_uuid, update_data
         )
+        await db.commit()
+        return result
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error updating item %s", item_uuid)
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update item: {str(e)}"
@@ -314,11 +337,13 @@ async def delete_item(
     """Delete item"""
     try:
         await archive_item_service.delete_item(db, current_user.uuid, item_uuid)
+        await db.commit()
         return {"message": "Item deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error deleting item %s", item_uuid)
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete item: {str(e)}"
@@ -360,14 +385,20 @@ async def upload_files(
 ):
     """Upload multiple files"""
     try:
+        # SECURITY: Validate all files before processing
+        for file in files:
+            await file_validation_service.validate_file(file)
+        
         results = await archive_item_service.upload_files(
             db, current_user.uuid, folder_uuid, files
         )
+        await db.commit()
         return {"results": results}
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error uploading files for user %s", current_user.uuid)
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to upload files: {str(e)}"
@@ -382,13 +413,16 @@ async def commit_upload(
 ):
     """Commit chunked upload and create archive item"""
     try:
-        return await archive_item_service.commit_upload(
+        result = await archive_item_service.commit_upload(
             db, current_user.uuid, commit_request
         )
+        await db.commit()
+        return result
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error committing upload %s", commit_request.file_id)
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to commit chunked upload. Please try again."
@@ -453,49 +487,3 @@ async def get_fts_status(
             detail="Failed to get FTS status"
         )
 
-
-# Legacy endpoints for backward compatibility
-@router.patch("/folders/{folder_uuid}/rename")
-async def rename_folder(
-    folder_uuid: str,
-    name: str = Form(...),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Rename folder (legacy endpoint)"""
-    try:
-        update_data = FolderUpdate(name=name)
-        return await archive_folder_service.update_folder(
-            db, current_user.uuid, folder_uuid, update_data
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Error renaming folder %s", folder_uuid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to rename folder: {str(e)}"
-        )
-
-
-@router.patch("/items/{item_uuid}/rename")
-async def rename_item(
-    item_uuid: str,
-    name: str = Form(...),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Rename item (legacy endpoint)"""
-    try:
-        update_data = ItemUpdate(name=name)
-        return await archive_item_service.update_item(
-            db, current_user.uuid, item_uuid, update_data
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Error renaming item %s", item_uuid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to rename item: {str(e)}"
-        )

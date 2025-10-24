@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 # Module-level flag to prevent duplicate listener attachment
 _listener_attached = False
 
+# Module-level ContextVar for query monitoring (shared across all instances)
+_request_context: ContextVar = ContextVar('query_monitoring_request', default=None)
+
 
 class QueryMonitoringMiddleware(BaseHTTPMiddleware):
     """
@@ -49,20 +52,17 @@ class QueryMonitoringMiddleware(BaseHTTPMiddleware):
         # Import here to avoid circular imports
         from app.database import engine
         
-        # Use contextvars for async-safe per-request storage
-        self._request_context: ContextVar = ContextVar('query_monitoring_request', default=None)
-        
         @event.listens_for(engine.sync_engine, "before_cursor_execute")
         def receive_before_cursor_execute(_conn, _cursor, statement, parameters, _context, _executemany):
             """Automatically track all SQL queries."""
             # Check if we have request state in context
-            request_state = self._request_context.get()
+            request_state = _request_context.get()
             if request_state is not None:
                 if hasattr(request_state, 'query_count'):
                     request_state.query_count += 1
                     request_state.queries.append({
                         'query': str(statement)[:200],  # Truncate for logging
-                        'parameters': str(parameters)[:100] if parameters else None,
+                        'parameters': None,  # Avoid logging potentially sensitive params
                         'timestamp': time.time()
                     })
         
@@ -79,15 +79,15 @@ class QueryMonitoringMiddleware(BaseHTTPMiddleware):
         request.state.queries = []
         
         # Set context var for event listener access
-        token = self._request_context.set(request.state)
+        token = _request_context.set(request.state)
         try:
             # Track request start time
             start_time = time.time()
-            
+
             # Process request
             response = await call_next(request)
         finally:
-            self._request_context.reset(token)
+            _request_context.reset(token)
         
         # Calculate request duration
         duration = time.time() - start_time
@@ -123,15 +123,5 @@ class QueryMonitoringMiddleware(BaseHTTPMiddleware):
     # Removed: track_query method - now using automatic SQLAlchemy event listeners
 
 
-import os
-
-# Global instance for query tracking
-_is_production = os.getenv("ENVIRONMENT", "development").lower() == "production"
-
-query_monitor = QueryMonitoringMiddleware(
-    app=None,  # Will be set when middleware is added
-    query_threshold=10,  # Alert if more than 10 queries
-    enabled=not _is_production  # Automatically disabled in production
-)
 
 

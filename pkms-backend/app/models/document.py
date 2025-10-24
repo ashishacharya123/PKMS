@@ -1,14 +1,14 @@
 """
 Document Model for File Management
 """
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Enum, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Enum, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 
 from app.models.base import Base
 from app.config import nepal_now
 from app.models.tag_associations import document_tags
-from app.models.associations import document_projects, document_diary
+from app.models.associations import document_diary, note_documents
 # UploadStatus import removed - documents no longer store upload status
 
 
@@ -24,12 +24,12 @@ class Document(Base):
     original_name = Column(String(255), nullable=False)  # Original uploaded name
     file_path = Column(String(500), nullable=False)  # Path relative to data directory
     file_size = Column(BigInteger, nullable=False)
+    file_hash = Column(String(64), nullable=False, index=True)  # SHA-256 hash for deduplication
     mime_type = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
-    is_project_exclusive = Column(Boolean, default=False, index=True)  # If True, document is deleted when any of its projects are deleted
-    is_diary_exclusive = Column(Boolean, default=False, index=True)  # If True, document is hidden from main document list (diary-only)
+    # REMOVED: is_project_exclusive, is_diary_exclusive - exclusivity moved to association tables
     
     # Soft Delete
     is_deleted = Column(Boolean, default=False, index=True)
@@ -45,11 +45,14 @@ class Document(Base):
     
     # Composite indexes for common query patterns
     __table_args__ = (
-        Index('ix_doc_user_archived_exclusive', 'created_by', 'is_archived', 'is_project_exclusive', 'is_diary_exclusive'),
+        Index('ix_doc_user_archived', 'created_by', 'is_archived'),
         Index('ix_doc_user_deleted', 'created_by', 'is_deleted'),
         Index('ix_doc_user_created_desc', 'created_by', 'created_at'),
         Index('ix_doc_user_favorite', 'created_by', 'is_favorite'),
         Index('ix_doc_mime_type', 'mime_type', 'created_by'),
+        Index('ix_doc_file_hash', 'file_hash'),  # Fast duplicate detection
+        # Composite unique constraint to prevent duplicate files per user while allowing same hash across users
+        UniqueConstraint('created_by', 'file_hash', name='uq_user_file_hash'),
     )
     
     
@@ -60,7 +63,8 @@ class Document(Base):
     # Relationships
     user = relationship("User", back_populates="documents")
     tag_objs = relationship("Tag", secondary=document_tags, back_populates="documents")
-    projects = relationship("Project", secondary=document_projects, back_populates="documents_multi")
+    # REMOVED: projects relationship - replaced with polymorphic project_items
+    notes = relationship("Note", secondary=note_documents, back_populates="notes")  # NEW: Notes via note_documents
     # Note: No diary_entries relationship - documents don't need to know about diary entries
     
     def __repr__(self):

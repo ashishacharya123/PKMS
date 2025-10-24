@@ -1,4 +1,6 @@
-export { default as FileList } from './FileList';
-export { default as FileUpload } from './FileUpload';
-export { default as FileSection } from './FileSection';
-export { default as AudioRecorder } from './AudioRecorder';
+export { default as FileList } from './FileList.tsx';
+export { default as FileSection } from './FileSection.tsx';
+export { default as AudioRecorder } from './AudioRecorder.tsx';
+export { FileUploadModal } from './FileUploadModal.tsx';
+export { AudioRecorderModal } from './AudioRecorderModal.tsx';
+export { FileUploadZone } from './FileUploadZone.tsx';

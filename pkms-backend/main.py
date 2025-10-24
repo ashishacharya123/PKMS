@@ -37,8 +37,16 @@ from app.routers import (
     advanced_fuzzy,
     delete_preflight,
 )
+# Import refactored testing routers
+from app.testing import (
+    testing_database,
+    testing_auth,
+    testing_system,
+    testing_crud,
+)
 from app.routers import unified_uploads
 from app.routers.search import router as search_endpoints_router
+from app.routers.thumbnails import router as thumbnails_router
 from app.services.chunk_service import chunk_manager
 from app.middleware.query_monitoring import QueryMonitoringMiddleware
 
@@ -134,7 +142,12 @@ async def lifespan(app: FastAPI):
         # Start chunk upload cleanup loop
         await chunk_manager.start()
 
-  
+        # Initialize cache invalidation service
+        from app.services.cache_invalidation_service import cache_invalidation_service, initialize_invalidation_service
+        initialize_invalidation_service()
+        await cache_invalidation_service.start()
+        logger.info("Cache invalidation service started")
+
         logger.info("Background tasks started")
 
         yield
@@ -152,6 +165,12 @@ async def lifespan(app: FastAPI):
             except asyncio.CancelledError:
                 pass
         await chunk_manager.stop()
+        
+        # Stop cache invalidation service
+        from app.services.cache_invalidation_service import cache_invalidation_service
+        await cache_invalidation_service.stop()
+        logger.info("Cache invalidation service stopped")
+        
         await close_db()
 
 # Create FastAPI app
@@ -197,14 +216,21 @@ app.include_router(archive.router, prefix="/api/v1/archive")
 # Removed archive_improvements disabled include (module deprecated)
 app.include_router(dashboard.router, prefix="/api/v1/dashboard")
 app.include_router(search_endpoints_router, prefix="/api/v1")  # Unified search endpoints
+app.include_router(thumbnails_router, prefix="/api/v1")  # Thumbnails serving
 app.include_router(backup.router, prefix="/api/v1/backup")
 app.include_router(tags.router, prefix="/api/v1/tags")
 app.include_router(unified_uploads.router)
+# Include testing routers
 app.include_router(testing_router, prefix="/api/v1/testing")
+app.include_router(testing_database.router, prefix="/api/v1")
+app.include_router(testing_auth.router, prefix="/api/v1")
+app.include_router(testing_system.router, prefix="/api/v1")
+app.include_router(testing_crud.router, prefix="/api/v1")
 app.include_router(advanced_fuzzy.router, prefix="/api/v1")  # Re-enabled for hybrid search
 app.include_router(delete_preflight.router, prefix="/api/v1/delete-preflight")  # Unified delete preflight
 
 # Add SlowAPI middleware for rate limiting
+app.add_middleware(SlowAPIMiddleware)
 
 
 
@@ -343,9 +369,9 @@ async def test_cors():
 
 
 if __name__ == "__main__":
-    print(f"Starting server on {settings.host}:{settings.port}")
-    print(f"Reload mode: {settings.debug}")
-    print(f"Log level: {settings.log_level}")
+    logger.info(f"Starting server on {settings.host}:{settings.port}")
+    logger.info(f"Reload mode: {settings.debug}")
+    logger.info(f"Log level: {settings.log_level}")
     
     # Temporarily disable reload to debug segfault
     try:
@@ -357,6 +383,6 @@ if __name__ == "__main__":
             log_level=settings.log_level
         )
     except Exception as e:
-        print(f"Failed to start server: {e}")
+        logger.error(f"Failed to start server: {e}")
         import traceback
         traceback.print_exc()
