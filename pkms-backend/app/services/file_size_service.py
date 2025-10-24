@@ -81,7 +81,7 @@ class FileSizeService:
         Returns:
             Updated metadata with size validation
         """
-        file_size = metadata.get("file_size", 0)
+        file_size = int(metadata.get("file_size") or metadata.get("total_size") or 0)
         
         if not cls.validate_file_size(file_size):
             raise ValueError(

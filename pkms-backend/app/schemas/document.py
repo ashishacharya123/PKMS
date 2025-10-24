@@ -28,6 +28,7 @@ class DocumentUpdate(CamelCaseModel):
     is_favorite: Optional[bool] = None
     is_archived: Optional[bool] = None
     project_uuids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this document to")
+    are_projects_exclusive: Optional[bool] = Field(None, description="Apply exclusive flag to all project associations")
     @field_validator('project_uuids')
     @classmethod
     def _validate_project_uuids(cls, v):
@@ -58,6 +59,7 @@ class DocumentResponse(CamelCaseModel):
     mime_type: str
     is_favorite: bool
     is_archived: bool
+    is_encrypted: Optional[bool] = Field(False, description="Whether the file is encrypted (for diary files)")
     # is_project_exclusive and is_diary_exclusive removed - exclusivity now handled via association tables
     is_deleted: bool
     # upload_status removed - only needed during upload process, not stored in model
@@ -72,7 +74,7 @@ class CommitDocumentUploadRequest(CamelCaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
     project_uuids: List[str] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this document to")
-    # is_project_exclusive and is_diary_exclusive removed - exclusivity now handled via association tables
+    are_projects_exclusive: Optional[bool] = Field(False, description="Apply exclusive flag to all project associations")
 
     @field_validator('tags')
     def validate_tags(cls, v):

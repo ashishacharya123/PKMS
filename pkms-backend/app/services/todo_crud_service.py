@@ -50,6 +50,7 @@ class TodoCRUDService:
         try:
             payload = todo_data.model_dump()
             project_uuids = payload.pop("project_uuids", []) or []
+            are_projects_exclusive = payload.pop("are_projects_exclusive", False)
             
             # Create todo
             todo = Todo(**payload, created_by=user_uuid)
@@ -85,7 +86,7 @@ class TodoCRUDService:
                             project_uuid=project_uuid,
                             item_type='Todo',  # Polymorphic discriminator
                             item_uuid=todo.uuid,
-                            is_exclusive=False,  # Default to non-exclusive
+                            is_exclusive=are_projects_exclusive,
                             sort_order=idx
                         )
                     )
@@ -203,7 +204,7 @@ class TodoCRUDService:
             
             # BATCH LOAD: Get all project badges in a single query to avoid N+1
             todo_uuids = [todo.uuid for todo in todos]
-            project_badges_map = await shared_utilities_service.batch_get_project_badges(db, todo_uuids, todo_projects, "todo_uuid")
+            project_badges_map = await shared_utilities_service.batch_get_project_badges_polymorphic(db, todo_uuids, 'Todo')
             
             # Convert to response format with project badges
             todo_responses = []
@@ -285,6 +286,7 @@ class TodoCRUDService:
             # Handle project associations
             if "project_uuids" in update_dict:
                 project_uuids = update_dict.pop("project_uuids", []) or []
+                are_projects_exclusive = update_dict.pop("are_projects_exclusive", False)
 
                 # Handle project associations using polymorphic project_items
                 if project_uuids is not None:  # Allow clearing with empty list
@@ -326,7 +328,7 @@ class TodoCRUDService:
                                     project_uuid=project_uuid,
                                     item_type='Todo',
                                     item_uuid=todo.uuid,
-                                    is_exclusive=False,
+                                    is_exclusive=are_projects_exclusive,
                                     sort_order=idx
                                 )
                             )
@@ -374,8 +376,8 @@ class TodoCRUDService:
             await db.refresh(todo)
             
             # OPTIMIZED: Use batch badge loading for single item to avoid N+1
-            project_badges = await shared_utilities_service.batch_get_project_badges(
-                db, [todo.uuid], todo_projects, "todo_uuid"
+            project_badges = await shared_utilities_service.batch_get_project_badges_polymorphic(
+                db, [todo.uuid], 'Todo'
             )
             project_badges = project_badges.get(todo.uuid, [])
             
@@ -475,8 +477,8 @@ class TodoCRUDService:
             await db.refresh(todo)
             
             # OPTIMIZED: Use batch badge loading for single item to avoid N+1
-            project_badges = await shared_utilities_service.batch_get_project_badges(
-                db, [todo.uuid], todo_projects, "todo_uuid"
+            project_badges = await shared_utilities_service.batch_get_project_badges_polymorphic(
+                db, [todo.uuid], 'Todo'
             )
             project_badges = project_badges.get(todo.uuid, [])
             

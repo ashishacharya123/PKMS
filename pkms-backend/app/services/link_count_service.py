@@ -20,7 +20,7 @@ from app.models.note import Note
 from app.models.todo import Todo
 # DiaryFile removed - diary files now use Document + document_diary
 from app.models.project import Project
-from app.models.associations import document_projects, note_projects, project_items
+from app.models.associations import project_items
 
 logger = logging.getLogger(__name__)
 
@@ -100,9 +100,6 @@ class LinkCountService:
             item = await db.get(Todo, item_uuid)
             return item if item and item.created_by == user_uuid else None
             
-        elif item_type == "document":
-            item = await db.get(Document, item_uuid)
-            return item if item and item.created_by == user_uuid else None
             
         # DiaryFile removed - diary files now use Document + document_diary
         # No separate diary_file type needed
@@ -163,57 +160,40 @@ class LinkCountService:
     ) -> Dict[str, Any]:
         """Get project links for an item"""
         
-        if item_type == "document":
-            association_table = document_projects
-            item_uuid_col = document_projects.c.document_uuid
-        elif item_type == "note":
-            association_table = note_projects
-            item_uuid_col = note_projects.c.note_uuid
-        elif item_type == "todo":
+        # All items now use polymorphic project_items table
+        if item_type in ["document", "note", "todo"]:
             association_table = project_items
             item_uuid_col = project_items.c.item_uuid
+            item_type_filter = {
+                "document": "Document",
+                "note": "Note", 
+                "todo": "Todo"
+            }[item_type]
         else:
             return {"items": [], "count": 0}
 
-        # Count links
-        if item_type == "todo":
-            # For todos, filter by item_type as well
-            count_query = select(func.count()).select_from(association_table).where(
-                and_(
-                    item_uuid_col == item_uuid,
-                    project_items.c.item_type == 'Todo'
-                )
+        # Count links using polymorphic project_items
+        count_query = select(func.count()).select_from(association_table).where(
+            and_(
+                item_uuid_col == item_uuid,
+                project_items.c.item_type == item_type_filter
             )
-        else:
-            count_query = select(func.count()).select_from(association_table).where(
-                item_uuid_col == item_uuid
-            )
+        )
         count_result = await db.execute(count_query)
         count = count_result.scalar() or 0
 
-        # Get project names
+        # Get project names using polymorphic project_items
         project_names = []
         if count > 0:
-            if item_type == "todo":
-                # For todos, filter by item_type as well
-                projects_query = select(Project.name).select_from(
-                    Project.__table__.join(association_table)
-                ).where(
-                    and_(
-                        item_uuid_col == item_uuid,
-                        project_items.c.item_type == 'Todo',
-                        Project.created_by == user_uuid
-                    )
+            projects_query = select(Project.name).select_from(
+                Project.__table__.join(association_table)
+            ).where(
+                and_(
+                    item_uuid_col == item_uuid,
+                    project_items.c.item_type == item_type_filter,
+                    Project.created_by == user_uuid
                 )
-            else:
-                projects_query = select(Project.name).select_from(
-                    Project.__table__.join(association_table)
-                ).where(
-                    and_(
-                        item_uuid_col == item_uuid,
-                        Project.created_by == user_uuid
-                    )
-                )
+            )
             projects_result = await db.execute(projects_query)
             project_names = [row[0] for row in projects_result.fetchall()]
 

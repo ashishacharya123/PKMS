@@ -9,7 +9,7 @@ import hashlib
 import os
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, and_
 
 from app.models.document import Document
 import logging
@@ -54,54 +54,67 @@ class DocumentHashService:
     
     @staticmethod
     async def find_duplicate_document(
-        db: AsyncSession, 
-        file_hash: str, 
+        db: AsyncSession,
+        file_hash: str,
+        user_uuid: str,
         exclude_uuid: Optional[str] = None
     ) -> Optional[Document]:
         """
-        Find existing document with the same file hash.
-        
+        Find existing document with the same file hash for the same user.
+
         Args:
             db: Database session
             file_hash: SHA-256 hash to search for
+            user_uuid: User UUID to scope the search
             exclude_uuid: Document UUID to exclude from search (for updates)
-            
+
         Returns:
             Document with matching hash, or None if not found
         """
         try:
-            query = select(Document).where(Document.file_hash == file_hash)
-            
+            query = select(Document).where(
+                and_(
+                    Document.file_hash == file_hash,
+                    Document.created_by == user_uuid
+                )
+            )
+
             if exclude_uuid:
                 query = query.where(Document.uuid != exclude_uuid)
-            
+
             result = await db.execute(query)
             return result.scalar_one_or_none()
-            
+
         except Exception as e:
-            logger.error(f"Error finding duplicate document for hash {file_hash}: {str(e)}")
+            logger.error(f"Error finding duplicate document for hash {file_hash}, user {user_uuid}: {str(e)}")
             raise
     
     @staticmethod
-    async def get_document_by_hash(db: AsyncSession, file_hash: str) -> Optional[Document]:
+    async def get_document_by_hash(db: AsyncSession, file_hash: str, user_uuid: str) -> Optional[Document]:
         """
-        Get document by its file hash.
-        
+        Get document by its file hash for the same user.
+
         Args:
             db: Database session
             file_hash: SHA-256 hash to search for
-            
+            user_uuid: User UUID to scope the search
+
         Returns:
             Document with matching hash, or None if not found
         """
         try:
             result = await db.execute(
-                select(Document).where(Document.file_hash == file_hash)
+                select(Document).where(
+                    and_(
+                        Document.file_hash == file_hash,
+                        Document.created_by == user_uuid
+                    )
+                )
             )
             return result.scalar_one_or_none()
-            
+
         except Exception as e:
-            logger.error(f"Error getting document by hash {file_hash}: {str(e)}")
+            logger.error(f"Error getting document by hash {file_hash}, user {user_uuid}: {str(e)}")
             raise
     
     @staticmethod

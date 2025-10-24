@@ -348,6 +348,85 @@ Scaling to multiple workers will require:
   create_file()  # May overwrite existing!
   ```
 
+### 24. Frontend Caching Architecture Pattern
+- **LOCAL-FIRST APPROACH**: Frontend caching is primary, backend caching is secondary
+- **CHROMIUM OPTIMIZATION**: Leverage IndexedDB, Service Workers, and Cache API for Chromium-based browsers
+- **UNIFIED CACHE SERVICE**: Use centralized caching system with memory + IndexedDB persistence
+- **CACHE TAGS**: Use tags for easy invalidation by module or data type
+- **PERFORMANCE MONITORING**: Log cache hits/misses with response times for debugging
+- **OFFLINE CAPABILITY**: Cache enables offline functionality for local-first PKMS
+- **RATIONALE**: Local-first approach provides instant responses, offline capability, and better UX
+- **EXAMPLES**:
+  ```typescript
+  // CORRECT: Unified cache with tags
+  const cached = await dashboardCache.get('main_dashboard');
+  if (cached) {
+    console.log('🎯 CACHE HIT: Main dashboard data - INSTANT response!');
+    return cached;
+  }
+  
+  const data = await fetch('/api/v1/dashboard/stats');
+  await dashboardCache.set('main_dashboard', data, 120000, ['dashboard', 'stats']);
+  
+  // CORRECT: Pattern invalidation
+  await dashboardCache.invalidatePattern('dashboard');
+  
+  // CORRECT: Tag-based invalidation
+  await dashboardCache.invalidateByTags(['stats', 'analytics']);
+  ```
+
+### 25. Cache Invalidation Strategy Pattern
+- **MODULE-BASED INVALIDATION**: Invalidate cache when data changes in specific modules
+- **TAG-BASED INVALIDATION**: Use tags to invalidate related data across modules
+- **PATTERN INVALIDATION**: Use key patterns for bulk invalidation
+- **GRACEFUL DEGRADATION**: Return default values when cache fails, don't break the UI
+- **CACHE STATISTICS**: Monitor hit rates and performance for optimization
+- **RATIONALE**: Proper invalidation ensures data consistency while maintaining performance
+- **EXAMPLES**:
+  ```typescript
+  // CORRECT: Module-specific invalidation
+  async createTodo(todoData) {
+    const result = await api.createTodo(todoData);
+    await todosCache.invalidatePattern('todos');
+    await dashboardCache.invalidateByTags(['stats']);
+    return result;
+  }
+  
+  // CORRECT: Cross-module invalidation
+  async updateProject(projectData) {
+    const result = await api.updateProject(projectData);
+    await projectsCache.invalidatePattern('projects');
+    await dashboardCache.invalidateByTags(['stats', 'projects']);
+    return result;
+  }
+  ```
+
+### 26. Service Architecture Pattern
+- **SINGLE RESPONSIBILITY**: Each service handles one module's data operations
+- **CACHE INTEGRATION**: All services use unified cache system
+- **ERROR HANDLING**: Graceful fallbacks with default values
+- **PERFORMANCE LOGGING**: Log all cache operations with timing
+- **TYPE SAFETY**: Use TypeScript interfaces for all data structures
+- **RATIONALE**: Consistent service patterns improve maintainability and performance
+- **EXAMPLES**:
+  ```typescript
+  // CORRECT: Service with cache integration
+  class TodosService {
+    async getTodos(): Promise<TodoItem[]> {
+      const cached = await todosCache.get('todos_list');
+      if (cached) {
+        console.log('🎯 CACHE HIT: Todos list - INSTANT response!');
+        return cached;
+      }
+      
+      console.log('❌ CACHE MISS: Todos list - fetching from backend');
+      const data = await fetch('/api/v1/todos');
+      await todosCache.set('todos_list', data, 180000, ['todos', 'list']);
+      return data;
+    }
+  }
+  ```
+
 ## 📋 MODEL FIELD VERIFICATION
 
 ### User Ownership Pattern

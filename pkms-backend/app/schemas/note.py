@@ -23,7 +23,7 @@ class NoteCreate(CamelCaseModel):
     content: str = Field(..., min_length=0, max_length=50000)
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
     project_uuids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this note to")
-    # is_project_exclusive removed - exclusivity now handled via project_items association
+    are_projects_exclusive: Optional[bool] = Field(False, description="Apply exclusive flag to all project associations")
 
     @field_validator('title')
     def validate_safe_text(cls, v: str):
@@ -48,7 +48,7 @@ class NoteUpdate(CamelCaseModel):
     is_archived: Optional[bool] = None
     is_favorite: Optional[bool] = None
     project_uuids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this note to")
-    is_project_exclusive: Optional[bool] = Field(None, description="If True, note is exclusive to projects and deleted when any project is deleted")
+    are_projects_exclusive: Optional[bool] = Field(None, description="Apply exclusive flag to all project associations")
 
     @field_validator('title')
     def validate_safe_text(cls, v: Optional[str]):
@@ -69,25 +69,25 @@ class NoteResponse(CamelCaseModel):
     uuid: str
     title: str
     content: str
-    file_count: int
-    thumbnail_path: Optional[str]  # ✅ ADDED - now exists in Note model
-    is_favorite: bool
-    is_archived: bool
-    is_project_exclusive: bool
-    created_at: datetime
-    updated_at: datetime
+    fileCount: int = Field(alias="file_count")
+    thumbnailPath: Optional[str] = Field(alias="thumbnail_path")  # ✅ ADDED - now exists in Note model
+    isFavorite: bool = Field(alias="is_favorite")
+    isArchived: bool = Field(alias="is_archived")
+    # REMOVED: is_project_exclusive - exclusivity now handled in project_items association
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
     tags: List[str]
     projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this note belongs to")
 
 class NoteSummary(CamelCaseModel):
     uuid: str
     title: str
-    file_count: int
-    is_favorite: bool
-    is_archived: bool
-    is_project_exclusive: bool
-    created_at: datetime
-    updated_at: datetime
+    fileCount: int = Field(alias="file_count")
+    isFavorite: bool = Field(alias="is_favorite")
+    isArchived: bool = Field(alias="is_archived")
+    # REMOVED: is_project_exclusive - exclusivity now handled in project_items association
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
     tags: List[str]
     preview: str
     projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this note belongs to")

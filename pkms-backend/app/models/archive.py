@@ -68,6 +68,7 @@ class ArchiveItem(Base):
     # Additional metadata as JSON
     metadata_json = Column(Text, default="{}")  # Additional metadata as JSON
     thumbnail_path = Column(String(500), nullable=True)  # Path to thumbnail file
+    file_hash = Column(String(64), nullable=True, index=True)  # SHA-256 hash for duplicate detection
 
     # Relationships
     user = relationship("User", back_populates="archive_items", foreign_keys=[created_by])

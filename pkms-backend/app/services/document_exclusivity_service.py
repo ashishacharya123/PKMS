@@ -26,6 +26,7 @@ class DocumentExclusivityService:
         db: AsyncSession, 
         document_uuid: str
     ) -> bool:
+	logger.info(f"[EXCLUSIVITY CHECK] Service: Running has_exclusive_associations for doc {document_uuid}.")
         """
         Fast validator query to check if document has any exclusive associations.
         Uses simple SELECT 1 ... LIMIT 1 for performance.
@@ -73,6 +74,8 @@ class DocumentExclusivityService:
         db: AsyncSession, 
         document_uuid: str
     ) -> List[Dict[str, str]]:
+	logger.info(f"[EXCLUSIVITY CHECK] Service: Running get_exclusivity_conflict_report for doc {document_uuid}.")
+        # --- END LOGGING ---
         """
         Get detailed conflict report for user-friendly error messages.
         Uses complex GROUP_CONCAT query for comprehensive reporting.
@@ -338,6 +341,7 @@ class DocumentExclusivityService:
         db: AsyncSession, 
         document_uuid: str
     ) -> bool:
+	logger.info(f"[EXCLUSIVITY CHECK] Service: Running check_and_delete_if_exclusive_orphan for doc {document_uuid}.")
         """
         CRITICAL: Check if document is an orphan and delete if so.
         

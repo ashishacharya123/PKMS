@@ -1,7 +1,7 @@
 """
 Document Model for File Management
 """
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Enum, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Enum, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 
@@ -24,7 +24,7 @@ class Document(Base):
     original_name = Column(String(255), nullable=False)  # Original uploaded name
     file_path = Column(String(500), nullable=False)  # Path relative to data directory
     file_size = Column(BigInteger, nullable=False)
-    file_hash = Column(String(64), nullable=False, unique=True, index=True)  # SHA-256 hash for deduplication
+    file_hash = Column(String(64), nullable=False, index=True)  # SHA-256 hash for deduplication
     mime_type = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     is_favorite = Column(Boolean, default=False, index=True)
@@ -51,6 +51,8 @@ class Document(Base):
         Index('ix_doc_user_favorite', 'created_by', 'is_favorite'),
         Index('ix_doc_mime_type', 'mime_type', 'created_by'),
         Index('ix_doc_file_hash', 'file_hash'),  # Fast duplicate detection
+        # Composite unique constraint to prevent duplicate files per user while allowing same hash across users
+        UniqueConstraint('created_by', 'file_hash', name='uq_user_file_hash'),
     )
     
     

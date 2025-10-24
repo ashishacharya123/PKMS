@@ -57,8 +57,8 @@ class TodoWorkflowService:
                     and_(
                         Todo.created_by == user_uuid,
                         Todo.due_date < cutoff_date,
-                        Todo.status.in_([TodoStatus.PENDING.value, TodoStatus.IN_PROGRESS.value, TodoStatus.BLOCKED.value]),  # Include blocked todos - they can be overdue too!
-                        Todo.is_archived == False
+                        Todo.status.in_([TodoStatus.PENDING, TodoStatus.IN_PROGRESS, TodoStatus.BLOCKED]),  # Include blocked todos - they can be overdue too!
+                        Todo.is_archived.is_(False)
                     )
                 )
                 .order_by(Todo.due_date.asc())
@@ -144,8 +144,8 @@ class TodoWorkflowService:
                         Todo.created_by == user_uuid,
                         Todo.due_date >= today,
                         Todo.due_date <= future_date,
-                        Todo.status.in_([TodoStatus.PENDING.value, TodoStatus.IN_PROGRESS.value, TodoStatus.BLOCKED.value]),  # Include blocked todos - they can be overdue too!
-                        Todo.is_archived == False
+                        Todo.status.in_([TodoStatus.PENDING, TodoStatus.IN_PROGRESS, TodoStatus.BLOCKED]),  # Include blocked todos - they can be overdue too!
+                        Todo.is_archived.is_(False)
                     )
                 )
                 .order_by(Todo.due_date.asc())
@@ -216,7 +216,7 @@ class TodoWorkflowService:
                     and_(
                         Todo.created_by == user_uuid,
                         Todo.priority == TaskPriority.HIGH.value,
-                        Todo.status != TodoStatus.DONE.value,
+                        Todo.status != TodoStatus.DONE,
                         # Include blocked todos - they can be high priority too!
                         Todo.is_archived == False
                     )
@@ -380,7 +380,7 @@ class TodoWorkflowService:
                 .where(
                     and_(
                         Todo.created_by == user_uuid,
-                        Todo.status == TodoStatus.DONE.value
+                        Todo.status == TodoStatus.DONE
                     )
                 )
             )
@@ -391,7 +391,7 @@ class TodoWorkflowService:
                     and_(
                         Todo.created_by == user_uuid,
                         Todo.due_date < datetime.now(NEPAL_TZ).date(),
-                        Todo.status.in_([TodoStatus.PENDING.value, TodoStatus.IN_PROGRESS.value])
+                        Todo.status.in_([TodoStatus.PENDING, TodoStatus.IN_PROGRESS])
                     )
                 )
             )
@@ -402,7 +402,7 @@ class TodoWorkflowService:
                     and_(
                         Todo.created_by == user_uuid,
                         Todo.priority == TaskPriority.HIGH.value,
-                        Todo.status != TodoStatus.DONE.value
+                        Todo.status != TodoStatus.DONE
                     )
                 )
             )
@@ -472,8 +472,8 @@ class TodoWorkflowService:
                     and_(
                         Todo.created_by == user_uuid,
                         Todo.due_date < today,
-                        Todo.status.in_([TodoStatus.PENDING.value, TodoStatus.IN_PROGRESS.value, TodoStatus.BLOCKED.value]),  # Include blocked todos - they can be overdue too!
-                        Todo.is_archived == False
+                        Todo.status.in_([TodoStatus.PENDING, TodoStatus.IN_PROGRESS, TodoStatus.BLOCKED]),  # Include blocked todos - they can be overdue too!
+                        Todo.is_archived.is_(False)
                     )
                 )
             )

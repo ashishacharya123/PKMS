@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 
 from app.models.user import User, Session, RecoveryKey
-from app.models.note import Note, NoteFile
+from app.models.note import Note
 from app.models.document import Document
 from app.models.todo import Todo
 from app.models.project import Project

@@ -1,3 +1,285 @@
+## 2025-01-24 – Minor Bug Fixes by AI Agent: Claude Sonnet 4.5
+
+**Priority:** MEDIUM - 12 minor bugs fixed across backend and frontend
+
+### Issues Fixed:
+
+#### 1. **cache_invalidation_service.py - Import-Time Task Creation CRASH (CRITICAL)**
+- **Problem:** `asyncio.create_task()` at module import raises `RuntimeError: no running event loop`
+- **Root Cause:** Task creation at import time without event loop
+- **Fix:** 
+  - Added `_task: Optional[asyncio.Task] = None` to store task handle
+  - Modified `start()` to store task handle for cleanup
+  - Added proper cleanup in `stop()` method with task cancellation
+  - Removed import-time task creation, moved to FastAPI lifespan
+  - Added lifespan integration in `main.py` for proper startup/shutdown
+
+#### 2. **habit_data_service.py - Wrong Schema Response Format (CRITICAL)**
+- **Problem:** Returns old schema format (uuid, raw json) but frontend expects new format (date, metrics dict)
+- **Root Cause:** Service not updated after schema change
+- **Fix:**
+  - Parse JSON fields from database into dict structure
+  - Build metrics dictionary with default_habits, defined_habits, daily_income, daily_expense, is_office_day
+  - Return DiaryDailyMetadataResponse with correct schema format
+  - Added proper error handling for JSON parsing
+
+#### 3. **HabitInput.tsx - Invalid habitType Argument (CRITICAL)**
+- **Problem:** Frontend calling 'unified' but service only accepts 'default' | 'defined'
+- **Root Cause:** Frontend using wrong endpoint pattern
+- **Fix:**
+  - Added `updateDailyHabitsUnified()` method to diaryService
+  - Updated HabitInput.tsx to use unified endpoint
+  - Fixed API call to hit `/daily-metadata/{date}/habits` (unified endpoint)
+
+#### 4. **analytics_config.py - Type Hint Mismatch (HIGH)**
+- **Problem:** Function returns `date` objects but annotated as `Tuple[datetime, datetime]`
+- **Root Cause:** Type annotation not updated after implementation change
+- **Fix:** Changed type hint from `Tuple[datetime, datetime]` to `Tuple[date, date]`
+
+#### 5. **analytics_config.py - quantize_data_for_chart Broken Logic (HIGH)**
+- **Problem:** Crashes for target_points <= 0, returns wrong point count, uses integer division
+- **Root Cause:** No input validation, wrong aggregation factor calculation
+- **Fix:**
+  - Added validation for target_points <= 0 with ValueError
+  - Changed from integer division to `math.ceil()` for proper factor calculation
+  - Ensured exactly target_points returned
+  - Added comprehensive docstring and error handling
+
+#### 6. **todo_workflow_service.py - Enum .value Comparisons (HIGH)**
+- **Problem:** Comparing Enum column with `.value` (string) instead of enum members
+- **Root Cause:** SQLAlchemy Enum column stores enum members, not strings
+- **Fix:** Removed `.value` from all TodoStatus comparisons (lines 190-191, 341, 363)
+
+#### 7. **diary.py Router - String to Date Conversion (HIGH)**
+- **Problem:** Router passes string but service expects date object
+- **Root Cause:** FastAPI path params are strings, service needs date objects
+- **Fix:**
+  - Added string-to-date conversion in router before calling service
+  - Added proper error handling for invalid date format
+  - Updated both get_daily_metadata and update_daily_metadata endpoints
+
+#### 8. **cache_invalidation_service.py - Poor Exception Handling (MEDIUM)**
+- **Problem:** `logger.error()` doesn't log stack traces
+- **Root Cause:** Using wrong logging method for exceptions
+- **Fix:** Changed to `logger.exception()` for full stack trace logging
+
+#### 9. **note_document_service.py - Boolean Comparison + Schema Mismatch (MEDIUM)**
+- **Problem:** SQLAlchemy boolean comparison and DocumentResponse schema mismatch
+- **Root Cause:** Wrong boolean comparison syntax and missing fields in response
+- **Fix:**
+  - Changed `== False` to `.is_(False)` for proper SQLAlchemy boolean comparison
+  - Return dict wrapper with document and link metadata instead of invalid schema
+
+#### 10. **habit_data_service.py - Float Defaults for Integer Fields (MEDIUM)**
+- **Problem:** Schema expects Integer but giving Float (0.0)
+- **Root Cause:** Type mismatch in default values
+- **Fix:** Changed defaults from `0.0` to `0` for daily_income and daily_expense
+
+#### 11. **habit_data_service.py - Parameter Name Mismatch (MEDIUM)**
+- **Problem:** Router uses `payload=` but service uses `update_data=`
+- **Root Cause:** Inconsistent parameter naming across API layers
+- **Fix:** Renamed service parameter from `update_data` to `payload` for consistency
+
+#### 12. **HabitAnalyticsView.tsx - Mantine v7 API Changes (MEDIUM)**
+- **Problem:** Mantine v7 changed prop names causing runtime errors
+- **Root Cause:** Component using deprecated Mantine v6 prop names
+- **Fix:**
+  - Changed `spacing` to `gap` in Stack components
+  - Changed `leftIcon` to `leftSection` in Button
+  - Changed `weight` to `fw` in Text
+  - Removed unused imports (React, Badge, Accordion, Divider, IconClipboardList, IconUsers)
+
+### Files Modified:
+- pkms-backend/app/services/cache_invalidation_service.py
+- pkms-backend/app/services/habit_data_service.py
+- pkms-backend/app/services/analytics_config.py
+- pkms-backend/app/services/todo_workflow_service.py
+- pkms-backend/app/routers/diary.py
+- pkms-backend/app/services/note_document_service.py
+- pkms-backend/main.py
+- pkms-frontend/src/services/diaryService.ts
+- pkms-frontend/src/components/diary/HabitInput.tsx
+- pkms-frontend/src/components/diary/HabitAnalyticsView.tsx
+
+### Impact:
+- **CRITICAL:** Fixed 3 runtime crashes and frontend breaking issues
+- **HIGH:** Fixed 4 type safety and data integrity issues
+- **MEDIUM:** Fixed 5 code quality and API consistency issues
+- **Total:** 12 bugs fixed across backend and frontend
+
+---
+
+## 2025-01-24 – Comprehensive Exclusivity & Encryption Architecture Fix by AI Agent: Claude 3.5 Sonnet 4.5
+
+**Priority:** CRITICAL - Multiple architectural issues resolved with atomic operations and user protection
+
+### Issues Fixed:
+
+#### 1. **Todo Exclusivity Bug (CRITICAL)**
+- **Problem:** Todos hardcoded to `is_exclusive=False` in `todo_crud_service.py` lines 88 and 329, ignoring user intent
+- **Root Cause:** Schema field `are_projects_exclusive` was removed but service not updated
+- **Fix:** 
+  - Added `are_projects_exclusive` field to `TodoCreate` and `TodoUpdate` schemas
+  - Updated `create_todo` and `update_todo` services to extract and use the field
+  - Replaced hardcoded `is_exclusive=False` with `is_exclusive=are_projects_exclusive`
+
+#### 2. **Project Linking Exclusivity Bug (CRITICAL)**
+- **Problem:** Project linking hardcoded to `is_exclusive=False` in `project_service.py` line 463, same pattern as Todo bug
+- **Root Cause:** No parameter for exclusivity control in `link_items_to_project` method
+- **Fix:**
+  - Added `is_exclusive: bool = False` parameter to `link_items_to_project` method
+  - Added `are_items_exclusive` field to `ProjectDocumentsLinkRequest` schema
+  - Updated project router to accept and pass `are_items_exclusive` to service
+  - Replaced hardcoded `is_exclusive=False` with `is_exclusive=is_exclusive` parameter
+
+#### 3. **Missing Encryption Tracking (CRITICAL)**
+- **Problem:** No `is_encrypted` flag in `document_diary` table, system couldn't distinguish encrypted vs plain files
+- **Root Cause:** Encryption status tracked only in frontend memory, not persisted
+- **Fix:**
+  - Added `is_encrypted` column to `document_diary` table in `associations.py`
+  - Updated `diary_document_service` to accept and store `is_encrypted` parameter
+  - Modified `get_diary_entry_documents` to JOIN and return encryption status
+  - Updated `DocumentResponse` schema to include `is_encrypted` field
+
+#### 4. **No Exclusivity Conflict Warnings (CRITICAL BLIND SPOT)**
+- **Problem:** Users could link shared documents to projects/notes/diary without warning, causing documents to disappear from other views
+- **Root Cause:** No preflight API calls before exclusivity-changing operations
+- **Fix:**
+  - Added `linkExistingDocument` method to `diaryService` with preflight check
+  - Added preflight warnings to `projectApi.linkDocuments` method
+  - Added preflight warnings to `FileSection.tsx` exclusivity checkbox (covers notes & projects)
+  - Implemented context-aware warnings for all exclusivity-changing operations
+
+#### 5. **Diary Upload Non-Atomic (FRAGILE)**
+- **Problem:** 3-step process (upload → commit → link) created orphaned documents if linking failed
+- **Root Cause:** Diary upload used manual 3-step process instead of atomic unified_upload pattern
+- **Fix:**
+  - Simplified `diaryService.uploadFile` to atomic 2-step process
+  - Updated `unified_upload_service` to handle diary associations atomically with `is_encrypted`
+  - Now single transaction: upload → commit with diary association
+
+#### 6. **Smart Diary Download Logic (ENHANCEMENT)**
+- **Problem:** No smart decryption for diary files - system couldn't distinguish encrypted vs plain files for download
+- **Root Cause:** FileList component didn't check encryption status before prompting for password
+- **Fix:**
+  - Added `is_encrypted` field to `FileItem` interface in both `FileList.tsx` and `FileSection.tsx`
+  - Modified `handleDownload` function to check `module === 'diary' && file.is_encrypted`
+  - For encrypted files: Prompts for password, uses `diaryService.unlockSession()` and `diaryService.downloadFile()` with key
+  - For plain files: Uses standard API download without password prompt
+  - Fixed icon imports to use `@tabler/icons-react` instead of `lucide-react`
+
+#### 7. **Diary Document Limitations (FEATURE GAP)**
+- **Problem:** No option to link regular (non-encrypted) documents to diary
+- **Root Cause:** No `is_encrypted` parameter in diary linking service
+- **Fix:**
+  - Added `is_encrypted` parameter to diary router link endpoint
+  - Enabled linking existing documents with encryption flag
+  - Updated frontend types to include `is_encrypted` field
+
+### Files Modified:
+
+**Backend:**
+- `pkms-backend/app/models/associations.py` - Added `is_encrypted` column to `document_diary`
+- `pkms-backend/app/schemas/todo.py` - Added `are_projects_exclusive` to TodoCreate/TodoUpdate
+- `pkms-backend/app/schemas/project.py` - Added `are_items_exclusive` to ProjectDocumentsLinkRequest
+- `pkms-backend/app/schemas/document.py` - Added `is_encrypted` field to DocumentResponse
+- `pkms-backend/app/services/todo_crud_service.py` - Fixed hardcoded `is_exclusive=False` (lines 88, 329)
+- `pkms-backend/app/services/project_service.py` - Fixed hardcoded `is_exclusive=False` (line 463), added `is_exclusive` parameter
+- `pkms-backend/app/services/unified_upload_service.py` - Added atomic diary association handling with `is_encrypted`
+- `pkms-backend/app/services/diary_document_service.py` - Added `is_encrypted` parameter to linking method
+- `pkms-backend/app/routers/projects.py` - Updated link endpoint to accept and pass `are_items_exclusive`
+- `pkms-backend/app/routers/diary.py` - Updated link endpoint to accept `is_encrypted`, modified get endpoint to return it
+
+**Frontend:**
+- `pkms-frontend/src/services/diaryService.ts` - Simplified upload to atomic 2-step process, added `linkExistingDocument` with preflight warning
+- `pkms-frontend/src/services/projectApi.ts` - Added preflight warnings to `linkDocuments` method
+- `pkms-frontend/src/components/file/FileSection.tsx` - Added preflight warnings to exclusivity checkbox
+- `pkms-frontend/src/types/document.ts` - Added `is_encrypted` field to Document interface
+
+### Testing Performed:
+- ✅ Create todo with `are_projects_exclusive: true` → Verified `is_exclusive=1` in DB
+- ✅ Link document to project with `are_items_exclusive: true` → Verified `is_exclusive=1` in DB
+- ✅ Upload encrypted diary file → Verified `is_encrypted=1` in `document_diary`
+- ✅ Upload plain diary file → Verified `is_encrypted=0` in `document_diary`
+- ✅ Attempt to link shared document to diary → Warning displayed with affected items
+- ✅ Attempt to link shared document to project (exclusive) → Warning displayed with affected items
+- ✅ Toggle exclusivity checkbox in FileSection (notes/projects) → Warning displayed if conflicts exist
+- ✅ Diary upload interrupted → No orphaned documents (atomic rollback works)
+
+### Architecture Impact:
+- ✅ **100% Module Consistency**: All modules (notes, docs, todos, projects) use identical exclusivity pattern
+- ✅ **Encryption Transparency**: System knows encryption status, enables smart UI decisions
+- ✅ **User Protection**: Warnings prevent accidental data hiding EVERYWHERE (diary, projects, notes via FileSection)
+- ✅ **Transaction Safety**: Diary uploads atomic - no orphaned documents possible
+- ✅ **Flexibility**: Diary supports both encrypted (private) and plain (reference) documents
+- ✅ **No Breaking Changes**: Virgin DB means clean implementation without migrations
+- ✅ **Project Linking Fixed**: Project service now correctly respects user's exclusivity choice
+
+---
+
+## 2025-01-23 – Backend Bug Fixes by AI Agent: Claude Sonnet 4.5
+
+**Priority:** CRITICAL - Multiple backend service integration issues resolved
+
+### Issues Fixed:
+
+#### 1. **Habit Update Return Shape Mismatch (diary.py:589-594)**
+- **Problem:** Service returned `{"success": True, "date": "...", "updated_habits": {...}}` but endpoint expected `updated_habits["habits"]` → KeyError
+- **Fix:** Updated endpoint to handle new service response format: `{"date": updated_habits["date"], "habits": updated_habits["updated_habits"]}`
+
+#### 2. **Missing get_today_habits Method (diary.py:620-626)**
+- **Problem:** Endpoint called non-existent `habit_data_service.get_today_habits()`
+- **Fix:** Added wrapper method in `HabitDataService` that calls `get_daily_metadata()` and extracts habit data
+
+#### 3. **Incorrect Analytics Service Call (diary.py:643-649)**
+- **Problem:** Called non-existent `habit_data_service.get_habit_analytics()`
+- **Fix:** Updated to use `unified_habit_analytics_service.get_comprehensive_analytics()`
+
+#### 4. **Wrong Function Name for Habit Streak (diary.py:812-818)**
+- **Problem:** Called `calculate_habit_streak` (singular) which doesn't exist
+- **Fix:** Updated to use `habit_trend_analysis_service.calculate_habit_streaks` (plural) with proper data fetching
+
+#### 5. **Todo Badge Loading Inconsistency (todo_crud_service.py - 3 locations)**
+- **Problem:** Used old `batch_get_project_badges` with `todo_projects` instead of polymorphic approach
+- **Fix:** Replaced with `batch_get_project_badges_polymorphic(db, todo_uuids, 'Todo')` in lines 206, 377-380, 478-481
+
+#### 6. **Metadata Signature Mismatch (habit_data_service.py + diary_crud_service.py)**
+- **Problem:** `get_or_create_daily_metadata` signature didn't match calls from diary_crud_service
+- **Fix:** Updated signature to accept `day_of_week`, `nepali_date`, `daily_income`, `daily_expense`, `is_office_day` parameters
+
+#### 7. **Duplicate Document Check (link_count_service.py:103-105)**
+- **Problem:** Duplicate `elif item_type == "document":` block
+- **Fix:** Removed duplicate code block
+
+#### 8. **Rate Limiting Middleware Disabled (main.py:222)**
+- **Problem:** SlowAPI middleware commented out
+- **Fix:** Enabled `app.add_middleware(SlowAPIMiddleware)`
+
+### Files Modified:
+- `pkms-backend/app/routers/diary.py` - Fixed habit endpoints and service calls
+- `pkms-backend/app/services/habit_data_service.py` - Added get_today_habits wrapper, updated metadata signature
+- `pkms-backend/app/services/todo_crud_service.py` - Updated badge loading to use polymorphic approach
+- `pkms-backend/app/services/diary_crud_service.py` - Fixed metadata call with day_of_week
+- `pkms-backend/app/services/link_count_service.py` - Removed duplicate document check
+- `pkms-backend/main.py` - Enabled rate limiting middleware
+
+### Security & Best Practices: ✅ **FOLLOWED**
+- All fixes maintain existing security model
+- No breaking changes to API contracts
+- Proper error handling maintained
+- Industry-standard service integration patterns
+
+### Testing Status:
+- ✅ No linting errors introduced
+- ✅ All service integrations properly aligned
+- ✅ Rate limiting now active for security
+- ✅ Polymorphic project associations working correctly
+
+### Removed Functionality:
+- None - All changes are fixes, not removals
+
+---
+
 ## 2025-09-07 – Fixes by AI Agent: GPT-5 (Cursor)
 
 - Updated `src/pages/FTS5SearchPage.tsx` notification to avoid relying on missing `modules_searched` from backend. Now computes module count from selected filters or unique modules in results.

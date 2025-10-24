@@ -83,22 +83,29 @@ class HabitDataService:
     async def get_or_create_daily_metadata(
         db: AsyncSession,
         user_uuid: str,
-        target_date: date
+        target_date: date,
+        day_of_week: Optional[int] = None,
+        nepali_date: Optional[str] = None,
+        daily_income: Optional[int] = None,
+        daily_expense: Optional[int] = None,
+        is_office_day: Optional[bool] = None
     ) -> DiaryDailyMetadata:
         """Get or create daily metadata for a specific date"""
         existing = await HabitDataService._get_model_by_date(db, user_uuid, target_date)
         if existing:
             return existing
         
-        # Create new metadata record
+        # Create new metadata record with provided parameters
         new_metadata = DiaryDailyMetadata(
             created_by=user_uuid,
             date=target_date,
+            day_of_week=day_of_week,
+            nepali_date=nepali_date,
+            daily_income=daily_income or 0,
+            daily_expense=daily_expense or 0,
+            is_office_day=is_office_day or False,
             default_habits_json="{}",
-            defined_habits_json="{}",
-            daily_income=0.0,
-            daily_expense=0.0,
-            is_office_day=False
+            defined_habits_json="{}"
         )
         
         db.add(new_metadata)
@@ -152,6 +159,17 @@ class HabitDataService:
         }
     
     @staticmethod
+    async def get_today_habits(db: AsyncSession, user_uuid: str, target_date: date) -> dict:
+        """Get today's habits - wrapper for get_daily_metadata"""
+        metadata = await HabitDataService.get_daily_metadata(db, user_uuid, target_date)
+        if not metadata:
+            return {"default_habits": {}, "defined_habits": {}}
+        return {
+            "default_habits": json.loads(metadata.default_habits_json or "{}"),
+            "defined_habits": json.loads(metadata.defined_habits_json or "{}")
+        }
+    
+    @staticmethod
     async def get_daily_metadata(
         db: AsyncSession,
         user_uuid: str,
@@ -162,16 +180,36 @@ class HabitDataService:
         if not metadata:
             return None
         
+        # Parse JSON fields from database
+        try:
+            default_habits = json.loads(metadata.default_habits_json or "{}")
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse default_habits_json for {target_date}")
+            default_habits = {}
+        
+        try:
+            defined_habits = json.loads(metadata.defined_habits_json or "{}")
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse defined_habits_json for {target_date}")
+            defined_habits = {}
+        
+        # Build metrics dictionary per schema
+        metrics = {
+            "default_habits": default_habits,
+            "defined_habits": defined_habits,
+            "daily_income": metadata.daily_income,
+            "daily_expense": metadata.daily_expense,
+            "is_office_day": metadata.is_office_day,
+        }
+        
+        # Return correct schema format
         return DiaryDailyMetadataResponse(
-            uuid=metadata.uuid,
-            date=metadata.date,
-            default_habits_json=metadata.default_habits_json,
-            defined_habits_json=metadata.defined_habits_json,
-            daily_income=metadata.daily_income,
-            daily_expense=metadata.daily_expense,
-            is_office_day=metadata.is_office_day,
+            date=metadata.date.date() if isinstance(metadata.date, datetime) else metadata.date,
+            nepali_date=metadata.nepali_date,
+            day_of_week=metadata.day_of_week,
+            metrics=metrics,  # All data in metrics dict
             created_at=metadata.created_at,
-            updated_at=metadata.updated_at
+            updated_at=metadata.updated_at,
         )
     
     @staticmethod
@@ -179,7 +217,7 @@ class HabitDataService:
         db: AsyncSession,
         user_uuid: str,
         target_date: date,
-        update_data: DiaryDailyMetadataUpdate
+        payload: DiaryDailyMetadataUpdate
     ) -> DiaryDailyMetadataResponse:
         """Update daily metadata"""
         metadata = await HabitDataService.get_or_create_daily_metadata(
@@ -187,12 +225,12 @@ class HabitDataService:
         )
         
         # Update fields
-        if update_data.daily_income is not None:
-            metadata.daily_income = update_data.daily_income
-        if update_data.daily_expense is not None:
-            metadata.daily_expense = update_data.daily_expense
-        if update_data.is_office_day is not None:
-            metadata.is_office_day = update_data.is_office_day
+        if payload.daily_income is not None:
+            metadata.daily_income = payload.daily_income
+        if payload.daily_expense is not None:
+            metadata.daily_expense = payload.daily_expense
+        if payload.is_office_day is not None:
+            metadata.is_office_day = payload.is_office_day
         
         await db.commit()
         await db.refresh(metadata)

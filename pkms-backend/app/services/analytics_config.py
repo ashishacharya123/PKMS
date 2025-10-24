@@ -3,7 +3,7 @@ Unified Analytics Configuration
 Common timeframes and caching strategy for all analytics endpoints
 """
 from typing import Dict, Any, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from app.config import NEPAL_TZ
 
 # Unified timeframes for all analytics (basic, advanced, wellness scores)
@@ -54,7 +54,7 @@ def get_timeframe_config(timeframe: str) -> Dict[str, Any]:
     """Get configuration for a specific timeframe"""
     return TIME_FRAMES.get(timeframe, TIME_FRAMES["month"])
 
-def get_date_range(days: int) -> Tuple[datetime, datetime]:
+def get_date_range(days: int) -> Tuple[date, date]:
     """Get start and end dates for given number of days"""
     end_date = datetime.now(NEPAL_TZ).date()
     start_date = end_date - timedelta(days=days-1)
@@ -75,27 +75,44 @@ def get_cache_key(user_uuid: str, timeframe: str, days: int, analytics_type: str
 
 def quantize_data_for_chart(data_points: list, target_points: int) -> list:
     """
-    Quantize raw data into fewer points for chart display.
+    Quantize raw data into exactly target_points for chart display.
     Uses averaging and trend preservation.
+    
+    Args:
+        data_points: List of numeric values (can contain None)
+        target_points: Desired number of points (must be > 0)
+        
+    Returns:
+        List with exactly target_points entries
+        
+    Raises:
+        ValueError: If target_points <= 0
     """
+    # Validate input
+    if target_points <= 0:
+        raise ValueError("target_points must be positive")
+    
+    # If we already have fewer points, return as-is
     if len(data_points) <= target_points:
         return data_points
 
-    # Calculate aggregation factor
-    factor = len(data_points) // target_points
-    if factor < 2:
-        return data_points
-
+    # Calculate aggregation factor using ceiling division
+    # Example: 100 points → 30 target = ceil(100/30) = 4
+    import math
+    factor = math.ceil(len(data_points) / target_points)
+    
+    # Aggregate into chunks
     quantized = []
     for i in range(0, len(data_points), factor):
         chunk = data_points[i:i+factor]
-        # Average the chunk, preserving None values
+        # Average valid (non-None) values
         valid_values = [x for x in chunk if x is not None]
         if valid_values:
             quantized.append(sum(valid_values) / len(valid_values))
         else:
             quantized.append(None)
-
+    
+    # Ensure we return exactly target_points
     return quantized[:target_points]
 
 # Memory-efficient cache configuration

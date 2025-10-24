@@ -10,7 +10,7 @@ from uuid import uuid4
 from app.models.base import Base
 from app.config import nepal_now
 from app.models.tag_associations import note_tags
-from app.models.associations import note_projects, note_documents
+from app.models.associations import note_documents
 
 
 class Note(Base):
@@ -27,7 +27,7 @@ class Note(Base):
     size_bytes = Column(BigInteger, default=0, nullable=False)  # Calculated on the fly and stored for analytics
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
-    is_project_exclusive = Column(Boolean, default=False, index=True)  # If True, note is deleted when any of its projects are deleted
+    # REMOVED: is_project_exclusive - exclusivity now handled in project_items association table
     # Ownership
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
 
@@ -49,7 +49,7 @@ class Note(Base):
     
     # Composite indexes for common query patterns
     __table_args__ = (
-        Index('ix_note_user_archived_exclusive', 'created_by', 'is_archived', 'is_project_exclusive'),
+        Index('ix_note_user_archived', 'created_by', 'is_archived'),
         Index('ix_note_user_created_desc', 'created_by', 'created_at'),
         Index('ix_note_user_favorite', 'created_by', 'is_favorite'),
         Index('ix_note_user_deleted', 'created_by', 'is_deleted'),
@@ -63,7 +63,7 @@ class Note(Base):
     user = relationship("User", back_populates="notes", foreign_keys=[created_by])
     tag_objs = relationship("Tag", secondary=note_tags, back_populates="notes")
     documents = relationship("Document", secondary=note_documents, back_populates="notes")  # NEW: Documents via note_documents
-    projects = relationship("Project", secondary=note_projects, back_populates="notes")
+    # REMOVED: projects relationship - notes now linked to projects via polymorphic project_items
     
     def get_size_bytes(self):
         """Calculate content size in bytes on the fly"""

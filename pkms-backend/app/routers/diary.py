@@ -514,10 +514,20 @@ async def get_daily_metadata(
 ):
     """Get daily metadata for a specific date."""
     try:
+        # Convert string path param to date object
+        try:
+            date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid date format. Expected YYYY-MM-DD"
+            )
+        
+        # Call service with date object
         return await habit_data_service.get_daily_metadata(
             db=db,
             user_uuid=current_user.uuid,
-            target_date=target_date
+            target_date=date_obj
         )
         
     except ValueError as e:
@@ -539,10 +549,16 @@ async def update_daily_metadata(
 ):
     """Update daily metadata for a specific date."""
     try:
+        # Convert string to date
+        try:
+            date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD")
+        
         return await habit_data_service.update_daily_metadata(
             db=db,
             user_uuid=current_user.uuid,
-            target_date=target_date,
+            target_date=date_obj,
             payload=payload
         )
         
@@ -588,9 +604,8 @@ async def update_daily_habits(
 
         return {
             "message": "Habits updated successfully",
-            "habits": updated_habits["habits"],
-            "streaks": updated_habits["streaks"],
-            "units": updated_habits["units"]
+            "date": updated_habits["date"],
+            "habits": updated_habits["updated_habits"]
         }
 
     except Exception as e:
@@ -640,7 +655,9 @@ async def get_habits_analytics(
 ):
     """Get comprehensive habit analytics."""
     try:
-        analytics = await habit_data_service.get_habit_analytics(
+        from app.services.unified_habit_analytics_service import unified_habit_analytics_service
+        
+        analytics = await unified_habit_analytics_service.get_comprehensive_analytics(
             db=db,
             user_uuid=current_user.uuid,
             days=days
@@ -810,16 +827,36 @@ async def get_habit_streak(
         )
 
     try:
-        streak = await habit_data_service.calculate_habit_streak(
-            db=db,
-            user_uuid=current_user.uuid,
-            habit_key=habit_key,
-            end_date=date_obj
+        from app.services.habit_trend_analysis_service import habit_trend_analysis_service
+        from datetime import timedelta
+        
+        # Fetch habit data for the date range
+        end_date_obj = date_obj
+        start_date_obj = end_date_obj - timedelta(days=90)  # Look back 90 days for streak
+        
+        metadata_records = await habit_data_service._get_metadata_in_date_range(
+            db, current_user.uuid, start_date_obj, end_date_obj
+        )
+        
+        # Extract habit values into format expected by calculate_habit_streaks
+        habit_data = []
+        for record in metadata_records:
+            habits_json = json.loads(record.default_habits_json or "{}")
+            if habit_key in habits_json:
+                habit_data.append({
+                    "date": record.date.strftime("%Y-%m-%d"),
+                    habit_key: habits_json[habit_key]
+                })
+        
+        # Call the PLURAL function (static method)
+        streak_result = habit_trend_analysis_service.calculate_habit_streaks(
+            habit_data=habit_data,
+            habit_id=habit_key
         )
 
         return {
             "habit_key": habit_key,
-            "current_streak": streak,
+            "current_streak": streak_result.get("current_streak", 0),
             "end_date": end_date
         }
 
@@ -837,13 +874,14 @@ async def get_habit_streak(
 async def link_documents_to_diary_entry(
     entry_uuid: str,
     link_data: ProjectDocumentsLinkRequest,  # Reuse the same schema
+    is_encrypted: bool = Query(False, description="Whether the linked documents are encrypted"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Link existing documents to a diary entry."""
     try:
         await diary_document_service.link_documents_to_diary_entry(
-            db, current_user.uuid, entry_uuid, link_data.document_uuids
+            db, current_user.uuid, entry_uuid, link_data.document_uuids, is_encrypted
         )
     except HTTPException:
         raise
@@ -913,12 +951,11 @@ async def get_diary_entry_documents(
         
         # Convert to DocumentResponse format
         from app.services.document_crud_service import document_crud_service
-        from app.models.associations import document_projects
-        
-        # Get project badges for each document (batch load to avoid N+1)
+        # Get project badges for each document using polymorphic project_items
         document_uuids = [doc.uuid for doc in documents]
-        project_badges_map = await document_crud_service._batch_get_project_badges(
-            db, document_uuids, document_projects, "document_uuid"
+        from app.services.shared_utilities_service import shared_utilities_service
+        project_badges_map = await shared_utilities_service.batch_get_project_badges_polymorphic(
+            db, document_uuids, 'Document'
         )
         
         return [
@@ -934,6 +971,7 @@ async def get_diary_entry_documents(
                 is_favorite=doc.is_favorite,
                 is_archived=doc.is_archived,
                 is_project_exclusive=doc.is_project_exclusive,
+                is_encrypted=getattr(doc, 'is_encrypted', False),  # NEW: From document_diary join
                 thumbnail_path=doc.thumbnail_path,
                 created_at=doc.created_at,
                 updated_at=doc.updated_at,

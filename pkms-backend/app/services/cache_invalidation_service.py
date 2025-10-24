@@ -27,17 +27,26 @@ class CacheInvalidationService:
         self.strategy = InvalidationStrategy.SMART
         self.batch_delay = 5.0  # seconds
         self._running = False
+        self._task: Optional[asyncio.Task] = None  # ADD: Store task handle
         self._cache_instances = {}  # Will store cache instances
     
     async def start(self):
         """Start the invalidation service"""
         if not self._running:
             self._running = True
-            asyncio.create_task(self._process_invalidations())
+            # Store task handle for cleanup
+            self._task = asyncio.create_task(self._process_invalidations())
     
     async def stop(self):
-        """Stop the invalidation service"""
+        """Stop the invalidation service with proper cleanup"""
         self._running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass  # Expected
+            self._task = None
     
     async def invalidate_on_create(self, module: str, item_id: str, tags: Set[str] = None):
         """Invalidate cache when new item is created"""
@@ -131,7 +140,7 @@ class CacheInvalidationService:
                     batch.clear()
                 
             except Exception as e:
-                logger.error(f"Invalidation processing failed: {e}")
+                logger.exception("Invalidation processing failed")
                 await asyncio.sleep(1)
     
     async def _execute_batch_invalidation(self, batch: list):
@@ -162,7 +171,7 @@ class CacheInvalidationService:
                 logger.info(f"Invalidated pattern: {pattern}")
                 
             except Exception as e:
-                logger.error(f"Failed to invalidate pattern {pattern}: {e}")
+                logger.exception(f"Failed to invalidate pattern {pattern}")
     
     def add_dependency(self, key: str, dependent_key: str):
         """Add dependency relationship between cache keys"""
@@ -250,7 +259,5 @@ def initialize_invalidation_service():
     }
     
     cache_invalidation_service.register_cache_instances(cache_instances)
-    asyncio.create_task(cache_invalidation_service.start())
-
-# Initialize the service
-initialize_invalidation_service()
+    # NOTE: Call initialize_invalidation_service() during FastAPI startup and await
+    # cache_invalidation_service.start() in the app lifespan/startup event.

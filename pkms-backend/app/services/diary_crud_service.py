@@ -127,9 +127,9 @@ class DiaryCRUDService:
         daily_metadata = await habit_data_service.get_or_create_daily_metadata(
             db=db,
             user_uuid=user_uuid,
-            entry_date=entry_date,
+            target_date=entry_date,
+            day_of_week=day_of_week,
             nepali_date=entry_data.nepali_date,
-            metrics=entry_data.daily_metrics or {},
             daily_income=entry_data.daily_income,
             daily_expense=entry_data.daily_expense,
             is_office_day=entry_data.is_office_day,
@@ -978,13 +978,14 @@ class DiaryCRUDService:
         Returns:
             Habit analytics data
         """
-        from app.services.habit_data_service import habit_data_service
+        from app.services.unified_habit_analytics_service import UnifiedHabitAnalyticsService
 
         try:
-            analytics = await habit_data_service.get_habit_analytics(
+            analytics = await UnifiedHabitAnalyticsService.get_default_habits_analytics(
                 db=db,
                 user_uuid=user_uuid,
-                days=days
+                days=days,
+                include_sma=False
             )
 
             logger.info(f"Retrieved habit analytics for user {user_uuid} over {days} days")
@@ -1014,13 +1015,15 @@ class DiaryCRUDService:
         Returns:
             Habit insights data
         """
-        from app.services.habit_data_service import habit_data_service
+        from app.services.unified_habit_analytics_service import UnifiedHabitAnalyticsService
 
         try:
-            insights = await habit_data_service.get_habit_insights(
+            insights = await UnifiedHabitAnalyticsService.get_default_habits_analytics(
                 db=db,
                 user_uuid=user_uuid,
-                days=days
+                days=days,
+                include_sma=True,
+                sma_windows=[7, 14, 30]
             )
 
             logger.info(f"Retrieved habit insights for user {user_uuid} over {days} days")
@@ -1050,14 +1053,21 @@ class DiaryCRUDService:
         Returns:
             List of active habit names
         """
-        from app.services.habit_data_service import habit_data_service
+        from app.services.unified_habit_analytics_service import UnifiedHabitAnalyticsService
 
         try:
-            active_habits = await habit_data_service.get_active_habits(
+            # Get analytics for all habits
+            analytics = await UnifiedHabitAnalyticsService.get_default_habits_analytics(
                 db=db,
                 user_uuid=user_uuid,
                 days=days
             )
+
+            # Extract habit names that have data
+            active_habits = [
+                habit_key for habit_key, habit_data in analytics.get("habits", {}).items()
+                if habit_data.get("data_points", 0) > 0
+            ]
 
             logger.info(f"Found {len(active_habits)} active habits for user {user_uuid}")
             return active_habits
@@ -1088,15 +1098,27 @@ class DiaryCRUDService:
         Returns:
             Current streak count
         """
-        from app.services.habit_data_service import habit_data_service
+        from app.services.unified_habit_analytics_service import UnifiedHabitAnalyticsService
+        from datetime import datetime
 
         try:
-            streak = await habit_data_service.calculate_habit_streak(
+            # Parse end_date or use today
+            if end_date:
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+            else:
+                from app.config import NEPAL_TZ
+                end_dt = datetime.now(NEPAL_TZ).date()
+
+            # Get analytics which includes streak data
+            analytics = await UnifiedHabitAnalyticsService.get_default_habits_analytics(
                 db=db,
                 user_uuid=user_uuid,
-                habit_key=habit_key,
-                end_date=end_date
+                days=90  # Use 90 days to capture longer streaks
             )
+
+            # Extract streak for the specific habit
+            habit_data = analytics.get("habits", {}).get(habit_key, {})
+            streak = habit_data.get("current_streak", 0)
 
             logger.info(f"Retrieved streak {streak} for habit '{habit_key}' for user {user_uuid}")
             return streak

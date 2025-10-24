@@ -28,7 +28,7 @@ class DiaryDocumentService:
     """
 
     async def link_documents_to_diary_entry(
-        self, db: AsyncSession, user_uuid: str, diary_entry_uuid: str, document_uuids: List[str]
+        self, db: AsyncSession, user_uuid: str, diary_entry_uuid: str, document_uuids: List[str], is_encrypted: bool = False
     ):
         """
         Link existing documents to a diary entry.
@@ -38,6 +38,7 @@ class DiaryDocumentService:
             user_uuid: User's UUID
             diary_entry_uuid: Diary entry UUID
             document_uuids: List of document UUIDs to link
+            is_encrypted: Whether the linked documents are encrypted
         """
         try:
             # Verify diary entry exists and belongs to user
@@ -115,6 +116,8 @@ class DiaryDocumentService:
                         document_uuid=document_uuid,
                         diary_entry_uuid=diary_entry_uuid,
                         sort_order=max_order + index + 1,
+                        is_exclusive=True,  # Diary files always exclusive
+                        is_encrypted=is_encrypted,  # Track encryption status
                         created_at=datetime.now(NEPAL_TZ),
                         updated_at=datetime.now(NEPAL_TZ)
                     )
@@ -268,10 +271,10 @@ class DiaryDocumentService:
                 )
 
         # Only invalidate cache after successful commit
-        await db.commit()
-        dashboard_service.invalidate_user_cache(user_uuid, "diary_documents_reordered")
+            await db.commit()
+            dashboard_service.invalidate_user_cache(user_uuid, "diary_documents_reordered")
 
-    except Exception as e:
+        except Exception as e:
             # Rollback on any error and re-raise
             await db.rollback()
             logger.error(f"Failed to reorder diary documents for entry {diary_entry_uuid}: {e}")
@@ -310,9 +313,9 @@ class DiaryDocumentService:
                 detail=f"Diary entry {diary_entry_uuid} not found"
             )
 
-        # Get documents linked to this diary entry
+        # Get documents linked to this diary entry with encryption status
         result = await db.execute(
-            select(Document)
+            select(Document, document_diary.c.is_encrypted, document_diary.c.sort_order)
             .join(document_diary, Document.uuid == document_diary.c.document_uuid)
             .where(
                 and_(
@@ -324,7 +327,14 @@ class DiaryDocumentService:
             .order_by(document_diary.c.sort_order)
         )
         
-        return result.scalars().all()
+        # Return documents with encryption status attached
+        documents_with_encryption = []
+        for row in result:
+            doc = row[0]
+            doc.is_encrypted = row[1]  # Attach encryption status to document
+            documents_with_encryption.append(doc)
+        
+        return documents_with_encryption
 
     async def _update_diary_entry_file_count(self, db: AsyncSession, diary_entry_uuid: str) -> None:
         """Update file count for a diary entry"""

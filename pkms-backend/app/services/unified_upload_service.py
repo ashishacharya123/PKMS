@@ -25,6 +25,33 @@ from app.models.enums import UploadStatus, ModuleType
 logger = logging.getLogger(__name__)
 file_detector = FileTypeDetectionService()
 
+def get_user_storage_path(user_uuid: str, module: str) -> Path:
+    """
+    Get user-specific storage path with proper isolation.
+    Structure: {storage_dir}/assets/{module}/{user_uuid}/
+    
+    This prevents users from accessing each other's files.
+    """
+    base_dir = get_file_storage_dir() / "assets" / module / user_uuid
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return base_dir
+
+def validate_file_path(file_path: Path, base_dir: Path) -> bool:
+    """
+    Validates that the resolved file path is within the intended base directory.
+    Prevents path traversal attacks.
+    
+    Returns:
+        True if path is safe, False otherwise
+    """
+    try:
+        file_path_resolved = file_path.resolve()
+        base_dir_resolved = base_dir.resolve()
+        return str(file_path_resolved).startswith(str(base_dir_resolved))
+    except Exception as e:
+        logger.error(f"Path validation error: {e}")
+        return False
+
 
 class UnifiedUploadService:
     """Ensures atomic file operations and database consistency across all modules"""
@@ -58,9 +85,14 @@ class UnifiedUploadService:
             file_hash = await document_hash_service.calculate_file_hash(assembled_path)
             metadata["file_hash"] = file_hash # Store it for later
 
-            # 2. Check for an existing document with this hash
+            # 2. Check for an existing document with this hash for the same user
             existing_doc = await db.scalar(
-                select(Document).where(Document.file_hash == file_hash)
+                select(Document).where(
+                    and_(
+                        Document.file_hash == file_hash,
+                        Document.created_by == created_by
+                    )
+                )
             )
 
             if existing_doc:
@@ -68,7 +100,7 @@ class UnifiedUploadService:
                 logger.info(f"Duplicate file detected. Hash: {file_hash}. Linking to existing doc: {existing_doc.uuid}")
                 
                 # 3a. Check for exclusivity conflicts
-                is_exclusive_upload = metadata.get("is_exclusive", False)
+                is_exclusive_upload = metadata.get("are_projects_exclusive", False)
                 if is_exclusive_upload:
                     has_conflict = await document_exclusivity_service.has_exclusive_associations(db, existing_doc.uuid)
                     if has_conflict:
@@ -153,36 +185,62 @@ class UnifiedUploadService:
     async def _generate_paths(self, module: str, assembled: Path, metadata: Dict[str, Any], db: Optional[AsyncSession] = None) -> tuple[Path, Path]:
         file_uuid = metadata.get("file_uuid", str(uuid_lib.uuid4()))
         extension = assembled.suffix
+        created_by = metadata.get("created_by", "unknown")
         
         if module == "documents":
             original_name = metadata.get("original_name", assembled.name.replace(f"complete_{metadata.get('upload_id', '')}_", ""))
             safe_original = sanitize_filename(original_name.replace(extension, ""))
             stored_filename = f"{safe_original[:100]}_{file_uuid}{extension}"
-            docs_dir = get_file_storage_dir() / "assets" / "documents"
+            
+            # USER ISOLATION: User-specific directory
+            docs_dir = get_user_storage_path(created_by, "documents")
             final_path = docs_dir / stored_filename
             temp_path = docs_dir / f"temp_{stored_filename}"
             
         elif module == "notes":
             filename = f"{file_uuid}{extension}"
-            notes_dir = get_file_storage_dir() / "assets" / "notes" / "files"
+            
+            # USER ISOLATION: User-specific directory
+            notes_dir = get_user_storage_path(created_by, "notes") / "files"
+            notes_dir.mkdir(parents=True, exist_ok=True)
             final_path = notes_dir / filename
             temp_path = notes_dir / f"temp_{filename}"
             
         elif module == "archive":
             filename = f"{file_uuid}{extension}"
             folder_uuid = metadata.get("folder_uuid")
+
+            # USER ISOLATION: User-specific base directory
+            archive_dir_base = get_user_storage_path(created_by, "archive")
+
+            folder_path_str = ""
             if folder_uuid and db:
-                folder_path = await self._get_filesystem_path(folder_uuid, db)
-                archive_dir = get_file_storage_dir() / "assets" / "archive" / folder_path
-            else:
-                archive_dir = get_file_storage_dir() / "assets" / "archive"
+                # CORRECTION: Use P1-optimized *filesystem* path service
+                from app.services.archive_path_service import archive_path_service
+                # Use get_filesystem_path (UUIDs) not get_display_path (names) for storage
+                folder_path_str = await archive_path_service.get_filesystem_path(
+                    folder_uuid, db, created_by
+                )
+                # The service already returns "/" or "/uuid1/uuid2/", so just strip the leading "/"
+                folder_path_str = folder_path_str.strip('/')
+
+            archive_dir = archive_dir_base / folder_path_str if folder_path_str else archive_dir_base
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            
             final_path = archive_dir / filename
             temp_path = archive_dir / f"temp_{filename}"
             
-        # Diary files now use documents module with document_diary association
+        # Diary files now use Document + document_diary association, handled in documents module
             
         else:
             raise ValueError(f"Unsupported module: {module}")
+        
+        # SECURITY: Final path traversal check
+        base_storage = get_file_storage_dir() / "assets"
+        if not validate_file_path(final_path, base_storage):
+            raise ValueError(
+                f"Invalid file path detected (potential path traversal): {final_path}"
+            )
         
         return final_path, temp_path
 
@@ -290,7 +348,7 @@ class UnifiedUploadService:
                         item_type="Document" if module == "documents" else "Note",
                         item_uuid=record.uuid,
                         sort_order=metadata.get("sort_order", 0),
-                        is_exclusive=metadata.get("is_exclusive", False)
+                        is_exclusive=metadata.get("are_projects_exclusive", False)
                     )
                 )
         
@@ -310,14 +368,23 @@ class UnifiedUploadService:
         if module == "documents" and metadata.get("diary_entry_uuid"):
             # Create document_diary association for diary files
             from app.models.associations import document_diary
-            from sqlalchemy import insert
+            from sqlalchemy import insert, update
             await db.execute(
                 insert(document_diary).values(
                     document_uuid=record.uuid,
                     diary_entry_uuid=metadata["diary_entry_uuid"],
                     sort_order=metadata.get("sort_order", 0),
-                    is_exclusive=True  # Diary files are always exclusive
+                    is_exclusive=True,  # Diary files are always exclusive
+                    is_encrypted=metadata.get("is_encrypted", False)  # Track encryption status
                 )
+            )
+            
+            # Update diary entry file count
+            from app.models.diary import DiaryEntry
+            await db.execute(
+                update(DiaryEntry)
+                .where(DiaryEntry.uuid == metadata["diary_entry_uuid"])
+                .values(file_count=DiaryEntry.file_count + 1)
             )
         
         if module == "archive" and metadata.get("folder_uuid"):
@@ -364,26 +431,7 @@ class UnifiedUploadService:
     # Diary file count updates are now handled by DiaryDocumentService
     # when documents are linked/unlinked via document_diary association
 
-    async def _get_filesystem_path(self, folder_uuid: str, db: AsyncSession) -> str:
-        from app.models.archive import ArchiveFolder
-        if not db:
-            return "root"
-        folder_res = await db.execute(select(ArchiveFolder).where(ArchiveFolder.uuid == folder_uuid))
-        folder = folder_res.scalar_one_or_none()
-        if not folder:
-            return "root"
-        path_parts = [folder.name]
-        current_folder = folder
-        while current_folder.parent_uuid:
-            parent_res = await db.execute(select(ArchiveFolder).where(ArchiveFolder.uuid == current_folder.parent_uuid))
-            parent = parent_res.scalar_one_or_none()
-            if parent:
-                path_parts.insert(0, parent.name)
-                current_folder = parent
-            else:
-                break
-        return "/".join(path_parts)
-
+  
 
 # Global instance
 unified_upload_service = UnifiedUploadService()

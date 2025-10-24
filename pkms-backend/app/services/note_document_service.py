@@ -229,7 +229,7 @@ class NoteDocumentService:
             )
             
             if not include_exclusive:
-                query = query.where(note_documents.c.is_exclusive == False)
+                query = query.where(note_documents.c.is_exclusive.is_(False))
             
             query = query.order_by(note_documents.c.sort_order, Document.created_at.desc())
             
@@ -237,24 +237,26 @@ class NoteDocumentService:
             documents = result.fetchall()
             
             return [
-                DocumentResponse(
-                    uuid=doc.uuid,
-                    title=doc.title,
-                    filename=doc.filename,
-                    original_name=doc.original_name,
-                    file_path=doc.file_path,
-                    file_size=doc.file_size,
-                    mime_type=doc.mime_type,
-                    is_favorite=doc.is_favorite,
-                    is_archived=doc.is_archived,
-                    is_deleted=doc.is_deleted,
-                    created_at=doc.created_at,
-                    updated_at=doc.updated_at,
-                    tags=[],  # TODO: Add tag loading if needed
-                    projects=[],  # TODO: Add project loading if needed
-                    is_exclusive=is_exclusive,
-                    sort_order=sort_order
-                )
+                {
+                    "document": DocumentResponse(
+                        uuid=doc.uuid,
+                        title=doc.title,
+                        filename=doc.filename,
+                        original_name=doc.original_name,
+                        file_path=doc.file_path,
+                        file_size=doc.file_size,
+                        mime_type=doc.mime_type,
+                        is_favorite=doc.is_favorite,
+                        is_archived=doc.is_archived,
+                        is_deleted=doc.is_deleted,
+                        created_at=doc.created_at,
+                        updated_at=doc.updated_at,
+                        tags=[],  # TODO: Add tag loading if needed
+                        projects=[],  # TODO: Add project loading if needed
+                    ),
+                    "is_exclusive": is_exclusive,  # Link metadata
+                    "sort_order": sort_order,  # Link metadata
+                }
                 for doc, is_exclusive, sort_order in documents
             ]
             

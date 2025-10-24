@@ -7,7 +7,7 @@ from app.models.enums import TodoStatus, TaskPriority
 from app.schemas.project import ProjectBadge
 
 
-class BlockingTodoSummary(BaseModel):
+class BlockingTodoSummary(CamelCaseModel):
     """Summary of a todo that's blocking or blocked by this one"""
     uuid: str
     title: str
@@ -30,6 +30,7 @@ class TodoCreate(CamelCaseModel):
     title: str = Field(..., min_length=1)
     description: Optional[str] = None
     project_uuids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this todo to")
+    are_projects_exclusive: Optional[bool] = Field(False, description="Apply exclusive flag to all project associations")
     # REMOVED: is_project_exclusive and is_todo_exclusive - exclusivity now handled via project_items association table
     
     # NEW: Set dependencies on creation
@@ -76,6 +77,7 @@ class TodoUpdate(CamelCaseModel):
     status: Optional[TodoStatus] = None
     order_index: Optional[int] = None
     project_uuids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this todo to")
+    are_projects_exclusive: Optional[bool] = Field(None, description="Apply exclusive flag to all project associations")
     # REMOVED: is_project_exclusive and is_todo_exclusive - exclusivity now handled via project_items association table
     
     # NEW: Modify dependencies

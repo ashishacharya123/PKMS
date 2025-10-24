@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Dict, Any
 import json
+import io
 
 from app.database import get_db
 from app.auth.dependencies import get_current_user
@@ -123,9 +124,10 @@ async def upload_chunk(
                 detail="Invalid total_size: must be >= 0"
             )
         
-        # Read chunk data
-        chunk_data = await file.read()
-        
+        # Read chunk data as bytes and wrap in BytesIO for BinaryIO interface
+        chunk_bytes = await file.read()
+        chunk_data = io.BytesIO(chunk_bytes)
+
         # Save chunk via chunk manager
         await chunk_manager.save_chunk(
             file_id=file_id,

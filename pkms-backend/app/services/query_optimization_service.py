@@ -1,6 +1,25 @@
 """
 Query Optimization Service
 Advanced query optimization with performance monitoring
+
+FUTURE USE: This service is designed for N+1 query detection and optimization.
+Currently instantiated but not actively used. Will be integrated in future
+iterations to automatically detect and optimize database queries.
+
+Key Features (Future Implementation):
+- N+1 query detection and automatic eager loading
+- Query performance monitoring and alerting
+- Automatic query optimization suggestions
+- Database connection pooling optimization
+- Slow query identification and optimization
+
+Usage (Future):
+- Automatically detect N+1 queries in ORM operations
+- Suggest optimal eager loading strategies
+- Monitor query performance across the application
+- Provide optimization recommendations
+
+Note: Service is ready for integration when needed.
 """
 
 import asyncio
@@ -25,7 +44,17 @@ class QueryMetrics:
     optimization_applied: List[str]
 
 class QueryOptimizationService:
-    """Service for query optimization and performance monitoring"""
+    """
+    Service for query optimization and performance monitoring
+    
+    FUTURE INTEGRATION: This service will be used to:
+    1. Detect N+1 queries in ORM operations
+    2. Automatically suggest eager loading optimizations
+    3. Monitor query performance and identify bottlenecks
+    4. Provide real-time optimization recommendations
+    
+    Current Status: Ready for integration, not actively used
+    """
     
     def __init__(self):
         self.query_cache: Dict[str, Any] = {}  # Future: Cache optimized query results
@@ -169,4 +198,6 @@ class QueryOptimizationService:
         return suggestions
 
 # Global query optimization service
+# FUTURE USE: This service will be integrated for N+1 query detection
+# Currently instantiated but not actively used - ready for future integration
 query_optimization_service = QueryOptimizationService()

@@ -13,7 +13,7 @@ from app.models.base import Base
 from app.config import nepal_now
 from app.models.enums import ProjectStatus, TodoStatus, TaskPriority
 from app.models.tag_associations import project_tags
-from app.models.associations import note_projects, project_items
+from app.models.associations import project_items
 
 
 class Project(Base):
@@ -62,13 +62,7 @@ class Project(Base):
     user = relationship("User", back_populates="projects", foreign_keys=[created_by])
     tag_objs = relationship("Tag", secondary=project_tags, back_populates="projects")
 
-    # Many-to-many relationships (ordered via association sort_order)
-    notes = relationship(
-        "Note",
-        secondary=note_projects,
-        back_populates="projects",
-        order_by=note_projects.c.sort_order
-    )
+    # REMOVED: notes relationship - notes now linked via polymorphic project_items
     # REMOVED: documents_multi relationship - replaced with polymorphic project_items
     # REMOVED: todos_multi relationship - todos now linked via polymorphic project_items association
 

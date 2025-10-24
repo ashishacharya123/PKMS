@@ -142,7 +142,12 @@ async def lifespan(app: FastAPI):
         # Start chunk upload cleanup loop
         await chunk_manager.start()
 
-  
+        # Initialize cache invalidation service
+        from app.services.cache_invalidation_service import cache_invalidation_service, initialize_invalidation_service
+        initialize_invalidation_service()
+        await cache_invalidation_service.start()
+        logger.info("Cache invalidation service started")
+
         logger.info("Background tasks started")
 
         yield
@@ -160,6 +165,12 @@ async def lifespan(app: FastAPI):
             except asyncio.CancelledError:
                 pass
         await chunk_manager.stop()
+        
+        # Stop cache invalidation service
+        from app.services.cache_invalidation_service import cache_invalidation_service
+        await cache_invalidation_service.stop()
+        logger.info("Cache invalidation service stopped")
+        
         await close_db()
 
 # Create FastAPI app
@@ -219,6 +230,7 @@ app.include_router(advanced_fuzzy.router, prefix="/api/v1")  # Re-enabled for hy
 app.include_router(delete_preflight.router, prefix="/api/v1/delete-preflight")  # Unified delete preflight
 
 # Add SlowAPI middleware for rate limiting
+app.add_middleware(SlowAPIMiddleware)
 
 
 
@@ -357,9 +369,9 @@ async def test_cors():
 
 
 if __name__ == "__main__":
-    print(f"Starting server on {settings.host}:{settings.port}")
-    print(f"Reload mode: {settings.debug}")
-    print(f"Log level: {settings.log_level}")
+    logger.info(f"Starting server on {settings.host}:{settings.port}")
+    logger.info(f"Reload mode: {settings.debug}")
+    logger.info(f"Log level: {settings.log_level}")
     
     # Temporarily disable reload to debug segfault
     try:
@@ -371,6 +383,6 @@ if __name__ == "__main__":
             log_level=settings.log_level
         )
     except Exception as e:
-        print(f"Failed to start server: {e}")
+        logger.error(f"Failed to start server: {e}")
         import traceback
         traceback.print_exc()

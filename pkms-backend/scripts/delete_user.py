@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
 from app.database import get_db_session
 from app.models.user import User, Session, RecoveryKey
-from app.models.note import Note, NoteFile
+from app.models.note import Note
 from app.models.document import Document
 from app.models.todo import Todo
 from app.models.project import Project
@@ -68,7 +68,7 @@ class UserDeletionService:
                         return result
                 
                 result["user_deleted"] = {"uuid": user.uuid, "username": user.username}
-                print(f"Deleting user: {user.username} (UUID: {user.uuid})")
+                logger.info(f"Deleting user: {user.username} (UUID: {user.uuid})")
                 
                 # Delete files first (before DB records)
                 await self._delete_user_files(db, user.uuid)

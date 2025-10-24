@@ -286,6 +286,46 @@ async def auto_update_overdue_todos(
         )
 
 
+@router.post("/{todo_uuid}/duplicate", response_model=TodoResponse)
+async def duplicate_todo(
+    todo_uuid: str,
+    new_title: Optional[str] = Query(None, description="Optional new title for the duplicated todo"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Duplicate a single todo.
+    
+    - Creates a new, independent todo
+    - Status reset to PENDING (fresh start)
+    - NO dependencies (clean placeholder)
+    - Original description, priority, tags copied
+    - Can optionally provide a new title
+    """
+    from app.services.duplication_service import duplication_service
+    
+    try:
+        # Use the same _deep_copy_todo helper from duplication_service
+        renames = {todo_uuid: new_title} if new_title else {}
+        new_todo_uuid = await duplication_service._deep_copy_todo(
+            db=db,
+            user_uuid=current_user.uuid,
+            old_todo_uuid=todo_uuid,
+            renames=renames
+        )
+        
+        # Return the new todo
+        return await todo_crud_service.get_todo(db, current_user.uuid, new_todo_uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error duplicating todo {todo_uuid} for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to duplicate todo: {str(e)}"
+        )
+
+
 @router.get("/stats")
 async def get_todo_stats(
     current_user: User = Depends(get_current_user),

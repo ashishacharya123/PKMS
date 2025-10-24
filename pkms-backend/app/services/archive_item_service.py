@@ -20,6 +20,8 @@ from app.models.archive import ArchiveFolder, ArchiveItem
 from app.schemas.archive import ItemUpdate, ItemResponse, ItemSummary, CommitUploadRequest
 from app.services.archive_folder_service import archive_folder_service
 from app.services.archive_path_service import archive_path_service
+from app.services.document_hash_service import document_hash_service
+from app.services.thumbnail_service import thumbnail_service
 from app.services.chunk_service import chunk_manager
 from app.services.unified_upload_service import unified_upload_service
 
@@ -65,6 +67,59 @@ class ArchiveItemService:
                     detail="Folder not found"
                 )
         
+        # Calculate file hash for duplicate detection using existing service
+        file_hash = None
+        try:
+            if Path(file_path).exists():
+                file_hash = document_hash_service.calculate_file_hash(file_path)
+                
+                # Check for duplicates in archive items only (not across modules)
+                existing_items = await db.execute(
+                    select(ArchiveItem).where(
+                        and_(
+                            ArchiveItem.file_hash == file_hash,
+                            ArchiveItem.created_by == user_uuid,
+                            ArchiveItem.is_deleted == False
+                        )
+                    )
+                )
+                duplicate_items = existing_items.scalars().all()
+                
+                if duplicate_items:
+                    logger.warning(f"Duplicate archive file detected: {original_filename} (hash: {file_hash}) - {len(duplicate_items)} existing items")
+                    # Archive-specific duplicate handling - could skip or create reference
+        except Exception as e:
+            logger.error(f"Error calculating hash for {file_path}: {e}")
+            # Continue without hash if calculation fails
+        
+        # Generate thumbnail for supported file types
+        thumbnail_path = None
+        try:
+            if file_hash:  # Only generate thumbnails if we have a valid file
+                file_path_obj = Path(file_path)
+                if file_path_obj.exists():
+                    # Create thumbnail directory for archive (thread-safe)
+                    thumbnail_dir = Path(file_path).parent / "thumbnails"
+                    try:
+                        thumbnail_dir.mkdir(exist_ok=True)
+                    except FileExistsError:
+                        # Directory already exists, continue
+                        pass
+                    
+                    # Generate medium-sized thumbnail
+                    thumbnail_result = await thumbnail_service.generate_thumbnail(
+                        file_path=file_path_obj,
+                        output_dir=thumbnail_dir,
+                        size='medium'
+                    )
+                    
+                    if thumbnail_result:
+                        thumbnail_path = str(thumbnail_result)
+                        logger.info(f"Generated thumbnail for archive item: {thumbnail_path}")
+        except Exception as e:
+            logger.error(f"Failed to generate thumbnail for {file_path}: {e}")
+            # Continue without thumbnail if generation fails
+        
         # Create item
         item = ArchiveItem(
             uuid=str(uuid.uuid4()),
@@ -77,17 +132,19 @@ class ArchiveItemService:
             mime_type=mime_type,
             folder_uuid=folder_uuid,
             created_by=user_uuid,
-            metadata_json=json.dumps(metadata_json or {})
+            metadata_json=json.dumps(metadata_json or {}),
+            file_hash=file_hash,
+            thumbnail_path=thumbnail_path
         )
         
         db.add(item)
-        await db.commit()
+        await db.flush()  # Keep flush to get generated ID
         await db.refresh(item)
         
-        # Update folder stats
+        # Update folder stats (no commit here)
         if folder_uuid:
-            await self._update_folder_stats(db, user_uuid, folder_uuid)
-            await db.commit()
+            await archive_folder_service.update_folder_stats(db, user_uuid, folder_uuid)
+            # NOTE: No commit - router will commit once
         
         return ItemResponse.model_validate(item)
     
@@ -217,17 +274,16 @@ class ArchiveItemService:
             
             item.folder_uuid = update_data.folder_uuid
         
-        await db.commit()
+        await db.flush()
         await db.refresh(item)
         
         # Update folder stats for old and new folders
         if old_folder_uuid != item.folder_uuid:
             if old_folder_uuid:
-                await self._update_folder_stats(db, user_uuid, old_folder_uuid)
-                await db.commit()
+                await archive_folder_service.update_folder_stats(db, user_uuid, old_folder_uuid)
             if item.folder_uuid:
-                await self._update_folder_stats(db, user_uuid, item.folder_uuid)
-                await db.commit()
+                await archive_folder_service.update_folder_stats(db, user_uuid, item.folder_uuid)
+            # NOTE: No commits - router will commit once at the end
         
         return ItemResponse.model_validate(item)
     
@@ -258,6 +314,17 @@ class ArchiveItemService:
         
         folder_uuid = item.folder_uuid
         
+        # Clean up thumbnails before soft delete
+        try:
+            if item.thumbnail_path:
+                thumbnail_path = Path(item.thumbnail_path)
+                if thumbnail_path.exists():
+                    thumbnail_path.unlink()
+                    logger.info(f"Cleaned up thumbnail: {item.thumbnail_path}")
+        except Exception as e:
+            logger.error(f"Failed to cleanup thumbnail for item {item_uuid}: {e}")
+            # Continue with deletion even if thumbnail cleanup fails
+        
         # Soft delete item
         await db.execute(
             update(ArchiveItem)
@@ -265,12 +332,12 @@ class ArchiveItemService:
             .values(is_deleted=True)
         )
         
-        await db.commit()
+        await db.flush()
         
         # Update folder stats
         if folder_uuid:
-            await self._update_folder_stats(db, user_uuid, folder_uuid)
-            await db.commit()
+            await archive_folder_service.update_folder_stats(db, user_uuid, folder_uuid)
+            # NOTE: No commit - router will commit once
     
     async def search_items(
         self, 
@@ -509,7 +576,7 @@ class ArchiveItemService:
     ) -> None:
         """Update folder statistics (item_count, total_size) - delegates to archive_folder_service"""
         # Delegate to the existing implementation in archive_folder_service to avoid duplication
-        await archive_folder_service._update_folder_stats(db, user_uuid, folder_uuid)
+        await archive_folder_service.update_folder_stats(db, user_uuid, folder_uuid)
 
 
 # Global instance
