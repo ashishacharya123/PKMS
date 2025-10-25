@@ -59,24 +59,24 @@ interface SearchResult {
   highlight?: string;
   highlight_title?: string;
   tags: string[];
-  created_at: string;
-  updated_at: string;
-  relevance_score: number;
-  fuzzy_score: number;
-  combined_score: number;
-  fuzzy_details: Record<string, number>;
+  createdAt: string;
+  updatedAt: string;
+  relevanceScore: number;
+  fuzzyScore: number;
+  combinedScore: number;
+  fuzzyDetails: Record<string, number>;
   url: string;
 }
 
 interface SearchResponse {
   results: SearchResult[];
   total: number;
-  fts_candidates: number;
+  ftsCandidates: number;
   search_method: string;
-  modules_searched: string[];
+  modulesSearched: string[];
   query: string;
-  applied_fuzzy: boolean;
-  fuzzy_threshold: number;
+  appliedFuzzy: boolean;
+  fuzzyThreshold: number;
 }
 
 const MODULE_OPTIONS = [
@@ -89,7 +89,7 @@ const MODULE_OPTIONS = [
 
 const SORT_OPTIONS = [
   { value: 'relevance', label: 'Relevance' },
-  { value: 'fuzzy_score', label: 'Fuzzy Score' },
+  { value: 'fuzzyScore', label: 'Fuzzy Score' },
   { value: 'date', label: 'Date' },
   { value: 'title', label: 'Title' },
   { value: 'module', label: 'Module' }
@@ -192,7 +192,7 @@ export default function FuzzySearchPage() {
         // Standard fuzzy: use /search/fuzzy with full filter set
         const params = new URLSearchParams({
           q: query.trim(),
-          fuzzy_threshold: fuzzyThreshold.toString(),
+          fuzzyThreshold: fuzzyThreshold.toString(),
           sort_by: sortBy,
           sort_order: sortOrder,
           favorites_only: favoritesOnly.toString(),
@@ -528,22 +528,22 @@ export default function FuzzySearchPage() {
                         <Badge color={getModuleColor(result.module)} size="sm">
                           {result.module}
                         </Badge>
-                        {result.fuzzy_score && (
+                        {result.fuzzyScore && (
                           <Badge 
-                            color={getFuzzyScoreColor(result.fuzzy_score)} 
+                            color={getFuzzyScoreColor(result.fuzzyScore)} 
                             variant="light" 
                             size="sm"
                           >
-                            Fuzzy: {result.fuzzy_score.toFixed(0)}%
+                            Fuzzy: {result.fuzzyScore.toFixed(0)}%
                           </Badge>
                         )}
-                        {result.combined_score && (
+                        {result.combinedScore && (
                           <Badge 
                             color="blue" 
                             variant="outline" 
                             size="sm"
                           >
-                            Combined: {result.combined_score.toFixed(3)}
+                            Combined: {result.combinedScore.toFixed(3)}
                           </Badge>
                         )}
                         {result.tags.length > 0 && (
@@ -573,10 +573,10 @@ export default function FuzzySearchPage() {
                       )}
 
                       {/* Fuzzy Match Details */}
-                      {result.fuzzy_details && Object.keys(result.fuzzy_details).length > 0 && (
+                      {result.fuzzyDetails && Object.keys(result.fuzzyDetails).length > 0 && (
                         <Group gap="xs" mt="xs">
                           <Text size="xs" c="dimmed">Match quality:</Text>
-                          {Object.entries(result.fuzzy_details).map(([field, score]) => (
+                          {Object.entries(result.fuzzyDetails).map(([field, score]) => (
                             <Badge key={field} size="xs" variant="dot" color={getFuzzyScoreColor(score)}>
                               {field}: {score.toFixed(0)}%
                             </Badge>
@@ -585,7 +585,7 @@ export default function FuzzySearchPage() {
                       )}
                       
                       <Text size="xs" c="dimmed" mt="xs">
-                        {new Date(result.created_at).toLocaleDateString()}
+                        {new Date(result.createdAt).toLocaleDateString()}
                       </Text>
                     </div>
                     

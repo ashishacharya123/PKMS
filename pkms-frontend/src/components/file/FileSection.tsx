@@ -17,13 +17,13 @@ import { projectApi } from '../../services/projectApi';
 interface FileItem {
   uuid: string;
   filename: string;
-  original_name: string;
-  mime_type: string;
-  file_size: number;
+  originalName: string;
+  mimeType: string;
+  fileSize: number;
   description?: string;
-  created_at: string;
-  media_type?: string;
-  is_encrypted?: boolean;  // NEW: Track if file is encrypted (for diary files)
+  createdAt: string;
+  mediaType?: string;
+  isEncrypted?: boolean;  // NEW: Track if file is encrypted (for diary files)
 }
 
 interface FileSectionProps {
@@ -121,7 +121,7 @@ export const FileSection: React.FC<FileSectionProps> = ({
           const preflight = await projectApi.getDeletePreflight('document', file.uuid);
           if (preflight.linkCount > 0) {
             const confirmed = window.confirm(
-              `⚠️ Warning: "${file.filename || file.original_name}" is currently used in ${preflight.linkCount} other place(s).\n\n` +
+              `⚠️ Warning: "${file.filename || file.originalName}" is currently used in ${preflight.linkCount} other place(s).\n\n` +
               `${preflight.warningMessage}\n\n` +
               `Making it exclusive will hide it from those views. Continue?`
             );

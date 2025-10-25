@@ -12,13 +12,13 @@ export enum ModuleType {
   TODOS = "todos",
   PROJECTS = "projects",
   DIARY = "diary",
-  ARCHIVE_ITEMS = "archive_items",
-  ARCHIVE_FOLDERS = "archive_folders",
+  ARCHIVE_ITEMS = "archive_items",  // URL param: ?module=archive_items
+  ARCHIVE_FOLDERS = "archive_folders",  // URL param: ?module=archive_folders
   GENERAL = "general"
 }
 
 export enum ProjectStatus {
-  IS_RUNNING = "is_running",
+  IS_RUNNING = "is_running",  // URL param: ?status=is_running
   ON_HOLD = "on_hold",
   COMPLETED = "completed",
   CANCELLED = "cancelled"
@@ -69,10 +69,10 @@ export enum TodoStatsKey {
   DONE = "done",
   
   // Time-based computed counts (calculated on the fly - active todos only)
-  OVERDUE = "overdue",           // due_date < today AND status not DONE/CANCELLED
-  DUE_TODAY = "due_today",       // due_date == today AND status not DONE/CANCELLED  
-  COMPLETED_TODAY = "completed_today",  // completed_at == today (DONE status only)
-  WITHIN_TIME = "within_time"   // due_date >= today AND status not DONE/CANCELLED
+  OVERDUE = "overdue",           // URL param: ?filter=overdue
+  DUE_TODAY = "due_today",       // URL param: ?filter=due_today
+  COMPLETED_TODAY = "completed_today",  // URL param: ?filter=completed_today
+  WITHIN_TIME = "within_time"   // URL param: ?filter=within_time
 }
 
 export enum ModuleStatsKey {

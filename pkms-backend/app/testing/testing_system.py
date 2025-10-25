@@ -415,7 +415,6 @@ async def get_database_performance_metrics(
         try:
             db_path = get_data_dir() / "pkm_metadata.db"
             if db_path.exists():
-                import os
                 file_stats = os.stat(db_path)
 
                 metrics["database_file"] = {
@@ -616,7 +615,7 @@ async def get_console_commands(
                 "check_database": {
                     "command": "sqlite3 data/pkm_metadata.db \"PRAGMA integrity_check;\"",
                     "description": "Check database integrity",
-                    "expected_output": "ok" if integrity check passes
+                    "expected_output": "ok (if integrity check passes)"
                 },
                 "check_foreign_keys": {
                     "command": "sqlite3 data/pkm_metadata.db \"PRAGMA foreign_key_check;\"",
@@ -834,7 +833,6 @@ async def perform_file_sanity_check(
         # Cleanup temp directory if it still exists
         if temp_dir.exists():
             try:
-                import shutil
                 shutil.rmtree(temp_dir)
             except:
                 pass

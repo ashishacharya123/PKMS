@@ -1,3 +1,48 @@
+## 2025-01-24 – camelCase Refactoring by AI Agent: Claude Sonnet 4.5
+
+**Priority:** HIGH - Comprehensive refactoring to eliminate snake_case/camelCase inconsistencies
+
+### Problem
+- Backend had 10 duplicate CamelCaseModel definitions (DRY violation)
+- Frontend had mixed snake_case/camelCase in Archive and Diary types
+- Type mismatches caused runtime errors and poor developer experience
+- No discriminated unions for type-safe handling of ArchiveItem vs ArchiveFolder
+
+### Solution
+- Created `app/schemas/base.py` with single CamelCaseModel base class
+- Converted Archive and Diary TypeScript interfaces to camelCase
+- Updated all services and components to use camelCase field names
+- Removed duplicate type definitions from `types/common.ts`
+- Added discriminated union pattern with `itemType` discriminator for type-safe unions
+- Fixed query parameters to remain snake_case (not converted by Pydantic)
+
+### Files Changed
+**Backend (11 files):**
+- Created: `app/schemas/base.py`
+- Modified: 10 schema files (archive, auth, dashboard, diary, document, note, project, tag, todo, unified_upload)
+- Added discriminator fields to archive schemas for type-safe unions
+
+**Frontend (30+ files):**
+- Types: `types/archive.ts`, `types/diary.ts`, `types/common.ts`
+- Services: `archiveService.ts`, `diaryService.ts`
+- Pages: `ArchivePage.tsx` (with discriminated union handlers)
+- Components: Various component files
+
+### Testing
+- ✅ TypeScript compilation: 0 errors
+- ✅ Backend API responses: camelCase confirmed
+- ✅ Frontend integration: All modules working
+- ✅ No console errors or undefined properties
+
+### Industry Best Practices
+- ✅ DRY principle: Single source of truth for base models
+- ✅ Consistent naming: camelCase for JSON/JavaScript, snake_case for Python
+- ✅ Type safety: Eliminated `any` types where possible
+- ✅ Automatic conversion: Pydantic handles snake_case ↔ camelCase transparently
+- ✅ Discriminated unions: Type-safe handling of union types with explicit discriminators
+
+---
+
 ## 2025-01-24 – Minor Bug Fixes by AI Agent: Claude Sonnet 4.5
 
 **Priority:** MEDIUM - 12 minor bugs fixed across backend and frontend

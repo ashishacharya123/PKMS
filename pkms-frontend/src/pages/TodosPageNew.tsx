@@ -69,7 +69,7 @@ import { todosService, TodoSummary } from '../services/todosService';
 import TodosLayout from '../components/todos/TodosLayout';
 import { TodoItem } from '../types/common';
 
-type SortField = 'title' | 'created_at' | 'due_date' | 'priority';
+type SortField = 'title' | 'createdAt' | 'dueDate' | 'priority';
 type SortOrder = 'asc' | 'desc';
 
 // Utility functions for todos
@@ -124,7 +124,7 @@ export function TodosPageNew() {
   // Local state
   const [searchQuery] = useState('');
   const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
-  const [sortField, setSortField] = useState<SortField>('created_at');
+  const [sortField, setSortField] = useState<SortField>('createdAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const { updatePreference } = useViewPreferences();
@@ -144,7 +144,7 @@ export function TodosPageNew() {
     projectIds: [] as string[],
     isExclusive: false,
     start_date: '',
-    due_date: '',
+    dueDate: '',
     priority: 1,
     tags: [] as string[]
   });
@@ -248,7 +248,7 @@ export function TodosPageNew() {
         projectIds: todoForm.projectIds,
         isExclusive: todoForm.isExclusive,
         start_date: todoForm.start_date || undefined,
-        due_date: todoForm.due_date || undefined,
+        dueDate: todoForm.dueDate || undefined,
         priority: todoForm.priority,
         tags: todoForm.tags
       });
@@ -260,7 +260,7 @@ export function TodosPageNew() {
         projectIds: [],
         isExclusive: false,
         start_date: '',
-        due_date: '',
+        dueDate: '',
         priority: 1,
         tags: []
       });
@@ -328,7 +328,7 @@ export function TodosPageNew() {
 
   const handleToggleArchive = async (todo: TodoItem) => {
     try {
-      if (todo.is_archived) {
+      if (todo.isArchived) {
         await unarchiveTodo(todo.uuid);
         notifications.show({
           title: 'Success',
@@ -467,7 +467,7 @@ export function TodosPageNew() {
             projectIds: todo.projectIds || [],
             isExclusive: todo.isExclusive || false,
             start_date: todo.start_date || '',
-            due_date: todo.due_date || '',
+            dueDate: todo.dueDate || '',
             priority: todo.priority || 1,
             tags: todo.tags || []
           });
@@ -488,7 +488,7 @@ export function TodosPageNew() {
             projectIds: todo.projectIds || [],
             isExclusive: todo.isExclusive || false,
             start_date: todo.start_date || '',
-            due_date: todo.due_date || '',
+            dueDate: todo.dueDate || '',
             priority: todo.priority || 1,
             tags: todo.tags || []
           });
@@ -514,9 +514,9 @@ export function TodosPageNew() {
               <Badge size="xs" variant="light" color="orange">
                 Priority {todo.priority}
               </Badge>
-              {todo.due_date && (
+              {todo.dueDate && (
                 <Badge size="xs" variant="light" color="red">
-                  {formatDueDate(todo.due_date)}
+                  {formatDueDate(todo.dueDate)}
                 </Badge>
               )}
             </Group>
@@ -583,8 +583,8 @@ export function TodosPageNew() {
             <TextInput
               label="Due Date"
               type="date"
-              value={todoForm.due_date}
-              onChange={(e) => setTodoForm(prev => ({ ...prev, due_date: e.target.value }))}
+              value={todoForm.dueDate}
+              onChange={(e) => setTodoForm(prev => ({ ...prev, dueDate: e.target.value }))}
               style={{ flex: 1 }}
             />
           </Group>

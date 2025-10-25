@@ -22,8 +22,8 @@ class DiaryService {
   // --- Encryption Methods ---
 
   async isEncryptionSetup(): Promise<boolean> {
-    const response = await apiService.get<{ is_setup: boolean }>(`${this.baseUrl}/encryption/status`);
-    return response.data.is_setup;
+    const response = await apiService.get<{ isSetup: boolean }>(`${this.baseUrl}/encryption/status`);
+    return response.data.isSetup;
   }
 
   async setupEncryption(password: string, hint?: string): Promise<{ key: CryptoKey | null; success: boolean }> {
@@ -57,12 +57,12 @@ class DiaryService {
     return diaryCryptoService.generateEncryptionKey(password);
   }
 
-  async encryptContent(content: string, key: CryptoKey): Promise<{ encrypted_blob: string; iv: string; char_count: number }> {
+  async encryptContent(content: string, key: CryptoKey): Promise<{ encryptedBlob: string; iv: string; charCount: number }> {
     return diaryCryptoService.encryptText(content, key);
   }
 
-  async decryptContent(encrypted_blob: string, _iv: string, key: CryptoKey): Promise<string> {
-    return diaryCryptoService.decryptText(encrypted_blob, key);
+  async decryptContent(encryptedBlob: string, _iv: string, key: CryptoKey): Promise<string> {
+    return diaryCryptoService.decryptText(encryptedBlob, key);
   }
 
   async getPasswordHint(): Promise<string> {
@@ -77,8 +77,8 @@ class DiaryService {
     month?: number;
     mood?: number;
     templates?: boolean;
-    search_title?: string;
-    day_of_week?: number;
+    searchTitle?: string;
+    dayOfWeek?: number;
     limit?: number;
     offset?: number;
   }): Promise<DiaryEntrySummary[]> {
@@ -88,8 +88,9 @@ class DiaryService {
     if (filters?.month) params.append('month', filters.month.toString());
     if (filters?.mood) params.append('mood', filters.mood.toString());
     if (typeof filters?.templates === 'boolean') params.append('templates', String(filters.templates));
-    if (filters?.search_title) params.append('search_title', filters.search_title);
-    if (filters?.day_of_week !== undefined) params.append('day_of_week', filters.day_of_week.toString());
+    // Query parameters must remain snake_case (not converted by CamelCaseModel)
+    if (filters?.searchTitle) params.append('search_title', filters.searchTitle);
+    if (filters?.dayOfWeek !== undefined) params.append('day_of_week', filters.dayOfWeek.toString());
     if (filters?.limit) params.append('limit', filters.limit.toString());
     if (filters?.offset) params.append('offset', filters.offset.toString());
     
@@ -144,7 +145,7 @@ class DiaryService {
     return response.data;
   }
 
-  async updateDailyMetadata(date: string, payload: Partial<Omit<DiaryDailyMetadata, 'date' | 'created_at' | 'updated_at'>> & {
+  async updateDailyMetadata(date: string, payload: Partial<Omit<DiaryDailyMetadata, 'date' | 'createdAt' | 'updatedAt'>> & {
     metrics?: Record<string, any>;
   }): Promise<DiaryDailyMetadata> {
     const response = await apiService.put<DiaryDailyMetadata>(`${this.baseUrl}/daily-metadata/${date}`, payload);
@@ -235,8 +236,8 @@ class DiaryService {
         description: caption || null,
         tags: [],
         diary_entry_uuid: entryUuid,  // Backend creates document_diary association
-        is_encrypted: key !== undefined,  // Track encryption status
-        original_name: file.name
+        isEncrypted: key !== undefined,  // Track encryption status
+        originalName: file.name
       });
 
       if (onProgress) {
@@ -347,10 +348,10 @@ class DiaryService {
       }
     }
 
-    // Proceed with linking (with is_encrypted flag)
+    // Proceed with linking (with isEncrypted flag)
     await apiService.post(`${this.baseUrl}/entries/${entryUuid}/documents:link`, {
       document_uuids: [documentUuid],
-      is_encrypted: isEncrypted
+      isEncrypted: isEncrypted
     });
   }
 

@@ -162,11 +162,11 @@ export function ProjectsPage() {
     try {
       await todosService.updateProject(project.uuid!, {
         ...project,
-        is_archived: !project.is_archived
+        isArchived: !project.isArchived
       });
       notifications.show({
         title: 'Success',
-        message: `Project ${project.is_archived ? 'unarchived' : 'archived'}`,
+        message: `Project ${project.isArchived ? 'unarchived' : 'archived'}`,
         color: 'green'
       });
       loadProjects();
@@ -307,10 +307,10 @@ export function ProjectsPage() {
                           </Group>
                           <ActionMenu
                             onEdit={() => openEditModal(project)}
-                            onArchive={project.is_archived ? undefined : () => handleArchiveToggle(project)}
-                            onUnarchive={project.is_archived ? () => handleArchiveToggle(project) : undefined}
+                            onArchive={project.isArchived ? undefined : () => handleArchiveToggle(project)}
+                            onUnarchive={project.isArchived ? () => handleArchiveToggle(project) : undefined}
                             onDelete={() => handleDelete(project)}
-                            isArchived={project.is_archived}
+                            isArchived={project.isArchived}
                             variant="subtle"
                             color="gray"
                             size={16}

@@ -81,11 +81,11 @@ export function TodosLayout({
   const getTabCount = (tab: string) => {
     switch (tab) {
       case 'ongoing':
-        return todos.filter(t => t.status !== 'completed' && !t.is_archived).length;
+        return todos.filter(t => t.status !== 'completed' && !t.isArchived).length;
       case 'completed':
-        return todos.filter(t => t.status === 'completed' && !t.is_archived).length;
+        return todos.filter(t => t.status === 'completed' && !t.isArchived).length;
       case 'archived':
-        return todos.filter(t => t.is_archived).length;
+        return todos.filter(t => t.isArchived).length;
       default:
         return 0;
     }
@@ -94,11 +94,11 @@ export function TodosLayout({
   const getFilteredTodos = () => {
     switch (activeTab) {
       case 'ongoing':
-        return todos.filter(t => t.status !== 'completed' && !t.is_archived);
+        return todos.filter(t => t.status !== 'completed' && !t.isArchived);
       case 'completed':
-        return todos.filter(t => t.status === 'completed' && !t.is_archived);
+        return todos.filter(t => t.status === 'completed' && !t.isArchived);
       case 'archived':
-        return todos.filter(t => t.is_archived);
+        return todos.filter(t => t.isArchived);
       default:
         return todos;
     }

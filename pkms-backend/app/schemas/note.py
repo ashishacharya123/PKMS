@@ -1,20 +1,13 @@
-from pydantic import BaseModel, Field, ConfigDict, field_validator
-from pydantic.alias_generators import to_camel
+from pydantic import Field, field_validator
 from typing import List, Optional
 from datetime import datetime
 import re
+from .base import CamelCaseModel
 
 # UUID4 regex pattern - hoisted to module scope for performance
 UUID4_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
 
 from app.schemas.project import ProjectBadge
-
-class CamelCaseModel(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=to_camel,
-        populate_by_name=True,
-        from_attributes=True
-    )
 
 
 class NoteCreate(CamelCaseModel):

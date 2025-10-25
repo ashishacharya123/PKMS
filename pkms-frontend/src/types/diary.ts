@@ -1,25 +1,25 @@
 export interface DiaryDailyMetrics {
   // Core wellness metrics (matching backend default_habits_json)
-  sleep_duration?: number;     // hours
-  stress_level?: number;       // 1-5 scale  
-  exercise_minutes?: number;   // minutes
-  meditation_minutes?: number; // minutes
-  screen_time?: number;       // hours
+  sleepDuration?: number;     // hours
+  stressLevel?: number;       // 1-5 scale  
+  exerciseMinutes?: number;   // minutes
+  meditationMinutes?: number; // minutes
+  screenTime?: number;       // hours
   steps?: number;             // step count
   learning?: number;           // learning minutes
   outdoor?: number;           // outdoor hours
   social?: number;            // social interaction hours
   
   // Custom fields for user-defined habits
-  custom_fields?: Record<string, any>;
+  customFields?: Record<string, unknown>;
 }
 
 export interface DiaryDailyMetadata {
   date: string;
-  nepali_date?: string;
+  nepaliDate?: string;
   metrics: DiaryDailyMetrics;
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export const WEATHER_CODES = [
@@ -37,51 +37,51 @@ export type WeatherCode = typeof WEATHER_CODES[number]['value'];
 export interface DiaryEntry {
   uuid: string;
   date: string;
-  nepali_date?: string;
+  nepaliDate?: string;
   title?: string;
-  encrypted_blob: string;
-  encryption_iv: string;
+  encryptedBlob: string;
+  encryptionIv: string;
   mood?: number;
-  weather_code?: WeatherCode;
-  weather_label?: string;
+  weatherCode?: WeatherCode;
+  weatherLabel?: string;
   location?: string;
-  daily_metrics: DiaryDailyMetrics;
+  dailyMetrics: DiaryDailyMetrics;
   // Top-level financial fields (backend structure)
-  daily_income?: number;
-  daily_expense?: number;
-  is_office_day?: boolean;
-  is_template?: boolean;
-  from_template_id?: string | null;
-  created_at: string;
-  updated_at: string;
-  file_count: number;
+  dailyIncome?: number;
+  dailyExpense?: number;
+  isOfficeDay?: boolean;
+  isTemplate?: boolean;
+  fromTemplateId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  fileCount: number;
   tags: string[];
-  content_length?: number;
+  contentLength?: number;
 }
 
 export interface DiaryEntrySummary {
   uuid: string;
   date: string;
-  nepali_date?: string;
+  nepaliDate?: string;
   title?: string;
   mood?: number;
-  weather_code?: WeatherCode;
-  weather_label?: string;
+  weatherCode?: WeatherCode;
+  weatherLabel?: string;
   location?: string;
-  daily_metrics: DiaryDailyMetrics;
+  dailyMetrics: DiaryDailyMetrics;
   // Top-level financial fields (backend structure)
-  daily_income?: number;
-  daily_expense?: number;
-  is_office_day?: boolean;
-  is_template?: boolean;
-  from_template_id?: string | null;
-  created_at: string;
-  file_count: number;
-  encrypted_blob: string;
-  encryption_iv: string;
+  dailyIncome?: number;
+  dailyExpense?: number;
+  isOfficeDay?: boolean;
+  isTemplate?: boolean;
+  fromTemplateId?: string | null;
+  createdAt: string;
+  fileCount: number;
+  encryptedBlob: string;
+  encryptionIv: string;
   tags: string[];
-  content_length?: number;
-  is_favorite?: boolean;
+  contentLength?: number;
+  isFavorite?: boolean;
 }
 
 export interface DiaryFormValues {
@@ -90,30 +90,30 @@ export interface DiaryFormValues {
   title: string;
   content: string;
   mood: number;
-  weather_code?: WeatherCode;
+  weatherCode?: WeatherCode;
   location?: string;
-  daily_metrics: DiaryDailyMetrics;
-  nepali_date?: string;
+  dailyMetrics: DiaryDailyMetrics;
+  nepaliDate?: string;
   tags: string[];
-  is_template?: boolean;
-  template_uuid?: string | null;
-  from_template_id?: string | null;
+  isTemplate?: boolean;
+  templateUuid?: string | null;
+  fromTemplateId?: string | null;
 }
 
 export interface DiaryEntryCreatePayload {
   date: string;
   title?: string;
-  encrypted_blob: string;
-  encryption_iv: string;
+  encryptedBlob: string;
+  encryptionIv: string;
   mood?: number;
-  weather_code?: WeatherCode;
+  weatherCode?: WeatherCode;
   location?: string;
-  content_length?: number;
-  daily_metrics?: DiaryDailyMetrics;
-  nepali_date?: string;
+  contentLength?: number;
+  dailyMetrics?: DiaryDailyMetrics;
+  nepaliDate?: string;
   tags?: string[];
-  is_template?: boolean;
-  from_template_id?: string | null;
+  isTemplate?: boolean;
+  fromTemplateId?: string | null;
 }
 
 export interface DiaryEntryUpdatePayload extends DiaryEntryCreatePayload {
@@ -122,15 +122,15 @@ export interface DiaryEntryUpdatePayload extends DiaryEntryCreatePayload {
 
 export interface DiaryCalendarData {
   date: string;
-  has_entry: boolean;
+  hasEntry: boolean;
   mood?: number;
-  file_count: number;
+  fileCount: number;
 }
 
 export interface MoodStats {
-  total_entries: number;
-  average_mood: number;
-  mood_distribution: Record<number, number>;
+  totalEntries: number;
+  averageMood: number;
+  moodDistribution: Record<number, number>;
 }
 
 export interface WellnessTrendPoint {
@@ -289,5 +289,11 @@ export interface HabitInsights {
   };
 }
 
+/**
+ * URL Query Parameter Values - MUST stay snake_case
+ * These values are sent to the backend API as URL query parameters
+ * (e.g., ?sort_by=created_at&sort_order=desc)
+ * The Pydantic CamelCaseModel only converts JSON request/response bodies, not URL parameters
+ */
 export type SortField = 'date' | 'created_at' | 'mood';
 export type SortOrder = 'asc' | 'desc'; 

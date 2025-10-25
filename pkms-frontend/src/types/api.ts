@@ -8,9 +8,9 @@ export interface ApiResponse<T = any> {
 }
 
 export interface TokenRefreshResponse {
-  access_token: string;
-  expires_in: number;
-  user_id: number;
+  accessToken: string;
+  expiresIn: number;
+  userId: number;
   username: string;
 }
 

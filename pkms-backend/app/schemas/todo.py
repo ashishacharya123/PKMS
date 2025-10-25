@@ -1,7 +1,7 @@
-from pydantic import BaseModel, Field, ConfigDict, field_validator
-from pydantic.alias_generators import to_camel
+from pydantic import Field, field_validator
 from typing import Optional, List
 from datetime import datetime, date
+from .base import CamelCaseModel
 
 from app.models.enums import TodoStatus, TaskPriority
 from app.schemas.project import ProjectBadge

@@ -8,7 +8,7 @@ for system validation and troubleshooting.
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, text
+from sqlalchemy import select, and_, text, func
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 import json
@@ -36,8 +36,7 @@ async def get_session_status(
 ):
     """Get current session status and timing information for testing session extension."""
     try:
-        from app.models.user import Session
-        from datetime import datetime
+        # Session and datetime already imported at module scope
 
         # Get current user's active session
         session_result = await db.execute(
@@ -557,8 +556,8 @@ async def verify_system_time():
             "utc_time": now_utc.isoformat(),
             "local_time": now_local.isoformat(),
             "timezone": str(NEPAL_TZ),
-            "utc_offset_hours": NEPAL_TZ.utcoffset(now_utc).total_seconds() / 3600,
-            "is_dst": NEPAL_TZ.dst(now_utc).total_seconds() > 0,
+            "utc_offset_hours": (now_local.utcoffset().total_seconds() / 3600) if now_local.utcoffset() else 0,
+            "is_dst": (now_local.dst().total_seconds() > 0) if now_local.dst() else False,
             "time_format_checks": {
                 "iso_format_utc": now_utc.isoformat(),
                 "iso_format_local": now_local.isoformat(),
@@ -591,4 +590,8 @@ async def diary_encryption_test_alias(
     db: AsyncSession = Depends(get_db)
 ):
     """Alias that forwards to the main diary encryption test endpoint."""
-    return await test_diary_encryption(current_user, db)
+    return await test_diary_encryption(
+        test_content=None,
+        current_user=current_user,
+        db=db
+    )

@@ -4,23 +4,15 @@ Project Schemas for PKMS
 Complete schemas for Project model including all fields and relationships.
 Used across todos, notes, documents, and archive modules.
 """
-from pydantic import BaseModel, Field, ConfigDict, field_validator
-from pydantic.alias_generators import to_camel
+from pydantic import Field, field_validator
 from typing import Optional, List, Dict, Any, Annotated, Literal
 from datetime import datetime, date
+from .base import CamelCaseModel
 
 from app.models.enums import ProjectStatus, TaskPriority
 
 # Pydantic v2-compatible list constraints
 Tags = Annotated[List[str], Field(max_length=20)]
-
-
-class CamelCaseModel(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=to_camel,
-        populate_by_name=True,
-        from_attributes=True
-    )
 
 
 class ProjectCreate(CamelCaseModel):

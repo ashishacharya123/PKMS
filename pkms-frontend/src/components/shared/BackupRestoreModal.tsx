@@ -45,8 +45,8 @@ import {
 interface BackupOperation {
   status: 'success' | 'error';
   message: string;
-  backup_filename?: string;
-  file_size_bytes?: number;
+  backupFilename?: string;
+  fileSizeBytes?: number;
   timestamp: string;
   warning?: string;
 }
@@ -241,7 +241,7 @@ export function BackupRestoreModal({ opened, onClose }: BackupRestoreModalProps)
       if (response.status === 'success') {
         notifications.show({
           title: 'Backup Created',
-          message: `Backup created: ${response.backup_filename}`,
+          message: `Backup created: ${response.backupFilename}`,
           color: 'green',
           icon: <IconCheck size={16} />,
         });
@@ -415,9 +415,9 @@ export function BackupRestoreModal({ opened, onClose }: BackupRestoreModalProps)
               icon={lastOperation.status === 'success' ? <IconCheck size={16} /> : <IconX size={16} />}
             >
               <Text size="sm">{lastOperation.message}</Text>
-              {lastOperation.backup_filename && (
+              {lastOperation.backupFilename && (
                 <Text size="xs" mt="xs">
-                  File: {lastOperation.backup_filename} ({formatFileSize(lastOperation.file_size_bytes || 0)})
+                  File: {lastOperation.backupFilename} ({formatFileSize(lastOperation.fileSizeBytes || 0)})
                 </Text>
               )}
               <Text size="xs" c="dimmed">
@@ -569,7 +569,7 @@ export function BackupRestoreModal({ opened, onClose }: BackupRestoreModalProps)
               onChange={(value) => setSelectedBackup(value || '')}
               data={backups.map(backup => ({
                 value: backup.filename,
-                label: `${backup.filename} (${formatFileSize(backup.file_size_bytes)}) - ${formatDateTime(backup.created_at)}`
+                label: `${backup.filename} (${formatFileSize(backup.fileSizeBytes)}) - ${formatDateTime(backup.createdAt)}`
               }))}
             />
 
@@ -582,7 +582,7 @@ export function BackupRestoreModal({ opened, onClose }: BackupRestoreModalProps)
                   const backup = backups.find(b => b.filename === selectedBackup);
                   return backup ? (
                     <Text size="xs" c="dimmed">
-                      Size: {formatFileSize(backup.file_size_bytes)} • Created: {formatDateTime(backup.created_at)}
+                      Size: {formatFileSize(backup.fileSizeBytes)} • Created: {formatDateTime(backup.createdAt)}
                     </Text>
                   ) : null;
                 })()}
@@ -752,10 +752,10 @@ export function BackupRestoreModal({ opened, onClose }: BackupRestoreModalProps)
                     </Group>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm">{formatFileSize(backup.file_size_bytes)}</Text>
+                    <Text size="sm">{formatFileSize(backup.fileSizeBytes)}</Text>
                   </Table.Td>
                   <Table.Td>
-                    <Text size="sm">{formatDateTime(backup.created_at)}</Text>
+                    <Text size="sm">{formatDateTime(backup.createdAt)}</Text>
                   </Table.Td>
                   <Table.Td>
                     <Group gap="xs">

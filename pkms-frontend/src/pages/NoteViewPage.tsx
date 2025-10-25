@@ -40,12 +40,12 @@ export default function NoteViewPage() {
   const handleToggleArchive = async () => {
     if (!note) return;
     try {
-      await notesService.toggleArchive(note.uuid, !note.is_archived);
+      await notesService.toggleArchive(note.uuid, !note.isArchived);
       // Update local state after successful toggle
-      setNote({ ...note, is_archived: !note.is_archived });
+      setNote({ ...note, isArchived: !note.isArchived });
       notifications.show({
-        title: !note.is_archived ? 'Unarchived' : 'Archived',
-        message: !note.is_archived ? 'Note moved back to active' : 'Note moved to archive',
+        title: !note.isArchived ? 'Unarchived' : 'Archived',
+        message: !note.isArchived ? 'Note moved back to active' : 'Note moved to archive',
         color: 'green'
       });
     } catch (err) {
@@ -105,7 +105,7 @@ export default function NoteViewPage() {
             <Button variant="subtle" leftSection={<IconArrowLeft size={16} />} onClick={() => navigate('/notes')}>
               Back to Notes
             </Button>
-            {note.is_archived && (
+            {note.isArchived && (
               <Badge variant="light" color="gray">Archived</Badge>
             )}
           </Group>
@@ -115,10 +115,10 @@ export default function NoteViewPage() {
             </Button>
             <Button
               variant="subtle"
-              leftSection={note.is_archived ? <IconArchiveOff size={16} /> : <IconArchive size={16} />}
+              leftSection={note.isArchived ? <IconArchiveOff size={16} /> : <IconArchive size={16} />}
               onClick={handleToggleArchive}
             >
-              {note.is_archived ? 'Unarchive' : 'Archive'}
+              {note.isArchived ? 'Unarchive' : 'Archive'}
             </Button>
             <Button color="red" variant="light" leftSection={<IconTrash size={16} />} onClick={handleDelete}>
               Delete
@@ -134,7 +134,7 @@ export default function NoteViewPage() {
             ))}
           </Group>
           <Text size="xs" c="dimmed" mb="md">
-            Updated {new Date(note.updated_at).toLocaleString()}
+            Updated {new Date(note.updatedAt).toLocaleString()}
           </Text>
           <Paper p="md">
             <MDEditor.Markdown source={note.content} />

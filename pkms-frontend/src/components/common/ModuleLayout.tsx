@@ -10,7 +10,7 @@ import ViewModeLayouts from './ViewModeLayouts';
 import ItemActionMenu from './ItemActionMenu';
 import { ModuleLayoutProps } from '../../types/common';
 
-export function ModuleLayout<T extends { uuid: string; name: string; title?: string; is_favorite: boolean; is_archived: boolean; created_by: string; created_at: string; updated_at: string }>({
+export function ModuleLayout<T extends { uuid: string; name: string; title?: string; isFavorite: boolean; isArchived: boolean; createdBy: string; createdAt: string; updatedAt: string }>({
   items,
   viewMode,
   onItemClick,

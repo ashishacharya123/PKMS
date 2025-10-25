@@ -1,18 +1,11 @@
-from pydantic import BaseModel, Field, ConfigDict, validator, EmailStr
-from pydantic.alias_generators import to_camel
+from pydantic import Field, validator, EmailStr
 from typing import Optional, List
 from datetime import datetime
 import re
+from .base import CamelCaseModel
 
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{3,50}$')
 SAFE_STRING_PATTERN = re.compile(r'^[a-zA-Z0-9\s\-_.,!?\\\'"()[\]{}@#$%^&*+=|\\:;<>/~`]{1,500}$')
-
-class CamelCaseModel(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=to_camel,
-        populate_by_name=True,
-        from_attributes=True
-    )
 
 class UserSetup(CamelCaseModel):
     username: str = Field(..., min_length=3, max_length=50)

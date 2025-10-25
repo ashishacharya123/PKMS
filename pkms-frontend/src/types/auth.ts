@@ -23,15 +23,15 @@ export interface User {
   id: number;
   username: string;
   email?: string;
-  is_active: boolean;
-  is_first_login: boolean;
-  settings_json: string;
-  login_password_hint?: string;
-  diary_password_hint?: string;
+  isActive: boolean;
+  isFirstLogin: boolean;
+  settingsJson: string;
+  loginPasswordHint?: string;
+  diaryPasswordHint?: string;
   // Timestamps
-  created_at: string;
-  updated_at: string;
-  last_login?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastLogin?: string;
   // Computed/helper properties
   settings: UserSettings;  // Parsed from settings_json
   isAuthenticated?: boolean;  // Runtime auth status
@@ -42,13 +42,13 @@ export interface UserSetup {
   username: string;
   password: string;
   email?: string;
-  login_password_hint?: string;
+  loginPasswordHint?: string;
   // Recovery questions (mandatory)
-  recovery_questions: string[];
-  recovery_answers: string[];
+  recoveryQuestions: string[];
+  recoveryAnswers: string[];
   // Diary password (optional)
-  diary_password?: string;
-  diary_password_hint?: string;
+  diaryPassword?: string;
+  diaryPasswordHint?: string;
 }
 
 export interface LoginCredentials {
@@ -57,8 +57,8 @@ export interface LoginCredentials {
 }
 
 export interface PasswordChange {
-  current_password: string;
-  new_password: string;
+  currentPassword: string;
+  newPassword: string;
 }
 
 export interface RecoverySetup {
@@ -69,7 +69,7 @@ export interface RecoverySetup {
 export interface RecoveryReset {
   username: string;
   answers: string[];
-  new_password: string;
+  newPassword: string;
 }
 
 export interface AuthResponse {
@@ -82,7 +82,7 @@ export interface AuthResponse {
 }
 
 export interface RecoveryKeyResponse {
-  recovery_key: string;
+  recoveryKey: string;
   message: string;
 }
 

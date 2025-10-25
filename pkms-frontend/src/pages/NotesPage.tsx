@@ -42,12 +42,12 @@ import { ActionMenu } from '../components/common/ActionMenu';
 import { notesService } from '../services/notesService';
 import { PopularTagsWidget } from '../components/common/PopularTagsWidget';
 
-type SortField = 'title' | 'created_at' | 'updated_at';
+type SortField = 'title' | 'createdAt' | 'updatedAt';
 type SortOrder = 'asc' | 'desc';
 
 // Utility functions for notes
 const getNoteIcon = (note: any): string => {
-  if (note.is_archived) return '📦';
+  if (note.isArchived) return '📦';
   if (note.tags?.includes('important')) return '⭐';
   if (note.tags?.includes('draft')) return '📝';
   if (note.tags?.includes('idea')) return '💡';
@@ -71,7 +71,7 @@ export function NotesPage() {
   // Local state
   const [searchQuery] = useState('');
   const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
-  const [sortField, setSortField] = useState<SortField>('updated_at');
+  const [sortField, setSortField] = useState<SortField>('updatedAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const { getPreference, updatePreference } = useViewPreferences();
@@ -301,10 +301,10 @@ export function NotesPage() {
                   Title
                 </Button>
                 <Button
-                  variant={sortField === 'updated_at' ? 'filled' : 'subtle'}
+                  variant={sortField === 'updatedAt' ? 'filled' : 'subtle'}
                   size="xs"
-                  leftSection={sortField === 'updated_at' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
-                  onClick={() => handleSort('updated_at')}
+                  leftSection={sortField === 'updatedAt' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
+                  onClick={() => handleSort('updatedAt')}
                 >
                   Updated
                 </Button>
@@ -349,7 +349,7 @@ export function NotesPage() {
               renderSmallIcon={(note) => (
                 <Stack gap={2} align="center">
                   <Text size="lg">{getNoteIcon(note)}</Text>
-                  {note.is_archived && (
+                  {note.isArchived && (
                     <Badge size="xs" color="gray" variant="dot">A</Badge>
                   )}
                 </Stack>
@@ -366,18 +366,18 @@ export function NotesPage() {
                           notifications.show({ title: 'Action Failed', message: 'Could not update favorite', color: 'red' });
                         }
                       }}
-                      onArchive={note.is_archived ? undefined : async () => {
+                      onArchive={note.isArchived ? undefined : async () => {
                         try {
-                          await notesService.updateNote(note.uuid, { is_archived: true });
+                          await notesService.updateNote(note.uuid, { isArchived: true });
                           loadNotes();
                           notifications.show({ title: 'Note Archived', message: '', color: 'green' });
                         } catch {
                           notifications.show({ title: 'Action Failed', message: 'Could not archive', color: 'red' });
                         }
                       }}
-                      onUnarchive={note.is_archived ? async () => {
+                      onUnarchive={note.isArchived ? async () => {
                         try {
-                          await notesService.updateNote(note.uuid, { is_archived: false });
+                          await notesService.updateNote(note.uuid, { isArchived: false });
                           loadNotes();
                           notifications.show({ title: 'Note Unarchived', message: '', color: 'green' });
                         } catch {
@@ -390,7 +390,7 @@ export function NotesPage() {
                       }}
                       onDelete={() => handleDeleteNote(note.uuid, note.title)}
                       isFavorite={note.isFavorite}
-                      isArchived={note.is_archived}
+                      isArchived={note.isArchived}
                       variant="subtle"
                       color="gray"
                       size={14}
@@ -401,7 +401,7 @@ export function NotesPage() {
                     <Badge size="xs" variant="light" color="blue">
                       {getWordCount(note.preview)} words
                     </Badge>
-                    {note.is_archived && (
+                    {note.isArchived && (
                       <Badge size="xs" color="gray" variant="light">
                         Archived
                       </Badge>
@@ -426,7 +426,7 @@ export function NotesPage() {
                         >
                           {note.title}
                         </Text>
-                        {note.is_archived && (
+                        {note.isArchived && (
                           <Badge size="xs" color="gray" variant="light">
                             Archived
                           </Badge>
@@ -447,7 +447,7 @@ export function NotesPage() {
                           </Badge>
                         )}
                         <Text size="xs" c="dimmed">
-                          {formatDate(note.updated_at)}
+                          {formatDate(note.updatedAt)}
                         </Text>
                         <ProjectBadges projects={note.projects || []} size="xs" maxVisible={2} />
                         {(note.tags || []).slice(0, 2).map((tag: string) => (
@@ -510,9 +510,9 @@ export function NotesPage() {
                         notifications.show({ title: 'Action Failed', message: 'Could not update favorite', color: 'red' });
                       }
                     }}
-                    onArchive={note.is_archived ? undefined : async () => {
+                    onArchive={note.isArchived ? undefined : async () => {
                       try {
-                        await notesService.updateNote(note.uuid, { is_archived: true });
+                        await notesService.updateNote(note.uuid, { isArchived: true });
                         loadNotes();
                         notifications.show({
                           title: 'Note Archived',
@@ -523,9 +523,9 @@ export function NotesPage() {
                         notifications.show({ title: 'Action Failed', message: 'Could not archive', color: 'red' });
                       }
                     }}
-                    onUnarchive={note.is_archived ? async () => {
+                    onUnarchive={note.isArchived ? async () => {
                       try {
-                        await notesService.updateNote(note.uuid, { is_archived: false });
+                        await notesService.updateNote(note.uuid, { isArchived: false });
                         loadNotes();
                         notifications.show({
                           title: 'Note Unarchived',
@@ -539,7 +539,7 @@ export function NotesPage() {
                     onEdit={() => navigate(`/notes/${note.uuid}`)}
                     onDelete={() => handleDeleteNote(note.uuid, note.title)}
                     isFavorite={note.isFavorite}
-                    isArchived={note.is_archived}
+                    isArchived={note.isArchived}
                     variant="subtle"
                     color="gray"
                     size={16}
@@ -602,13 +602,13 @@ export function NotesPage() {
                   )}
                 </Group>,
                 <Text key="created" size="xs" c="dimmed">
-                  {formatDate(note.created_at)}
+                  {formatDate(note.createdAt)}
                 </Text>,
                 <Text key="updated" size="xs" c="dimmed">
-                  {formatDate(note.updated_at)}
+                  {formatDate(note.updatedAt)}
                 </Text>,
                 <Group key="status" gap="xs">
-                  {note.is_archived && (
+                  {note.isArchived && (
                     <Badge size="xs" color="gray" variant="light">
                       Archived
                     </Badge>
@@ -623,22 +623,22 @@ export function NotesPage() {
                       notifications.show({ title: note.isFavorite ? 'Removed from Favorites' : 'Added to Favorites', message: '', color: 'pink' });
                     } catch {}
                   }}
-                  onArchive={note.is_archived ? undefined : async () => {
+                  onArchive={note.isArchived ? undefined : async () => {
                     try {
-                      await notesService.updateNote(note.uuid, { is_archived: true });
+                      await notesService.updateNote(note.uuid, { isArchived: true });
                       loadNotes();
                     } catch {}
                   }}
-                  onUnarchive={note.is_archived ? async () => {
+                  onUnarchive={note.isArchived ? async () => {
                     try {
-                      await notesService.updateNote(note.uuid, { is_archived: false });
+                      await notesService.updateNote(note.uuid, { isArchived: false });
                       loadNotes();
                     } catch {}
                   } : undefined}
                   onEdit={() => navigate(`/notes/${note.uuid}`)}
                   onDelete={() => handleDeleteNote(note.uuid, note.title)}
                   isFavorite={note.isFavorite}
-                  isArchived={note.is_archived}
+                  isArchived={note.isArchived}
                   variant="subtle"
                   color="gray"
                   size={14}

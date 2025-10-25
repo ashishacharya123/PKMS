@@ -129,11 +129,11 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     
     try {
       const params: DocumentsListParams = {
-        mime_type: state.currentMimeType || undefined,
+        mimeType: state.currentMimeType || undefined,
         tag: state.currentTag || undefined,
         search: state.searchQuery || undefined,
         archived: state.showArchived,
-        is_favorite: state.showFavoritesOnly || undefined,
+        isFavorite: state.showFavoritesOnly || undefined,
         project_uuid: state.currentProjectId || undefined,
         project_only: state.showProjectOnly || undefined,
         // REMOVED: unassigned_only - was backwards logic causing uploaded docs to be hidden
@@ -186,18 +186,18 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       // Convert Document to DocumentSummary for the list
       const documentSummary: DocumentSummary = {
         uuid: document.uuid,
-        title: document.original_name, // Use original_name as title
+        title: document.originalName, // Use originalName as title
         filename: document.filename,
-        original_name: document.original_name,
-        file_path: document.file_path,
-        file_size: document.file_size,
-        mime_type: document.mime_type,
+        originalName: document.originalName,
+        filePath: document.filePath,
+        fileSize: document.fileSize,
+        mimeType: document.mimeType,
         isExclusiveMode: (document as any).isExclusiveMode ?? false,
-        is_favorite: document.is_favorite ?? false,
-        is_archived: document.is_archived,
+        isFavorite: document.isFavorite ?? false,
+        isArchived: document.isArchived,
         // upload_status field removed - backend no longer tracks upload status
-        created_at: document.created_at,
-        updated_at: document.updated_at,
+        createdAt: document.createdAt,
+        updatedAt: document.updatedAt,
         tags: document.tags,
         projects: (document as any).projects ?? []
       };
@@ -206,11 +206,11 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       const state = get();
       
       // Check if document matches current filters
-      const matchesMimeType = !state.currentMimeType || document.mime_type === state.currentMimeType;
+      const matchesMimeType = !state.currentMimeType || document.mimeType === state.currentMimeType;
       const matchesTag = !state.currentTag || document.tags.includes(state.currentTag);
-      const matchesSearch = !state.searchQuery || document.original_name.toLowerCase().includes(state.searchQuery.toLowerCase());
-      const matchesArchived = state.showArchived || !document.is_archived;
-      const matchesFavorite = !state.showFavoritesOnly || document.is_favorite;
+      const matchesSearch = !state.searchQuery || document.originalName.toLowerCase().includes(state.searchQuery.toLowerCase());
+      const matchesArchived = state.showArchived || !document.isArchived;
+      const matchesFavorite = !state.showFavoritesOnly || document.isFavorite;
       
       // Check project filter: if showProjectOnly is true, only show documents with project_id
       // For now, assume uploaded documents are unassigned (no project), so they should show when !showProjectOnly
@@ -263,17 +263,17 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       const documentSummary: DocumentSummary = {
         uuid: updatedDocument.uuid,
         title: updatedDocument.title,
-        original_name: updatedDocument.original_name,
+        originalName: updatedDocument.originalName,
         filename: updatedDocument.filename,
-        file_path: updatedDocument.file_path,
-        file_size: updatedDocument.file_size,
-        mime_type: updatedDocument.mime_type,
+        filePath: updatedDocument.filePath,
+        fileSize: updatedDocument.fileSize,
+        mimeType: updatedDocument.mimeType,
         description: updatedDocument.description,
-        is_favorite: updatedDocument.is_favorite,
-        is_archived: updatedDocument.is_archived,
+        isFavorite: updatedDocument.isFavorite,
+        isArchived: updatedDocument.isArchived,
         // upload_status field removed - backend no longer tracks upload status
-        created_at: updatedDocument.created_at,
-        updated_at: updatedDocument.updated_at,
+        createdAt: updatedDocument.createdAt,
+        updatedAt: updatedDocument.updatedAt,
         tags: updatedDocument.tags,
         isExclusiveMode: updatedDocument.isExclusiveMode ?? false,
         projects: updatedDocument.projects ?? [],
@@ -331,17 +331,17 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       const documentSummary: DocumentSummary = {
         uuid: updatedDocument.uuid,
         title: updatedDocument.title,
-        original_name: updatedDocument.original_name,
+        originalName: updatedDocument.originalName,
         filename: updatedDocument.filename,
-        file_path: updatedDocument.file_path,
-        file_size: updatedDocument.file_size,
-        mime_type: updatedDocument.mime_type,
+        filePath: updatedDocument.filePath,
+        fileSize: updatedDocument.fileSize,
+        mimeType: updatedDocument.mimeType,
         description: updatedDocument.description,
-        is_favorite: updatedDocument.is_favorite,
-        is_archived: updatedDocument.is_archived,
+        isFavorite: updatedDocument.isFavorite,
+        isArchived: updatedDocument.isArchived,
         // upload_status field removed - backend no longer tracks upload status
-        created_at: updatedDocument.created_at,
-        updated_at: updatedDocument.updated_at,
+        createdAt: updatedDocument.createdAt,
+        updatedAt: updatedDocument.updatedAt,
         tags: updatedDocument.tags,
         isExclusiveMode: updatedDocument.isExclusiveMode ?? false,
         projects: updatedDocument.projects ?? [],
@@ -354,7 +354,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
           get().loadDocuments();
           return { isUpdating: false } as any;
         }
-        const shouldShow = state.showArchived || !documentSummary.is_archived;
+        const shouldShow = state.showArchived || !documentSummary.isArchived;
         const updatedDocuments = shouldShow 
           ? state.documents.map(doc => doc.uuid === updatedDocument.uuid ? documentSummary : doc)
           : state.documents.filter(doc => doc.uuid !== updatedDocument.uuid);
@@ -460,18 +460,18 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
           'application/json'
         ];
         
-        if (previewableTypes.includes((document as any).mime_type)) {
+        if (previewableTypes.includes((document as any).mimeType)) {
           window.open(objectUrl, '_blank');
         } else {
           const a = window.document.createElement('a');
           a.href = objectUrl;
-          a.download = (document as any).original_name || 'download';
+          a.download = (document as any).originalName || 'download';
           window.document.body.appendChild(a);
           a.click();
           window.document.body.removeChild(a);
         }
         // SECURITY: Revoke immediately for downloads, delay only for previews
-        if (previewableTypes.includes((document as any).mime_type)) {
+        if (previewableTypes.includes((document as any).mimeType)) {
           // For previews, revoke after a short delay to allow tab to load
           setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
         } else {

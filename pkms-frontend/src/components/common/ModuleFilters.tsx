@@ -106,10 +106,10 @@ export const MODULE_FILTER_CONFIGS = {
     ],
     sortOptions: [
       { value: 'name', label: 'Name' },
-      { value: 'created_at', label: 'Created Date' },
-      { value: 'updated_at', label: 'Modified Date' },
-      { value: 'file_size', label: 'File Size' },
-      { value: 'mime_type', label: 'File Type' },
+      { value: 'createdAt', label: 'Created Date' },
+      { value: 'updatedAt', label: 'Modified Date' },
+      { value: 'fileSize', label: 'File Size' },
+      { value: 'mimeType', label: 'File Type' },
     ]
   },
   
@@ -163,9 +163,9 @@ export const MODULE_FILTER_CONFIGS = {
       }
     ],
     sortOptions: [
-      { value: 'created_at', label: 'Created Date' },
-      { value: 'updated_at', label: 'Modified Date' },
-      { value: 'due_date', label: 'Due Date' },
+      { value: 'createdAt', label: 'Created Date' },
+      { value: 'updatedAt', label: 'Modified Date' },
+      { value: 'dueDate', label: 'Due Date' },
       { value: 'title', label: 'Title' },
       { value: 'priority', label: 'Priority' },
       { value: 'status', label: 'Status' },
@@ -201,9 +201,9 @@ export const MODULE_FILTER_CONFIGS = {
     ],
     sortOptions: [
       { value: 'title', label: 'Title' },
-      { value: 'created_at', label: 'Created Date' },
-      { value: 'updated_at', label: 'Modified Date' },
-      { value: 'size_bytes', label: 'Size' },
+      { value: 'createdAt', label: 'Created Date' },
+      { value: 'updatedAt', label: 'Modified Date' },
+      { value: 'sizeBytes', label: 'Size' },
     ]
   },
   
@@ -237,10 +237,10 @@ export const MODULE_FILTER_CONFIGS = {
     ],
     sortOptions: [
       { value: 'title', label: 'Title' },
-      { value: 'created_at', label: 'Created Date' },
-      { value: 'updated_at', label: 'Modified Date' },
-      { value: 'file_size', label: 'File Size' },
-      { value: 'mime_type', label: 'File Type' },
+      { value: 'createdAt', label: 'Created Date' },
+      { value: 'updatedAt', label: 'Modified Date' },
+      { value: 'fileSize', label: 'File Size' },
+      { value: 'mimeType', label: 'File Type' },
     ]
   },
   
@@ -285,9 +285,9 @@ export const MODULE_FILTER_CONFIGS = {
     ],
     sortOptions: [
       { value: 'name', label: 'Name' },
-      { value: 'created_at', label: 'Created Date' },
-      { value: 'updated_at', label: 'Modified Date' },
-      { value: 'due_date', label: 'Due Date' },
+      { value: 'createdAt', label: 'Created Date' },
+      { value: 'updatedAt', label: 'Modified Date' },
+      { value: 'dueDate', label: 'Due Date' },
       { value: 'status', label: 'Status' },
       { value: 'priority', label: 'Priority' },
     ]
@@ -304,9 +304,9 @@ const defaultDateRangeOptions = [
 
 const defaultSortOptions = [
   { value: 'name', label: 'Name' },
-  { value: 'created_at', label: 'Created Date' },
-  { value: 'updated_at', label: 'Modified Date' },
-  { value: 'file_size', label: 'File Size' },
+  { value: 'createdAt', label: 'Created Date' },
+  { value: 'updatedAt', label: 'Modified Date' },
+  { value: 'fileSize', label: 'File Size' },
 ];
 
 // Helper function to get module-specific configuration

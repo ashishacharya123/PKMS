@@ -1,15 +1,8 @@
-from pydantic import BaseModel, Field, ConfigDict
-from pydantic.alias_generators import to_camel
+from pydantic import Field
 from typing import Dict
 from datetime import datetime
 from app.models.enums import TodoStatsKey, ModuleStatsKey
-
-class CamelCaseModel(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=to_camel,
-        populate_by_name=True,
-        from_attributes=True
-    )
+from .base import CamelCaseModel
 
 class DashboardStats(CamelCaseModel):
     """Dashboard statistics model"""

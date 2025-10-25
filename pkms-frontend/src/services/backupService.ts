@@ -12,12 +12,12 @@ export interface BackupFile {
   filename: string;
   full_path: string;
   relative_path: string;
-  file_size_bytes: number;
-  file_size_kb: number;
-  file_size_mb: number;
-  created_at: string;
-  modified_at: string;
-  is_recent: boolean;
+  fileSizeBytes: number;
+  fileSizeKb: number;
+  fileSizeMb: number;
+  createdAt: string;
+  modifiedAt: string;
+  isRecent: boolean;
 }
 
 export interface BackupListResponse {
@@ -33,11 +33,11 @@ export interface BackupCreateResponse {
   status: string;
   message: string;
   backup_filename?: string;
-  backup_path?: string;
-  file_size_bytes?: number;
-  file_size_kb?: number;
-  file_size_mb?: number;
-  created_by?: string;
+  backupPath?: string;
+  fileSizeBytes?: number;
+  fileSizeKb?: number;
+  fileSizeMb?: number;
+  createdBy?: string;
   error?: string;
   note?: string;
   timestamp: string;
@@ -50,8 +50,8 @@ export interface BackupRestoreResponse {
   backup_info?: {
     filename: string;
     size_bytes: number;
-    size_mb: number;
-    created_at: string;
+    sizeMb: number;
+    createdAt: string;
   };
   warning?: string;
   restored_by?: string;
@@ -67,10 +67,10 @@ export interface BackupDeleteResponse {
   deleted_backup?: {
     filename: string;
     size_bytes: number;
-    size_mb: number;
-    created_at: string;
+    sizeMb: number;
+    createdAt: string;
   };
-  deleted_by?: string;
+  deletedBy?: string;
   error?: string;
   timestamp: string;
 }
@@ -82,7 +82,7 @@ export interface BackupInfoResponse {
     directory_exists: boolean;
     backup_count: number;
     total_backup_size_bytes: number;
-    total_backup_size_mb: number;
+    total_backup_sizeMb: number;
     database_location: string;
     backup_location: string;
     file_types_backed_up: string[];
@@ -203,12 +203,12 @@ class BackupService {
       }
 
       const backups = listResponse.backups;
-      const totalSize = backups.reduce((sum, backup) => sum + backup.file_size_bytes, 0);
-      const recentBackups = backups.filter(backup => backup.is_recent).length;
+      const totalSize = backups.reduce((sum, backup) => sum + backup.fileSizeBytes, 0);
+      const recentBackups = backups.filter(backup => backup.isRecent).length;
 
       // Sort by creation date for oldest/newest
       const sortedByDate = [...backups].sort((a, b) => 
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       );
 
       return {
@@ -277,9 +277,9 @@ class BackupService {
   formatWalStatus(walStatus: any): string {
     if (!walStatus?.wal_analysis) return 'Unknown';
     
-    const { current_size_mb, percentage_of_threshold, recommendation } = walStatus.wal_analysis;
+    const { current_sizeMb, percentage_of_threshold, recommendation } = walStatus.wal_analysis;
     
-    return `${current_size_mb}MB (${percentage_of_threshold.toFixed(1)}% of threshold) - ${recommendation}`;
+    return `${current_sizeMb}MB (${percentage_of_threshold.toFixed(1)}% of threshold) - ${recommendation}`;
   }
 
   /**

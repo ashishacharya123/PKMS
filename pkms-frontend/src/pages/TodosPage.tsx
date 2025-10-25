@@ -66,7 +66,7 @@ import { TimelineView } from '../components/todos/TimelineView';
 import { todosService, TodoSummary } from '../services/todosService';
 import { Todo } from '../types/todo';
 
-type SortField = 'title' | 'created_at' | 'due_date' | 'priority';
+type SortField = 'title' | 'createdAt' | 'dueDate' | 'priority';
 type SortOrder = 'asc' | 'desc';
 
 // Utility functions for todos
@@ -123,7 +123,7 @@ export function TodosPage() {
   // Local state
   const [searchQuery] = useState('');
   const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
-  const [sortField, setSortField] = useState<SortField>('created_at');
+  const [sortField, setSortField] = useState<SortField>('createdAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const { updatePreference } = useViewPreferences();
@@ -142,7 +142,7 @@ export function TodosPage() {
     projectIds: [] as string[],
     isExclusive: false,
     start_date: '',
-    due_date: '',
+    dueDate: '',
     priority: 1,
     tags: [] as string[]
   });
@@ -309,7 +309,7 @@ export function TodosPage() {
       projectIds: [],
       isExclusive: false,
       start_date: '',
-      due_date: '',
+      dueDate: '',
       priority: 1,
       tags: []
     });
@@ -339,7 +339,7 @@ export function TodosPage() {
 
     const success = await createTodo({
       ...todoForm,
-      due_date: todoForm.due_date || undefined,
+      dueDate: todoForm.dueDate || undefined,
       tags: todoForm.tags,
       // Force legacy single project_id to be omitted; use projectIds (UUIDs) only
       project_id: undefined,
@@ -500,7 +500,7 @@ export function TodosPage() {
             }}
             onTodoArchive={(todoUuid: string) => {
               const t = paginatedTodos.find(x => (x as any).uuid === todoUuid);
-              if (t) (t as any).is_archived ? unarchiveTodo(todoUuid) : archiveTodo(todoUuid);
+              if (t) (t as any).isArchived ? unarchiveTodo(todoUuid) : archiveTodo(todoUuid);
             }}
             onTodoEdit={() => {
               setEditingTodo(null); // Clear editing todo for new modal
@@ -511,7 +511,7 @@ export function TodosPage() {
                 projectIds: [],
                 isExclusive: false,
                 start_date: '',
-                due_date: '',
+                dueDate: '',
                 priority: 1,
                 tags: []
               });
@@ -531,9 +531,9 @@ export function TodosPage() {
                 description: (todo as any).description || '',
                 project_id: (todo as any).project_id || null,
                 projectIds: (todo as any).projects?.map((p: any) => p.uuid) || [],
-                isExclusive: (todo as any).isExclusiveMode ?? (todo as any).is_exclusive_mode ?? false,
+                isExclusive: (todo as any).isExclusiveMode ?? (todo as any).isExclusiveMode ?? false,
                 start_date: todo.startDate || '',
-                due_date: todo.dueDate || '',
+                dueDate: todo.dueDate || '',
                 priority: todo.priority,
                 tags: todo.tags || []
               });
@@ -545,7 +545,7 @@ export function TodosPage() {
             }}
             onTodoArchive={(todoUuid: string) => {
               const t = paginatedTodos.find(x => x.uuid === todoUuid);
-              if (t) (t as any).is_archived ? unarchiveTodo((t as any).uuid) : archiveTodo((t as any).uuid);
+              if (t) (t as any).isArchived ? unarchiveTodo((t as any).uuid) : archiveTodo((t as any).uuid);
             }}
           />
         );
@@ -561,9 +561,9 @@ export function TodosPage() {
                 description: (todo as any).description || '',
                 project_id: (todo as any).project_id || null,
                 projectIds: (todo as any).projects?.map((p: any) => p.uuid) || [],
-                isExclusive: (todo as any).isExclusiveMode ?? (todo as any).is_exclusive_mode ?? false,
+                isExclusive: (todo as any).isExclusiveMode ?? (todo as any).isExclusiveMode ?? false,
                 start_date: todo.startDate || '',
-                due_date: todo.dueDate || '',
+                dueDate: todo.dueDate || '',
                 priority: todo.priority,
                 tags: todo.tags || []
               });
@@ -575,7 +575,7 @@ export function TodosPage() {
             }}
             onTodoArchive={(todoUuid: string) => {
               const t = paginatedTodos.find(x => x.uuid === todoUuid);
-              if (t) (t as any).is_archived ? unarchiveTodo((t as any).uuid) : archiveTodo((t as any).uuid);
+              if (t) (t as any).isArchived ? unarchiveTodo((t as any).uuid) : archiveTodo((t as any).uuid);
             }}
           />
         );
@@ -600,9 +600,9 @@ export function TodosPage() {
                 description: todo.description || '',
                 project_id: todo.project_id,
                 projectIds: todo.projects?.map((p: any) => p.uuid) || [],
-                isExclusive: todo.isExclusiveMode ?? todo.is_exclusive_mode ?? false,
+                isExclusive: todo.isExclusiveMode ?? todo.isExclusiveMode ?? false,
                 start_date: todo.startDate || '',
-                due_date: todo.dueDate || '',
+                dueDate: todo.dueDate || '',
                 priority: todo.priority,
                 tags: todo.tags || []
               });
@@ -615,7 +615,7 @@ export function TodosPage() {
                   <Badge size="xs" variant="light" color={getPriorityColor(todo.priority)}>
                     {getPriorityLabel(todo.priority).charAt(0)}
                   </Badge>
-                  {todo.is_completed && (
+                  {todo.isCompleted && (
                     <Badge size="xs" color="green" variant="light">✓</Badge>
                   )}
                 </Group>
@@ -679,7 +679,7 @@ export function TodosPage() {
                             projectIds: [],
                             isExclusive: false,
                             start_date: '',
-                            due_date: todo.dueDate || '',
+                            dueDate: todo.dueDate || '',
                             priority: todo.priority,
                             tags: todo.tags || []
                           });
@@ -688,7 +688,7 @@ export function TodosPage() {
                       >
                         {todo.title}
                       </Text>
-                      {todo.is_archived && (
+                      {todo.isArchived && (
                         <Badge size="xs" color="orange" variant="light">Archived</Badge>
                       )}
                     </Group>
@@ -707,7 +707,7 @@ export function TodosPage() {
                           variant="light" 
                           color={isOverdue(todo.dueDate) ? 'red' : 'blue'}
                         >
-                          {isOverdue(todo.dueDate) ? 'Overdue' : 'Due'}: {formatDueDate(todo.due_date)}
+                          {isOverdue(todo.dueDate) ? 'Overdue' : 'Due'}: {formatDueDate(todo.dueDate)}
                         </Badge>
                       )}
                       {todo.completed_at && (
@@ -740,16 +740,16 @@ export function TodosPage() {
                       projectIds: [],
                       isExclusive: false,
                       start_date: '',
-                      due_date: todo.dueDate || '',
+                      dueDate: todo.dueDate || '',
                       priority: todo.priority,
                       tags: todo.tags || []
                     });
                     setTodoModalOpen(true);
                   }}
-                  onArchive={todo.is_archived ? undefined : () => archiveTodo(todo.uuid)}
-                  onUnarchive={todo.is_archived ? () => unarchiveTodo(todo.uuid) : undefined}
+                  onArchive={todo.isArchived ? undefined : () => archiveTodo(todo.uuid)}
+                  onUnarchive={todo.isArchived ? () => unarchiveTodo(todo.uuid) : undefined}
                   onDelete={() => handleDeleteTodo(todo.uuid, todo.title)}
-                  isArchived={todo.is_archived}
+                  isArchived={todo.isArchived}
                   variant="subtle"
                   color="gray"
                   size={16}
@@ -803,9 +803,9 @@ export function TodosPage() {
                        description: '',
                        project_id: todo.project_id,
                        projectIds: todo.projects?.map((p: any) => p.uuid) || [],
-                       isExclusive: todo.isExclusiveMode ?? todo.is_exclusive_mode ?? false,
+                       isExclusive: todo.isExclusiveMode ?? todo.isExclusiveMode ?? false,
                        start_date: '',
-                       due_date: todo.dueDate || '',
+                       dueDate: todo.dueDate || '',
                        priority: todo.priority,
                        tags: todo.tags || []
                      });
@@ -870,18 +870,18 @@ export function TodosPage() {
                     description: '',
                     project_id: todo.project_id,
                     projectIds: todo.projects?.map((p: any) => p.uuid) || [],
-                    isExclusive: todo.isExclusiveMode ?? todo.is_exclusive_mode ?? false,
+                    isExclusive: todo.isExclusiveMode ?? todo.isExclusiveMode ?? false,
                     start_date: '',
-                    due_date: todo.dueDate || '',
+                    dueDate: todo.dueDate || '',
                     priority: todo.priority,
                     tags: todo.tags || []
                   });
                   setTodoModalOpen(true);
                 }}
-                onArchive={todo.is_archived ? undefined : () => archiveTodo((todo as any).uuid)}
-                onUnarchive={todo.is_archived ? () => unarchiveTodo((todo as any).uuid) : undefined}
+                onArchive={todo.isArchived ? undefined : () => archiveTodo((todo as any).uuid)}
+                onUnarchive={todo.isArchived ? () => unarchiveTodo((todo as any).uuid) : undefined}
                 onDelete={() => handleDeleteTodo((todo as any).uuid, todo.title)}
-                isArchived={todo.is_archived}
+                isArchived={todo.isArchived}
                 variant="subtle"
                 color="gray"
                 size={14}
@@ -986,9 +986,9 @@ export function TodosPage() {
       description: (subtask as any).description || '',
       project_id: (subtask as any).project_id,
       projectIds: (subtask as any).projects?.map((p: any) => p.uuid) || [],
-      isExclusive: (subtask as any).isExclusiveMode ?? (subtask as any).is_exclusive_mode ?? false,
+      isExclusive: (subtask as any).isExclusiveMode ?? (subtask as any).isExclusiveMode ?? false,
       start_date: (subtask as any).start_date || '',
-      due_date: (subtask as any).due_date || '',
+      dueDate: (subtask as any).dueDate || '',
       priority: subtask.priority,
       tags: subtask.tags || []
     });
@@ -1003,15 +1003,15 @@ export function TodosPage() {
       status: 'pending',
       priority: 'medium',
       parent_id: parentId, // Set parent ID for new subtask
-      is_completed: false,
-      is_archived: false,
-      is_favorite: false,
-      is_exclusive_mode: false,
+      isCompleted: false,
+      isArchived: false,
+      isFavorite: false,
+      isExclusiveMode: false,
       order_index: 0,
       tags: [],
       projects: [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     } as any);
     setTodoModalOpen(true);
   };
@@ -1226,10 +1226,10 @@ export function TodosPage() {
                   Title
                 </Button>
                 <Button
-                  variant={sortField === 'due_date' ? 'filled' : 'subtle'}
+                  variant={sortField === 'dueDate' ? 'filled' : 'subtle'}
                   size="xs"
-                  leftSection={sortField === 'due_date' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
-                  onClick={() => handleSort('due_date')}
+                  leftSection={sortField === 'dueDate' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
+                  onClick={() => handleSort('dueDate')}
                 >
                   Due Date
                 </Button>
@@ -1381,9 +1381,9 @@ export function TodosPage() {
           
           <DateRangePicker
             startDate={todoForm.start_date ? new Date(todoForm.start_date) : null}
-            dueDate={todoForm.due_date ? new Date(todoForm.due_date) : null}
+            dueDate={todoForm.dueDate ? new Date(todoForm.dueDate) : null}
             onStartDateChange={(date) => setTodoForm({ ...todoForm, start_date: date ? date.toISOString().split('T')[0] : '' })}
-            onDueDateChange={(date) => setTodoForm({ ...todoForm, due_date: date ? date.toISOString().split('T')[0] : '' })}
+            onDueDateChange={(date) => setTodoForm({ ...todoForm, dueDate: date ? date.toISOString().split('T')[0] : '' })}
             showStartDate={true}
             showDueDate={true}
             showCompletionDate={false}

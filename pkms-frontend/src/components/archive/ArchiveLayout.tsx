@@ -231,16 +231,16 @@ export function ArchiveLayout({
                   items={folders.map(folder => ({
                     ...folder,
                     id: folder.uuid,
-                    mime_type: 'folder',
+                    mimeType: 'folder',
                     name: folder.name,
-                    created_at: folder.created_at,
-                    updated_at: folder.updated_at,
-                    file_size: 0,
+                    createdAt: folder.createdAt,
+                    updatedAt: folder.updatedAt,
+                    fileSize: 0,
                     tags: []
                   })) as any[]}
                   viewMode={viewMode}
                   onItemClick={(folder: any) => {
-                    if (folder.mime_type === 'folder') {
+                    if (folder.mimeType === 'folder') {
                       setCurrentFolder(folder);
                     }
                   }}

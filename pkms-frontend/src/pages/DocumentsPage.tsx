@@ -41,7 +41,7 @@ import { useDocumentsStore } from '../stores/documentsStore';
 import { ActionMenu } from '../components/common/ActionMenu';
 import { FileUploadModal } from '../components/file/FileUploadModal';
 
-type SortField = 'original_name' | 'file_size' | 'created_at' | 'updated_at';
+type SortField = 'originalName' | 'fileSize' | 'createdAt' | 'updatedAt';
 type SortOrder = 'asc' | 'desc';
 
 // File type helpers: robust icon + label detection from MIME and filename
@@ -92,7 +92,7 @@ const getFileTypeLabel = (mimeType: string, name?: string): string => {
 export function DocumentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const searchQuery = searchParams.get('q') || '';
-  const [sortField, setSortField] = useState<SortField>('updated_at');
+  const [sortField, setSortField] = useState<SortField>('updatedAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
@@ -283,10 +283,10 @@ export function DocumentsPage() {
 
   const handleToggleArchive = async (doc: any) => {
     try {
-      await toggleArchive(doc.uuid, !doc.is_archived);
+      await toggleArchive(doc.uuid, !doc.isArchived);
       notifications.show({
-        title: doc.is_archived ? 'Document Unarchived' : 'Document Archived',
-        message: `"${doc.original_name}" has been ${doc.is_archived ? 'unarchived' : 'archived'}`,
+        title: doc.isArchived ? 'Document Unarchived' : 'Document Archived',
+        message: `"${doc.originalName}" has been ${doc.isArchived ? 'unarchived' : 'archived'}`,
         color: 'blue'
       });
     } catch (error) {
@@ -305,7 +305,7 @@ export function DocumentsPage() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = doc.original_name || 'download';
+      a.download = doc.originalName || 'download';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -318,10 +318,10 @@ export function DocumentsPage() {
   const renderActionMenu = (document: any, size: 'sm' | 'md' = 'md') => (
     <ActionMenu
       onDownload={() => handleDownloadFile(document)}
-      onArchive={document.is_archived ? undefined : () => handleToggleArchive(document)}
-      onUnarchive={document.is_archived ? () => handleToggleArchive(document) : undefined}
-      onDelete={() => handleDeleteDocument(document.uuid, document.original_name)}
-      isArchived={document.is_archived}
+      onArchive={document.isArchived ? undefined : () => handleToggleArchive(document)}
+      onUnarchive={document.isArchived ? () => handleToggleArchive(document) : undefined}
+      onDelete={() => handleDeleteDocument(document.uuid, document.originalName)}
+      isArchived={document.isArchived}
       variant="subtle"
       color="gray"
       size={size === 'sm' ? 14 : 16}
@@ -338,11 +338,11 @@ export function DocumentsPage() {
   // Handle preview: inline modal for images, fallback to existing behavior
   const handlePreview = async (doc: any) => {
     try {
-      if (typeof doc?.mime_type === 'string' && doc.mime_type.startsWith('image/')) {
+      if (typeof doc?.mimeType === 'string' && doc.mimeType.startsWith('image/')) {
         const blob = await downloadDocument(doc.uuid);
         if (!blob) return;
         const url = URL.createObjectURL(blob);
-        setImagePreview({ url, name: doc.original_name || 'image' });
+        setImagePreview({ url, name: doc.originalName || 'image' });
         return;
       }
       // Non-images: keep existing open-in-new-tab behavior
@@ -370,9 +370,9 @@ export function DocumentsPage() {
       let aValue: any = a[sortField];
       let bValue: any = b[sortField];
       
-      if (sortField === 'file_size') {
-        aValue = a.file_size || 0;
-        bValue = b.file_size || 0;
+      if (sortField === 'fileSize') {
+        aValue = a.fileSize || 0;
+        bValue = b.fileSize || 0;
       } else if (typeof aValue === 'string') {
         aValue = aValue.toLowerCase();
         bValue = bValue.toLowerCase();
@@ -448,7 +448,7 @@ export function DocumentsPage() {
                 {['application/pdf', 'image/', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'].map((type) => {
                   const documentsArray = Array.isArray(documents) ? documents : [];
                   const count = documentsArray.filter(doc => 
-                    type.endsWith('/') ? doc.mime_type.startsWith(type) : doc.mime_type === type
+                    type.endsWith('/') ? doc.mimeType.startsWith(type) : doc.mimeType === type
                   ).length;
                   const label = type === 'application/pdf' ? 'PDF' :
                                type === 'image/' ? 'Images' :
@@ -529,26 +529,26 @@ export function DocumentsPage() {
                 />
                 
                 <Button
-                  variant={sortField === 'original_name' ? 'filled' : 'subtle'}
+                  variant={sortField === 'originalName' ? 'filled' : 'subtle'}
                   size="xs"
-                  leftSection={sortField === 'original_name' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
-                  onClick={() => handleSort('original_name')}
+                  leftSection={sortField === 'originalName' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
+                  onClick={() => handleSort('originalName')}
                 >
                   Name
                 </Button>
                 <Button
-                  variant={sortField === 'file_size' ? 'filled' : 'subtle'}
+                  variant={sortField === 'fileSize' ? 'filled' : 'subtle'}
                   size="xs"
-                  leftSection={sortField === 'file_size' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
-                  onClick={() => handleSort('file_size')}
+                  leftSection={sortField === 'fileSize' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
+                  onClick={() => handleSort('fileSize')}
                 >
                   Size
                 </Button>
                 <Button
-                  variant={sortField === 'updated_at' ? 'filled' : 'subtle'}
+                  variant={sortField === 'updatedAt' ? 'filled' : 'subtle'}
                   size="xs"
-                  leftSection={sortField === 'updated_at' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
-                  onClick={() => handleSort('updated_at')}
+                  leftSection={sortField === 'updatedAt' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
+                  onClick={() => handleSort('updatedAt')}
                 >
                   Date
                 </Button>
@@ -589,8 +589,8 @@ export function DocumentsPage() {
               onItemClick={(document) => handlePreview(document)}
               renderSmallIcon={(document) => (
                 <Stack gap={2} align="center">
-                  <Text size="lg">{getFileIcon(document.mime_type, document.original_name)}</Text>
-                  {document.is_archived && (
+                  <Text size="lg">{getFileIcon(document.mimeType, document.originalName)}</Text>
+                  {document.isArchived && (
                     <Badge size="xs" color="orange" variant="dot">A</Badge>
                   )}
                 </Stack>
@@ -600,12 +600,12 @@ export function DocumentsPage() {
                   <Group justify="flex-end" w="100%" gap={4} style={{ opacity: 0.9 }}>
                     {renderActionMenu(document, 'sm')}
                   </Group>
-                  <Text size="xl">{getFileIcon(document.mime_type, document.original_name)}</Text>
+                  <Text size="xl">{getFileIcon(document.mimeType, document.originalName)}</Text>
                   <Group gap={4}>
                     <Badge size="xs" variant="light" color="blue">
-                      {formatFileSize(document.file_size)}
+                      {formatFileSize(document.fileSize)}
                     </Badge>
-                    {document.is_archived && (
+                    {document.isArchived && (
                       <Badge size="xs" color="orange" variant="light">
                         Archived
                       </Badge>
@@ -616,7 +616,7 @@ export function DocumentsPage() {
               renderListItem={(document) => (
                 <Group justify="space-between" style={{ transition: 'background 120ms ease, box-shadow 120ms ease' }}>
                   <Group gap="md">
-                    <Text size="lg">{getFileIcon(document.mime_type, document.original_name)}</Text>
+                    <Text size="lg">{getFileIcon(document.mimeType, document.originalName)}</Text>
                     <Stack gap={2}>
                       <Group gap="xs">
                         <Text 
@@ -625,9 +625,9 @@ export function DocumentsPage() {
                           style={{ cursor: 'pointer', color: '#228be6' }}
                           onClick={() => handlePreview(document)}
                         >
-                          {document.original_name}
+                          {document.originalName}
                         </Text>
-                        {document.is_archived && (
+                        {document.isArchived && (
                           <Badge size="xs" color="orange" variant="light">
                             Archived
                           </Badge>
@@ -638,10 +638,10 @@ export function DocumentsPage() {
                       )}
                       <Group gap="xs">
                         <Badge size="xs" variant="light" color="blue">
-                          {formatFileSize(document.file_size)}
+                          {formatFileSize(document.fileSize)}
                         </Badge>
                         <Text size="xs" c="dimmed">
-                          {formatDate(document.updated_at)}
+                          {formatDate(document.updatedAt)}
                         </Text>
                         <ProjectBadges projects={document.projects || []} size="xs" maxVisible={2} />
                         {document.tags.slice(0, 2).map((tag) => (
@@ -660,7 +660,7 @@ export function DocumentsPage() {
               )}
               renderDetailColumns={(document) => [
                 <Group key="name" gap="xs">
-                  <Text size="sm">{getFileIcon(document.mime_type, document.original_name)}</Text>
+                  <Text size="sm">{getFileIcon(document.mimeType, document.originalName)}</Text>
                   <Stack gap={2}>
                     <Text 
                       fw={500} 
@@ -668,7 +668,7 @@ export function DocumentsPage() {
                       style={{ cursor: 'pointer', color: '#228be6' }}
                       onClick={() => handlePreview(document)}
                     >
-                      {document.original_name}
+                      {document.originalName}
                     </Text>
                     {document.description && (
                       <Text size="xs" c="dimmed" lineClamp={1}>{document.description}</Text>
@@ -677,12 +677,12 @@ export function DocumentsPage() {
                 </Group>,
                 <Group key="size" gap="xs">
                   <Badge size="xs" variant="light" color="blue">
-                    {formatFileSize(document.file_size)}
+                    {formatFileSize(document.fileSize)}
                   </Badge>
                 </Group>,
                 <Group key="type" gap={6}>
-                  <Text size="sm">{getFileIcon(document.mime_type, document.original_name)}</Text>
-                  <Text size="sm" c="dimmed">{getFileTypeLabel(document.mime_type, document.original_name)}</Text>
+                  <Text size="sm">{getFileIcon(document.mimeType, document.originalName)}</Text>
+                  <Text size="sm" c="dimmed">{getFileTypeLabel(document.mimeType, document.originalName)}</Text>
                 </Group>,
                 <Group key="tags" gap={4}>
                   <ProjectBadges projects={document.projects || []} size="xs" maxVisible={3} />
@@ -698,13 +698,13 @@ export function DocumentsPage() {
                   )}
                 </Group>,
                 <Text key="created" size="xs" c="dimmed">
-                  {formatDate(document.created_at)}
+                  {formatDate(document.createdAt)}
                 </Text>,
                 <Text key="updated" size="xs" c="dimmed">
-                  {formatDate(document.updated_at)}
+                  {formatDate(document.updatedAt)}
                 </Text>,
                 <Group key="status" gap="xs">
-                  {document.is_archived && (
+                  {document.isArchived && (
                     <Badge size="xs" color="orange" variant="light">
                       Archived
                     </Badge>

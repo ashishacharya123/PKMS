@@ -1,55 +1,57 @@
 export interface ArchiveFolder {
+  itemType: 'folder';  // Discriminator field for type-safe unions
   uuid: string;
   name: string;
   description?: string;
-  parent_uuid?: string;
+  parentUuid?: string;
   path: string;
-  created_at: string;
-  updated_at: string;
-  item_count: number;
-  subfolder_count: number;
-  total_size: number;
+  createdAt: string;
+  updatedAt: string;
+  itemCount: number;
+  subfolderCount: number;
+  totalSize: number;
   // Missing fields from database
-  is_favorite: boolean;
+  isFavorite: boolean;
   depth: number;
 }
 
 export interface ArchiveItem {
+  itemType: 'file';  // Discriminator field for type-safe unions
   uuid: string;
   name: string;
   description?: string;
-  folder_uuid: string;
-  original_filename: string;
-  stored_filename: string;
-  mime_type: string;
-  file_size: number;
-  extracted_text?: string;
+  folderUuid: string;
+  originalFilename: string;
+  storedFilename: string;
+  mimeType: string;
+  fileSize: number;
+  extractedText?: string;
   metadata: Record<string, any>;
-  thumbnail_path?: string;
-  is_favorite: boolean;
-  created_at: string;
-  updated_at: string;
+  thumbnailPath?: string;
+  isFavorite: boolean;
+  createdAt: string;
+  updatedAt: string;
   tags: string[];
   // Missing fields from database
-  file_path: string;
-  file_hash?: string;
+  filePath: string;
+  fileHash?: string;
 }
 
 export interface ArchiveItemSummary {
   uuid: string;
   name: string;
-  folder_uuid: string;
-  original_filename: string;
-  mime_type: string;
-  file_size: number;
-  is_favorite: boolean;
-  created_at: string;
-  updated_at: string;
+  folderUuid: string;
+  originalFilename: string;
+  mimeType: string;
+  fileSize: number;
+  isFavorite: boolean;
+  createdAt: string;
+  updatedAt: string;
   tags: string[];
   preview: string;
   // Missing fields from database
-  file_hash?: string;
-  thumbnail_path?: string;
+  fileHash?: string;
+  thumbnailPath?: string;
 }
 
 export interface FolderTree {
@@ -61,7 +63,7 @@ export interface FolderTree {
 export interface FolderCreate {
   name: string;
   description?: string;
-  parent_uuid?: string;
+  parentUuid?: string;
 }
 
 export interface FolderUpdate {
@@ -72,9 +74,9 @@ export interface FolderUpdate {
 export interface ItemUpdate {
   name?: string;
   description?: string;
-  folder_uuid?: string;
+  folderUuid?: string;
   tags?: string[];
-  is_favorite?: boolean;
+  isFavorite?: boolean;
 }
 
 export enum ViewMode {
@@ -88,39 +90,45 @@ export enum SortOrder {
   DESC = 'desc'
 }
 
+/**
+ * URL Query Parameter Values - MUST stay snake_case
+ * These values are sent to the backend API as URL query parameters
+ * (e.g., ?sort_by=created_at&sort_order=desc)
+ * The Pydantic CamelCaseModel only converts JSON request/response bodies, not URL parameters
+ */
 export enum SortBy {
   NAME = 'name',
-  CREATED_AT = 'created_at',
-  UPDATED_AT = 'updated_at',
+  CREATED_AT = 'created_at',  // URL param: ?sort_by=created_at
+  UPDATED_AT = 'updated_at',  // URL param: ?sort_by=updated_at
   SIZE = 'size'
 }
 
 export interface ArchiveFilters {
   search?: string;
-  mime_type?: string;
+  mimeType?: string;
   tag?: string;
 }
 
 export interface ArchivePreviewImage {
   uuid: string;
   name: string;
-  mime_type: string;
-  file_size: number;
-  thumbnail_path?: string;
-  original_filename: string;
-  stored_filename: string;
-  file_path: string;
-  created_at: string;
-  updated_at: string;
+  mimeType: string;
+  fileSize: number;
+  thumbnailPath?: string;
+  originalFilename: string;
+  storedFilename: string;
+  filePath: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ArchiveSelectedItem {
   uuid: string;
   name: string;
-  mime_type: 'folder' | 'file';
+  mimeType: 'folder' | 'file';
   // Add additional fields as needed
   description?: string;
-  file_size?: number;
+  fileSize?: number;
 }
 
 export interface ArchiveState {

@@ -59,7 +59,7 @@ class UnifiedCalendarService {
       id: `note-${note.uuid}`,
       title: note.title || 'Untitled Note',
       description: note.content ? note.content.substring(0, 200) + '...' : '',
-      date: new Date(note.createdAt || note.created_at),
+      date: new Date(note.createdAt || note.createdAt),
       type: 'note',
       module: 'notes',
       tags: note.tags || [],
@@ -91,7 +91,7 @@ class UnifiedCalendarService {
       metadata: {
         dueDate: todo.dueDate ? new Date(todo.dueDate) : undefined,
         completedDate: todo.completedDate || todo.completed_at ? new Date(todo.completedDate || todo.completed_at) : undefined,
-        projectId: todo.projectId || todo.project_id
+        projectId: todo.projectId || todo.projectId
       }
     };
     this.addEvent(event);
@@ -103,7 +103,7 @@ class UnifiedCalendarService {
       id: `diary-${diary.uuid}`,
       title: diary.title || `Diary Entry - ${new Date(diary.date || diary.createdAt).toLocaleDateString()}`,
       description: diary.content ? diary.content.substring(0, 200) + '...' : '',
-      date: new Date(diary.date || diary.createdAt || diary.created_at),
+      date: new Date(diary.date || diary.createdAt || diary.createdAt),
       type: 'diary',
       module: 'diary',
       tags: diary.tags || [],
@@ -125,7 +125,7 @@ class UnifiedCalendarService {
       id: `project-${project.uuid}`,
       title: project.name || 'Untitled Project',
       description: project.description || '',
-      date: project.dueDate || project.due_date ? new Date(project.dueDate || project.due_date) : new Date(project.createdAt || project.created_at),
+      date: project.dueDate || project.dueDate ? new Date(project.dueDate || project.dueDate) : new Date(project.createdAt || project.createdAt),
       type: 'project',
       module: 'todos',
       priority: project.priority || 'medium',
@@ -134,7 +134,7 @@ class UnifiedCalendarService {
       color: this.getPriorityColor(project.priority || 'medium'),
       icon: '🎯',
       metadata: {
-        dueDate: project.dueDate || project.due_date ? new Date(project.dueDate || project.due_date) : undefined,
+        dueDate: project.dueDate || project.dueDate ? new Date(project.dueDate || project.dueDate) : undefined,
         completedDate: project.completedDate || project.completed_at ? new Date(project.completedDate || project.completed_at) : undefined
       }
     };
@@ -147,16 +147,16 @@ class UnifiedCalendarService {
       id: `document-${document.uuid}`,
       title: document.title || document.filename || 'Untitled Document',
       description: document.description || '',
-      date: new Date(document.createdAt || document.created_at),
+      date: new Date(document.createdAt || document.createdAt),
       type: 'document',
       module: 'documents',
       tags: document.tags || [],
       color: '#40c057',
       icon: '📄',
       metadata: {
-        fileSize: document.file_size,
-        mimeType: document.mime_type,
-        projectId: document.projectId || document.project_id
+        fileSize: document.fileSize,
+        mimeType: document.mimeType,
+        projectId: document.projectId || document.projectId
       }
     };
     this.addEvent(event);

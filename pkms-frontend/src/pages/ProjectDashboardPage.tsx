@@ -265,7 +265,7 @@ export function ProjectDashboardPage() {
           {type === 'document' && <IconFile size={18} />}
           {type === 'todo' && <IconCheckbox size={18} />}
           <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
-            {item.title || (item as any).original_name}
+            {item.title || (item as any).originalName}
           </Text>
         </Group>
         <Group gap="xs">
@@ -863,13 +863,13 @@ export function ProjectDashboardPage() {
                 status: todo.status,
                 priority: todo.priority,
                 dueDate: todo.dueDate,
-                isFavorite: todo.is_favorite,
-                isArchived: todo.is_archived,
+                isFavorite: todo.isFavorite,
+                isArchived: todo.isArchived,
                 tags: todo.tags || [],
                 projects: todo.projects || [],
                 subtasks: todo.subtasks || [],
-                created_at: todo.created_at,
-                updated_at: todo.updated_at
+                createdAt: todo.createdAt,
+                updatedAt: todo.updatedAt
               }))}
               isLoading={loading}
               activeTab="ongoing"
@@ -925,11 +925,11 @@ export function ProjectDashboardPage() {
                 uuid: note.uuid,
                 title: note.title,
                 description: note.content,
-                isFavorite: note.is_favorite,
-                isArchived: note.is_archived,
+                isFavorite: note.isFavorite,
+                isArchived: note.isArchived,
                 tags: note.tags || [],
-                created_at: note.created_at,
-                updated_at: note.updated_at
+                createdAt: note.createdAt,
+                updatedAt: note.updatedAt
               }))}
               isLoading={loading}
               viewMode="list"
@@ -960,11 +960,11 @@ export function ProjectDashboardPage() {
                 uuid: doc.uuid,
                 title: doc.title,
                 description: doc.description,
-                isFavorite: doc.is_favorite,
-                isArchived: doc.is_archived,
+                isFavorite: doc.isFavorite,
+                isArchived: doc.isArchived,
                 tags: doc.tags || [],
-                created_at: doc.created_at,
-                updated_at: doc.updated_at
+                createdAt: doc.createdAt,
+                updatedAt: doc.updatedAt
               }))}
               isLoading={loading}
               viewMode="list"

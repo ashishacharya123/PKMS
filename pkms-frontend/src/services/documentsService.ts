@@ -22,18 +22,18 @@ export interface ProjectBadge {
 export interface Document {
   uuid: string;
   title: string;
-  original_name: string;
+  originalName: string;
   filename: string;
-  file_path: string;
-  file_size: number;
-  mime_type: string;
+  filePath: string;
+  fileSize: number;
+  mimeType: string;
   description?: string;
-  is_favorite: boolean;
-  is_archived: boolean;
+  isFavorite: boolean;
+  isArchived: boolean;
   isExclusiveMode: boolean;
   // upload_status field removed - backend no longer tracks upload status
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
   tags: string[];
   projects: ProjectBadge[];
 }
@@ -41,18 +41,18 @@ export interface Document {
 export interface DocumentSummary {
   uuid: string;
   title: string;
-  original_name: string;
+  originalName: string;
   filename: string;
-  file_path: string;
-  file_size: number;
-  mime_type: string;
+  filePath: string;
+  fileSize: number;
+  mimeType: string;
   description?: string;
-  is_favorite: boolean;
-  is_archived: boolean;
+  isFavorite: boolean;
+  isArchived: boolean;
   isExclusiveMode: boolean;
   // upload_status field removed - backend no longer tracks upload status
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
+  updatedAt: string;
   tags: string[];
   projects: ProjectBadge[];
 }
@@ -64,7 +64,7 @@ export interface UploadDocumentRequest {
 
 export interface UpdateDocumentRequest {
   tags?: string[];
-  is_archived?: boolean;
+  isArchived?: boolean;
   metadata?: Record<string, any>;
   projectIds?: string[];
   isExclusiveMode?: boolean;
@@ -72,16 +72,16 @@ export interface UpdateDocumentRequest {
 
 export interface SearchResult {
   uuid: string;
-  original_name: string;
-  mime_type: string;
+  originalName: string;
+  mimeType: string;
   highlight: string;
-  created_at: string;
+  createdAt: string;
 }
 
 export interface DocumentsListParams {
-  mime_type?: string;
+  mimeType?: string;
   archived?: boolean;
-  is_favorite?: boolean;
+  isFavorite?: boolean;
   tag?: string;
   project_uuid?: string;
   project_only?: boolean;
@@ -229,7 +229,7 @@ class DocumentsService {
    * Get documents by MIME type
    */
   async getDocumentsByType(mimeType: string, limit: number = 50): Promise<DocumentSummary[]> {
-    return await this.listDocuments({ mime_type: mimeType, limit });
+    return await this.listDocuments({ mimeType: mimeType, limit });
   }
 
   /**
@@ -243,7 +243,7 @@ class DocumentsService {
    * Archive/unarchive a document
    */
   async toggleArchive(uuid: string, archived: boolean): Promise<Document> {
-    return await this.updateDocument(uuid, { is_archived: archived });
+    return await this.updateDocument(uuid, { isArchived: archived });
   }
 
   /**

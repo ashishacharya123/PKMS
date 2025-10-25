@@ -7,8 +7,8 @@ interface BaseItem {
   uuid: string;
   title?: string;
   name?: string;
-  created_at?: string;
-  updated_at?: string;
+  createdAt?: string;
+  updatedAt?: string;
   tags?: string[];
 }
 

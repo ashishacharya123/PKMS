@@ -241,7 +241,7 @@ export function NoteEditorPage() {
     try {
       const blob = await notesService.downloadFile(file.uuid);
       const url = URL.createObjectURL(blob);
-      setImagePreview({ url, name: file.original_name || 'image' });
+      setImagePreview({ url, name: file.originalName || 'image' });
     } catch (e) {
       notifications.show({ title: 'Preview failed', message: 'Could not load image', color: 'red' });
     }
@@ -250,7 +250,7 @@ export function NoteEditorPage() {
   const handleInsertImageIntoContent = (file: NoteFile) => {
     // Insert markdown image referencing authenticated download endpoint
     const url = notesService.getFileDownloadUrl(file.uuid);
-    const toInsert = `\n\n![${file.original_name || 'image'}](${url})\n`;
+    const toInsert = `\n\n![${file.originalName || 'image'}](${url})\n`;
     setContent((prev) => (prev || '') + toInsert);
     notifications.show({ title: 'Inserted', message: 'Image reference added to content', color: 'green' });
   };

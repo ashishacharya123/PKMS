@@ -64,11 +64,11 @@ export interface ModuleFilters {
 
 export interface ActionMenuItem {
   label: string;
-  icon: React.ComponentType<any>;
-  onClick: (item: any) => void;
+  icon: React.ComponentType<any>;  // Keep 'any' for icon props (acceptable)
+  onClick: (item: BaseItem) => void;
   color?: string;
   disabled?: boolean;
-  hidden?: (item: any) => boolean;
+  hidden?: (item: BaseItem) => boolean;
 }
 
 export interface ModuleHeaderProps {
@@ -125,93 +125,10 @@ export interface ModuleLayoutProps<T extends BaseItem> {
   showPreview?: boolean;
 }
 
-// Module-specific item types extending BaseItem
-export interface ArchiveItem extends BaseItem {
-  originalFilename: string;
-  storedFilename: string;
-  filePath: string;
-  fileSize: number;
-  mimeType: string;
-  folderUuid?: string;
-  fileHash?: string;
-  thumbnailPath?: string;
-}
-
-export interface ArchiveFolder extends BaseItem {
-  parentUuid?: string;
-  depth: number;
-  itemCount: number;
-  totalSize: number;
-  path?: string; // For display purposes
-}
-
-export interface TodoItem extends BaseItem {
-  title: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  dueDate?: string;
-  startDate?: string;
-  completedAt?: string;
-  parentUuid?: string;
-  todoType: 'task' | 'checklist' | 'subtask';
-  completionPercentage: number;
-  subtasks?: SubtaskItem[];
-  projectId?: string;
-  projectIds?: string[];
-  isExclusive?: boolean;
-  description?: string;
-  tags?: string[];
-}
-
-export interface SubtaskItem {
-  uuid: string;
-  title: string;
-  completed: boolean;
-  orderIndex: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface NoteItem extends BaseItem {
-  title: string;
-  content: string;
-  contentFilePath?: string;
-  sizeBytes: number;
-  version: number;
-  fileCount: number;
-  thumbnailPath?: string;
-}
-
-export interface DocumentItem extends BaseItem {
-  title: string;
-  filename: string;
-  originalName: string;
-  filePath: string;
-  fileSize: number;
-  fileHash: string;
-  mimeType: string;
-  thumbnailPath?: string;
-}
-
-export interface ProjectItem extends BaseItem {
-  name: string;
-  status: 'planning' | 'active' | 'on_hold' | 'completed' | 'cancelled';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  startDate?: string;
-  dueDate?: string;
-  completionDate?: string;
-  progressPercentage: number;
-  sortOrder: number;
-}
-
-export interface DiaryItem extends BaseItem {
-  title: string;
-  content: string;
-  date: string; // ISO date string
-  mood?: string;
-  weather?: string;
-  location?: string;
-  tags?: string[];
-  is_encrypted?: boolean;
-  thumbnail_path?: string;
-}
+// Module-specific types are now defined in their respective type files:
+// - ArchiveItem, ArchiveFolder in types/archive.ts
+// - TodoItem, SubtaskItem in types/todo.ts  
+// - NoteItem in types/note.ts
+// - DocumentItem in types/document.ts
+// - ProjectItem in types/project.ts
+// - DiaryItem in types/diary.ts

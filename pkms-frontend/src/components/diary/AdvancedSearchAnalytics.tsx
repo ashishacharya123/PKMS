@@ -93,9 +93,9 @@ interface SearchResult {
   title: string;
   content: string;
   module_type: string;
-  relevance_score: number;
-  created_at: string;
-  updated_at: string;
+  relevanceScore: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface CacheStats {
@@ -489,7 +489,7 @@ export function AdvancedSearchAnalytics() {
                               </Group>
                               <Group gap="xs">
                                 <Badge color="blue" variant="light">
-                                  {Math.round(result.relevance_score * 100)}% match
+                                  {Math.round(result.relevanceScore * 100)}% match
                                 </Badge>
                                 <ActionIcon variant="light" color="blue" size="sm">
                                   <IconEye size={14} />
@@ -521,7 +521,7 @@ export function AdvancedSearchAnalytics() {
                           </div>
                         </Group>
                         <Badge color={getModuleColor(search.module_type)} variant="light">
-                          {Math.round(search.relevance_score * 100)}%
+                          {Math.round(search.relevanceScore * 100)}%
                         </Badge>
                       </Group>
                     </Paper>

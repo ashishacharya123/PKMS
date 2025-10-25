@@ -1,14 +1,7 @@
-from pydantic import BaseModel, Field, ConfigDict, field_validator
-from pydantic.alias_generators import to_camel
+from pydantic import Field, field_validator
 from typing import List, Optional
 from datetime import datetime
-
-class CamelCaseModel(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=to_camel,
-        populate_by_name=True,
-        from_attributes=True
-    )
+from .base import CamelCaseModel
 
 
 class DocumentCreate(CamelCaseModel):

@@ -6,17 +6,10 @@ Handles folder hierarchy, file metadata, bulk operations, and upload workflows.
 Includes security sanitization for names, descriptions, and UUID validation.
 """
 
-from pydantic import BaseModel, Field, field_validator, ConfigDict
-from pydantic.alias_generators import to_camel
+from pydantic import Field, field_validator
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-
-class CamelCaseModel(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=to_camel,
-        populate_by_name=True,
-        from_attributes=True
-    )
+from .base import CamelCaseModel
 
 class FolderCreate(CamelCaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -129,6 +122,8 @@ class FolderResponse(CamelCaseModel):
     item_count: int
     subfolder_count: int
     total_size: int
+    # ADD THIS: Discriminator field for type-safe unions
+    item_type: str = Field("folder", alias="itemType")
 
 class ItemResponse(CamelCaseModel):
     uuid: str
@@ -147,6 +142,8 @@ class ItemResponse(CamelCaseModel):
     created_at: datetime
     updated_at: datetime
     tags: List[str]
+    # ADD THIS: Discriminator field for type-safe unions
+    item_type: str = Field("file", alias="itemType")
 
 class ItemSummary(CamelCaseModel):
     uuid: str

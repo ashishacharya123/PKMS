@@ -232,7 +232,7 @@ export interface AuthenticationCheck {
 
 export interface FileSanityCheckResult {
   filename: string;
-  file_path: string;
+  filePath: string;
   operations: {
     write?: {
       status: string;
@@ -247,13 +247,13 @@ export interface FileSanityCheckResult {
     };
     stat?: {
       status: string;
-      file_exists: boolean;
-      file_size_bytes: number;
+      fileExists: boolean;
+      fileSizeBytes: number;
     };
     delete?: {
       status: string;
       time_ms: number;
-      file_deleted: boolean;
+      fileDeleted: boolean;
     };
   };
   overall_status: string;
@@ -274,7 +274,7 @@ export interface FileTestOptions {
 
 export interface FileTestResult {
   filename: string;
-  file_path: string;
+  filePath: string;
   operations: {
     [key: string]: {
       status: string;
@@ -282,9 +282,9 @@ export interface FileTestResult {
       bytes_written?: number;
       bytes_read?: number;
       content_matches?: boolean;
-      file_exists?: boolean;
-      file_size_bytes?: number;
-      file_deleted?: boolean;
+      fileExists?: boolean;
+      fileSizeBytes?: number;
+      fileDeleted?: boolean;
     };
   };
   messages: string[];
@@ -722,7 +722,7 @@ class TestingService {
       const formData = new FormData();
       formData.append('filename', filename);
       formData.append('content_type', contentType);
-      formData.append('file_size', fileSize.toString());
+      formData.append('fileSize', fileSize.toString());
       
       const response = await apiService.post('/testing/crud/documents/create', formData, {
         headers: {

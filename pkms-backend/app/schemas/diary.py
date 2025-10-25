@@ -1,8 +1,8 @@
-from pydantic import BaseModel, Field, ConfigDict, field_validator, computed_field
-from pydantic.alias_generators import to_camel
+from pydantic import Field, field_validator, computed_field
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 import json
+from .base import CamelCaseModel
 
 WEATHER_CODE_LABELS = {
     0: "freezing_0_5c",
@@ -13,14 +13,6 @@ WEATHER_CODE_LABELS = {
     5: "hot_25_35c",
     6: "scorching_35c_plus",
 }
-
-
-class CamelCaseModel(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=to_camel,
-        populate_by_name=True,
-        from_attributes=True
-    )
 
 
 class EncryptionSetupRequest(CamelCaseModel):

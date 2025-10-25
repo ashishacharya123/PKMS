@@ -40,7 +40,14 @@ import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import { formatDate, formatFileSize } from '../components/common/ViewModeLayouts';
 import { useViewPreferences } from '../hooks/useViewPreferences';
 import ModuleFilters, { getModuleFilterConfig } from '../components/common/ModuleFilters';
-import { ArchiveItem, ArchiveFolder, ModuleFilters as CommonModuleFilters } from '../types/common';
+import { 
+  ArchivePreviewImage, 
+  ArchiveSelectedItem,
+  ArchiveItem,      // Import from archive.ts
+  ArchiveFolder     // Import from archive.ts
+} from '../types/archive';
+
+import { ModuleFilters as CommonModuleFilters } from '../types/common';
 import ArchiveLayout from '../components/archive/ArchiveLayout';
 import { archiveService } from '../services/archiveService';
 import { useArchiveStore } from '../stores/archiveStore';
@@ -80,7 +87,7 @@ const FileThumbnail: React.FC<{ item: any }> = ({ item }) => {
   const [imageError, setImageError] = React.useState(false);
   const [imageLoading, setImageLoading] = React.useState(true);
 
-  if (!item.mime_type.startsWith('image/') || imageError) {
+  if (!item.mimeType.startsWith('image/') || imageError) {
     return (
       <div style={{ 
         width: 60, 
@@ -91,7 +98,7 @@ const FileThumbnail: React.FC<{ item: any }> = ({ item }) => {
         alignItems: 'center',
         justifyContent: 'center'
       }}>
-        {getFileIcon(item.mime_type)}
+        {getFileIcon(item.mimeType)}
       </div>
     );
   }
@@ -109,7 +116,7 @@ const FileThumbnail: React.FC<{ item: any }> = ({ item }) => {
     }}>
       {imageLoading && <Loader size="sm" />}
       <img
-        src={item.thumbnail_path || `/api/v1/archive/items/${item.uuid}/thumbnail`}
+        src={item.thumbnailPath || `/api/v1/archive/items/${item.uuid}/thumbnail`}
         alt={item.name}
         style={{
           width: '100%',
@@ -155,7 +162,7 @@ export default function ArchivePageNew() {
   const [newName, setNewName] = React.useState('');
 
   // FileSection state for archive files
-  const [archiveFiles, setArchiveFiles] = React.useState<any[]>([]);
+  const [archiveFiles, setArchiveFiles] = React.useState<File[]>([]);
   
   // Filter state - using module-specific configuration
   const filterConfig = getModuleFilterConfig('archive');
@@ -231,7 +238,7 @@ export default function ArchivePageNew() {
     if (!selectedItem || !newName.trim()) return;
     
     try {
-      if (selectedItem.mime_type === 'folder') {
+      if (selectedItem.mimeType === 'folder') {
         await archiveService.updateFolder(selectedItem.uuid, { name: newName.trim() });
       } else {
         await archiveService.updateItem(selectedItem.uuid, { name: newName.trim() });
@@ -266,7 +273,7 @@ export default function ArchivePageNew() {
     if (!selectedItem) return;
     
     try {
-      if (selectedItem.mime_type === 'folder') {
+      if (selectedItem.mimeType === 'folder') {
         await archiveService.deleteFolder(selectedItem.uuid);
       } else {
         await archiveService.deleteItem(selectedItem.uuid);
@@ -298,15 +305,15 @@ export default function ArchivePageNew() {
 
   const handleToggleFavorite = async (item: any) => {
     try {
-      if (item.mime_type === 'folder') {
-        await archiveService.updateFolder(item.uuid, { is_favorite: !item.is_favorite });
+      if (item.mimeType === 'folder') {
+        await archiveService.updateFolder(item.uuid, { isFavorite: !item.isFavorite });
       } else {
-        await archiveService.updateItem(item.uuid, { is_favorite: !item.is_favorite });
+        await archiveService.updateItem(item.uuid, { isFavorite: !item.isFavorite });
       }
       
       notifications.show({
         title: 'Success',
-        message: `${item.is_favorite ? 'Removed from' : 'Added to'} favorites`,
+        message: `${item.isFavorite ? 'Removed from' : 'Added to'} favorites`,
         color: 'green'
       });
       
@@ -385,26 +392,28 @@ export default function ArchivePageNew() {
         archiveFiles={archiveFiles}
         setArchiveFiles={setArchiveFiles}
         onFilter={openFilters}
-        onItemClick={(item: any) => {
-          if (item.mime_type === 'folder') {
-            setCurrentFolder(item.uuid);
-          } else {
-            // Handle file click (preview, download, etc.)
-            if (item.mime_type.startsWith('image/')) {
+        onItemClick={(item: ArchiveItem | ArchiveFolder) => {
+          // ✅ Use the discriminator for 100% type safety
+          if (item.itemType === 'file') {
+            // TypeScript KNOWS this is an ArchiveItem
+            if (item.mimeType.startsWith('image/')) {
               setPreviewImage({
                 uuid: item.uuid,
                 name: item.name,
-                mime_type: item.mime_type,
-                file_size: item.file_size,
-                thumbnail_path: item.thumbnail_path,
-                original_filename: item.original_filename,
-                stored_filename: item.stored_filename,
-                file_path: item.file_path,
-                created_at: item.created_at,
-                updated_at: item.updated_at
+                mimeType: item.mimeType,
+                fileSize: item.fileSize,
+                thumbnailPath: item.thumbnailPath,
+                originalFilename: item.originalFilename,
+                storedFilename: item.storedFilename,
+                filePath: item.filePath,
+                createdAt: item.createdAt,
+                updatedAt: item.updatedAt
               });
               openImagePreview();
             }
+          } else {
+            // TypeScript KNOWS this is an ArchiveFolder
+            setCurrentFolder(item.uuid);
           }
         }}
         onToggleFavorite={handleToggleFavorite}
@@ -413,39 +422,48 @@ export default function ArchivePageNew() {
           console.log('Archive toggle not implemented for items');
         }}
         onDelete={(item: any) => {
-          setSelectedItem({ uuid: item.uuid, name: item.name, mime_type: 'file' });
+          setSelectedItem({ uuid: item.uuid, name: item.name, mimeType: 'file' });
           openDeleteModal();
         }}
         onEdit={(item: any) => {
-          setSelectedItem({ uuid: item.uuid, name: item.name, mime_type: 'file' });
+          setSelectedItem({ uuid: item.uuid, name: item.name, mimeType: 'file' });
           setNewName(item.name);
           openRenameModal();
         }}
         onDownload={handleDownloadFile}
         onPreview={(item: any) => {
-          if (item.mime_type.startsWith('image/')) {
+          if (item.mimeType.startsWith('image/')) {
             setPreviewImage({
               uuid: item.uuid,
               name: item.name,
-              mime_type: item.mime_type,
-              file_size: item.file_size,
-              thumbnail_path: item.thumbnail_path,
-              original_filename: item.original_filename,
-              stored_filename: item.stored_filename,
-              file_path: item.file_path,
-              created_at: item.created_at,
-              updated_at: item.updated_at
+              mimeType: item.mimeType,
+              fileSize: item.fileSize,
+              thumbnailPath: item.thumbnailPath,
+              originalFilename: item.originalFilename,
+              storedFilename: item.storedFilename,
+              filePath: item.filePath,
+              createdAt: item.createdAt,
+              updatedAt: item.updatedAt
             });
             openImagePreview();
           }
         }}
-        renderIcon={(item: any) => (
-          <FileThumbnail item={item} />
-        )}
-        renderContent={(item: any) => (
+        renderIcon={(item: ArchiveItem | ArchiveFolder) => {
+          if (item.itemType === 'file') {
+            return <FileThumbnail item={item} />;
+          } else {
+            return <IconFolder size={24} />;
+          }
+        }}
+        renderContent={(item: ArchiveItem | ArchiveFolder) => (
           <Stack gap="xs">
             <Text fw={500} size="sm">{item.name}</Text>
-            <Text size="xs" c="dimmed">{getFileTypeInfo(item.mime_type).label}</Text>
+            {/* ✅ Use the discriminator here too! */}
+            {item.itemType === 'file' ? (
+              <Text size="xs" c="dimmed">{getFileTypeInfo(item.mimeType).label}</Text>
+            ) : (
+              <Text size="xs" c="dimmed">Folder</Text>
+            )}
           </Stack>
         )}
       />

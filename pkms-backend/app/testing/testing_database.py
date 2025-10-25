@@ -447,12 +447,18 @@ async def get_sample_rows(
         if table not in allowed_tables and table not in system_tables:
             raise HTTPException(status_code=400, detail=f"Table '{table}' not allowed for sampling")
 
-        # Build query with user filtering
-        # For other tables, filter by current user
-        query = select(allowed_tables[table]).where(allowed_tables[table].created_by == current_user.uuid).limit(limit)
-
-        result = await db.execute(query)
-        rows = result.scalars().all()
+        # Build query with user filtering, special-case system tables
+        if table in system_tables:
+            result = await db.execute(text(f"SELECT * FROM {table} LIMIT :limit"), {"limit": limit})
+            rows = result.fetchall()
+        else:
+            query = (
+                select(allowed_tables[table])
+                .where(allowed_tables[table].created_by == current_user.uuid)
+                .limit(limit)
+            )
+            result = await db.execute(query)
+            rows = result.scalars().all()
 
         # Convert to dictionaries for JSON response (for model-based tables)
         if table not in ["sessions", "recovery_keys"] and not table.endswith("_tags"):
@@ -544,7 +550,7 @@ async def get_fts_tables_info(
                             elif key.strip() == "content_rowid":
                                 # Handle content_rowid option
                                 pass
-                        else and not item.startswith("'"):
+                        elif not item.startswith("'"):
                             # This might be the content table name
                             if not content_table:
                                 content_table = item.strip()
@@ -614,7 +620,7 @@ async def get_diary_tables_info(
         entries_stats = entries_result.fetchone()
 
         # Get document attachments via document_diary association
-        from app.models.associations import document_diary
+        # document_diary already imported at module scope
         media_query = select(
             func.count().label('total_media'),
             func.count(func.distinct(document_diary.c.diary_entry_uuid)).label('entries_with_media'),
@@ -674,7 +680,7 @@ async def get_diary_tables_info(
             })
 
         # Get sample documents attached to diary entries
-        from app.models.associations import document_diary
+        # document_diary already imported at module scope
         sample_media_query = (
             select(Document.uuid, document_diary.c.diary_entry_uuid,
                    Document.mime_type, Document.file_size, Document.created_at,

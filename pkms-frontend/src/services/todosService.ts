@@ -22,15 +22,15 @@ export interface LegacyProject {
   name: string;
   description?: string;
   // color field removed - backend removed for professional management
-  is_archived: boolean;
-  created_at: string;
-  updated_at: string;
-  todo_count: number;
-  completed_count: number;
+  isArchived: boolean;
+  createdAt: string;
+  updatedAt: string;
+  todoCount: number;
+  completedCount: number;
   status?: string;
-  start_date?: string;
-  end_date?: string;
-  progress_percentage?: number;
+  startDate?: string;
+  endDate?: string;
+  progressPercentage?: number;
 }
 
 export interface LegacyProjectCreate {
@@ -43,7 +43,7 @@ export interface LegacyProjectUpdate {
   name?: string;
   description?: string;
   // color field removed - backend removed for professional management
-  is_archived?: boolean;
+  isArchived?: boolean;
 }
 
 class TodosService {

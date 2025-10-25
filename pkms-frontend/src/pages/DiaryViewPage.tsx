@@ -47,7 +47,7 @@ export default function DiaryViewPage() {
         try {
           const full = await diaryService.getEntry(entry.uuid);
           const mediaList = await diaryService.getEntryFiles(full.uuid);
-          const firstPhoto = (mediaList || []).find((m: any) => m.media_type === 'photo');
+          const firstPhoto = (mediaList || []).find((m: any) => m.mediaType === 'photo');
           if (firstPhoto) {
             const blob = await diaryService.downloadFile(firstPhoto.uuid);
             const url = URL.createObjectURL(blob);
@@ -153,7 +153,7 @@ export default function DiaryViewPage() {
             ))}
           </Group>
           <Text size="xs" c="dimmed" mb="md">
-            {new Date(entry.created_at).toLocaleString()}
+            {new Date(entry.createdAt).toLocaleString()}
           </Text>
 
           {isDecrypting ? (

@@ -8,17 +8,17 @@ import { reorderArray, getDragPreviewStyles, getDropZoneStyles } from '../../uti
 interface FileItem {
   uuid: string;
   filename: string;
-  original_name: string;
-  mime_type: string;
-  file_size: number;
+  originalName: string;
+  mimeType: string;
+  fileSize: number;
   description?: string;
-  created_at: string;
-  media_type?: string;
+  createdAt: string;
+  mediaType?: string;
   is_encrypted?: boolean;  // NEW: Track if file is encrypted (for diary files)
   // Optional: relative path in storage (if available from backend)
-  file_path?: string;
+  filePath?: string;
   // Optional: direct or relative API path to thumbnail provided by backend
-  thumbnail_path?: string;
+  thumbnailPath?: string;
 }
 
 interface FileListProps {
@@ -166,11 +166,11 @@ export const FileList: React.FC<FileListProps> = ({
         }
         
         // Download with decryption
-        const blob = await diaryService.downloadFile(file.uuid, key, file.original_name);
+        const blob = await diaryService.downloadFile(file.uuid, key, file.originalName);
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = file.original_name;
+        a.download = file.originalName;
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
@@ -186,7 +186,7 @@ export const FileList: React.FC<FileListProps> = ({
           // Check cache first
           blob = await fileService.getCachedFile(cacheKey, moduleType);
           if (blob) {
-            console.log(`🎯 FILE CACHE HIT: ${file.original_name}`);
+            console.log(`🎯 FILE CACHE HIT: ${file.originalName}`);
           }
         } catch (error) {
           console.warn('Failed to get cached file:', error);
@@ -206,7 +206,7 @@ export const FileList: React.FC<FileListProps> = ({
               cacheKey,
               maxSize: 50 // 50MB limit
             });
-            console.log(`✅ FILE CACHED: ${file.original_name}`);
+            console.log(`✅ FILE CACHED: ${file.originalName}`);
           } catch (error) {
             console.warn('Failed to cache file:', error);
           }
@@ -215,7 +215,7 @@ export const FileList: React.FC<FileListProps> = ({
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = file.original_name;
+        a.download = file.originalName;
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
@@ -334,10 +334,10 @@ export const FileList: React.FC<FileListProps> = ({
             <ThumbnailRenderer file={file} module={module} />
             <div className="ml-3 flex-1 min-w-0">
               <p className="text-sm font-medium text-gray-900 truncate">
-                {file.original_name}
+                {file.originalName}
               </p>
               <div className="flex items-center space-x-2 text-xs text-gray-500">
-                <span>{formatFileSize(file.file_size)}</span>
+                <span>{formatFileSize(file.fileSize)}</span>
                 {file.description && (
                   <>
                     <span>•</span>
@@ -345,13 +345,13 @@ export const FileList: React.FC<FileListProps> = ({
                   </>
                 )}
                 <span>•</span>
-                <span>{new Date(file.created_at).toLocaleDateString()}</span>
+                <span>{new Date(file.createdAt).toLocaleDateString()}</span>
               </div>
             </div>
           </div>
 
           <div className="flex items-center space-x-2 ml-3">
-            {isAudioFile(file.mime_type, file.media_type) && (
+            {isAudioFile(file.mimeType, file.mediaType) && (
               <button
                 onClick={() => handlePlayAudio(file)}
                 className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
@@ -412,7 +412,7 @@ const ThumbnailRenderer: React.FC<{ file: FileItem; module: string }> = ({ file,
     try {
       const cachedThumbnail = await fileService.getThumbnail(cacheKey, module);
       if (cachedThumbnail) {
-        console.log(`🎯 THUMBNAIL CACHE HIT: ${file.original_name}`);
+        console.log(`🎯 THUMBNAIL CACHE HIT: ${file.originalName}`);
         return URL.createObjectURL(cachedThumbnail);
       }
     } catch (error) {
@@ -420,11 +420,11 @@ const ThumbnailRenderer: React.FC<{ file: FileItem; module: string }> = ({ file,
     }
 
     // Fallback to backend thumbnail
-    if (file.thumbnail_path) {
-      return file.thumbnail_path;
+    if (file.thumbnailPath) {
+      return file.thumbnailPath;
     }
-    if (file.file_path) {
-      const basePath = file.file_path.replace(/\\/g, '/');
+    if (file.filePath) {
+      const basePath = file.filePath.replace(/\\/g, '/');
       return `/api/v1/thumbnails/file/${basePath}?size=${size}`;
     }
     return null;
@@ -462,7 +462,7 @@ const ThumbnailRenderer: React.FC<{ file: FileItem; module: string }> = ({ file,
 
   useEffect(() => {
     const loadThumbnail = async () => {
-      if (!file.mime_type.startsWith('image/')) {
+      if (!file.mimeType.startsWith('image/')) {
         setIsLoading(false);
         return;
       }
@@ -488,11 +488,11 @@ const ThumbnailRenderer: React.FC<{ file: FileItem; module: string }> = ({ file,
     );
   }
 
-  if (thumbUrl && file.mime_type.startsWith('image/')) {
+  if (thumbUrl && file.mimeType.startsWith('image/')) {
     return (
       <img
         src={thumbUrl}
-        alt={file.original_name}
+        alt={file.originalName}
         className="w-10 h-10 rounded object-cover bg-gray-100 border border-gray-200"
         onError={(e) => {
           // Fallback to icon on error
@@ -502,7 +502,7 @@ const ThumbnailRenderer: React.FC<{ file: FileItem; module: string }> = ({ file,
     );
   }
 
-  return getFileIcon(file.mime_type, file.media_type);
+  return getFileIcon(file.mimeType, file.mediaType);
 };
 
 export default FileList;

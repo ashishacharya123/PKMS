@@ -65,12 +65,12 @@ export interface NoteFile {
   uuid: string;
   note_uuid: string;
   filename: string;
-  original_name: string;
-  file_size: number;
-  mime_type: string;
+  originalName: string;
+  fileSize: number;
+  mimeType: string;
   description?: string;
-  is_deleted: boolean;  // Consistent soft delete
-  created_at: string;
+  isDeleted: boolean;  // Consistent soft delete
+  createdAt: string;
 }
 
 export interface CreateNoteRequest {
@@ -85,8 +85,8 @@ export interface UpdateNoteRequest {
   title?: string;
   content?: string;
   tags?: string[];
-  is_archived?: boolean;
-  is_favorite?: boolean;
+  isArchived?: boolean;
+  isFavorite?: boolean;
   projectIds?: string[];
   isExclusiveMode?: boolean;
 }

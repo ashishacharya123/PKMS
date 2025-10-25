@@ -350,7 +350,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     try {
       await todosService.archiveTodo(uuid, true);
       set(state => ({
-        todos: state.todos.map(todo => todo.uuid === uuid ? { ...todo, is_archived: true } : todo),
+        todos: state.todos.map(todo => todo.uuid === uuid ? { ...todo, isArchived: true } : todo),
         isUpdating: false
       }));
       get().loadStats();
@@ -363,7 +363,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
     try {
       await todosService.archiveTodo(uuid, false);
       set(state => ({
-        todos: state.todos.map(todo => todo.uuid === uuid ? { ...todo, is_archived: false } : todo),
+        todos: state.todos.map(todo => todo.uuid === uuid ? { ...todo, isArchived: false } : todo),
         isUpdating: false
       }));
       get().loadStats();

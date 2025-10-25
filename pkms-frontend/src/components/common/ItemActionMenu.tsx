@@ -35,10 +35,10 @@ export function ItemActionMenu({
     
     // Archive toggle
     ...(showArchive && onToggleArchive ? [{
-      label: item.is_archived ? 'Unarchive' : 'Archive',
+      label: item.isArchived ? 'Unarchive' : 'Archive',
       icon: IconArchive,
       onClick: onToggleArchive,
-      color: item.is_archived ? 'orange' : undefined,
+      color: item.isArchived ? 'orange' : undefined,
     }] : []),
     
     // Edit

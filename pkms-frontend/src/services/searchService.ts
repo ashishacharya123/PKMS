@@ -49,12 +49,12 @@ export interface SearchFilters {
   sort_order?: 'asc' | 'desc';
     date_from?: string;
     date_to?: string;
-    mime_types?: string;
-    min_file_size?: number;
-    max_file_size?: number;
-    todo_status?: string;
-    todo_priority?: string;
-  fuzzy_threshold?: number;
+    mimeTypes?: string;
+    minFileSize?: number;
+    maxFileSize?: number;
+    todoStatus?: string;
+    todoPriority?: string;
+  fuzzyThreshold?: number;
 }
 
 interface CacheEntry {
@@ -93,8 +93,8 @@ class SearchService {
       preview: item.preview ?? item.preview_text ?? '',
       tags: item.tags ?? [],
       score: item.score,
-      createdAt: item.created_at ?? item.createdAt,
-      updatedAt: item.updated_at ?? item.updatedAt,
+      createdAt: item.createdAt ?? item.createdAt,
+      updatedAt: item.updatedAt ?? item.updatedAt,
       metadata: item.metadata ?? {},
       highlight: item.highlight,
       highlight_title: item.highlight_title,
@@ -118,11 +118,11 @@ class SearchService {
     if (filters.favorites_only) params.favorites_only = 'true';
     if (filters.date_from) params.date_from = filters.date_from;
     if (filters.date_to) params.date_to = filters.date_to;
-    if (filters.mime_types) params.mime_types = filters.mime_types;
-    if (filters.min_file_size !== undefined) params.min_file_size = String(filters.min_file_size);
-    if (filters.max_file_size !== undefined) params.max_file_size = String(filters.max_file_size);
-    if (filters.todo_status) params.todo_status = filters.todo_status;
-    if (filters.todo_priority) params.todo_priority = filters.todo_priority;
+    if (filters.mimeTypes) params.mimeTypes = filters.mimeTypes;
+    if (filters.minFileSize !== undefined) params.minFileSize = String(filters.minFileSize);
+    if (filters.maxFileSize !== undefined) params.maxFileSize = String(filters.maxFileSize);
+    if (filters.todoStatus) params.todoStatus = filters.todoStatus;
+    if (filters.todoPriority) params.todoPriority = filters.todoPriority;
 
     const cacheKey = this.generateCacheKey(`fts_${query}`, params);
     const cached = this.getFromCache(cacheKey);

@@ -7,21 +7,12 @@ across all upload modules while allowing module-specific extensions.
 This eliminates schema duplication and provides a unified interface for upload requests.
 """
 
-from pydantic import BaseModel, Field, field_validator, UUID4
-from pydantic.alias_generators import to_camel
+from pydantic import Field, field_validator, UUID4
 from typing import List, Optional, Literal
 from datetime import datetime
+from .base import CamelCaseModel
 
 from app.utils.security import sanitize_tags
-
-
-class CamelCaseModel(BaseModel):
-    """Base model with camelCase conversion."""
-    model_config = {
-        "alias_generator": to_camel,
-        "populate_by_name": True,
-        "from_attributes": True
-    }
 
 
 class BaseCommitUploadRequest(CamelCaseModel):

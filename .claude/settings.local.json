@@ -3,7 +3,8 @@
     "allow": [
       "Bash(find:*)",
       "Bash(findstr:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(not grep:*)"
     ]
   },
   "outputStyle": "Explanatory"

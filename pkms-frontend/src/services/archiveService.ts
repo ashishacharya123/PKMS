@@ -2,7 +2,7 @@ import { apiService } from './api';
 import { coreUploadService, UploadProgress } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
 
-import { ArchiveItem, ArchiveFolder } from '../types/archive';
+import { ArchiveItem, ArchiveFolder, FolderCreate } from '../types/archive';
 import { FolderTree } from '../types/archive';
 
 /* -------------------------------------------------------------------------- */
@@ -46,8 +46,8 @@ const uploadFileUnified = async (
   });
 
   const commitData = {
-    file_id: fileId,
-    folder_uuid: folderUuid,
+    fileId: fileId,
+    folderUuid: folderUuid,
     name: getBaseName(file.name),
     description: '',
     tags: tags
@@ -99,6 +99,7 @@ const uploadMultipleFiles = async (
 /* -------------------------------------------------------------------------- */
 export const archiveService = {
   async listFolders(parentUuid?: string): Promise<ArchiveFolder[]> {
+    // Query parameters must remain snake_case (not converted by CamelCaseModel)
     const qs = parentUuid ? `?parent_uuid=${encodeURIComponent(parentUuid)}` : '';
     const { data } = await apiService.get<ArchiveFolder[]>(`${FOLDERS_ENDPOINT}${qs}`);
     return data;
@@ -116,8 +117,8 @@ export const archiveService = {
   },
 
   async createFolder(name: string, parentUuid?: string, description?: string): Promise<ArchiveFolder> {
-    const payload: any = { name };
-    if (parentUuid) payload.parent_uuid = parentUuid;
+    const payload: FolderCreate = { name };
+    if (parentUuid) payload.parentUuid = parentUuid;
     if (description !== undefined) payload.description = description;
     const { data } = await apiService.post<ArchiveFolder>(FOLDERS_ENDPOINT, payload);
     return data;
@@ -180,19 +181,22 @@ export const archiveService = {
   },
 
   // New management endpoints
-  async renameFolder(folderUuid: string, newName: string): Promise<any> {
-    return apiService.put(`${API_PREFIX}/folders/${folderUuid}`, { name: newName });
+  async renameFolder(folderUuid: string, newName: string): Promise<ArchiveFolder> {
+    const { data } = await apiService.put<ArchiveFolder>(`${API_PREFIX}/folders/${folderUuid}`, { name: newName });
+    return data;
   },
 
-  async renameItem(itemUuid: string, newName: string): Promise<any> {
-    return apiService.put(`${API_PREFIX}/items/${itemUuid}`, { name: newName });
+  async renameItem(itemUuid: string, newName: string): Promise<ArchiveItem> {
+    const { data } = await apiService.put<ArchiveItem>(`${API_PREFIX}/items/${itemUuid}`, { name: newName });
+    return data;
   },
 
-  async deleteItem(itemUuid: string): Promise<any> {
-    return apiService.delete(`${API_PREFIX}/items/${itemUuid}`);
+  async deleteItem(itemUuid: string): Promise<void> {
+    await apiService.delete(`${API_PREFIX}/items/${itemUuid}`);
   },
 
-  async downloadFolder(folderUuid: string): Promise<any> {
-    return apiService.get(`${API_PREFIX}/folders/${folderUuid}/download`);
+  async downloadFolder(folderUuid: string, onProgress?: (progress: DownloadProgress) => void): Promise<Blob> {
+    const url = `${API_PREFIX}/folders/${folderUuid}/download`;
+    return coreDownloadService.downloadFile(url, { fileId: folderUuid, onProgress });
   },
 }; 
