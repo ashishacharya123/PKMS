@@ -24,7 +24,7 @@ export interface UploadProgress {
 
 export interface ChunkUploadOptions {
   module: string; // e.g. 'documents', 'archive', 'diary'
-  additionalMeta?: Record<string, any>; // tags, folder_uuid, etc.
+  additionalMeta?: Record<string, any>; // tags, folderUuid, etc.
   onProgress?: (progress: UploadProgress) => void;
   onComplete?: (fileId: string) => void;
   onError?: (error: Error) => void;

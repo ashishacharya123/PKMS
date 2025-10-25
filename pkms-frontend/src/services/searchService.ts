@@ -1,5 +1,19 @@
 import { apiService } from './api';
 
+/**
+ * NAMING CONVENTION RULES:
+ * 
+ * 🏷️ URL Parameters (Query String): MUST use snake_case
+ * - Examples: ?sort_by=created_at, ?include_archived=true, ?mime_types=image/jpeg
+ * - These are read directly by FastAPI without CamelCaseModel conversion
+ * 
+ * 📦 JSON Body/Response: MUST use camelCase  
+ * - Examples: { "createdAt": "2024-01-01", "projectIds": ["uuid1"] }
+ * - These are converted by the backend's CamelCaseModel
+ * 
+ * The Golden Rule: URL = snake_case, JSON = camelCase
+ */
+
 export interface SearchResult {
   id: string;
   module: 'notes' | 'documents' | 'todos' | 'archive' | 'archive-folder' | 'diary' | 'projects' | 'folders';
@@ -40,21 +54,21 @@ export interface TagInfo {
 
 export interface SearchFilters {
     modules?: string[];
-    include_tags?: string[];
-    exclude_tags?: string[];
-    include_archived?: boolean;
-    exclude_diary?: boolean;
-  favorites_only?: boolean;
-  sort_by?: 'relevance' | 'date' | 'title' | 'module';
-  sort_order?: 'asc' | 'desc';
-    date_from?: string;
-    date_to?: string;
+    includeTags?: string[];
+    excludeTags?: string[];
+    includeArchived?: boolean;
+    excludeDiary?: boolean;
+    fuzzyThreshold?: number;
+    favoritesOnly?: boolean;
+    sortBy?: 'relevance' | 'date' | 'title' | 'module';
+    sortOrder?: 'asc' | 'desc';
+    dateFrom?: string;
+    dateTo?: string;
     mimeTypes?: string;
     minFileSize?: number;
     maxFileSize?: number;
     todoStatus?: string;
     todoPriority?: string;
-  fuzzyThreshold?: number;
 }
 
 interface CacheEntry {
@@ -87,42 +101,45 @@ class SearchService {
 
   private normaliseResults(results: any[]): SearchResult[] {
     return results.map((item) => ({
-      uuid: item.uuid ?? '',
+      id: item.id ?? item.uuid ?? '',
       module: item.module ?? item.type ?? 'notes',
       title: item.title ?? item.name ?? 'Untitled',
       preview: item.preview ?? item.preview_text ?? '',
       tags: item.tags ?? [],
-      score: item.score,
-      createdAt: item.createdAt ?? item.createdAt,
-      updatedAt: item.updatedAt ?? item.updatedAt,
+      score: item.score ?? item.relevance ?? item.relevanceScore,
+      createdAt: item.createdAt ?? item.created_at,
+      updatedAt: item.updatedAt ?? item.updated_at,
       metadata: item.metadata ?? {},
       highlight: item.highlight,
-      highlight_title: item.highlight_title,
+      highlight_title: item.highlight_title ?? item.highlightTitle,
     }));
   }
 
   async searchFTS(query: string, filters: SearchFilters = {}, page = 1, limit = 20): Promise<SearchResponse> {
+    // URL parameters must use snake_case (not converted by CamelCaseModel)
+    // These are sent as query parameters like ?sort_by=created_at&sort_order=desc
     const params: Record<string, string> = {
       q: query,
       offset: ((page - 1) * limit).toString(),
       limit: limit.toString(),
-      sort_by: filters.sort_by ?? 'relevance',
-      sort_order: filters.sort_order ?? 'desc',
+      sort_by: filters.sortBy ?? 'relevance',
+      sort_order: filters.sortOrder ?? 'desc',
     };
 
     if (filters.modules?.length) params.modules = filters.modules.join(',');
-    if (filters.include_tags?.length) params.include_tags = filters.include_tags.join(',');
-    if (filters.exclude_tags?.length) params.exclude_tags = filters.exclude_tags.join(',');
-    if (filters.include_archived !== undefined) params.include_archived = String(filters.include_archived);
-    if (filters.exclude_diary !== undefined) params.exclude_diary = String(filters.exclude_diary);
-    if (filters.favorites_only) params.favorites_only = 'true';
-    if (filters.date_from) params.date_from = filters.date_from;
-    if (filters.date_to) params.date_to = filters.date_to;
-    if (filters.mimeTypes) params.mimeTypes = filters.mimeTypes;
-    if (filters.minFileSize !== undefined) params.minFileSize = String(filters.minFileSize);
-    if (filters.maxFileSize !== undefined) params.maxFileSize = String(filters.maxFileSize);
-    if (filters.todoStatus) params.todoStatus = filters.todoStatus;
-    if (filters.todoPriority) params.todoPriority = filters.todoPriority;
+    if (filters.includeTags?.length) params.include_tags = filters.includeTags.join(',');
+    if (filters.excludeTags?.length) params.exclude_tags = filters.excludeTags.join(',');
+    if (filters.includeArchived !== undefined) params.include_archived = String(filters.includeArchived);
+    if (filters.excludeDiary !== undefined) params.exclude_diary = String(filters.excludeDiary);
+    if (filters.favoritesOnly) params.favorites_only = 'true';
+    if (filters.dateFrom) params.date_from = filters.dateFrom;
+    if (filters.dateTo) params.date_to = filters.dateTo;
+    // URL parameters must use snake_case (not converted by CamelCaseModel)
+    if (filters.mimeTypes) params.mime_types = filters.mimeTypes;
+    if (filters.minFileSize !== undefined) params.min_file_size = String(filters.minFileSize);
+    if (filters.maxFileSize !== undefined) params.max_file_size = String(filters.maxFileSize);
+    if (filters.todoStatus) params.todo_status = filters.todoStatus;
+    if (filters.todoPriority) params.todo_priority = filters.todoPriority;
 
     const cacheKey = this.generateCacheKey(`fts_${query}`, params);
     const cached = this.getFromCache(cacheKey);
@@ -140,7 +157,7 @@ class SearchService {
         query,
         appliedFilters: {
           modules: filters.modules,
-          tags: filters.include_tags,
+          tags: filters.includeTags,
         },
       },
       suggestions: payload.suggestions || [],
@@ -158,6 +175,7 @@ class SearchService {
     };
 
     if (filters.modules?.length) params.modules = filters.modules.join(',');
+    if (filters.fuzzyThreshold !== undefined) params.fuzzy_threshold = String(filters.fuzzyThreshold);
 
     const cacheKey = this.generateCacheKey(`fuzzy_light_${query}`, params);
     const cached = this.getFromCache(cacheKey);
@@ -191,6 +209,7 @@ class SearchService {
     };
 
     if (filters.modules?.length) params.modules = filters.modules.join(',');
+    if (filters.fuzzyThreshold !== undefined) params.fuzzy_threshold = String(filters.fuzzyThreshold);
 
     const cacheKey = this.generateCacheKey(`advanced_fuzzy_${query}`, params);
     const cached = this.getFromCache(cacheKey);
@@ -219,7 +238,7 @@ class SearchService {
   async getSearchSuggestions(query: string): Promise<string[]> {
     if (query.length < 2) return [];
 
-    const response = await apiService.get(`/search/suggestions?q=${encodeURIComponent(query)}`);
+    const response = await apiService.get(`/tags/autocomplete?q=${encodeURIComponent(query)}`);
     return (response.data as any)?.suggestions ?? [];
   }
 

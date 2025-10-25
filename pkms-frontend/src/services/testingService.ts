@@ -326,7 +326,7 @@ export interface CrudTestResult {
       test_note_id?: number;
       test_doc_id?: number;
       test_todo_id?: number;
-      test_folder_id?: number;
+      testFolderId?: number;
       test_item_id?: number;
     };
   };
@@ -722,7 +722,7 @@ class TestingService {
       const formData = new FormData();
       formData.append('filename', filename);
       formData.append('content_type', contentType);
-      formData.append('fileSize', fileSize.toString());
+      formData.append('file_size', fileSize.toString());
       
       const response = await apiService.post('/testing/crud/documents/create', formData, {
         headers: {

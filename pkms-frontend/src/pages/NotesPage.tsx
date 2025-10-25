@@ -124,7 +124,7 @@ export function NotesPage() {
     const sorted = [...notes].sort((a, b) => {
       let aValue: string | number = a[sortField];
       let bValue: string | number = b[sortField];
-      if (sortField.includes('_at')) {
+      if (sortField === 'createdAt' || sortField === 'updatedAt') {
         aValue = new Date(aValue as string).getTime();
         bValue = new Date(bValue as string).getTime();
       }
@@ -142,10 +142,10 @@ export function NotesPage() {
   }, [notes, sortField, sortOrder]);
 
   const paginatedNotes = useMemo(() => {
-    const start = 0;
-    const end = itemsPerPage;
+    const start = (currentPage - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
     return sortedNotes.slice(start, end);
-  }, [sortedNotes, itemsPerPage]);
+  }, [sortedNotes, itemsPerPage, currentPage]);
 
   const totalPages = Math.ceil(sortedNotes.length / itemsPerPage);
 

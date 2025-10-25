@@ -134,7 +134,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         search: state.searchQuery || undefined,
         archived: state.showArchived,
         isFavorite: state.showFavoritesOnly || undefined,
-        project_uuid: state.currentProjectId || undefined,
+        projectUuid: state.currentProjectId || undefined,
         project_only: state.showProjectOnly || undefined,
         // REMOVED: unassigned_only - was backwards logic causing uploaded docs to be hidden
         limit: state.limit,

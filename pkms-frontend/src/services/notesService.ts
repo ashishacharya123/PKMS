@@ -7,6 +7,7 @@ import { apiService } from './api';
 import { BaseService } from './BaseService';
 import { coreUploadService, UploadProgress } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
+import { formatFileSize } from '../components/common/ViewModeLayouts';
 
 // Removed SMALL_FILE_THRESHOLD since we're using chunked upload consistently
 
@@ -63,7 +64,7 @@ export interface NoteSummary {
 
 export interface NoteFile {
   uuid: string;
-  note_uuid: string;
+  noteUuid: string;
   filename: string;
   originalName: string;
   fileSize: number;
@@ -134,12 +135,16 @@ class NotesService extends BaseService<Note, CreateNoteRequest, UpdateNoteReques
     limit?: number;
     offset?: number;
   } = {}): Promise<NoteSummary[]> {
+    // URL parameters must use snake_case (not converted by CamelCaseModel)
     const queryParams = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        queryParams.append(key, value.toString());
-      }
-    });
+    
+    // Convert camelCase to snake_case for URL parameters
+    if (params.archived !== undefined) queryParams.append('archived', String(params.archived));
+    if (params.search !== undefined) queryParams.append('search', params.search);
+    if (params.tag !== undefined) queryParams.append('tag', params.tag);
+    if (params.has_files !== undefined) queryParams.append('has_files', String(params.has_files));
+    if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
+    if (params.offset !== undefined) queryParams.append('offset', params.offset.toString());
 
     const url = `/notes/${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
     const response = await apiService.get<NoteSummary[]>(url);
@@ -208,9 +213,10 @@ class NotesService extends BaseService<Note, CreateNoteRequest, UpdateNoteReques
     });
 
     // Commit the upload to the note using the UUID directly
+    // JSON body must use camelCase (converted by CamelCaseModel)
     const response = await apiService.post<NoteFile>('/notes/files/upload/commit', {
-      file_id: fileId,
-      note_uuid: noteUuid,
+      fileId: fileId,
+      noteUuid: noteUuid,
       description
     });
 
@@ -265,16 +271,6 @@ class NotesService extends BaseService<Note, CreateNoteRequest, UpdateNoteReques
     return '📎';
   }
 
-  /**
-   * Format file size for display
-   */
-  formatFileSize(bytes: number): string {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
-}
 
 export const notesService = new NotesService(); 

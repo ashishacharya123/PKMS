@@ -59,11 +59,11 @@ class UnifiedCalendarService {
       id: `note-${note.uuid}`,
       title: note.title || 'Untitled Note',
       description: note.content ? note.content.substring(0, 200) + '...' : '',
-      date: new Date(note.createdAt || note.createdAt),
+      date: new Date(note.createdAt || note.created_at),
       type: 'note',
       module: 'notes',
       tags: note.tags || [],
-      isFavorite: note.is_favorite || note.isFavorite,
+      isFavorite: note.isFavorite,
       color: '#228be6',
       icon: '📝',
       metadata: {
@@ -85,13 +85,15 @@ class UnifiedCalendarService {
       priority: todo.priority || 'medium',
       status: todo.status || 'pending',
       tags: todo.tags || [],
-      isFavorite: todo.is_favorite || todo.isFavorite,
+      isFavorite: todo.isFavorite,
       color: this.getPriorityColor(todo.priority || 'medium'),
       icon: '✓',
       metadata: {
         dueDate: todo.dueDate ? new Date(todo.dueDate) : undefined,
-        completedDate: todo.completedDate || todo.completed_at ? new Date(todo.completedDate || todo.completed_at) : undefined,
-        projectId: todo.projectId || todo.projectId
+        completedDate: (todo.completedDate || todo.completed_at)
+          ? new Date(todo.completedDate || todo.completed_at)
+          : undefined,
+        projectId: todo.projectId ?? todo.project_id
       }
     };
     this.addEvent(event);
@@ -103,11 +105,11 @@ class UnifiedCalendarService {
       id: `diary-${diary.uuid}`,
       title: diary.title || `Diary Entry - ${new Date(diary.date || diary.createdAt).toLocaleDateString()}`,
       description: diary.content ? diary.content.substring(0, 200) + '...' : '',
-      date: new Date(diary.date || diary.createdAt || diary.createdAt),
+      date: new Date(diary.date || diary.createdAt || diary.created_at),
       type: 'diary',
       module: 'diary',
       tags: diary.tags || [],
-      isFavorite: diary.is_favorite || diary.isFavorite,
+      isFavorite: diary.isFavorite,
       color: '#e64980',
       icon: '📔',
       metadata: {
@@ -125,7 +127,9 @@ class UnifiedCalendarService {
       id: `project-${project.uuid}`,
       title: project.name || 'Untitled Project',
       description: project.description || '',
-      date: project.dueDate || project.dueDate ? new Date(project.dueDate || project.dueDate) : new Date(project.createdAt || project.createdAt),
+      date: (project.dueDate ?? project.due_date)
+        ? new Date(project.dueDate ?? project.due_date)
+        : new Date(project.createdAt ?? project.created_at),
       type: 'project',
       module: 'todos',
       priority: project.priority || 'medium',
@@ -134,8 +138,12 @@ class UnifiedCalendarService {
       color: this.getPriorityColor(project.priority || 'medium'),
       icon: '🎯',
       metadata: {
-        dueDate: project.dueDate || project.dueDate ? new Date(project.dueDate || project.dueDate) : undefined,
-        completedDate: project.completedDate || project.completed_at ? new Date(project.completedDate || project.completed_at) : undefined
+        dueDate: (project.dueDate ?? project.due_date)
+          ? new Date(project.dueDate ?? project.due_date)
+          : undefined,
+        completedDate: (project.completedDate ?? project.completed_at)
+          ? new Date(project.completedDate ?? project.completed_at)
+          : undefined
       }
     };
     this.addEvent(event);
@@ -341,7 +349,7 @@ DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').split('.')[0]}Z
 DTSTART:${startDate.toISOString().replace(/[-:]/g, '').split('.')[0]}Z
 DTEND:${endDate.toISOString().replace(/[-:]/g, '').split('.')[0]}Z
 SUMMARY:${event.title.replace(/,/g, '\,')}
-DESCRIPTION:${(event.description || '').replace(/,/g, '\,').replace(/\n/g, '\n')}
+DESCRIPTION:${(event.description || '').replace(/,/g, '\,').replace(/\n/g, '\\n')}
 CATEGORIES:${event.type}
 END:VEVENT
 `;

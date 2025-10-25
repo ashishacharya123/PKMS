@@ -52,7 +52,7 @@ export class ProjectApiService {
     }
 
     await apiService.patch(
-      `/projects/${projectUuid}/documents/reorder`,
+      `/projects/${projectUuid}/items/documents/reorder`,
       { documentUuids },
       { headers }
     );
@@ -85,7 +85,7 @@ export class ProjectApiService {
     // --- END PREFLIGHT ---
 
     await apiService.post(
-      `/projects/${projectUuid}/documents:link`,
+      `/projects/${projectUuid}/items/documents/link`,
       { documentUuids, areItemsExclusive }
     );
   }
@@ -98,7 +98,7 @@ export class ProjectApiService {
     documentUuid: string
   ): Promise<void> {
     await apiService.post(
-      `/projects/${projectUuid}/documents:unlink`,
+      `/projects/${projectUuid}/items/documents/unlink`,
       { documentUuid }
     );
   }

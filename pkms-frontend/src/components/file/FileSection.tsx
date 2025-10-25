@@ -154,7 +154,7 @@ export const FileSection: React.FC<FileSectionProps> = ({
         formData.append('file', file);
         formData.append('metadata', JSON.stringify({
           ...metadata,
-          is_exclusive: isExclusive
+          isExclusive: isExclusive
         }));
 
         const uploadResponse = await fetch('/api/v1/uploads/chunk-upload', {
@@ -232,13 +232,13 @@ export const FileSection: React.FC<FileSectionProps> = ({
   const getModuleSpecificPayload = (module: string, entityId: string) => {
     switch (module) {
       case 'notes':
-        return { note_uuid: entityId };
+        return { noteUuid: entityId };
       case 'diary':
-        return { entry_id: entityId };
+        return { entryId: entityId };
       case 'documents':
         return {}; // Documents don't need entity ID
       case 'archive':
-        return { folder_uuid: entityId };
+        return { folderUuid: entityId };
       case 'projects':
         return {}; // For projects, we might link existing documents
       default:

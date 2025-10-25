@@ -41,7 +41,7 @@ const uploadFileUnified = async (
   // Use chunked upload for ALL files
   const fileId = await coreUploadService.uploadFile(file, {
     module: 'archive',
-    additionalMeta: { folder_uuid: folderUuid },
+    additionalMeta: { folderUuid: folderUuid },
     onProgress,
   });
 
@@ -99,13 +99,14 @@ const uploadMultipleFiles = async (
 /* -------------------------------------------------------------------------- */
 export const archiveService = {
   async listFolders(parentUuid?: string): Promise<ArchiveFolder[]> {
-    // Query parameters must remain snake_case (not converted by CamelCaseModel)
+    // URL query parameter - remains snake_case (not converted by CamelCaseModel)
     const qs = parentUuid ? `?parent_uuid=${encodeURIComponent(parentUuid)}` : '';
     const { data } = await apiService.get<ArchiveFolder[]>(`${FOLDERS_ENDPOINT}${qs}`);
     return data;
   },
 
   async getFolderTree(rootUuid?: string): Promise<FolderTree[]> {
+    // URL query parameter - remains snake_case
     const qs = rootUuid ? `?root_uuid=${encodeURIComponent(rootUuid)}` : '';
     const { data } = await apiService.get<FolderTree[]>(`${API_PREFIX}/folders/tree${qs}`);
     return data;
@@ -135,6 +136,7 @@ export const archiveService = {
   },
 
   async deleteFolder(uuid: string, force: boolean = false): Promise<void> {
+    // URL query parameter - remains snake_case
     const url = force ? `${folderPath(uuid)}?force=true` : folderPath(uuid);
     await apiService.delete(url);
   },
@@ -163,6 +165,7 @@ export const archiveService = {
   },
 
   async searchFoldersFTS(query: string): Promise<FolderTree[]> {
+    // URL query parameter - remains snake_case
     const { data } = await apiService.get<FolderTree[]>(`${API_PREFIX}/folders/tree?search=${encodeURIComponent(query)}`);
     return data;
   },

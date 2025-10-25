@@ -329,7 +329,35 @@ Scaling to multiple workers will require:
 - **MODERN PATTERNS**: Use current best practices without legacy constraints
 - **RATIONALE**: Building from scratch allows for optimal architecture without technical debt
 
-### 23. File Creation and Modification Pattern
+### 23. camelCase vs snake_case Architectural Rule
+- **JSON Payloads (Request/Response Bodies)**: ALWAYS camelCase
+  - Pydantic CamelCaseModel converts Python snake_case → JSON camelCase
+  - Example: `{ "parentUuid": "123", "subtaskUuids": ["456"] }`
+- **URL Query Parameters**: ALWAYS snake_case
+  - Backend consistently expects snake_case for query params
+  - Example: `?order_index=0&sort_by=created_at`
+- **Rule of Thumb**:
+  - Sorting, Filtering, Searching, Pagination → URL Query → snake_case
+  - Creating, Updating, Response Data → JSON Body → camelCase
+- **RATIONALE**: Clear distinction prevents confusion and ensures consistent API behavior
+- **EXAMPLES**:
+  ```typescript
+  // CORRECT: JSON payload uses camelCase
+  const response = await apiService.patch('/todos/move', {
+    parentUuid: newParentUuid,
+    subtaskUuids: subtaskUuids
+  });
+  
+  // CORRECT: Query parameters use snake_case
+  const response = await apiService.get(`/todos?sort_by=created_at&order_index=0`);
+  
+  // WRONG: Mixing conventions
+  const response = await apiService.patch('/todos/move', {
+    parent_uuid: newParentUuid  // Should be parentUuid
+  });
+  ```
+
+### 24. File Creation and Modification Pattern
 - **ALWAYS CHECK FIRST**: Before creating any new file, check if it already exists
 - **NEVER OVERRIDE**: Never overwrite existing files without explicit user permission
 - **READ BEFORE WRITE**: Always read existing file content before making changes

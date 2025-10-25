@@ -19,17 +19,17 @@ export enum ModuleType {
 
 export enum ProjectStatus {
   IS_RUNNING = "is_running",  // URL param: ?status=is_running
-  ON_HOLD = "on_hold",
-  COMPLETED = "completed",
-  CANCELLED = "cancelled"
+  ON_HOLD = "on_hold",        // URL param: ?status=on_hold
+  COMPLETED = "completed",    // URL param: ?status=completed
+  CANCELLED = "cancelled"     // URL param: ?status=cancelled
 }
 
 export enum TodoStatus {
-  PENDING = "pending",
-  IN_PROGRESS = "in_progress",
-  BLOCKED = "blocked",
-  DONE = "done",
-  CANCELLED = "cancelled"
+  PENDING = "pending",        // URL param: ?status=pending
+  IN_PROGRESS = "in_progress", // URL param: ?status=in_progress
+  BLOCKED = "blocked",        // URL param: ?status=blocked
+  DONE = "done",             // URL param: ?status=done
+  CANCELLED = "cancelled"     // URL param: ?status=cancelled
 }
 
 export enum TodoType {
@@ -62,11 +62,11 @@ export enum ChunkUploadStatus {
 
 export enum TodoStatsKey {
   // Status-based counts (from TodoStatus enum)
-  TOTAL = "total",
-  PENDING = "pending",
-  IN_PROGRESS = "in_progress",
-  BLOCKED = "blocked",
-  DONE = "done",
+  TOTAL = "total",                    // URL param: ?filter=total
+  PENDING = "pending",                // URL param: ?filter=pending
+  IN_PROGRESS = "in_progress",        // URL param: ?filter=in_progress
+  BLOCKED = "blocked",               // URL param: ?filter=blocked
+  DONE = "done",                      // URL param: ?filter=done
   
   // Time-based computed counts (calculated on the fly - active todos only)
   OVERDUE = "overdue",           // URL param: ?filter=overdue

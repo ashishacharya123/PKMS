@@ -18,7 +18,7 @@ class NoteCreate(CamelCaseModel):
     project_uuids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this note to")
     are_projects_exclusive: Optional[bool] = Field(False, description="Apply exclusive flag to all project associations")
 
-    @field_validator('title')
+    @field_validator('title', mode='before')
     def validate_safe_text(cls, v: str):
         from app.utils.security import sanitize_text_input
         return sanitize_text_input(v, max_length=200)
@@ -27,9 +27,8 @@ class NoteCreate(CamelCaseModel):
     def validate_project_uuids_are_uuid4(cls, v: Optional[List[str]]):
         if not v:
             return v
-        from app.schemas.note import UUID4_RE as uuid4_regex
         for pid in v:
-            if not isinstance(pid, str) or not uuid4_regex.match(pid):
+            if not isinstance(pid, str) or not UUID4_RE.match(pid):
                 raise ValueError("project_uuids must contain valid UUID4 strings")
         return v
 
@@ -43,7 +42,7 @@ class NoteUpdate(CamelCaseModel):
     project_uuids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this note to")
     are_projects_exclusive: Optional[bool] = Field(None, description="Apply exclusive flag to all project associations")
 
-    @field_validator('title')
+    @field_validator('title', mode='before')
     def validate_safe_text(cls, v: Optional[str]):
         from app.utils.security import sanitize_text_input
         return sanitize_text_input(v, max_length=200) if v else v
@@ -52,8 +51,7 @@ class NoteUpdate(CamelCaseModel):
     def validate_project_uuids_are_uuid4_update(cls, v: Optional[List[str]]):
         if v is None:
             return v
-        from app.schemas.note import UUID4_RE as uuid4_regex
-        for pid in v:
+                for pid in v:
             if not isinstance(pid, str) or not uuid4_regex.match(pid):
                 raise ValueError("project_uuids must contain valid UUID4 strings")
         return v

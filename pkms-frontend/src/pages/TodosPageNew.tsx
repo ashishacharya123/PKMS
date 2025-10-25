@@ -140,10 +140,10 @@ export function TodosPageNew() {
   const [todoForm, setTodoForm] = useState({
     title: '',
     description: '',
-    project_id: null as string | null,
+    projectId: null as string | null,
     projectIds: [] as string[],
     isExclusive: false,
-    start_date: '',
+    startDate: '',
     dueDate: '',
     priority: 1,
     tags: [] as string[]
@@ -244,10 +244,10 @@ export function TodosPageNew() {
       await createTodo({
         title: todoForm.title,
         description: todoForm.description,
-        project_id: todoForm.project_id,
+        project_id: todoForm.projectId,
         projectIds: todoForm.projectIds,
         isExclusive: todoForm.isExclusive,
-        start_date: todoForm.start_date || undefined,
+        start_date: todoForm.startDate || undefined,
         dueDate: todoForm.dueDate || undefined,
         priority: todoForm.priority,
         tags: todoForm.tags
@@ -576,8 +576,8 @@ export function TodosPageNew() {
             <TextInput
               label="Start Date"
               type="date"
-              value={todoForm.start_date}
-              onChange={(e) => setTodoForm(prev => ({ ...prev, start_date: e.target.value }))}
+              value={todoForm.startDate}
+              onChange={(e) => setTodoForm(prev => ({ ...prev, startDate: e.target.value }))}
               style={{ flex: 1 }}
             />
             <TextInput

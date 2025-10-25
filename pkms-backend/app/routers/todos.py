@@ -428,3 +428,65 @@ async def get_blocked_by_todos(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get blocked todos"
         )
+
+
+@router.patch("/{parent_uuid}/subtasks/reorder")
+async def reorder_subtasks(
+    parent_uuid: str,
+    subtask_uuids: List[str] = Body(..., description="List of subtask UUIDs in new order"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Reorder subtasks for a parent todo"""
+    try:
+        # Verify parent todo exists and user owns it
+        parent_result = await db.execute(
+            select(Todo).where(
+                and_(Todo.uuid == parent_uuid, Todo.created_by == current_user.uuid)
+            )
+        )
+        parent_todo = parent_result.scalar_one_or_none()
+        
+        if not parent_todo:
+            raise HTTPException(status_code=404, detail="Parent todo not found")
+        
+        # Verify all subtasks exist and belong to the parent
+        subtask_result = await db.execute(
+            select(Todo).where(
+                and_(
+                    Todo.uuid.in_(subtask_uuids),
+                    Todo.parent_uuid == parent_uuid,
+                    Todo.created_by == current_user.uuid
+                )
+            )
+        )
+        existing_subtasks = {todo.uuid: todo for todo in subtask_result.scalars().all()}
+        
+        if len(existing_subtasks) != len(subtask_uuids):
+            missing_uuids = set(subtask_uuids) - set(existing_subtasks.keys())
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Some subtasks not found or don't belong to parent: {missing_uuids}"
+            )
+        
+        # Update sort_order for each subtask
+        for index, subtask_uuid in enumerate(subtask_uuids):
+            await db.execute(
+                update(Todo)
+                .where(Todo.uuid == subtask_uuid)
+                .values(order_index=index)
+            )
+        
+        await db.commit()
+        
+        return {"message": "Subtasks reordered successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.exception("Error reordering subtasks for parent %s", parent_uuid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reorder subtasks"
+        )

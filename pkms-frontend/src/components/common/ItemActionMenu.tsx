@@ -27,10 +27,10 @@ export function ItemActionMenu({
   const allActions = [
     // Favorite toggle
     ...(showFavorite && onToggleFavorite ? [{
-      label: item.is_favorite ? 'Remove from Favorites' : 'Add to Favorites',
-      icon: item.is_favorite ? IconStarFilled : IconStar,
+      label: item.isFavorite ? 'Remove from Favorites' : 'Add to Favorites',
+      icon: item.isFavorite ? IconStarFilled : IconStar,
       onClick: onToggleFavorite,
-      color: item.is_favorite ? '#ffd43b' : undefined,
+      color: item.isFavorite ? '#ffd43b' : undefined,
     }] : []),
     
     // Archive toggle

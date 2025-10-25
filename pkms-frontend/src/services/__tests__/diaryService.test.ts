@@ -64,7 +64,7 @@ describe('diaryService', () => {
       const mockResponse = {
         uuid: 'new-entry-uuid',
         ...entryData,
-        created_at: '2024-01-21T10:00:00Z'
+        createdAt: '2024-01-21T10:00:00Z'
       };
 
       (fetch as any).mockResolvedValueOnce({
@@ -108,7 +108,7 @@ describe('diaryService', () => {
       const mockResponse = {
         uuid: entryId,
         ...updateData,
-        updated_at: '2024-01-21T11:00:00Z'
+        updatedAt: '2024-01-21T11:00:00Z'
       };
 
       (fetch as any).mockResolvedValueOnce({

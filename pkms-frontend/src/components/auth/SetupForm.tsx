@@ -78,21 +78,21 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
     username: string;
     password: string;
     email: string;
-    login_password_hint?: string;
-    recovery_questions: string[];
-    recovery_answers: string[];
-    diary_password: string;
-    diary_password_hint?: string;
+    loginPasswordHint?: string;
+    recoveryQuestions: string[];
+    recoveryAnswers: string[];
+    diaryPassword: string;
+    diaryPasswordHint?: string;
   }>({
     initialValues: {
       username: '',
       password: '',
       email: '',
-      login_password_hint: '',
-      recovery_questions: ['', ''],
-      recovery_answers: ['', ''],
-      diary_password: '',
-      diary_password_hint: '',
+      loginPasswordHint: '',
+      recoveryQuestions: ['', ''],
+      recoveryAnswers: ['', ''],
+      diaryPassword: '',
+      diaryPasswordHint: '',
     },
     validate: {
       username: (value) => {
@@ -119,23 +119,23 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
         }
         return null;
       },
-      recovery_questions: (value) => {
+      recoveryQuestions: (value) => {
         if (!value[0] || !value[1]) return 'Please select both security questions';
         if (value[0] === value[1]) return 'Please select different security questions';
         return null;
       },
-      recovery_answers: (value) => {
+      recoveryAnswers: (value) => {
         if (!value[0]?.trim() || !value[1]?.trim()) return 'Please provide answers to both security questions';
         if (value[0].length < 3 || value[1].length < 3) return 'Answers must be at least 3 characters long';
         return null;
       },
-      diary_password: (value) => {
+      diaryPassword: (value) => {
         if (!value || value.length < 8) {
           return 'Diary password must be at least 8 characters long';
         }
         return null;
       },
-      login_password_hint: (value) => {
+      loginPasswordHint: (value) => {
         if (value && value.length > 255) {
           return 'Hint must be 255 characters or less';
         }
@@ -155,11 +155,11 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
         username: values.username,
         password: values.password,
         email: values.email,
-        recovery_questions: values.recovery_questions,
-        recovery_answers: values.recovery_answers,
-        diary_password: values.diary_password,
-        diary_password_hint: values.diary_password_hint || undefined,
-        login_password_hint: values.login_password_hint || undefined,
+        recoveryQuestions: values.recoveryQuestions,
+        recoveryAnswers: values.recoveryAnswers,
+        diaryPassword: values.diaryPassword,
+        diaryPasswordHint: values.diaryPasswordHint || undefined,
+        loginPasswordHint: values.loginPasswordHint || undefined,
       };
 
       const success = await setupUser(setupData);
@@ -245,7 +245,7 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
                   label="Login Password Hint (Optional)"
                   placeholder="Enter a hint to help you remember your login password"
                   description="This hint can appear on the login screen if you forget your password"
-                  {...form.getInputProps('login_password_hint')}
+                  {...form.getInputProps('loginPasswordHint')}
                 />
                 
                 {form.values.password && (
@@ -328,11 +328,11 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
                   data={SECURITY_QUESTIONS}
                   searchable
                   required
-                  value={form.values.recovery_questions[0]}
+                  value={form.values.recoveryQuestions[0]}
                   onChange={(value) => 
-                    form.setFieldValue('recovery_questions', [value || '', form.values.recovery_questions[1]])
+                    form.setFieldValue('recoveryQuestions', [value || '', form.values.recoveryQuestions[1]])
                   }
-                  error={form.errors.recovery_questions}
+                  error={form.errors.recoveryQuestions}
                 />
                 
                 <Textarea
@@ -341,11 +341,11 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
                   mt="xs"
                   minRows={2}
                   required
-                  value={form.values.recovery_answers[0]}
+                  value={form.values.recoveryAnswers[0]}
                   onChange={(event) =>
-                    form.setFieldValue('recovery_answers', [event.currentTarget.value, form.values.recovery_answers[1]])
+                    form.setFieldValue('recoveryAnswers', [event.currentTarget.value, form.values.recoveryAnswers[1]])
                   }
-                  error={form.errors.recovery_answers}
+                  error={form.errors.recoveryAnswers}
                 />
               </div>
 
@@ -354,12 +354,12 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
                 <Select
                   label="Security Question 2"
                   placeholder="Select your second security question..."
-                  data={getAvailableQuestions([form.values.recovery_questions[0]])}
+                  data={getAvailableQuestions([form.values.recoveryQuestions[0]])}
                   searchable
                   required
-                  value={form.values.recovery_questions[1]}
+                  value={form.values.recoveryQuestions[1]}
                   onChange={(value) => 
-                    form.setFieldValue('recovery_questions', [form.values.recovery_questions[0], value || ''])
+                    form.setFieldValue('recoveryQuestions', [form.values.recoveryQuestions[0], value || ''])
                   }
                 />
                 
@@ -369,9 +369,9 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
                   mt="xs"
                   minRows={2}
                   required
-                  value={form.values.recovery_answers[1]}
+                  value={form.values.recoveryAnswers[1]}
                   onChange={(event) =>
-                    form.setFieldValue('recovery_answers', [form.values.recovery_answers[0], event.currentTarget.value])
+                    form.setFieldValue('recoveryAnswers', [form.values.recoveryAnswers[0], event.currentTarget.value])
                   }
                 />
               </div>
@@ -399,14 +399,14 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
                 description="8-72 characters (bcrypt limit)"
                 required
                 maxLength={72}
-                {...form.getInputProps('diary_password')}
+                {...form.getInputProps('diaryPassword')}
               />
               
               <TextInput
                 label="Diary Password Hint (Optional)"
                 placeholder="Enter a hint to help you remember your diary password"
                 description="This hint will help you unlock your diary if forgotten"
-                {...form.getInputProps('diary_password_hint')}
+                {...form.getInputProps('diaryPasswordHint')}
               />
             </Stack>
           </Card>

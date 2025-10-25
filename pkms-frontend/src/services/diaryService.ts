@@ -230,12 +230,13 @@ class DiaryService {
       }
 
       // Step 2: ATOMIC commit - backend handles document creation + diary linking
+      // JSON body must use camelCase (converted by CamelCaseModel)
       const document = await apiService.post('/api/v1/documents/commit', {
-        file_id: uploadFileId,
+        fileId: uploadFileId,
         title: file.name,
         description: caption || null,
         tags: [],
-        diary_entry_uuid: entryUuid,  // Backend creates document_diary association
+        diaryEntryUuid: entryUuid,  // Backend creates document_diary association
         isEncrypted: key !== undefined,  // Track encryption status
         originalName: file.name
       });
@@ -316,13 +317,13 @@ class DiaryService {
   async deleteFile(entryUuid: string, documentUuid: string): Promise<void> {
     // Unlink document from diary entry
     await apiService.post(`${this.baseUrl}/entries/${entryUuid}/documents:unlink`, {
-      document_uuid: documentUuid
+      documentUuid: documentUuid
     });
   }
 
   async reorderFiles(entryUuid: string, documentUuids: string[]): Promise<void> {
     await apiService.patch(`${this.baseUrl}/entries/${entryUuid}/documents/reorder`, {
-      document_uuids: documentUuids
+      documentUuids: documentUuids
     });
   }
 
@@ -350,7 +351,7 @@ class DiaryService {
 
     // Proceed with linking (with isEncrypted flag)
     await apiService.post(`${this.baseUrl}/entries/${entryUuid}/documents:link`, {
-      document_uuids: [documentUuid],
+      documentUuids: [documentUuid],
       isEncrypted: isEncrypted
     });
   }

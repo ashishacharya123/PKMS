@@ -57,7 +57,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           const currentUser = await authService.getCurrentUser(); // Get full user details
           
           // Parse settings from JSON
-          const settings = currentUser.settings_json ? JSON.parse(currentUser.settings_json) : {};
+          const settings = currentUser.settingsJson ? JSON.parse(currentUser.settingsJson) : {};
           
           set({
             user: {
@@ -100,7 +100,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           // Don't set token in API service - httpOnly cookies are handled automatically
           
           // Parse settings from JSON
-          const settings = currentUser.settings_json ? JSON.parse(currentUser.settings_json) : {};
+          const settings = currentUser.settingsJson ? JSON.parse(currentUser.settingsJson) : {};
           
           set({
             user: {
@@ -253,7 +253,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           set({
             user: {
               ...user,
-              settings_json: JSON.stringify(mergedSettings),
+              settingsJson: JSON.stringify(mergedSettings),
               settings: mergedSettings
             },
             isLoading: false
@@ -289,7 +289,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           const currentUser = await authService.getCurrentUser();
           
           // Parse settings from JSON
-          const settings = currentUser.settings_json ? JSON.parse(currentUser.settings_json) : {};
+          const settings = currentUser.settingsJson ? JSON.parse(currentUser.settingsJson) : {};
           
           logger.auth('User fetched successfully:', currentUser);
           set({

@@ -240,7 +240,7 @@ export function ArchiveLayout({
                   })) as any[]}
                   viewMode={viewMode}
                   onItemClick={(folder: any) => {
-                    if (folder.mimeType === 'folder') {
+                    if (folder.itemType === 'folder') {
                       setCurrentFolder(folder);
                     }
                   }}

@@ -37,8 +37,8 @@ export default function DiaryViewPage() {
       setIsDecrypting(true);
       try {
         const content = await diaryService.decryptContent(
-          entry.encrypted_blob,
-          entry.encryption_iv,
+          entry.encryptedBlob,
+          entry.encryptionIv,
           store.encryptionKey
         );
         setDecryptedContent(content);

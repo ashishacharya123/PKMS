@@ -83,7 +83,7 @@ export interface DocumentsListParams {
   archived?: boolean;
   isFavorite?: boolean;
   tag?: string;
-  project_uuid?: string;
+  projectUuid?: string;
   project_only?: boolean;
   unassigned_only?: boolean;
   search?: string;
@@ -114,12 +114,13 @@ class DocumentsService {
     });
 
     // After assembly, finalize by creating the Document via commit endpoint
+    // JSON body must use camelCase (converted by CamelCaseModel)
     const commitPayload = {
-      file_id: fileId,
+      fileId: fileId,
       title: file.name,
       description: undefined as string | undefined,
       tags,
-      project_id: projectId, // Legacy
+      projectId: projectId, // Legacy
       projectIds: projectIds && projectIds.length > 0 ? projectIds : undefined,
       isExclusiveMode: projectIds && projectIds.length > 0 ? isExclusive : undefined,
     };
@@ -156,13 +157,20 @@ class DocumentsService {
    * List documents with filtering and pagination
    */
   async listDocuments(params: DocumentsListParams = {}): Promise<DocumentSummary[]> {
+    // URL parameters must use snake_case (not converted by CamelCaseModel)
     const queryParams = new URLSearchParams();
     
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        queryParams.append(key, value.toString());
-      }
-    });
+    // Convert camelCase to snake_case for URL parameters
+    if (params.mimeType !== undefined) queryParams.append('mime_type', params.mimeType);
+    if (params.archived !== undefined) queryParams.append('archived', String(params.archived));
+    if (params.isFavorite !== undefined) queryParams.append('is_favorite', String(params.isFavorite));
+    if (params.tag !== undefined) queryParams.append('tag', params.tag);
+    if (params.projectUuid !== undefined) queryParams.append('project_uuid', params.projectUuid);
+    if (params.project_only !== undefined) queryParams.append('project_only', String(params.project_only));
+    if (params.unassigned_only !== undefined) queryParams.append('unassigned_only', String(params.unassigned_only));
+    if (params.search !== undefined) queryParams.append('search', params.search);
+    if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
+    if (params.offset !== undefined) queryParams.append('offset', params.offset.toString());
 
     // FastAPI router endpoint for document list is `/documents/` 
     const basePath = '/documents/';

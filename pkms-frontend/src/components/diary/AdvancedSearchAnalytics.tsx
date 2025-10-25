@@ -450,7 +450,7 @@ export function AdvancedSearchAnalytics() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       style={{ flex: 1 }}
-                      onKeyPress={(e) => e.key === 'Enter' && performSearch()}
+                      onKeyDown={(e) => e.key === 'Enter' && performSearch()}
                     />
                     <Select
                       value={searchType}

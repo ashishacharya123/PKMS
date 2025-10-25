@@ -134,7 +134,7 @@ class AuthService {
 
   // User settings update
   async updateSettings(settings: UserSettings): Promise<{ message: string }> {
-    const response = await apiService.put<{ message: string }>('/auth/settings', { settings_json: JSON.stringify(settings) });
+    const response = await apiService.put<{ message: string }>('/auth/settings', { settingsJson: JSON.stringify(settings) });
     return response.data;
   }
 }

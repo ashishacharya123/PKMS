@@ -710,7 +710,7 @@ export function DocumentsPage() {
                     </Badge>
                   )}
                   {/* upload_status field removed - backend no longer tracks upload status */}
-                  {document.is_favorite && (
+                  {document.isFavorite && (
                     <Badge size="xs" variant="light" color="pink">Favorite</Badge>
                   )}
                 </Group>,

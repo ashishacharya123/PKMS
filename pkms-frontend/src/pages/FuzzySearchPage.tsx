@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthenticatedApi } from '../hooks/useAuthenticatedApi';
 import { useNavigate } from 'react-router-dom';
+import DOMPurify from 'dompurify';
 import {
   Container,
   Title,
@@ -32,20 +33,11 @@ import {
 } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-// Lightweight sanitizer to preserve <mark> and strip other tags/attributes
-const sanitizeHighlight = (html: string): string => {
-  if (!html) return '';
-  // Remove script/style tags entirely
-  html = html.replace(/<\/(?:script|style)>/gi, '').replace(/<(?:script|style)[^>]*>[\s\S]*?<\/(?:script|style)>/gi, '');
-  // Remove event handlers and javascript: URLs
-  html = html.replace(/ on[a-z]+\s*=\s*"[^"]*"/gi, '')
-             .replace(/ on[a-z]+\s*=\s*'[^']*'/gi, '')
-             .replace(/ on[a-z]+\s*=\s*[^\s>]+/gi, '')
-             .replace(/javascript:\s*/gi, '');
-  // Strip all tags except <mark>
-  html = html.replace(/<(?!\/?mark(?=>|\s))[^>]+>/gi, '');
-  return html;
-};
+
+const sanitizeHighlight = (html: string): string =>
+  html
+    ? DOMPurify.sanitize(html, { ALLOWED_TAGS: ['mark'], ALLOWED_ATTR: [] })
+    : '';
 
 // Types
 interface SearchResult {
@@ -122,14 +114,7 @@ export default function FuzzySearchPage() {
   // UI state
   const [filtersOpened, { toggle: toggleFilters }] = useDisclosure(false);
   
-  useEffect(() => {
-    // Auto-focus search input
-    const searchInput = document.querySelector('input[placeholder*="fuzzy"]') as HTMLInputElement;
-    if (searchInput) {
-      searchInput.focus();
-    }
-  }, []);
-
+  
   const api = useAuthenticatedApi();
 
   const handleSearch = async () => {
@@ -171,6 +156,7 @@ export default function FuzzySearchPage() {
 
         const params = new URLSearchParams({
           query: query.trim(),
+          fuzzy_threshold: fuzzyThreshold.toString(),  // Add threshold support
           limit: '50'
         });
         if (mappedModules.length > 0) {
@@ -189,44 +175,31 @@ export default function FuzzySearchPage() {
           color: 'purple'
         });
       } else {
-        // Standard fuzzy: use /search/fuzzy with full filter set
+        // Standard fuzzy: use /fuzzy-search-light with supported parameters only
+        // URL parameters must use snake_case (not converted by CamelCaseModel)
         const params = new URLSearchParams({
-          q: query.trim(),
-          fuzzyThreshold: fuzzyThreshold.toString(),
-          sort_by: sortBy,
-          sort_order: sortOrder,
-          favorites_only: favoritesOnly.toString(),
-          include_archived: includeArchived.toString(),
-          limit: '50',
-          offset: '0'
+          query: query.trim(),  // Backend expects 'query' not 'q'
+          fuzzy_threshold: fuzzyThreshold.toString(),  // snake_case for URL param
+          limit: '50'
         });
 
         if (selectedModules.length > 0) {
           params.set('modules', selectedModules.join(','));
         }
-        if (includeTags.trim()) {
-          params.set('include_tags', includeTags.trim());
-        }
-        if (excludeTags.trim()) {
-          params.set('exclude_tags', excludeTags.trim());
-        }
-        if (dateFrom) {
-          params.set('date_from', dateFrom.toISOString().split('T')[0]);
-        }
-        if (dateTo) {
-          params.set('date_to', dateTo.toISOString().split('T')[0]);
-        }
+        // Note: Removed unsupported filters: sort_by, sort_order, favorites_only, 
+        // include_archived, include_tags, exclude_tags, date_from, date_to
+        // These are not supported by fuzzy endpoints
 
-        const response = await api.get(`/search/fuzzy?${params}`);
-        const searchResponse: SearchResponse = response.data as SearchResponse;
+        const response = await api.get(`/fuzzy-search-light?${params}`);
+        const data = response.data as any[];
 
-        setResults(searchResponse.results);
-        setTotal(searchResponse.total);
-        setSearchMethod((searchResponse as any).search_method || (searchResponse as any).search_type || 'fuzzy');
+        setResults(Array.isArray(data) ? data : []);
+        setTotal(Array.isArray(data) ? data.length : 0);
+        setSearchMethod('fuzzy_light');
 
         notifications.show({
           title: 'Fuzzy Search Complete',
-          message: `Found ${searchResponse.total} results`,
+          message: `Found ${Array.isArray(data) ? data.length : 0} results`,
           color: 'purple'
         });
       }

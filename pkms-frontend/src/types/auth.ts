@@ -62,8 +62,8 @@ export interface PasswordChange {
 }
 
 export interface RecoverySetup {
-  questions: string[];
-  answers: string[];
+  recoveryQuestions: string[];
+  recoveryAnswers: string[];
 }
 
 export interface RecoveryReset {

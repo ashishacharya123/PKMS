@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { IconPlayerPlay, IconPlayerPause, IconDownload, IconTrash, IconPhoto, IconFileText, IconMicrophone, IconVideo, IconUnlink, IconGripVertical } from '@tabler/icons-react';
+import { IconPlayerPlay, IconPlayerPause, IconDownload, IconTrash, IconPhoto, IconFileText, IconMicrophone, IconVideo, IconUnlink, IconGripVertical, IconFolder } from '@tabler/icons-react';
 import { apiService } from '../../services/api';
 import { diaryService } from '../../services/diaryService';
 import { fileService } from '../../services/fileCacheService';
@@ -231,8 +231,34 @@ export const FileList: React.FC<FileListProps> = ({
   const handleDelete = async (fileId: string) => {
     if (window.confirm('Are you sure you want to delete this file?')) {
       try {
-        // Note: The delete URL might also be inconsistent, assuming /files/ for now
-        const deleteUrl = `/${module}/files/${fileId}`;
+        // Use correct endpoint per module
+        let deleteUrl: string;
+        
+        switch (module) {
+          case 'notes':
+            deleteUrl = `/notes/files/${fileId}`;
+            break;
+          case 'diary':
+            deleteUrl = `/documents/${fileId}`;  // Diary uses documents
+            break;
+          case 'documents':
+            deleteUrl = `/documents/${fileId}`;
+            break;
+          case 'archive':
+            deleteUrl = `/archive/items/${fileId}`;
+            break;
+          case 'projects':
+            // Projects should use onUnlink, not delete
+            if (onUnlink) {
+              await onUnlink(fileId);
+              return;
+            }
+            deleteUrl = `/documents/${fileId}`;  // Fallback
+            break;
+          default:
+            deleteUrl = `/documents/${fileId}`;  // Fallback
+        }
+        
         await apiService.delete(deleteUrl);
         onDelete(fileId);
       } catch (error) {

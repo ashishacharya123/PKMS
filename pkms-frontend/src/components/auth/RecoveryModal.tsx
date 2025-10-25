@@ -190,7 +190,7 @@ const RecoveryModal: React.FC<RecoveryModalProps> = ({
       const success = await resetPasswordWithRecovery({
         username: effectiveUsername,
         answers: answers,
-        new_password: values.newPassword,
+        newPassword: values.newPassword,
       });
 
       if (success) {

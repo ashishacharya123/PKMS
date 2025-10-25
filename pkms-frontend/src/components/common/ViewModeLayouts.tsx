@@ -89,9 +89,9 @@ export function ViewModeLayouts<T extends BaseItem>({
           <Card
             key={item.uuid}
             withBorder
-            padding="md"
+            p="md"
             className={onItemClick ? classes.hoverCard : undefined}
-            style={{ 
+            style={{
               cursor: onItemClick ? 'pointer' : 'default'
             }}
             onClick={() => onItemClick?.(item)}
@@ -109,8 +109,8 @@ export function ViewModeLayouts<T extends BaseItem>({
                 </Text>
                 {item.tags && item.tags.length > 0 && (
                   <Stack gap={4} justify="center">
-                    {item.tags.slice(0, 2).map((tag, idx) => (
-                      <Badge key={idx} size="xs" variant="light">
+                    {item.tags.slice(0, 2).map((tag) => (
+                      <Badge key={tag} size="xs" variant="light">
                         {tag}
                       </Badge>
                     ))}
@@ -168,12 +168,15 @@ export function ViewModeLayouts<T extends BaseItem>({
               }}
               onClick={() => onItemClick?.(item)}
             >
-              {detailHeaders.map((header, idx) => (
-                <Group key={`${item.uuid}-${header}`} justify="space-between" align="center">
-                  <Text fw={500}>{header}</Text>
-                  <Text>{renderDetailColumns(item)[idx]}</Text>
-                </Group>
-              ))}
+              {(() => {
+                const cols = renderDetailColumns(item);
+                return detailHeaders.map((header, idx) => (
+                  <Group key={`${item.uuid}-${header}`} justify="space-between" align="center">
+                    <Text fw={500}>{header}</Text>
+                    <Text>{cols[idx]}</Text>
+                  </Group>
+                ));
+              })()}
             </Stack>
           ))}
         </Stack>
@@ -205,8 +208,9 @@ export function formatDate(dateString: string | undefined): string {
 
 // Utility function for formatting file sizes
 export function formatFileSize(bytes: number | undefined): string {
-  if (!bytes || bytes === 0 || !Number.isFinite(bytes) || bytes < 0) return 'N/A';
-  
+  if (bytes === undefined || bytes === null || !Number.isFinite(bytes) || bytes < 0) return 'N/A';
+  if (bytes === 0) return '0 B';
+
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   const clampedIndex = Math.min(i, sizes.length - 1);

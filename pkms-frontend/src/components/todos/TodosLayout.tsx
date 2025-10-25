@@ -78,7 +78,9 @@ export function TodosLayout({
   onProjectSelect,
   selectedProjectId,
 }: TodosLayoutProps) {
-  const getTabCount = (tab: string) => {
+  type Tab = 'ongoing' | 'completed' | 'archived';
+
+  const getTabCount = (tab: Tab) => {
     switch (tab) {
       case 'ongoing':
         return todos.filter(t => t.status !== 'completed' && !t.isArchived).length;
@@ -111,12 +113,12 @@ export function TodosLayout({
       case 'kanban':
         return (
           <KanbanBoard
-            todos={filteredTodos as any}
-            onTodoClick={onItemClick as any}
-            onTodoComplete={onComplete as any}
-            onTodoEdit={onEdit as any}
-            onTodoDelete={onDelete as any}
-            onTodoArchive={onToggleArchive as any}
+            todos={filteredTodos as TodoItem[]}
+            onTodoClick={onItemClick}
+            onTodoComplete={onComplete}
+            onTodoEdit={onEdit}
+            onTodoDelete={onDelete}
+            onTodoArchive={onToggleArchive}
             isLoading={isLoading}
           />
         );

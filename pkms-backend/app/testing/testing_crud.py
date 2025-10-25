@@ -260,13 +260,14 @@ async def test_documents_crud(db: AsyncSession, user: User, test_id: str, test_p
 
         # Create test file
         test_file_path = get_data_dir() / "test_storage" / f"crud_test_{test_id}.txt"
+        doc_data["file_size"] = len(test_content.encode('utf-8'))  # set to actual content length
         test_file_path.parent.mkdir(parents=True, exist_ok=True)
         test_content = f"Test document content for {test_id}\nPassword: {test_password}\nCRUD Test Data"
         test_file_path.write_text(test_content, encoding='utf-8')
 
         document = Document(**doc_data)
         db.add(document)
-        await db.flush()
+        await db.commit()
         await db.refresh(document)
 
         operations["create"] = {
@@ -325,6 +326,9 @@ async def test_documents_crud(db: AsyncSession, user: User, test_id: str, test_p
         # Clean up test file
         if test_file_path.exists():
             test_file_path.unlink()
+
+        # Commit after DELETE operation
+        await db.commit()
 
         operations["delete"] = {
             "status": "success",
@@ -402,7 +406,7 @@ async def test_todos_crud(db: AsyncSession, user: User, test_id: str, test_passw
             """),
             {
                 "title": f"UPDATED_TEST_TODO_{test_id}",
-                "status": "done",
+                "status": "completed",
                 "priority": "high",
                 "uuid": todo.uuid,
                 "user_uuid": user.uuid
@@ -511,7 +515,7 @@ async def test_archive_crud(db: AsyncSession, user: User, test_id: str, test_pas
             "status": "success",
             "folder_found": read_folder is not None,
             "item_found": read_item is not None,
-            "folder_item_match": read_folder and read_item and read_item.folder_uuid == read_folder.uuid
+            "folder_item_match": bool(read_folder and read_item and read_item.folder_uuid == read_folder.uuid)
         }
 
         # UPDATE Operations
@@ -661,7 +665,7 @@ async def test_create_document(
 
         document = Document(**doc_data)
         db.add(document)
-        await db.flush()
+        await db.commit()
         await db.refresh(document)
 
         return {
@@ -810,7 +814,8 @@ async def cleanup_test_item(
             # Clean up file if deletion was successful
             if deleted and item_info and item_info[0]:
                 try:
-                    file_path = get_data_dir() / item_info[0]
+                    from pathlib import Path
+                    file_path = Path(item_info[0])
                     if file_path.exists():
                         file_path.unlink()
                 except Exception as e:

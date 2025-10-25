@@ -14,16 +14,8 @@ class BlockingTodoSummary(CamelCaseModel):
     status: TodoStatus
     priority: TaskPriority
     is_completed: bool
-    
-    model_config = ConfigDict(from_attributes=True)
 
 
-class CamelCaseModel(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=to_camel,
-        populate_by_name=True,
-        from_attributes=True
-    )
 
 
 class TodoCreate(CamelCaseModel):
@@ -53,23 +45,6 @@ class TodoCreate(CamelCaseModel):
     due_date: Optional[date] = None
     priority: TaskPriority = TaskPriority.MEDIUM
 
-class TodoBase(BaseModel):
-    title: str
-    description: Optional[str] = None
-    status: TodoStatus = TodoStatus.PENDING
-    order_index: int = 0
-    priority: TaskPriority = TaskPriority.MEDIUM
-    tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
-    is_archived: Optional[bool] = False
-
-    @field_validator('priority')
-    def validate_priority(cls, v):
-        if isinstance(v, str):
-            return TaskPriority(v)
-        elif isinstance(v, TaskPriority):
-            return v
-        else:
-            raise ValueError('Priority must be a TaskPriority enum or string (low, medium, high, urgent)')
 
 class TodoUpdate(CamelCaseModel):
     title: Optional[str] = Field(None, min_length=1)

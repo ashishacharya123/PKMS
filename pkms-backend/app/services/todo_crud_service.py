@@ -402,7 +402,7 @@ class TodoCRUDService:
         user_uuid: str, 
         todo_uuid: str
     ) -> None:
-        """Delete todo and all associated data"""
+        """Delete todo and all associated data (soft delete)"""
         try:
             # Get todo to verify ownership
             result = await db.execute(
@@ -415,11 +415,58 @@ class TodoCRUDService:
             if not todo:
                 raise HTTPException(status_code=404, detail="Todo not found")
             
+            # Preflight check: Determine if todo is main todo or subtask
+            is_subtask = todo.parent_uuid is not None
+            
+            if is_subtask:
+                # For subtasks: Check if parent todo exists and warn about impact
+                parent_result = await db.execute(
+                    select(Todo).where(Todo.uuid == todo.parent_uuid)
+                )
+                parent_todo = parent_result.scalar_one_or_none()
+                if parent_todo:
+                    logger.info(f"Deleting subtask '{todo.title}' from parent '{parent_todo.title}'")
+            else:
+                # For main todos: Check if it has subtasks
+                subtask_count_result = await db.execute(
+                    select(func.count(Todo.uuid)).where(
+                        and_(
+                            Todo.parent_uuid == todo_uuid,
+                            Todo.is_deleted.is_(False)
+                        )
+                    )
+                )
+                subtask_count = subtask_count_result.scalar() or 0
+                
+                if subtask_count > 0:
+                    logger.warning(f"Deleting main todo '{todo.title}' with {subtask_count} subtasks")
+                    # Note: Subtasks will become orphaned (parent_uuid = NULL)
+                    # This is intentional - subtasks become independent todos
+                
+                # Check project associations
+                project_count_result = await db.execute(
+                    select(func.count(project_items.c.id)).where(
+                        and_(
+                            project_items.c.item_type == 'Todo',
+                            project_items.c.item_uuid == todo_uuid
+                        )
+                    )
+                )
+                project_count = project_count_result.scalar() or 0
+                
+                if project_count > 0:
+                    logger.info(f"Todo '{todo.title}' is linked to {project_count} project(s)")
+                    # Project associations will be automatically removed by cascade
+            
+            # TODO: Add file cleanup for associated documents
+            # Check if todo has associated documents and clean up files
+            
             # Remove from search index
             await search_service.remove_item(db, todo_uuid, 'todo')
             
-            # Delete todo (cascade will handle associations)
-            await db.execute(delete(Todo).where(Todo.uuid == todo_uuid))
+            # Soft delete todo (consistent with other services)
+            todo.is_deleted = True
+            await db.add(todo)
             
             await db.commit()
             

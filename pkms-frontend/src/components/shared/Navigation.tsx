@@ -265,7 +265,7 @@ export function Navigation({ collapsed = false }: NavigationProps) {
                         {user?.username || 'User'}
                       </Text>
                       <Text size="xs" c="dimmed">
-                        {user?.last_login ? `Last login: ${dashboardService.formatLastUpdated(user.last_login)}` : 'Active'}
+                        {user?.lastLogin ? `Last login: ${dashboardService.formatLastUpdated(user.lastLogin)}` : 'Active'}
                       </Text>
                     </div>
                     <IconChevronDown size={14} />

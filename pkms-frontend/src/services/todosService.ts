@@ -16,8 +16,8 @@ import { TodoStatus, TaskPriority, TodoType } from '../types/enums';
 // Re-export types from centralized location
 export type { TodoCreate, TodoUpdate, TodoSummary, TodoStats, TodoListParams, ChecklistItem };
 
-// Legacy interfaces for backward compatibility - will be removed
-export interface LegacyProject {
+// Project interfaces for todo management - JSON payloads use camelCase, URL query parameters use snake_case
+export interface Project {
   uuid: string;
   name: string;
   description?: string;
@@ -39,7 +39,7 @@ export interface LegacyProjectCreate {
   // color field removed - backend removed for professional management
 }
 
-export interface LegacyProjectUpdate {
+export interface ProjectUpdate {
   name?: string;
   description?: string;
   // color field removed - backend removed for professional management
@@ -56,6 +56,7 @@ class TodosService {
   }
 
   async getProjects(archived: boolean = false): Promise<LegacyProject[]> {
+    // URL query parameter - remains snake_case
     const url = `${this.baseUrl}/projects?archived=${archived}`;
     const response = await apiService.get<LegacyProject[]>(url);
     return response.data;
@@ -82,12 +83,24 @@ class TodosService {
   }
 
   async getTodos(params: TodoListParams = {}): Promise<TodoSummary[]> {
+    // URL parameters must use snake_case (not converted by CamelCaseModel)
     const queryParams = new URLSearchParams();
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        queryParams.append(key, value.toString());
-      }
-    });
+    
+    // Convert camelCase to snake_case for URL parameters
+    if (params.status !== undefined) queryParams.append('status', params.status);
+    if (params.priority !== undefined) queryParams.append('priority', params.priority);
+    if (params.projectId !== undefined) queryParams.append('project_id', params.projectId);
+    if (params.projectIds !== undefined) queryParams.append('project_ids', params.projectIds.join(','));
+    if (params.isArchived !== undefined) queryParams.append('is_archived', String(params.isArchived));
+    if (params.isFavorite !== undefined) queryParams.append('is_favorite', String(params.isFavorite));
+    if (params.startDate !== undefined) queryParams.append('start_date', params.startDate);
+    if (params.endDate !== undefined) queryParams.append('end_date', params.endDate);
+    if (params.search !== undefined) queryParams.append('search', params.search);
+    if (params.sortBy !== undefined) queryParams.append('sort_by', params.sortBy);
+    if (params.sortOrder !== undefined) queryParams.append('sort_order', params.sortOrder);
+    if (params.page !== undefined) queryParams.append('page', params.page.toString());
+    if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
+    
     const url = `${this.baseUrl}/${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
     const response = await apiService.get<TodoSummary[]>(url);
     return response.data;
@@ -109,11 +122,13 @@ class TodosService {
   }
 
   async updateTodoStatus(todoUuid: string, status: TodoStatus): Promise<Todo> {
+    // URL query parameter - remains snake_case
     const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoUuid}/status?status=${status}`);
     return response.data;
   }
 
   async reorderTodo(todoUuid: string, orderIndex: number): Promise<Todo> {
+    // URL query parameter - remains snake_case
     const response = await apiService.patch<Todo>(`${this.baseUrl}/${todoUuid}/reorder?order_index=${orderIndex}`);
     return response.data;
   }
@@ -295,26 +310,32 @@ export const {
 
 // Subtask management functions
 export const createSubtask = async (parentUuid: string, subtaskData: Omit<TodoCreate, 'parent_id'>): Promise<Todo> => {
-  const response = await apiService.post(`/todos/${parentUuid}/subtasks`, {
-    ...subtaskData
+  const response = await apiService.post(`/todos`, {
+    ...subtaskData,
+    parentUuid: parentUuid  // camelCase for JSON body
   });
   return response.data as Todo;
 };
 
 export const getSubtasks = async (parentUuid: string): Promise<Todo[]> => {
-  const response = await apiService.get(`/todos/${parentUuid}/subtasks`);
-  return response.data as Todo[];
+  const response = await apiService.get(`/todos?limit=100`);
+  const allTodos = response.data as Todo[];
+  return allTodos.filter(todo => todo.parentUuid === parentUuid);
 };
 
 export const moveSubtask = async (subtaskUuid: string, newParentUuid: string | null): Promise<Todo> => {
-  const response = await apiService.patch(`/todos/${subtaskUuid}/move`, {
-    parent_uuid: newParentUuid
+  // JSON payload - uses camelCase
+  const response = await apiService.put(`/todos/${subtaskUuid}`, {
+    parentUuid: newParentUuid
   });
   return response.data as Todo;
 };
 
 export const reorderSubtasks = async (parentUuid: string, subtaskUuids: string[]): Promise<void> => {
+  // Backend endpoint: PATCH /todos/{parentUuid}/subtasks/reorder
+  // Uses todos.order_index field for subtask ordering
+  // JSON payload - uses camelCase
   await apiService.patch(`/todos/${parentUuid}/subtasks/reorder`, {
-    subtask_uuids: subtaskUuids
+    subtaskUuids: subtaskUuids
   });
 }; 
