@@ -28,7 +28,7 @@ from app.models.tag_associations import note_tags
 from app.models.project import Project
 # REMOVED: note_projects import - now using polymorphic project_items
 from app.models.enums import ModuleType
-from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary
+from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFile
 # NoteFile schemas removed - notes now use Document + note_documents association
 from app.schemas.project import ProjectBadge
 from app.utils.security import sanitize_text_input, sanitize_tags
@@ -95,7 +95,7 @@ class NoteCRUDService:
             sanitized_tags = sanitize_tags(note_data.tags) if note_data.tags else []
             
             # Create note with large content handling
-            MAX_DB_CONTENT_SIZE = 60000  # 60KB threshold
+            MAX_DB_CONTENT_SIZE = 5120  # 5KB threshold - keep it short and sweet
             content_size_bytes = len(sanitized_content.encode('utf-8'))
             
             note = Note(
@@ -106,8 +106,8 @@ class NoteCRUDService:
                 size_bytes=content_size_bytes  # Store the full size
             )
             
-            if content_size_bytes > MAX_DB_CONTENT_SIZE:
-                # Content is large: save to file
+            if content_size_bytes > MAX_DB_CONTENT_SIZE or note_data.force_file_storage:
+                # Content is large OR user wants file storage: save to file
                 file_path = self._get_note_content_path(user_uuid, note.uuid)
                 await self._write_note_content_to_file(sanitized_content, file_path)
                 note.content_file_path = str(file_path.relative_to(get_file_storage_dir()))
@@ -313,10 +313,10 @@ class NoteCRUDService:
                 content_size_bytes = len(sanitized_content.encode('utf-8'))
                 note.size_bytes = content_size_bytes
 
-                MAX_DB_CONTENT_SIZE = 60000  # 60KB threshold
+                MAX_DB_CONTENT_SIZE = 5120  # 5KB threshold - keep it short and sweet
 
-                if content_size_bytes > MAX_DB_CONTENT_SIZE:
-                    # Content is large: save to file
+                if content_size_bytes > MAX_DB_CONTENT_SIZE or update_data.force_file_storage:
+                    # Content is large OR user wants file storage: save to file
                     file_path = self._get_note_content_path(user_uuid, note_uuid)
                     await self._write_note_content_to_file(sanitized_content, file_path)
                     note.content_file_path = str(file_path.relative_to(get_file_storage_dir()))
@@ -573,6 +573,63 @@ class NoteCRUDService:
     def validate_content_length(self, content: str) -> bool:
         """Simple content length validation (100KB limit)"""
         return len(content) <= 100000
+
+    async def get_note_files(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        note_uuid: str
+    ) -> List[NoteFile]:
+        """Get all files attached to a note"""
+        try:
+            # Verify note ownership first
+            note_result = await db.execute(
+                select(Note).where(
+                    and_(Note.uuid == note_uuid, Note.created_by == user_uuid)
+                )
+            )
+            note = note_result.scalar_one_or_none()
+            
+            if not note:
+                raise HTTPException(status_code=404, detail="Note not found")
+            
+            # Get all documents linked to this note
+            result = await db.execute(
+                select(Document, note_documents.c.is_exclusive, note_documents.c.sort_order)
+                .join(note_documents, Document.uuid == note_documents.c.document_uuid)
+                .where(
+                    and_(
+                        note_documents.c.note_uuid == note_uuid,
+                        Document.is_deleted.is_(False)
+                    )
+                )
+                .order_by(note_documents.c.sort_order)
+            )
+            documents = result.fetchall()
+            
+            return [
+                NoteFile(
+                    uuid=doc.uuid,
+                    note_uuid=note_uuid,
+                    filename=doc.filename,
+                    original_name=doc.original_name,  # CamelCaseModel converts to originalName
+                    file_size=doc.file_size,  # CamelCaseModel converts to fileSize
+                    mime_type=doc.mime_type,  # CamelCaseModel converts to mimeType
+                    description=doc.description,
+                    is_deleted=doc.is_deleted,  # CamelCaseModel converts to isDeleted
+                    created_at=doc.created_at.isoformat()  # CamelCaseModel converts to createdAt
+                )
+                for doc, is_exclusive, sort_order in documents
+            ]
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception(f"Error getting files for note {note_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to get note files: {str(e)}"
+            )
 
 
 # Global instance

@@ -24,15 +24,15 @@ export interface BackupListResponse {
   status: string;
   message: string;
   backups: BackupFile[];
-  backup_count: number;
-  backup_directory: string;
+  backupCount: number;
+  backupDirectory: string;
   timestamp: string;
 }
 
 export interface BackupCreateResponse {
   status: string;
   message: string;
-  backup_filename?: string;
+  backupFilename?: string;
   backupPath?: string;
   fileSizeBytes?: number;
   fileSizeKb?: number;
@@ -46,15 +46,15 @@ export interface BackupCreateResponse {
 export interface BackupRestoreResponse {
   status: string;
   message: string;
-  backup_filename?: string;
-  backup_info?: {
+  backupFilename?: string;
+  backupInfo?: {
     filename: string;
-    size_bytes: number;
+    sizeBytes: number;
     sizeMb: number;
     createdAt: string;
   };
   warning?: string;
-  restored_by?: string;
+  restoredBy?: string;
   note?: string;
   error?: string;
   timestamp: string;
@@ -63,10 +63,10 @@ export interface BackupRestoreResponse {
 export interface BackupDeleteResponse {
   status: string;
   message: string;
-  backup_filename?: string;
-  deleted_backup?: {
+  backupFilename?: string;
+  deletedBackup?: {
     filename: string;
-    size_bytes: number;
+    sizeBytes: number;
     sizeMb: number;
     createdAt: string;
   };
@@ -77,23 +77,23 @@ export interface BackupDeleteResponse {
 
 export interface BackupInfoResponse {
   status: string;
-  backup_system: {
-    backup_directory: string;
-    directory_exists: boolean;
-    backup_count: number;
-    total_backup_size_bytes: number;
-    total_backup_sizeMb: number;
-    database_location: string;
-    backup_location: string;
-    file_types_backed_up: string[];
-    file_types_not_backed_up: string[];
+  backupSystem: {
+    backupDirectory: string;
+    directoryExists: boolean;
+    backupCount: number;
+    totalBackupSizeBytes: number;
+    totalBackupSizeMb: number;
+    databaseLocation: string;
+    backupLocation: string;
+    fileTypesBackedUp: string[];
+    fileTypesNotBackedUp: string[];
   };
-  file_storage_info: {
+  fileStorageInfo: {
     database: string;
-    user_content: string;
-    content_folders: string[];
+    userContent: string;
+    contentFolders: string[];
   };
-  current_limitations: string[];
+  currentLimitations: string[];
   timestamp: string;
 }
 
@@ -276,10 +276,34 @@ class BackupService {
    */
   formatWalStatus(walStatus: any): string {
     if (!walStatus?.wal_analysis) return 'Unknown';
-    
-    const { current_sizeMb, percentage_of_threshold, recommendation } = walStatus.wal_analysis;
-    
-    return `${current_sizeMb}MB (${percentage_of_threshold.toFixed(1)}% of threshold) - ${recommendation}`;
+
+    const analysis = walStatus.wal_analysis ?? {};
+
+    // Handle multiple field naming conventions (camelCase/snake_case)
+    const sizeMb =
+      analysis.currentSizeMb ??
+      analysis.current_sizeMb ??
+      analysis.current_size_mb ??
+      analysis.currentSizeMB ??
+      analysis.size_mb ?? 0;
+
+    const pct =
+      analysis.percentageOfThreshold ??
+      analysis.percentage_of_threshold ??
+      analysis.percentageThreshold ?? 0;
+
+    const rec =
+      analysis.recommendation ??
+      analysis.recommendationText ??
+      analysis.recommendation ?? 'No recommendation';
+
+    // Guard against invalid values
+    if (typeof sizeMb !== 'number' || !Number.isFinite(sizeMb) ||
+        typeof pct !== 'number' || !Number.isFinite(pct)) {
+      return 'Invalid WAL data';
+    }
+
+    return `${sizeMb.toFixed(1)}MB (${pct.toFixed(1)}% of threshold) - ${rec}`;
   }
 
   /**
@@ -287,8 +311,10 @@ class BackupService {
    */
   isManualCheckpointRecommended(walStatus: any): boolean {
     if (!walStatus?.wal_analysis) return false;
-    
-    const { status } = walStatus.wal_analysis;
+
+    const analysis = walStatus.wal_analysis ?? {};
+    const status = analysis.status ?? '';
+
     return status === 'approaching_limit' || status === 'should_auto_checkpoint';
   }
 }

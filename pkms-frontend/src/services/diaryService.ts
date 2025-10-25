@@ -22,8 +22,8 @@ class DiaryService {
   // --- Encryption Methods ---
 
   async isEncryptionSetup(): Promise<boolean> {
-    const response = await apiService.get<{ isSetup: boolean }>(`${this.baseUrl}/encryption/status`);
-    return response.data.isSetup;
+    const response = await apiService.get<{ is_setup: boolean }>(`${this.baseUrl}/encryption/status`);
+    return response.data.is_setup;
   }
 
   async setupEncryption(password: string, hint?: string): Promise<{ key: CryptoKey | null; success: boolean }> {

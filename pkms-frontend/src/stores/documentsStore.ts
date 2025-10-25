@@ -1,19 +1,15 @@
 import { create } from 'zustand';
 import { 
-  documentsService, 
-  type Document, 
-  type DocumentSummary, 
-  type UpdateDocumentRequest, 
-  type SearchResult,
-  type DocumentsListParams 
-} from '../services/documentsService';
+  unifiedFileService, 
+  type UnifiedFileItem
+} from '../services/unifiedFileService';
 import { documentsCacheAware } from '../services/cacheAwareService';
 
 interface DocumentsState {
   // Data
-  documents: DocumentSummary[];
-  currentDocument: Document | null;
-  searchResults: SearchResult[];
+  documents: UnifiedFileItem[];
+  currentDocument: UnifiedFileItem | null;
+  searchResults: UnifiedFileItem[];
   
   // UI State
   isLoading: boolean;
@@ -141,7 +137,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         offset: state.offset
       };
       
-      const newDocuments = await documentsService.listDocuments(params);
+      const newDocuments = await unifiedFileService.listDocuments(params);
       
       set({ 
         documents: [...state.documents, ...newDocuments],
@@ -161,7 +157,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const document = await documentsService.getDocument(uuid);
+      const document = await unifiedFileService.getDocument(uuid);
       set({ currentDocument: document, isLoading: false });
     } catch (error) {
       set({ 
@@ -175,7 +171,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     set({ isUploading: true, error: null, uploadProgress: 0 });
     
     try {
-      const document = await documentsService.uploadDocument(
+      const document = await unifiedFileService.uploadFile(
         file, 
         tags, 
         (progress) => set({ uploadProgress: progress }),
@@ -257,7 +253,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       if (!existing) {
         throw new Error('Document not found');
       }
-      const updatedDocument = await documentsService.updateDocument(existing.uuid, data);
+      const updatedDocument = await unifiedFileService.updateDocument(existing.uuid, data);
 
       // Build full summary with proper type safety
       const documentSummary: DocumentSummary = {
@@ -306,7 +302,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         throw new Error('Document not found');
       }
       
-      await documentsService.deleteDocument(document.uuid);
+      await unifiedFileService.deleteFile(document);
       
       // Remove from documents list
       set(state => ({
@@ -326,7 +322,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
   toggleArchive: async (uuid: string, archived: boolean) => {
     set({ isUpdating: true, error: null });
     try {
-      const updatedDocument = await documentsService.toggleArchive(uuid, archived);
+      // Note: toggleArchive method needs to be implemented in unifiedFileService
+      // For now, we'll use updateDocument
+      const updatedDocument = await unifiedFileService.updateDocument(uuid, { isArchived: archived });
       // Build full summary
       const documentSummary: DocumentSummary = {
         uuid: updatedDocument.uuid,
@@ -385,7 +383,9 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     set({ isSearching: true, error: null });
     
     try {
-      const response = await documentsService.searchDocuments(query);
+      // Note: searchDocuments method needs to be implemented in unifiedFileService
+      // For now, we'll use listDocuments with search parameter
+      const response = await unifiedFileService.listDocuments({ search: query });
       set({ searchResults: response.results, isSearching: false });
     } catch (error) {
       set({ 
@@ -409,7 +409,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         throw new Error('Document not found');
       }
       
-      const blob = await documentsService.downloadDocument(document.uuid);
+      const blob = await unifiedFileService.downloadFile(document);
       return blob;
     } catch (error) {
       set({ 
@@ -427,7 +427,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       throw new Error('Document not found');
     }
     
-    return documentsService.getDownloadUrl(document.uuid);
+    return unifiedFileService.getFileDownloadUrl(document.uuid, 'documents');
   },
   
   getPreviewUrl: (uuid: string) => {
@@ -438,7 +438,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       throw new Error('Document not found');
     }
     
-    return documentsService.getPreviewUrl(document.uuid);
+    return unifiedFileService.getFileDownloadUrl(document.uuid, 'documents');
   },
   
   previewDocument: (uuid: string) => {
@@ -449,7 +449,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     // Use authenticated download to get a Blob, then open as object URL for preview
     (async () => {
       try {
-        const blob = await documentsService.downloadDocument((document as any).uuid);
+        const blob = await unifiedFileService.downloadFile(document);
         if (!blob) return;
         const objectUrl = URL.createObjectURL(blob);
         

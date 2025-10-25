@@ -963,18 +963,17 @@ async def get_diary_entry_documents(
                 uuid=doc.uuid,
                 title=doc.title,
                 filename=doc.filename,
-                original_name=doc.original_name,
-                file_path=doc.file_path,
-                file_size=doc.file_size,
-                mime_type=doc.mime_type,
+                original_name=doc.original_name,  # CamelCaseModel converts to originalName
+                file_path=doc.file_path,  # CamelCaseModel converts to filePath
+                file_size=doc.file_size,  # CamelCaseModel converts to fileSize
+                mime_type=doc.mime_type,  # CamelCaseModel converts to mimeType
                 description=doc.description,
-                is_favorite=doc.is_favorite,
-                is_archived=doc.is_archived,
-                is_project_exclusive=doc.is_project_exclusive,
-                is_encrypted=getattr(doc, 'is_encrypted', False),  # NEW: From document_diary join
-                thumbnail_path=doc.thumbnail_path,
-                created_at=doc.created_at,
-                updated_at=doc.updated_at,
+                is_favorite=doc.is_favorite,  # CamelCaseModel converts to isFavorite
+                is_archived=doc.is_archived,  # CamelCaseModel converts to isArchived
+                is_encrypted=getattr(doc, 'is_encrypted', False),  # CamelCaseModel converts to isEncrypted
+                thumbnail_path=doc.thumbnail_path,  # CamelCaseModel converts to thumbnailPath
+                created_at=doc.created_at,  # CamelCaseModel converts to createdAt
+                updated_at=doc.updated_at,  # CamelCaseModel converts to updatedAt
                 projects=project_badges_map.get(doc.uuid, [])
             )
             for doc in documents

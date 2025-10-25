@@ -5,7 +5,6 @@
 
 import React from 'react';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
-import { ArchivePreviewImage, ArchiveSelectedItem } from '../types/archive';
 import { notifications } from '@mantine/notifications';
 import { 
   Group, 
@@ -40,11 +39,11 @@ import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import { formatDate, formatFileSize } from '../components/common/ViewModeLayouts';
 import { useViewPreferences } from '../hooks/useViewPreferences';
 import ModuleFilters, { getModuleFilterConfig } from '../components/common/ModuleFilters';
-import { 
-  ArchivePreviewImage, 
+import {
+  ArchivePreviewImage,
   ArchiveSelectedItem,
-  ArchiveItem,      // Import from archive.ts
-  ArchiveFolder     // Import from archive.ts
+  ArchiveItem,
+  ArchiveFolder
 } from '../types/archive';
 
 import { ModuleFilters as CommonModuleFilters } from '../types/common';

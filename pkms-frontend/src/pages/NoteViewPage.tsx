@@ -40,12 +40,12 @@ export default function NoteViewPage() {
   const handleToggleArchive = async () => {
     if (!note) return;
     try {
-      await notesService.toggleArchive(note.uuid, !note.isArchived);
-      // Update local state after successful toggle
-      setNote({ ...note, isArchived: !note.isArchived });
+      const updated = await notesService.toggleArchive(note.uuid, !note.isArchived);
+      setNote(updated);
+      const nowArchived = updated.isArchived;
       notifications.show({
-        title: !note.isArchived ? 'Unarchived' : 'Archived',
-        message: !note.isArchived ? 'Note moved back to active' : 'Note moved to archive',
+        title: nowArchived ? 'Archived' : 'Unarchived',
+        message: nowArchived ? 'Note moved to archive' : 'Note moved back to active',
         color: 'green'
       });
     } catch (err) {

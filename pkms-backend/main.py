@@ -44,6 +44,8 @@ from app.testing import (
     testing_system,
     testing_crud,
 )
+# Import enhanced database testing
+from app.testing import testing_database_enhanced
 from app.routers import unified_uploads
 from app.routers.search import router as search_endpoints_router
 from app.routers.thumbnails import router as thumbnails_router
@@ -223,6 +225,7 @@ app.include_router(unified_uploads.router)
 # Include testing routers
 app.include_router(testing_router, prefix="/api/v1/testing")
 app.include_router(testing_database.router, prefix="/api/v1")
+app.include_router(testing_database_enhanced.router, prefix="/api/v1")  # Enhanced database testing
 app.include_router(testing_auth.router, prefix="/api/v1")
 app.include_router(testing_system.router, prefix="/api/v1")
 app.include_router(testing_crud.router, prefix="/api/v1")

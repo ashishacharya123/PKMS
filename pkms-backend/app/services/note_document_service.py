@@ -242,15 +242,15 @@ class NoteDocumentService:
                         uuid=doc.uuid,
                         title=doc.title,
                         filename=doc.filename,
-                        original_name=doc.original_name,
-                        file_path=doc.file_path,
-                        file_size=doc.file_size,
-                        mime_type=doc.mime_type,
-                        is_favorite=doc.is_favorite,
-                        is_archived=doc.is_archived,
-                        is_deleted=doc.is_deleted,
-                        created_at=doc.created_at,
-                        updated_at=doc.updated_at,
+                        original_name=doc.original_name,  # CamelCaseModel converts to originalName
+                        file_path=doc.file_path,  # CamelCaseModel converts to filePath
+                        file_size=doc.file_size,  # CamelCaseModel converts to fileSize
+                        mime_type=doc.mime_type,  # CamelCaseModel converts to mimeType
+                        is_favorite=doc.is_favorite,  # CamelCaseModel converts to isFavorite
+                        is_archived=doc.is_archived,  # CamelCaseModel converts to isArchived
+                        is_deleted=doc.is_deleted,  # CamelCaseModel converts to isDeleted
+                        created_at=doc.created_at,  # CamelCaseModel converts to createdAt
+                        updated_at=doc.updated_at,  # CamelCaseModel converts to updatedAt
                         tags=[],  # TODO: Add tag loading if needed
                         projects=[],  # TODO: Add project loading if needed
                     ),

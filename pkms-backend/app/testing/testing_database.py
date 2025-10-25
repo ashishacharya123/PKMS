@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
+from app.schemas.testing import DatabaseStatsResponse, TableSchemaResponse, SampleRowsResponse, FtsTablesDataResponse
 from app.models.note import Note
 from app.models.document import Document
 from app.models.todo import Todo
@@ -34,7 +35,7 @@ from app.config import NEPAL_TZ, get_data_dir
 router = APIRouter(prefix="/testing/database", tags=["testing-database"])
 
 
-@router.get("/stats")
+@router.get("/stats", response_model=DatabaseStatsResponse)
 async def get_database_stats(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -173,12 +174,12 @@ async def get_database_stats(
             stats["journal_mode"] = "unknown"
             stats["wal_checkpoint_info"] = {}
 
-        return {
-            "status": "success",
-            "statistics": stats,
-            "user_uuid": current_user.uuid,
-            "timestamp": datetime.now(NEPAL_TZ).isoformat()
-        }
+        return DatabaseStatsResponse(
+            status="success",
+            statistics=stats,
+            userUuid=current_user.uuid,
+            timestamp=datetime.now(NEPAL_TZ).isoformat()
+        )
 
     except Exception as e:
         logger.error(f"Error getting database stats: {type(e).__name__}")

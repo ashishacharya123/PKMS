@@ -17,6 +17,7 @@ class NoteCreate(CamelCaseModel):
     tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
     project_uuids: Optional[List[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this note to")
     are_projects_exclusive: Optional[bool] = Field(False, description="Apply exclusive flag to all project associations")
+    force_file_storage: Optional[bool] = Field(False, description="Force content to be saved as file even if small")
 
     @field_validator('title', mode='before')
     def validate_safe_text(cls, v: str):
@@ -37,6 +38,7 @@ class NoteUpdate(CamelCaseModel):
     description: Optional[str] = Field(None, max_length=500)  # Brief description for FTS5 search
     content: Optional[str] = Field(None, min_length=0, max_length=50000)
     tags: Optional[List[str]] = Field(None, max_items=20)
+    force_file_storage: Optional[bool] = Field(None, description="Force content to be saved as file even if small")
     is_archived: Optional[bool] = None
     is_favorite: Optional[bool] = None
     project_uuids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this note to")

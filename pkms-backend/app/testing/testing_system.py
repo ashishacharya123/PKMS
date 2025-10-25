@@ -24,13 +24,14 @@ logger = logging.getLogger(__name__)
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
+from app.schemas.testing import DetailedHealthResponse, ConsoleCommandsResponse
 
 from app.config import NEPAL_TZ, get_data_dir
 
 router = APIRouter(prefix="/testing/system", tags=["testing-system"])
 
 
-@router.get("/health-detailed")
+@router.get("/health-detailed", response_model=DetailedHealthResponse)
 async def get_detailed_health_check(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)

@@ -42,22 +42,22 @@ class DocumentUpdate(CamelCaseModel):
 from app.schemas.project import ProjectBadge
 
 class DocumentResponse(CamelCaseModel):
+    """Simple DocumentResponse using CamelCaseModel automatic conversion"""
     uuid: str
     title: str
     description: Optional[str] = None
-    original_name: str
+    original_name: str  # CamelCaseModel converts to originalName
     filename: str
-    file_path: str
-    file_size: int
-    mime_type: str
-    is_favorite: bool
-    is_archived: bool
+    file_path: str  # CamelCaseModel converts to filePath
+    file_size: int  # CamelCaseModel converts to fileSize
+    mime_type: str  # CamelCaseModel converts to mimeType
+    is_favorite: bool  # CamelCaseModel converts to isFavorite
+    is_archived: bool  # CamelCaseModel converts to isArchived
     is_encrypted: Optional[bool] = Field(False, description="Whether the file is encrypted (for diary files)")
-    # is_project_exclusive and is_diary_exclusive removed - exclusivity now handled via association tables
-    is_deleted: bool
-    # upload_status removed - only needed during upload process, not stored in model
-    created_at: datetime
-    updated_at: datetime
+    is_deleted: bool  # CamelCaseModel converts to isDeleted
+    thumbnail_path: Optional[str] = None  # CamelCaseModel converts to thumbnailPath
+    created_at: datetime  # CamelCaseModel converts to createdAt
+    updated_at: datetime  # CamelCaseModel converts to updatedAt
     tags: List[str]
     projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this document belongs to")
 

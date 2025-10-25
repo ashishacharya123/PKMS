@@ -16,7 +16,7 @@ import logging
 from app.database import get_db
 from app.models.user import User
 from app.auth.dependencies import get_current_user
-from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary
+from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFile
 from app.services.note_crud_service import note_crud_service
 from app.services.chunk_service import chunk_manager
 
@@ -253,6 +253,25 @@ async def duplicate_note(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to duplicate note: {str(e)}"
+        )
+
+
+@router.get("/{note_uuid}/files", response_model=List[NoteFile])
+async def get_note_files(
+    note_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all files attached to a note"""
+    try:
+        return await note_crud_service.get_note_files(db, current_user.uuid, note_uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error getting files for note {note_uuid} for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get note files: {str(e)}"
         )
 
 

@@ -34,7 +34,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { notesService, Note, type NoteFile } from '../services/notesService';
 import { searchService } from '../services/searchService';
 import { MultiProjectSelector } from '../components/common/MultiProjectSelector';
-import { FileSection } from '../components/file';
+import { UnifiedFileSection } from '../components/file/UnifiedFileSection';
 
 export function NoteEditorPage() {
   const navigate = useNavigate();
@@ -442,7 +442,7 @@ export function NoteEditorPage() {
               </Card>
 
               {/* Attachments */}
-              <FileSection
+              <UnifiedFileSection
                 module="notes"
                 entityId={currentNote?.uuid || ''}
                 files={noteFiles as any}

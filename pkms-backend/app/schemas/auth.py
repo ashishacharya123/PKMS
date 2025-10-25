@@ -1,4 +1,4 @@
-from pydantic import Field, validator, EmailStr
+from pydantic import Field, field_validator, model_validator, EmailStr
 from typing import Optional, List
 from datetime import datetime
 import re
@@ -19,7 +19,8 @@ class UserSetup(CamelCaseModel):
     diary_password: str = Field(..., min_length=8, max_length=72)  # Bcrypt limitation
     diary_password_hint: Optional[str] = Field(None, max_length=255)
     
-    @validator('username')
+    @field_validator('username')
+    @classmethod
     def validate_username(cls, v):
         if not USERNAME_PATTERN.match(v):
             raise ValueError('Username can only contain letters, numbers, hyphens, and underscores')
@@ -27,13 +28,15 @@ class UserSetup(CamelCaseModel):
             raise ValueError('This username is not allowed')
         return v
     
-    @validator('password')
+    @field_validator('password')
+    @classmethod
     def validate_password_security(cls, v):
         if any(char in v for char in ['<', '>', '&', '"', "'"]):
             raise ValueError('Password contains unsafe characters')
         return v
     
-    @validator('recovery_questions')
+    @field_validator('recovery_questions')
+    @classmethod
     def validate_questions(cls, v):
         for question in v:
             if not SAFE_STRING_PATTERN.match(question):
@@ -42,7 +45,8 @@ class UserSetup(CamelCaseModel):
                 raise ValueError('Security questions must be at least 10 characters long')
         return [q.strip() for q in v]
     
-    @validator('recovery_answers')
+    @field_validator('recovery_answers')
+    @classmethod
     def validate_answers(cls, v):
         for answer in v:
             if not SAFE_STRING_PATTERN.match(answer):
@@ -51,23 +55,26 @@ class UserSetup(CamelCaseModel):
                 raise ValueError('Security answers must be at least 2 characters long')
         return [a.strip() for a in v]
     
-    @validator('diary_password')
+    @field_validator('diary_password')
+    @classmethod
     def validate_diary_password(cls, v):
         if v and any(char in v for char in ['<', '>', '&', '"', "'"]):
             raise ValueError('Diary password contains unsafe characters')
         return v
     
-    @validator('recovery_answers', 'recovery_questions')
-    def validate_matching_count(cls, v, values):
-        if 'recovery_questions' in values and len(v) != len(values['recovery_questions']):
-            raise ValueError('Number of questions and answers must match')
-        return v
+    @model_validator(mode='after')
+    def validate_matching_count(self):
+        if hasattr(self, 'recovery_questions') and hasattr(self, 'recovery_answers'):
+            if len(self.recovery_answers) != len(self.recovery_questions):
+                raise ValueError('Number of questions and answers must match')
+        return self
 
 class UserLogin(CamelCaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=1, max_length=72)  # Bcrypt limitation
     
-    @validator('username')
+    @field_validator('username')
+    @classmethod
     def validate_username(cls, v):
         if not USERNAME_PATTERN.match(v):
             raise ValueError('Invalid username format')
@@ -77,7 +84,8 @@ class PasswordChange(CamelCaseModel):
     current_password: str = Field(..., min_length=1, max_length=72)  # Bcrypt limitation
     new_password: str = Field(..., min_length=8, max_length=72)  # Bcrypt limitation
     
-    @validator('new_password')
+    @field_validator('new_password')
+    @classmethod
     def validate_new_password(cls, v):
         if any(char in v for char in ['<', '>', '&', '"', "'"]):
             raise ValueError('Password contains unsafe characters')
@@ -88,14 +96,16 @@ class RecoveryReset(CamelCaseModel):
     answers: List[str] = Field(..., min_items=2, max_items=5)
     new_password: str = Field(..., min_length=8, max_length=72)  # Bcrypt limitation
     
-    @validator('answers')
+    @field_validator('answers')
+    @classmethod
     def validate_answers(cls, v):
         for answer in v:
             if not SAFE_STRING_PATTERN.match(answer):
                 raise ValueError('Security answers contain invalid characters')
         return [a.strip() for a in v]
     
-    @validator('new_password')
+    @field_validator('new_password')
+    @classmethod
     def validate_new_password(cls, v):
         if any(char in v for char in ['<', '>', '&', '"', "'"]):
             raise ValueError('Password contains unsafe characters')
@@ -131,7 +141,8 @@ class RefreshTokenRequest(CamelCaseModel):
 class UsernameBody(CamelCaseModel):
     username: str = Field(..., min_length=3, max_length=50)
 
-    @validator('username')
+    @field_validator('username')
+    @classmethod
     def validate_username(cls, v):
         if not USERNAME_PATTERN.match(v):
             raise ValueError('Invalid username format')
@@ -140,7 +151,8 @@ class UsernameBody(CamelCaseModel):
 class LoginPasswordHintUpdate(CamelCaseModel):
     hint: str = Field(..., max_length=255)
     
-    @validator('hint')
+    @field_validator('hint')
+    @classmethod
     def validate_hint(cls, v):
         v = v.strip()
         if not v:

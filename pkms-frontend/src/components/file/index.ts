@@ -1,5 +1,5 @@
-export { default as FileList } from './FileList.tsx';
-export { default as FileSection } from './FileSection.tsx';
+export { UnifiedFileList } from './UnifiedFileList.tsx';
+export { UnifiedFileSection } from './UnifiedFileSection.tsx';
 export { default as AudioRecorder } from './AudioRecorder.tsx';
 export { FileUploadModal } from './FileUploadModal.tsx';
 export { AudioRecorderModal } from './AudioRecorderModal.tsx';

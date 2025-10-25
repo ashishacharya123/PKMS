@@ -9,7 +9,7 @@ import { IconFiles, IconFolderPlus, IconRefresh } from '@tabler/icons-react';
 import { FolderTree } from './FolderTree';
 import ModuleHeader from '../common/ModuleHeader';
 import ModuleLayout from '../common/ModuleLayout';
-import { FileSection } from '../file/FileSection';
+import { UnifiedFileSection } from '../file/UnifiedFileSection';
 import { ArchiveItem, ArchiveFolder } from '../../types/common';
 
 interface ArchiveLayoutProps {
@@ -190,7 +190,7 @@ export function ArchiveLayout({
         {/* FileSection for uploads */}
         {currentFolder && (
           <Paper p="md" style={{ borderBottom: '1px solid var(--mantine-color-dark-4)', backgroundColor: 'var(--mantine-color-dark-7)' }}>
-            <FileSection
+            <UnifiedFileSection
               module="archive"
               entityId={currentFolder.uuid}
               files={archiveFiles}

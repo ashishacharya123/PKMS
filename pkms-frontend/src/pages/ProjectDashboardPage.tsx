@@ -36,7 +36,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import { todosService, Project, Todo } from '../services/todosService';
 import { notesService, NoteSummary } from '../services/notesService';
-import { documentsService, DocumentSummary } from '../services/documentsService';
+import { unifiedFileService, UnifiedFileItem } from '../services/unifiedFileService';
 import { projectApi } from '../services/projectApi';
 import { reorderArray, generateDocumentReorderUpdate, getDragPreviewStyles, getDropZoneStyles } from '../utils/dragAndDrop';
 import { TodosLayout } from '../components/todos/TodosLayout';
@@ -100,7 +100,7 @@ export function ProjectDashboardPage() {
       // Load all items for this project
       const [notesData, docsData, todosData] = await Promise.all([
         notesService.listNotes({}), // TODO: Add project filtering by UUID
-        documentsService.listDocuments({}), // TODO: Add project filtering by UUID
+        unifiedFileService.listDocuments({}), // TODO: Add project filtering by UUID
         todosService.getTodos({}) // TODO: Add project filtering by UUID
       ]);
 

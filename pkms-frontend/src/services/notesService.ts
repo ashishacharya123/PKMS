@@ -7,7 +7,7 @@ import { apiService } from './api';
 import { BaseService } from './BaseService';
 import { coreUploadService, UploadProgress } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
-import { formatFileSize } from '../components/common/ViewModeLayouts';
+// import { formatFileSize } from '../components/common/ViewModeLayouts'; // Unused
 
 // Removed SMALL_FILE_THRESHOLD since we're using chunked upload consistently
 
@@ -80,6 +80,7 @@ export interface CreateNoteRequest {
   tags?: string[];
   projectIds?: string[];
   isExclusiveMode?: boolean;
+  forceFileStorage?: boolean;  // Force content to be saved as file even if small
 }
 
 export interface UpdateNoteRequest {
@@ -90,6 +91,7 @@ export interface UpdateNoteRequest {
   isFavorite?: boolean;
   projectIds?: string[];
   isExclusiveMode?: boolean;
+  forceFileStorage?: boolean;  // Force content to be saved as file even if small
 }
 
 class NotesService extends BaseService<Note, CreateNoteRequest, UpdateNoteRequest> {

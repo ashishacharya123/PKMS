@@ -61,7 +61,7 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { searchService } from '../services/searchService';
 import { useTodosStore } from '../stores/todosStore';
-import { documentsService } from '../services/documentsService';
+import { unifiedFileService } from '../services/unifiedFileService';
 import { UnifiedSearchEmbedded } from '../components/search/UnifiedSearchEmbedded';
 import { ActionMenu } from '../components/common/ActionMenu';
 import { DateRangePicker } from '../components/common/DateRangePicker';

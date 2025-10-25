@@ -49,6 +49,7 @@ import {
   IconX
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
+import { searchService } from '../../services/searchService';
 
 interface SearchAnalytics {
   total_searches: number;
@@ -89,13 +90,15 @@ interface SearchAnalytics {
 }
 
 interface SearchResult {
-  uuid: string;
+  id: string;
   title: string;
-  content: string;
-  module_type: string;
-  relevanceScore: number;
-  createdAt: string;
-  updatedAt: string;
+  preview: string;
+  module: string;
+  score?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  tags: string[];
+  metadata?: Record<string, any>;
 }
 
 interface CacheStats {
@@ -151,15 +154,15 @@ export function AdvancedSearchAnalytics() {
 
     setSearching(true);
     try {
-      const endpoint = searchType === 'fts5' 
-        ? '/api/v1/search/fts5'
+      // Use searchService methods for consistent data handling
+      const searchMethod = searchType === 'fts5' 
+        ? searchService.searchFTS
         : searchType === 'fuzzy'
-        ? '/api/v1/fuzzy-search-light'
-        : '/api/v1/advanced-fuzzy-search';
+        ? searchService.searchFuzzy
+        : searchService.searchAdvancedFuzzy;
 
-      const response = await fetch(`${endpoint}?q=${encodeURIComponent(searchQuery)}`);
-      const data = await response.json();
-      setSearchResults(data.results || []);
+      const response = await searchMethod(searchQuery);
+      setSearchResults(response.results || []);
     } catch (error) {
       notifications.show({
         title: 'Error',
@@ -481,15 +484,15 @@ export function AdvancedSearchAnalytics() {
                           <Paper key={index} p="md" withBorder>
                             <Group justify="space-between" mb="sm">
                               <Group gap="xs">
-                                <Text size="lg">{getModuleIcon(result.module_type)}</Text>
+                                <Text size="lg">{getModuleIcon(result.module)}</Text>
                                 <Text fw={500}>{result.title}</Text>
-                                <Badge color={getModuleColor(result.module_type)} variant="light">
-                                  {result.module_type}
+                                <Badge color={getModuleColor(result.module)} variant="light">
+                                  {result.module}
                                 </Badge>
                               </Group>
                               <Group gap="xs">
                                 <Badge color="blue" variant="light">
-                                  {Math.round(result.relevanceScore * 100)}% match
+                                  {Math.round((result.score || 0) * 100)}% match
                                 </Badge>
                                 <ActionIcon variant="light" color="blue" size="sm">
                                   <IconEye size={14} />
@@ -497,7 +500,7 @@ export function AdvancedSearchAnalytics() {
                               </Group>
                             </Group>
                             <Text size="sm" c="dimmed" lineClamp={2}>
-                              {result.content}
+                              {result.preview}
                             </Text>
                           </Paper>
                         ))}
@@ -514,14 +517,14 @@ export function AdvancedSearchAnalytics() {
                     <Paper key={index} p="sm" withBorder>
                       <Group justify="space-between">
                         <Group gap="xs">
-                          <Text size="lg">{getModuleIcon(search.module_type)}</Text>
+                          <Text size="lg">{getModuleIcon(search.module)}</Text>
                           <div>
                             <Text fw={500}>{search.title}</Text>
-                            <Text size="xs" c="dimmed">{search.module_type}</Text>
+                            <Text size="xs" c="dimmed">{search.module}</Text>
                           </div>
                         </Group>
-                        <Badge color={getModuleColor(search.module_type)} variant="light">
-                          {Math.round(search.relevanceScore * 100)}%
+                        <Badge color={getModuleColor(search.module)} variant="light">
+                          {Math.round((search.score || 0) * 100)}%
                         </Badge>
                       </Group>
                     </Paper>

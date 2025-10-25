@@ -64,7 +64,7 @@ interface SearchResponse {
   results: SearchResult[];
   total: number;
   ftsCandidates: number;
-  search_method: string;
+  searchMethod: string;
   modulesSearched: string[];
   query: string;
   appliedFuzzy: boolean;
@@ -501,19 +501,19 @@ export default function FuzzySearchPage() {
                         <Badge color={getModuleColor(result.module)} size="sm">
                           {result.module}
                         </Badge>
-                        {result.fuzzyScore && (
-                          <Badge 
-                            color={getFuzzyScoreColor(result.fuzzyScore)} 
-                            variant="light" 
+                        {result.fuzzyScore != null && (
+                          <Badge
+                            color={getFuzzyScoreColor(result.fuzzyScore)}
+                            variant="light"
                             size="sm"
                           >
                             Fuzzy: {result.fuzzyScore.toFixed(0)}%
                           </Badge>
                         )}
-                        {result.combinedScore && (
-                          <Badge 
-                            color="blue" 
-                            variant="outline" 
+                        {result.combinedScore != null && (
+                          <Badge
+                            color="blue"
+                            variant="outline"
                             size="sm"
                           >
                             Combined: {result.combinedScore.toFixed(3)}

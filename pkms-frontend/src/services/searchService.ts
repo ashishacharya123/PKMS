@@ -26,7 +26,7 @@ export interface SearchResult {
   metadata?: Record<string, any>;
   // optional HTML highlights if backend provides
   highlight?: string;
-  highlight_title?: string;
+  highlightTitle?: string;
 }
 
 export interface SearchStats {

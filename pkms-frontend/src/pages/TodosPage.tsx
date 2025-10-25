@@ -56,7 +56,7 @@ import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { searchService } from '../services/searchService';
 import { useTodosStore } from '../stores/todosStore';
-import { documentsService } from '../services/documentsService';
+import { unifiedFileService } from '../services/unifiedFileService';
 import { UnifiedSearchEmbedded } from '../components/search/UnifiedSearchEmbedded';
 import { KanbanBoard } from '../components/todos/KanbanBoard';
 import { ActionMenu } from '../components/common/ActionMenu';
@@ -1560,7 +1560,7 @@ export function TodosPage() {
                 if (!selectedProjectIdForUpload || !projectUploadFile) return;
                 setIsProjectUploading(true);
                 try {
-                  await documentsService.uploadDocument(
+                  await unifiedFileService.uploadFile(
                     projectUploadFile,
                     projectUploadTags,
                     (p) => setProjectUploadProgress(p),
