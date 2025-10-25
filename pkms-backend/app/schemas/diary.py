@@ -24,6 +24,11 @@ class EncryptionUnlockRequest(CamelCaseModel):
     password: str
 
 
+class EncryptionStatusResponse(CamelCaseModel):
+    is_setup: bool
+    is_unlocked: bool
+
+
 class DiaryEntryUpdate(CamelCaseModel):
     date: Optional[date] = None
     title: Optional[str] = Field(None, max_length=255)

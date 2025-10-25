@@ -40,36 +40,16 @@ const sanitizeHighlight = (html: string): string =>
     : '';
 
 // Types
-interface SearchResult {
-  type: string;
-  module: string;
-  uuid: string;
-  title?: string;
-  name?: string;
-  content?: string;
-  description?: string;
-  highlight?: string;
-  highlight_title?: string;
-  tags: string[];
-  createdAt: string;
-  updatedAt: string;
-  relevanceScore: number;
-  fuzzyScore: number;
-  combinedScore: number;
-  fuzzyDetails: Record<string, number>;
+import type { SearchResult as BaseSearchResult } from '../services/searchService';
+type FuzzySearchResult = BaseSearchResult & {
+  relevanceScore?: number;
+  fuzzyScore?: number;
+  combinedScore?: number;
+  fuzzyDetails?: Record<string, number>;
   url: string;
-}
+};
 
-interface SearchResponse {
-  results: SearchResult[];
-  total: number;
-  ftsCandidates: number;
-  searchMethod: string;
-  modulesSearched: string[];
-  query: string;
-  appliedFuzzy: boolean;
-  fuzzyThreshold: number;
-}
+// Removed unused local SearchResponse; rely on service types or inline narrowing where needed.
 
 const MODULE_OPTIONS = [
   { value: 'notes', label: 'Notes' },
@@ -164,9 +144,12 @@ export default function FuzzySearchPage() {
         }
 
         const response = await api.get(`/advanced-fuzzy-search?${params}`);
-        const data = response.data as any[];
-        setResults(Array.isArray(data) ? data : []);
-        setTotal(Array.isArray(data) ? data.length : 0);
+        const data = Array.isArray(response.data) ? response.data : [];
+        const isValidResult = (x: any): x is FuzzySearchResult => 
+          typeof x?.uuid === 'string' && typeof x?.module === 'string';
+        const validResults = data.filter(isValidResult);
+        setResults(validResults);
+        setTotal(validResults.length);
         setSearchMethod('advanced_fuzzy');
 
         notifications.show({
@@ -191,10 +174,12 @@ export default function FuzzySearchPage() {
         // These are not supported by fuzzy endpoints
 
         const response = await api.get(`/fuzzy-search-light?${params}`);
-        const data = response.data as any[];
-
-        setResults(Array.isArray(data) ? data : []);
-        setTotal(Array.isArray(data) ? data.length : 0);
+        const data = Array.isArray(response.data) ? response.data : [];
+        const isValidResult = (x: any): x is FuzzySearchResult => 
+          typeof x?.uuid === 'string' && typeof x?.module === 'string';
+        const validResults = data.filter(isValidResult);
+        setResults(validResults);
+        setTotal(validResults.length);
         setSearchMethod('fuzzy_light');
 
         notifications.show({
@@ -558,7 +543,9 @@ export default function FuzzySearchPage() {
                       )}
                       
                       <Text size="xs" c="dimmed" mt="xs">
-                        {new Date(result.createdAt).toLocaleDateString()}
+                        {result.createdAt && !isNaN(new Date(result.createdAt).getTime())
+                          ? new Date(result.createdAt).toLocaleDateString()
+                          : '—'}
                       </Text>
                     </div>
                     

@@ -10,7 +10,7 @@ import { FolderTree } from './FolderTree';
 import ModuleHeader from '../common/ModuleHeader';
 import ModuleLayout from '../common/ModuleLayout';
 import { UnifiedFileSection } from '../file/UnifiedFileSection';
-import { ArchiveItem, ArchiveFolder } from '../../types/common';
+import { ArchiveItem, ArchiveFolder } from '../../types/archive';
 
 interface ArchiveLayoutProps {
   // Current state
@@ -27,7 +27,7 @@ interface ArchiveLayoutProps {
   
   // View mode
   viewMode: 'small-icons' | 'medium-icons' | 'list' | 'details';
-  ViewMenu: React.ComponentType<{ viewMode: string; setViewMode: (mode: string) => void }>;
+  ViewMenu: React.ComponentType<{ currentView: string; onChange: (mode: string) => void; disabled?: boolean }>;
   
   // File upload
   archiveFiles: ArchiveItem[];
@@ -231,13 +231,14 @@ export function ArchiveLayout({
                   items={folders.map(folder => ({
                     ...folder,
                     id: folder.uuid,
+                    itemType: 'folder' as const,
                     mimeType: 'folder',
                     name: folder.name,
                     createdAt: folder.createdAt,
                     updatedAt: folder.updatedAt,
                     fileSize: 0,
                     tags: []
-                  })) as any[]}
+                  })) as ArchiveItem[]}
                   viewMode={viewMode}
                   onItemClick={(folder: any) => {
                     if (folder.itemType === 'folder') {

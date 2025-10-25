@@ -31,6 +31,13 @@ import {
 import { notifications } from '@mantine/notifications';
 import { todosService, Project } from '../services/todosService';
 import { ActionMenu } from '../components/common/ActionMenu';
+import { ModuleLayout } from '../components/common/ModuleLayout';
+import { ModuleHeader } from '../components/common/ModuleHeader';
+import { ModuleFilters, getModuleFilterConfig } from '../components/common/ModuleFilters';
+import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
+import { DuplicationModal } from '../components/common/DuplicationModal';
+import { duplicationService, ProjectDuplicateRequest } from '../services/duplicationService';
+import { EmptyState } from '../components/common/EmptyState';
 
 export function ProjectsPage() {
   const navigate = useNavigate();
@@ -39,10 +46,23 @@ export function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   
+  // Modular components state
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [filters, setFilters] = useState({
+    sortBy: 'name',
+    sortOrder: 'asc',
+    favorites: false,
+    showArchived: false
+  });
+  const [filtersOpened, setFiltersOpened] = useState(false);
+  const filterConfig = getModuleFilterConfig('projects');
+  
   // Modal states
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [duplicating, setDuplicating] = useState(false);
   
   // Form states
   const [formData, setFormData] = useState({
@@ -189,6 +209,50 @@ export function ProjectsPage() {
     setEditModalOpen(true);
   };
 
+  const handleDuplicate = (project: Project) => {
+    setSelectedProject(project);
+    setDuplicateModalOpen(true);
+  };
+
+  const handleDuplicateConfirm = async (data: any) => {
+    if (!selectedProject) return;
+    
+    setDuplicating(true);
+    try {
+      const request: ProjectDuplicateRequest = {
+        newProjectName: data.newName,
+        description: data.description,
+        duplicationMode: data.duplicationMode,
+        includeTodos: data.includeTodos,
+        includeNotes: data.includeNotes,
+        includeDocuments: data.includeDocuments,
+        itemRenames: data.itemRenames
+      };
+
+      const response = await duplicationService.duplicateProject(selectedProject.uuid, request);
+      
+      if (response.success) {
+        notifications.show({
+          title: 'Project Duplicated',
+          message: `Created "${response.newProjectName}" with ${response.itemsCopied.todos} todos, ${response.itemsCopied.notes} notes, ${response.itemsCopied.documents} documents`,
+          color: 'green'
+        });
+        
+        // Reload projects to show the new one
+        await loadProjects();
+      }
+    } catch (error) {
+      console.error('Failed to duplicate project:', error);
+      notifications.show({
+        title: 'Duplication Failed',
+        message: 'Failed to duplicate project. Please try again.',
+        color: 'red'
+      });
+    } finally {
+      setDuplicating(false);
+    }
+  };
+
   const filteredProjects = projects.filter(p => 
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -202,29 +266,20 @@ export function ProjectsPage() {
   return (
     <Container size="xl" py="xl">
       <Stack gap="lg">
-        {/* Header */}
-        <Group justify="space-between" align="flex-start">
-          <div>
-            <Title order={1}>
-              <Group gap="xs">
-                <IconFolders size={32} />
-                Projects
-              </Group>
-            </Title>
-            <Text size="sm" c="dimmed" mt="xs">
-              Manage your project portfolios and track progress
-            </Text>
-          </div>
-          <Button
-            leftSection={<IconPlus size={18} />}
-            onClick={() => setCreateModalOpen(true)}
-          >
-            New Project
-          </Button>
-        </Group>
+        {/* Modular Header */}
+        <ModuleHeader
+          title="📁 Projects"
+          itemCount={filteredProjects.length}
+          onRefresh={loadProjects}
+          onCreate={() => setCreateModalOpen(true)}
+          showFilters={true}
+          showCreate={true}
+          showRefresh={true}
+          isLoading={loading}
+        />
 
-        {/* Filters */}
-        <Group justify="space-between">
+        {/* Modular Filters & View Controls */}
+        <Group justify="space-between" align="center">
           <TextInput
             placeholder="Search projects..."
             leftSection={<IconSearch size={16} />}
@@ -232,13 +287,21 @@ export function ProjectsPage() {
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{ flex: 1, maxWidth: 400 }}
           />
-          <Button
-            variant={showArchived ? 'filled' : 'light'}
-            leftSection={showArchived ? <IconArchiveOff size={16} /> : <IconArchive size={16} />}
-            onClick={() => setShowArchived(!showArchived)}
-          >
-            {showArchived ? 'Show Active' : 'Show Archived'}
-          </Button>
+          <Group gap="sm">
+            <ViewMenu 
+              currentView={viewMode}
+              onChange={setViewMode}
+              disabled={loading}
+            />
+            <Button
+              variant="light"
+              size="sm"
+              leftSection={<IconSearch size={16} />}
+              onClick={() => setFiltersOpened(true)}
+            >
+              Filters
+            </Button>
+          </Group>
         </Group>
 
         {/* Projects Grid */}
@@ -246,27 +309,13 @@ export function ProjectsPage() {
           <LoadingOverlay visible={loading} />
           
           {filteredProjects.length === 0 ? (
-            <Paper p="xl" withBorder>
-              <Stack align="center" gap="md">
-                <IconFolder size={48} stroke={1.5} color="var(--mantine-color-gray-5)" />
-                <div>
-                  <Text ta="center" fw={500}>
-                    {searchQuery ? 'No projects found' : showArchived ? 'No archived projects' : 'No projects yet'}
-                  </Text>
-                  <Text ta="center" size="sm" c="dimmed">
-                    {searchQuery ? 'Try a different search term' : 'Create your first project to get started'}
-                  </Text>
-                </div>
-                {!searchQuery && !showArchived && (
-                  <Button
-                    leftSection={<IconPlus size={18} />}
-                    onClick={() => setCreateModalOpen(true)}
-                  >
-                    Create Project
-                  </Button>
-                )}
-              </Stack>
-            </Paper>
+            <EmptyState
+              icon={IconFolder}
+              title={searchQuery ? 'No projects found' : showArchived ? 'No archived projects' : 'No projects yet'}
+              description={searchQuery ? 'Try a different search term' : 'Create your first project to get started'}
+              actionLabel={!searchQuery && !showArchived ? 'Create Project' : undefined}
+              onAction={!searchQuery && !showArchived ? () => setCreateModalOpen(true) : undefined}
+            />
           ) : (
             <Grid>
               {filteredProjects.map((project) => {
@@ -307,6 +356,7 @@ export function ProjectsPage() {
                           </Group>
                           <ActionMenu
                             onEdit={() => openEditModal(project)}
+                            onDuplicate={() => handleDuplicate(project)}
                             onArchive={project.isArchived ? undefined : () => handleArchiveToggle(project)}
                             onUnarchive={project.isArchived ? () => handleArchiveToggle(project) : undefined}
                             onDelete={() => handleDelete(project)}
@@ -464,6 +514,37 @@ export function ProjectsPage() {
           </Group>
         </Stack>
       </Modal>
+
+      {/* Modular Filter Modal */}
+      <Modal 
+        opened={filtersOpened} 
+        onClose={() => setFiltersOpened(false)} 
+        title="Project Filters & Sorting" 
+        size="lg"
+      >
+        <ModuleFilters
+          filters={filters}
+          onFiltersChange={setFilters}
+          activeFiltersCount={Object.values(filters).filter(v => Array.isArray(v) ? v.length > 0 : v !== false && v !== 'all' && v !== 'name' && v !== 'asc').length}
+          showFavorites={filterConfig.showFavorites}
+          showMimeTypes={filterConfig.showMimeTypes}
+          showDateRange={filterConfig.showDateRange}
+          showArchived={filterConfig.showArchived}
+          showSorting={filterConfig.showSorting}
+          customFilters={filterConfig.customFilters}
+          sortOptions={filterConfig.sortOptions}
+        />
+      </Modal>
+
+      {/* Duplication Modal */}
+      <DuplicationModal
+        opened={duplicateModalOpen}
+        onClose={() => setDuplicateModalOpen(false)}
+        onConfirm={handleDuplicateConfirm}
+        type="project"
+        originalName={selectedProject?.name || ''}
+        loading={duplicating}
+      />
     </Container>
   );
 }

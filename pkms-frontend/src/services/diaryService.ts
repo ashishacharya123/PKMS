@@ -22,7 +22,7 @@ class DiaryService {
   // --- Encryption Methods ---
 
   async isEncryptionSetup(): Promise<boolean> {
-    const response = await apiService.get<{ is_setup: boolean }>(`${this.baseUrl}/encryption/status`);
+    const response = await apiService.get<{ is_setup: boolean; is_unlocked: boolean }>(`${this.baseUrl}/encryption/status`);
     return response.data.is_setup;
   }
 
@@ -58,7 +58,12 @@ class DiaryService {
   }
 
   async encryptContent(content: string, key: CryptoKey): Promise<{ encryptedBlob: string; iv: string; charCount: number }> {
-    return diaryCryptoService.encryptText(content, key);
+    const result = await diaryCryptoService.encryptText(content, key);
+    return {
+      encryptedBlob: result.encrypted_blob,
+      iv: result.iv,
+      charCount: result.char_count
+    };
   }
 
   async decryptContent(encryptedBlob: string, _iv: string, key: CryptoKey): Promise<string> {
@@ -350,9 +355,9 @@ class DiaryService {
     }
 
     // Proceed with linking (with isEncrypted flag)
-    await apiService.post(`${this.baseUrl}/entries/${entryUuid}/documents:link`, {
-      documentUuids: [documentUuid],
-      isEncrypted: isEncrypted
+    const params = new URLSearchParams({ is_encrypted: String(isEncrypted) });
+    await apiService.post(`${this.baseUrl}/entries/${entryUuid}/documents:link?${params}`, {
+      documentUuids: [documentUuid]
     });
   }
 

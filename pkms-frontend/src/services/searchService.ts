@@ -100,19 +100,26 @@ class SearchService {
   }
 
   private normaliseResults(results: any[]): SearchResult[] {
-    return results.map((item) => ({
-      id: item.id ?? item.uuid ?? '',
-      module: item.module ?? item.type ?? 'notes',
-      title: item.title ?? item.name ?? 'Untitled',
-      preview: item.preview ?? item.preview_text ?? '',
-      tags: item.tags ?? [],
-      score: item.score ?? item.relevance ?? item.relevanceScore,
-      createdAt: item.createdAt ?? item.created_at,
-      updatedAt: item.updatedAt ?? item.updated_at,
-      metadata: item.metadata ?? {},
-      highlight: item.highlight,
-      highlight_title: item.highlight_title ?? item.highlightTitle,
-    }));
+    return results.map((item) => {
+      const rawScore = item.score ?? item.relevance ?? item.relevanceScore;
+      const normScore = typeof rawScore === 'number' 
+        ? rawScore > 1 ? rawScore / 100 : rawScore 
+        : undefined;
+      
+      return {
+        id: item.id ?? item.uuid ?? '',
+        module: item.module ?? item.type ?? 'notes',
+        title: item.title ?? item.name ?? 'Untitled',
+        preview: item.preview ?? item.preview_text ?? '',
+        tags: item.tags ?? [],
+        score: normScore,
+        createdAt: item.createdAt ?? item.created_at,
+        updatedAt: item.updatedAt ?? item.updated_at,
+        metadata: item.metadata ?? {},
+        highlight: item.highlight,
+        highlightTitle: item.highlightTitle ?? item.highlight_title,
+      };
+    });
   }
 
   async searchFTS(query: string, filters: SearchFilters = {}, page = 1, limit = 20): Promise<SearchResponse> {
@@ -126,9 +133,9 @@ class SearchService {
       sort_order: filters.sortOrder ?? 'desc',
     };
 
-    if (filters.modules?.length) params.modules = filters.modules.join(',');
-    if (filters.includeTags?.length) params.include_tags = filters.includeTags.join(',');
-    if (filters.excludeTags?.length) params.exclude_tags = filters.excludeTags.join(',');
+    if (filters.modules?.length) params.modules = [...filters.modules].sort().join(',');
+    if (filters.includeTags?.length) params.include_tags = [...filters.includeTags].sort().join(',');
+    if (filters.excludeTags?.length) params.exclude_tags = [...filters.excludeTags].sort().join(',');
     if (filters.includeArchived !== undefined) params.include_archived = String(filters.includeArchived);
     if (filters.excludeDiary !== undefined) params.exclude_diary = String(filters.excludeDiary);
     if (filters.favoritesOnly) params.favorites_only = 'true';
@@ -260,5 +267,9 @@ class SearchService {
 }
 
 export const searchService = new SearchService();
-export const { searchFTS, searchFuzzy, getSearchSuggestions, getPopularTags, getTagAutocomplete } = searchService;
+export const searchFTS = searchService.searchFTS.bind(searchService);
+export const searchFuzzy = searchService.searchFuzzy.bind(searchService);
+export const getSearchSuggestions = searchService.getSearchSuggestions.bind(searchService);
+export const getPopularTags = searchService.getPopularTags.bind(searchService);
+export const getTagAutocomplete = searchService.getTagAutocomplete.bind(searchService);
 export default searchService; 

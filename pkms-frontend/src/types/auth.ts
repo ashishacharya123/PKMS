@@ -33,7 +33,7 @@ export interface User {
   updatedAt: string;
   lastLogin?: string;
   // Computed/helper properties
-  settings: UserSettings;  // Parsed from settings_json
+  settings: UserSettings;  // Parsed from settingsJson
   isAuthenticated?: boolean;  // Runtime auth status
 }
 

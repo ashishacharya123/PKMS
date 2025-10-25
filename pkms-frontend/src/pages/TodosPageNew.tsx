@@ -7,9 +7,6 @@ import { useEffect, useState, useMemo } from 'react';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Container,
-  Grid,
-  Title,
   Text,
   Group,
   Stack,
@@ -17,60 +14,33 @@ import {
   TextInput,
   TagsInput,
   Badge,
-  Skeleton,
-  Alert,
-  Pagination,
   Paper,
-  ThemeIcon,
   Modal,
   Textarea,
   Select,
   NumberInput,
-  Checkbox,
-  Tooltip,
-  FileInput,
-  Progress
+  ThemeIcon
 } from '@mantine/core';
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import { formatDate } from '../components/common/ViewModeLayouts';
-import { MultiProjectSelector } from '../components/common/MultiProjectSelector';
-import { ProjectBadges } from '../components/common/ProjectBadges';
-import { SubtaskList } from '../components/todos/SubtaskList';
 import { useViewPreferences } from '../hooks/useViewPreferences';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import {
-  IconPlus,
-  IconSearch,
-  IconFilter,
-  IconSortAscending,
-  IconSortDescending,
-  IconCheck,
-  IconChecklist,
-  IconCalendar,
-  IconAlertTriangle,
-  IconFolder,
-  IconArchive,
-  IconArchiveOff,
-  IconUpload,
-  IconList,
-  IconColumns,
-  IconTimeline
+  IconFilter
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { searchService } from '../services/searchService';
 import { useTodosStore } from '../stores/todosStore';
-import { unifiedFileService } from '../services/unifiedFileService';
-import { UnifiedSearchEmbedded } from '../components/search/UnifiedSearchEmbedded';
-import { ActionMenu } from '../components/common/ActionMenu';
-import { DateRangePicker } from '../components/common/DateRangePicker';
 import { todosService, TodoSummary } from '../services/todosService';
+import { DuplicationModal } from '../components/common/DuplicationModal';
+import { duplicationService, TodoDuplicateRequest } from '../services/duplicationService';
 import TodosLayout from '../components/todos/TodosLayout';
-import { TodoItem } from '../types/common';
+import { Todo } from '../types/todo';
+import { ModuleFilters, getModuleFilterConfig } from '../components/common/ModuleFilters';
 
-type SortField = 'title' | 'createdAt' | 'dueDate' | 'priority';
-type SortOrder = 'asc' | 'desc';
+// Note: SortField/SortOrder types removed - now handled by modular ModuleFilters
 
 // Utility functions for todos
 const getTodoIcon = (todo: any): string => {
@@ -124,15 +94,27 @@ export function TodosPageNew() {
   // Local state
   const [searchQuery] = useState('');
   const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
-  const [sortField, setSortField] = useState<SortField>('createdAt');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  // Note: sortField/sortOrder removed - now handled by modular filters
+  
+  // Filter state using modular component
+  const [filters, setFilters] = useState({
+    sortBy: 'createdAt' as const,
+    sortOrder: 'desc' as const,
+    favorites: false,
+    showArchived: false
+  });
+  const [filtersOpened, setFiltersOpened] = useState(false);
+  const filterConfig = getModuleFilterConfig('todos');
   const [currentPage, setCurrentPage] = useState(1);
   const { updatePreference } = useViewPreferences();
   const [viewMode, setViewMode] = useState<'list' | 'kanban' | 'calendar' | 'timeline'>('list');
   const [todoModalOpen, setTodoModalOpen] = useState(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectUploadModalOpen, setProjectUploadModalOpen] = useState(false);
-  const [editingTodo, setEditingTodo] = useState<TodoItem | null>(null);
+  const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
+  const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
+  const [selectedTodo, setSelectedTodo] = useState<Todo | null>(null);
+  const [duplicating, setDuplicating] = useState(false);
   const [activeTab, setActiveTab] = useState<'ongoing' | 'completed' | 'archived'>('ongoing');
   const itemsPerPage = 20;
 
@@ -196,19 +178,62 @@ export function TodosPageNew() {
     clearError
   } = useTodosStore();
 
+  // Sort todos based on modular filters (client-side sorting for user-initiated sorting)
+  const sortedTodos = useMemo(() => {
+    if (!todos || todos.length === 0) return todos;
+
+    return [...todos].sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (filters.sortBy) {
+        case 'title':
+          aValue = a.title?.toLowerCase() || '';
+          bValue = b.title?.toLowerCase() || '';
+          break;
+        case 'createdAt':
+          aValue = new Date(a.createdAt || 0).getTime();
+          bValue = new Date(b.createdAt || 0).getTime();
+          break;
+        case 'dueDate':
+          aValue = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+          bValue = b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+          break;
+        case 'priority':
+          aValue = a.priority || 0;
+          bValue = b.priority || 0;
+          break;
+        default:
+          return 0;
+      }
+
+      if (filters.sortBy === 'title') {
+        return filters.sortOrder === 'asc' 
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      } else {
+        return filters.sortOrder === 'asc' 
+          ? aValue - bValue
+          : bValue - aValue;
+      }
+    });
+  }, [todos, filters.sortBy, filters.sortOrder]);
+
+  // Note: handleSort removed - now handled by modular ModuleFilters component
+
   // Keyboard shortcuts: favorites/archive toggles, focus search, refresh
   useKeyboardShortcuts({
     shortcuts: [
       { key: '/', action: () => {
         const searchInput = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement;
         searchInput?.focus();
-      }},
+      }, description: 'Focus search' },
       { key: 'r', action: () => {
         loadTodos();
         loadStats();
-      }},
-      { key: 'n', action: () => setTodoModalOpen(true) },
-      { key: 'p', action: () => setProjectModalOpen(true) }
+      }, description: 'Refresh todos' },
+      { key: 'n', action: () => setTodoModalOpen(true), description: 'Create new todo' },
+      { key: 'p', action: () => setProjectModalOpen(true), description: 'Create new project' }
     ]
   });
 
@@ -222,9 +247,9 @@ export function TodosPageNew() {
   useEffect(() => {
     const loadTagSuggestions = async () => {
       try {
-        const suggestions = await searchService.getTagSuggestions('todos');
-        setTagSuggestions(suggestions);
-        setProjectUploadTagSuggestions(suggestions);
+        const suggestions = await searchService.getPopularTags('todos');
+        setTagSuggestions(suggestions.map(tag => typeof tag === 'string' ? tag : tag.name || ''));
+        setProjectUploadTagSuggestions(suggestions.map(tag => typeof tag === 'string' ? tag : tag.name || ''));
       } catch (error) {
         console.error('Failed to load tag suggestions:', error);
       }
@@ -244,10 +269,10 @@ export function TodosPageNew() {
       await createTodo({
         title: todoForm.title,
         description: todoForm.description,
-        project_id: todoForm.projectId,
+        projectId: todoForm.projectId,
         projectIds: todoForm.projectIds,
         isExclusive: todoForm.isExclusive,
-        start_date: todoForm.startDate || undefined,
+        startDate: todoForm.startDate || undefined,
         dueDate: todoForm.dueDate || undefined,
         priority: todoForm.priority,
         tags: todoForm.tags
@@ -256,10 +281,10 @@ export function TodosPageNew() {
       setTodoForm({
         title: '',
         description: '',
-        project_id: null,
+        projectId: null,
         projectIds: [],
         isExclusive: false,
-        start_date: '',
+        startDate: '',
         dueDate: '',
         priority: 1,
         tags: []
@@ -280,7 +305,7 @@ export function TodosPageNew() {
     }
   };
 
-  const handleCompleteTodo = async (todo: TodoItem) => {
+  const handleCompleteTodo = async (todo: Todo) => {
     try {
       await completeTodo(todo.uuid);
       notifications.show({
@@ -297,7 +322,7 @@ export function TodosPageNew() {
     }
   };
 
-  const handleDeleteTodo = async (todo: TodoItem) => {
+  const handleDeleteTodo = async (todo: Todo) => {
     modals.openConfirmModal({
       title: 'Delete Todo',
       children: (
@@ -326,7 +351,7 @@ export function TodosPageNew() {
     });
   };
 
-  const handleToggleArchive = async (todo: TodoItem) => {
+  const handleToggleArchive = async (todo: Todo) => {
     try {
       if (todo.isArchived) {
         await unarchiveTodo(todo.uuid);
@@ -437,10 +462,58 @@ export function TodosPageNew() {
     }
   };
 
+  const handleDuplicateConfirm = async (data: any) => {
+    if (!selectedTodo) return;
+    
+    setDuplicating(true);
+    try {
+      const request: TodoDuplicateRequest = {
+        newTitle: data.newName
+      };
+
+      const response = await duplicationService.duplicateTodo(selectedTodo.uuid, request);
+      
+      if (response.success) {
+        notifications.show({
+          title: 'Todo Duplicated',
+          message: `Created "${response.newTodoTitle}"`,
+          color: 'green'
+        });
+        
+        // Reload todos to show the new one
+        await loadTodos();
+      }
+    } catch (error) {
+      console.error('Failed to duplicate todo:', error);
+      notifications.show({
+        title: 'Duplication Failed',
+        message: 'Failed to duplicate todo. Please try again.',
+        color: 'red'
+      });
+    } finally {
+      setDuplicating(false);
+    }
+  };
+
   return (
     <>
+      {/* Modular Filter Controls */}
+      <Paper p="md" mb="md" style={{ backgroundColor: 'var(--mantine-color-dark-7)' }}>
+        <Group justify="space-between" align="center">
+          <Text size="sm" fw={500} c="dimmed">Filters & Sorting</Text>
+          <Button
+            variant="light"
+            size="sm"
+            leftSection={<IconFilter size={16} />}
+            onClick={() => setFiltersOpened(true)}
+          >
+            Filters
+          </Button>
+        </Group>
+      </Paper>
+
       <TodosLayout
-        todos={todos as TodoItem[]}
+        todos={sortedTodos as Todo[]}
         isLoading={isLoading}
         activeTab={activeTab}
         onCreateTodo={() => setTodoModalOpen(true)}
@@ -463,12 +536,12 @@ export function TodosPageNew() {
           setTodoForm({
             title: todo.title,
             description: todo.description || '',
-            project_id: todo.project_id || null,
+            projectId: todo.projectId || todo.project_id || null,
             projectIds: todo.projectIds || [],
             isExclusive: todo.isExclusive || false,
-            start_date: todo.start_date || '',
+            startDate: todo.startDate || todo.start_date || '',
             dueDate: todo.dueDate || '',
-            priority: todo.priority || 1,
+            priority: Number(todo.priority) || 1,
             tags: todo.tags || []
           });
           setTodoModalOpen(true);
@@ -478,18 +551,22 @@ export function TodosPageNew() {
           console.log('Toggle favorite for todo:', todo);
         }}
         onToggleArchive={handleToggleArchive}
+        onDuplicate={(todo) => {
+          setSelectedTodo(todo);
+          setDuplicateModalOpen(true);
+        }}
         onDelete={handleDeleteTodo}
         onEdit={(todo) => {
           setEditingTodo(todo);
           setTodoForm({
             title: todo.title,
             description: todo.description || '',
-            project_id: todo.project_id || null,
+            projectId: todo.projectId || todo.project_id || null,
             projectIds: todo.projectIds || [],
             isExclusive: todo.isExclusive || false,
-            start_date: todo.start_date || '',
+            startDate: todo.startDate || todo.start_date || '',
             dueDate: todo.dueDate || '',
-            priority: todo.priority || 1,
+            priority: Number(todo.priority) || 1,
             tags: todo.tags || []
           });
           setTodoModalOpen(true);
@@ -605,6 +682,37 @@ export function TodosPageNew() {
           </Group>
         </Stack>
       </Modal>
+
+      {/* Modular Filter Modal */}
+      <Modal 
+        opened={filtersOpened} 
+        onClose={() => setFiltersOpened(false)} 
+        title="Todo Filters & Sorting" 
+        size="lg"
+      >
+        <ModuleFilters
+          filters={filters}
+          onFiltersChange={(newFilters) => setFilters(newFilters as any)}
+          activeFiltersCount={Object.values(filters).filter(v => Array.isArray(v) ? v.length > 0 : v !== false && v !== 'all' && v !== 'createdAt' && v !== 'desc').length}
+          showFavorites={filterConfig.showFavorites}
+          showMimeTypes={false}
+          showDateRange={filterConfig.showDateRange}
+          showArchived={filterConfig.showArchived}
+          showSorting={filterConfig.showSorting}
+          customFilters={filterConfig.customFilters}
+          sortOptions={filterConfig.sortOptions}
+        />
+      </Modal>
+
+      {/* Duplication Modal */}
+      <DuplicationModal
+        opened={duplicateModalOpen}
+        onClose={() => setDuplicateModalOpen(false)}
+        onConfirm={handleDuplicateConfirm}
+        type="todo"
+        originalName={selectedTodo?.title || ''}
+        loading={duplicating}
+      />
     </>
   );
 }

@@ -30,6 +30,7 @@ from app.schemas.diary import (
     WellnessStats,
     EncryptionSetupRequest,
     EncryptionUnlockRequest,
+    EncryptionStatusResponse,
     WEATHER_CODE_LABELS,
 )
 from app.schemas.project import (
@@ -56,7 +57,7 @@ diary_session_service.start_cleanup_task()
 
 # --- Authentication Endpoints ---
 
-@router.get("/encryption/status")
+@router.get("/encryption/status", response_model=EncryptionStatusResponse)
 async def get_encryption_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -72,17 +73,17 @@ async def get_encryption_status(
             f"{'setup' if is_setup else 'not setup'}, "
             f"{'unlocked' if is_unlocked else 'locked'}"
         )
-        return {
-            "is_setup": is_setup,
-            "is_unlocked": is_unlocked,
-        }
+        return EncryptionStatusResponse(
+            is_setup=is_setup,
+            is_unlocked=is_unlocked,
+        )
         
     except (ValueError, TypeError) as e:
         logger.warning(f"Data type error checking diary encryption status for user {current_user.uuid}: {type(e).__name__}")
-        return {"is_setup": False}
+        return EncryptionStatusResponse(is_setup=False, is_unlocked=False)
     except Exception as e:
         logger.error(f"Unexpected error checking diary encryption status for user {current_user.uuid}: {type(e).__name__}")
-        return {"is_setup": False}
+        return EncryptionStatusResponse(is_setup=False, is_unlocked=False)
 
 
 @router.post("/encryption/setup")
@@ -963,17 +964,17 @@ async def get_diary_entry_documents(
                 uuid=doc.uuid,
                 title=doc.title,
                 filename=doc.filename,
-                original_name=doc.original_name,  # CamelCaseModel converts to originalName
-                file_path=doc.file_path,  # CamelCaseModel converts to filePath
-                file_size=doc.file_size,  # CamelCaseModel converts to fileSize
-                mime_type=doc.mime_type,  # CamelCaseModel converts to mimeType
+                original_name=doc.original_name,
+                file_path=doc.file_path,
+                file_size=doc.file_size,
+                mime_type=doc.mime_type,
                 description=doc.description,
-                is_favorite=doc.is_favorite,  # CamelCaseModel converts to isFavorite
-                is_archived=doc.is_archived,  # CamelCaseModel converts to isArchived
-                is_encrypted=getattr(doc, 'is_encrypted', False),  # CamelCaseModel converts to isEncrypted
-                thumbnail_path=doc.thumbnail_path,  # CamelCaseModel converts to thumbnailPath
-                created_at=doc.created_at,  # CamelCaseModel converts to createdAt
-                updated_at=doc.updated_at,  # CamelCaseModel converts to updatedAt
+                is_favorite=doc.is_favorite,
+                is_archived=doc.is_archived,
+                is_encrypted=getattr(doc, 'is_encrypted', False),
+                thumbnail_path=doc.thumbnail_path,
+                created_at=doc.created_at,
+                updated_at=doc.updated_at
                 projects=project_badges_map.get(doc.uuid, [])
             )
             for doc in documents

@@ -112,25 +112,25 @@ export interface TableSchema {
 
 export interface SampleRowsResponse {
   table: string;
-  row_count: number;
-  sample_rows: Array<Record<string, any>>;
+  rowCount: number;
+  sampleRows: Array<Record<string, any>>;
   timestamp: string;
 }
 
 export interface FtsTablesData {
-  fts_groups: Record<string, {
+  ftsGroups: Record<string, {
     tables: any[];
     description: string;
   }>;
-  all_fts_tables: any[];
-  total_fts_tables: number;
-  sample_data?: any;
-  fts_explanation: {
-    what_is_fts5: string;
-    why_multiple_tables: string;
-    storage_overhead: string;
-    performance_benefit: string;
-    automatic_maintenance: string;
+  allFtsTables: any[];
+  totalFtsTables: number;
+  sampleData?: any;
+  ftsExplanation: {
+    whatIsFts5: string;
+    whyMultipleTables: string;
+    storageOverhead: string;
+    performanceBenefit: string;
+    automaticMaintenance: string;
   };
 }
 

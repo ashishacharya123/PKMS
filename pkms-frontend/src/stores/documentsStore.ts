@@ -131,7 +131,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         archived: state.showArchived,
         isFavorite: state.showFavoritesOnly || undefined,
         projectUuid: state.currentProjectId || undefined,
-        project_only: state.showProjectOnly || undefined,
+        projectOnly: state.showProjectOnly || undefined,
         // REMOVED: unassigned_only - was backwards logic causing uploaded docs to be hidden
         limit: state.limit,
         offset: state.offset
@@ -460,18 +460,18 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
           'application/json'
         ];
         
-        if (previewableTypes.includes((document as any).mimeType)) {
+        if (previewableTypes.includes(document.mimeType)) {
           window.open(objectUrl, '_blank');
         } else {
           const a = window.document.createElement('a');
           a.href = objectUrl;
-          a.download = (document as any).originalName || 'download';
+          a.download = document.originalName || 'download';
           window.document.body.appendChild(a);
           a.click();
           window.document.body.removeChild(a);
         }
         // SECURITY: Revoke immediately for downloads, delay only for previews
-        if (previewableTypes.includes((document as any).mimeType)) {
+        if (previewableTypes.includes(document.mimeType)) {
           // For previews, revoke after a short delay to allow tab to load
           setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
         } else {

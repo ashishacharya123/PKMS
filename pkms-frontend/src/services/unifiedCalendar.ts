@@ -155,16 +155,16 @@ class UnifiedCalendarService {
       id: `document-${document.uuid}`,
       title: document.title || document.filename || 'Untitled Document',
       description: document.description || '',
-      date: new Date(document.createdAt || document.createdAt),
+      date: new Date(document.createdAt || document.created_at),
       type: 'document',
       module: 'documents',
       tags: document.tags || [],
       color: '#40c057',
       icon: '📄',
       metadata: {
-        fileSize: document.fileSize,
-        mimeType: document.mimeType,
-        projectId: document.projectId || document.projectId
+        fileSize: document.fileSize ?? document.file_size,
+        mimeType: document.mimeType ?? document.mime_type,
+        projectId: document.projectId ?? document.project_id
       }
     };
     this.addEvent(event);

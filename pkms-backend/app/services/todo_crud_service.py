@@ -10,7 +10,7 @@ import uuid as uuid_lib
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, date
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, delete, case
+from sqlalchemy import select, and_, or_, func, delete, case, update
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
@@ -402,7 +402,7 @@ class TodoCRUDService:
         user_uuid: str, 
         todo_uuid: str
     ) -> None:
-        """Delete todo and all associated data (soft delete)"""
+        """Delete todo and all associated data (soft delete with cascading to subtasks)"""
         try:
             # Get todo to verify ownership
             result = await db.execute(
@@ -439,16 +439,23 @@ class TodoCRUDService:
                 subtask_count = subtask_count_result.scalar() or 0
                 
                 if subtask_count > 0:
-                    logger.warning(f"Deleting main todo '{todo.title}' with {subtask_count} subtasks")
-                    # Note: Subtasks will become orphaned (parent_uuid = NULL)
-                    # This is intentional - subtasks become independent todos
+                    logger.warning("Deleting main todo '%s' with %d subtasks - cascading delete to children", todo.title, subtask_count)
+                    # Soft delete all subtasks as well (cascading delete)
+                    await db.execute(
+                        update(Todo)
+                        .where(and_(Todo.parent_uuid == todo_uuid, Todo.is_deleted.is_(False)))
+                        .values(is_deleted=True, updated_at=datetime.now(NEPAL_TZ))
+                    )
                 
                 # Check project associations
+                # project_items.c.item_uuid means: access the 'item_uuid' column of the project_items table
+                # The '.c' is SQLAlchemy's column accessor for Table objects (c = columns)
+                # Note: We count by item_uuid instead of id due to actual database schema (model vs db mismatch)
                 project_count_result = await db.execute(
-                    select(func.count(project_items.c.id)).where(
+                    select(func.count(project_items.c.item_uuid)).where(
                         and_(
-                            project_items.c.item_type == 'Todo',
-                            project_items.c.item_uuid == todo_uuid
+                            project_items.c.item_type == 'Todo',      # c.item_type = item_type column
+                            project_items.c.item_uuid == todo_uuid    # c.item_uuid = item_uuid column
                         )
                     )
                 )
@@ -462,11 +469,11 @@ class TodoCRUDService:
             # Check if todo has associated documents and clean up files
             
             # Remove from search index
-            await search_service.remove_item(db, todo_uuid, 'todo')
+            search_service.remove_item(db, todo_uuid)
             
             # Soft delete todo (consistent with other services)
             todo.is_deleted = True
-            await db.add(todo)
+            db.add(todo)
             
             await db.commit()
             

@@ -41,6 +41,9 @@ import { UnifiedSearchEmbedded } from '../components/search/UnifiedSearchEmbedde
 import { ActionMenu } from '../components/common/ActionMenu';
 import { notesService } from '../services/notesService';
 import { PopularTagsWidget } from '../components/common/PopularTagsWidget';
+import { ModuleLayout } from '../components/common/ModuleLayout';
+import { ModuleHeader } from '../components/common/ModuleHeader';
+import { ModuleFilters, getModuleFilterConfig } from '../components/common/ModuleFilters';
 
 type SortField = 'title' | 'createdAt' | 'updatedAt';
 type SortOrder = 'asc' | 'desc';
@@ -73,6 +76,16 @@ export function NotesPage() {
   const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
   const [sortField, setSortField] = useState<SortField>('updatedAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  
+  // Modular filter state
+  const [filters, setFilters] = useState({
+    sortBy: 'updatedAt',
+    sortOrder: 'desc',
+    favorites: false,
+    showArchived: false
+  });
+  const [filtersOpened, setFiltersOpened] = useState(false);
+  const filterConfig = getModuleFilterConfig('notes');
   const [currentPage, setCurrentPage] = useState(1);
   const { getPreference, updatePreference } = useViewPreferences();
   const [viewMode, setViewMode] = useState<ViewMode>(getPreference('notes'));
@@ -119,12 +132,12 @@ export function NotesPage() {
   }, [currentTag, debouncedSearch, showArchived, currentPage, itemsPerPage]);
   // notes is already guaranteed to be an array from loadNotes function
 
-  // Sorted and paginated notes (sorting is still local, but you can move to backend if needed)
+  // Sorted and paginated notes using modular filters
   const sortedNotes = useMemo(() => {
     const sorted = [...notes].sort((a, b) => {
-      let aValue: string | number = a[sortField];
-      let bValue: string | number = b[sortField];
-      if (sortField === 'createdAt' || sortField === 'updatedAt') {
+      let aValue: string | number = a[filters.sortBy as keyof typeof a];
+      let bValue: string | number = b[filters.sortBy as keyof typeof b];
+      if (filters.sortBy === 'createdAt' || filters.sortBy === 'updatedAt') {
         aValue = new Date(aValue as string).getTime();
         bValue = new Date(bValue as string).getTime();
       }
@@ -132,22 +145,22 @@ export function NotesPage() {
         aValue = aValue.toLowerCase();
         bValue = (bValue as string).toLowerCase();
       }
-      if (sortOrder === 'asc') {
+      if (filters.sortOrder === 'asc') {
         return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
       } else {
         return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
       }
     });
     return sorted;
-  }, [notes, sortField, sortOrder]);
+  }, [notes, filters.sortBy, filters.sortOrder]);
 
+  // Backend already handles pagination, so no client-side slicing needed
   const paginatedNotes = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    const end = start + itemsPerPage;
-    return sortedNotes.slice(start, end);
-  }, [sortedNotes, itemsPerPage, currentPage]);
+    return sortedNotes;
+  }, [sortedNotes]);
 
-  const totalPages = Math.ceil(sortedNotes.length / itemsPerPage);
+  // TODO: Get total pages from backend metadata or implement proper pagination
+  const totalPages = 1; // Backend pagination means we only have current page
 
   // Keyboard shortcuts: search focus, toggle archived/favorites (sidebar controls), refresh
   useKeyboardShortcuts({
@@ -293,20 +306,12 @@ export function NotesPage() {
                 />
                 
                 <Button
-                  variant={sortField === 'title' ? 'filled' : 'subtle'}
-                  size="xs"
-                  leftSection={sortField === 'title' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
-                  onClick={() => handleSort('title')}
+                  variant="light"
+                  size="sm"
+                  leftSection={<IconFilter size={16} />}
+                  onClick={() => setFiltersOpened(true)}
                 >
-                  Title
-                </Button>
-                <Button
-                  variant={sortField === 'updatedAt' ? 'filled' : 'subtle'}
-                  size="xs"
-                  leftSection={sortField === 'updatedAt' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
-                  onClick={() => handleSort('updatedAt')}
-                >
-                  Updated
+                  Filters
                 </Button>
               </Group>
             </Group>
@@ -441,9 +446,9 @@ export function NotesPage() {
                         <Badge size="xs" variant="light" color="blue">
                           {getWordCount(note.preview)} words
                         </Badge>
-                        {note.file_count > 0 && (
+                        {note.fileCount > 0 && (
                           <Badge size="xs" variant="light" color="teal">
-                            {note.file_count} files
+                            {note.fileCount} files
                           </Badge>
                         )}
                         <Text size="xs" c="dimmed">
@@ -565,8 +570,8 @@ export function NotesPage() {
                       {note.isFavorite && (
                         <Badge size="xs" color="pink" variant="light">Favorite</Badge>
                       )}
-                      {note.file_count > 0 && (
-                        <Badge size="xs" variant="light" color="teal">{note.file_count} files</Badge>
+                      {note.fileCount > 0 && (
+                        <Badge size="xs" variant="light" color="teal">{note.fileCount} files</Badge>
                       )}
                     </Group>
                   </Stack>
@@ -682,6 +687,27 @@ export function NotesPage() {
           </Stack>
         </Grid.Col>
       </Grid>
+
+      {/* Modular Filter Modal */}
+      <Modal 
+        opened={filtersOpened} 
+        onClose={() => setFiltersOpened(false)} 
+        title="Note Filters & Sorting" 
+        size="lg"
+      >
+        <ModuleFilters
+          filters={filters}
+          onFiltersChange={setFilters}
+          activeFiltersCount={Object.values(filters).filter(v => Array.isArray(v) ? v.length > 0 : v !== false && v !== 'all' && v !== 'updatedAt' && v !== 'desc').length}
+          showFavorites={filterConfig.showFavorites}
+          showMimeTypes={filterConfig.showMimeTypes}
+          showDateRange={filterConfig.showDateRange}
+          showArchived={filterConfig.showArchived}
+          showSorting={filterConfig.showSorting}
+          customFilters={filterConfig.customFilters}
+          sortOptions={filterConfig.sortOptions}
+        />
+      </Modal>
     </Container>
   );
 }

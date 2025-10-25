@@ -92,7 +92,7 @@ async def get_comprehensive_database_stats(
                 await _get_table_size_info(db, table_name, stats)
                 
             except Exception as e:
-                logger.error(f"Error getting stats for {table_name}: {type(e).__name__}")
+                logger.exception("Error getting stats for %s", table_name)
                 stats[f"{table_name}_count"] = 0
                 stats[f"{table_name}_size_bytes"] = 0
                 stats[f"{table_name}_size_kb"] = 0
@@ -108,7 +108,7 @@ async def get_comprehensive_database_stats(
                 await _get_table_size_info(db, table_name, stats)
                 
             except Exception as e:
-                logger.error(f"Error getting stats for {table_name}: {type(e).__name__}")
+                logger.exception("Error getting stats for %s", table_name)
                 stats[f"{table_name}_count"] = 0
                 stats[f"{table_name}_size_bytes"] = 0
                 stats[f"{table_name}_size_kb"] = 0
@@ -140,11 +140,11 @@ async def get_comprehensive_database_stats(
         )
         
     except Exception as e:
-        logger.error(f"Error getting comprehensive database stats: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail=f"Failed to get database statistics: {str(e)}")
+        logger.exception("Error getting comprehensive database stats")
+        raise HTTPException(status_code=500, detail=f"Failed to get database statistics: {e!s}") from e
 
 
-async def _get_table_size_info(db: AsyncSession, table_name: str, stats: Dict[str, Any]):
+async def _get_table_size_info(db: AsyncSession, table_name: str, stats: dict[str, Any]) -> None:
     """Get detailed size information for a table."""
     try:
         # Get row count
@@ -165,7 +165,7 @@ async def _get_table_size_info(db: AsyncSession, table_name: str, stats: Dict[st
         stats[f"{table_name}_estimated_size_mb"] = 0
 
 
-async def _analyze_fts_tables(db: AsyncSession, stats: Dict[str, Any]):
+async def _analyze_fts_tables(db: AsyncSession, stats: dict[str, Any]) -> None:
     """Analyze FTS5 tables and their performance."""
     try:
         # Get all FTS tables
@@ -195,7 +195,7 @@ async def _analyze_fts_tables(db: AsyncSession, stats: Dict[str, Any]):
         stats["fts_tables_list"] = []
 
 
-async def _get_database_file_info(stats: Dict[str, Any]):
+async def _get_database_file_info(stats: dict[str, Any]) -> None:
     """Get database file size and location information."""
     try:
         db_path = get_data_dir() / "pkm_metadata.db"
@@ -215,7 +215,7 @@ async def _get_database_file_info(stats: Dict[str, Any]):
         stats["database_file_size_bytes"] = 0
 
 
-async def _get_sqlite_metrics(db: AsyncSession, stats: Dict[str, Any]):
+async def _get_sqlite_metrics(db: AsyncSession, stats: dict[str, Any]) -> None:
     """Get SQLite performance metrics."""
     try:
         # Page count and size
@@ -256,22 +256,22 @@ async def _get_sqlite_metrics(db: AsyncSession, stats: Dict[str, Any]):
         logger.warning(f"Could not get SQLite metrics: {type(e).__name__}")
 
 
-async def _check_data_integrity(db: AsyncSession, user_uuid: str, stats: Dict[str, Any]):
+async def _check_data_integrity(db: AsyncSession, user_uuid: str, stats: dict[str, Any]) -> None:
     """Check data integrity and consistency."""
     try:
         integrity_checks = {}
         
         # Check for orphaned records
         orphaned_checks = [
-            ("notes_without_user", f"SELECT COUNT(*) FROM notes WHERE created_by = '{user_uuid}' AND created_by NOT IN (SELECT uuid FROM users)"),
-            ("documents_without_user", f"SELECT COUNT(*) FROM documents WHERE created_by = '{user_uuid}' AND created_by NOT IN (SELECT uuid FROM users)"),
-            ("todos_without_user", f"SELECT COUNT(*) FROM todos WHERE created_by = '{user_uuid}' AND created_by NOT IN (SELECT uuid FROM users)"),
-            ("projects_without_user", f"SELECT COUNT(*) FROM projects WHERE created_by = '{user_uuid}' AND created_by NOT IN (SELECT uuid FROM users)")
+            ("notes_without_user", "SELECT COUNT(*) FROM notes WHERE created_by = :uid AND created_by NOT IN (SELECT uuid FROM users)"),
+            ("documents_without_user", "SELECT COUNT(*) FROM documents WHERE created_by = :uid AND created_by NOT IN (SELECT uuid FROM users)"),
+            ("todos_without_user", "SELECT COUNT(*) FROM todos WHERE created_by = :uid AND created_by NOT IN (SELECT uuid FROM users)"),
+            ("projects_without_user", "SELECT COUNT(*) FROM projects WHERE created_by = :uid AND created_by NOT IN (SELECT uuid FROM users)")
         ]
         
         for check_name, query in orphaned_checks:
             try:
-                result = await db.execute(text(query))
+                result = await db.execute(text(query), {"uid": user_uuid})
                 count = result.scalar()
                 integrity_checks[check_name] = count
             except:
@@ -299,7 +299,7 @@ async def _check_data_integrity(db: AsyncSession, user_uuid: str, stats: Dict[st
         stats["integrity_checks"] = {}
 
 
-async def _check_migration_status(db: AsyncSession, stats: Dict[str, Any]):
+async def _check_migration_status(db: AsyncSession, stats: dict[str, Any]) -> None:
     """Check migration status and schema version."""
     try:
         # Check if migration table exists
@@ -335,6 +335,12 @@ async def get_detailed_table_analysis(
 ):
     """Get detailed analysis of a specific table."""
     try:
+        # Validate table name exists to prevent SQL injection
+        validation_query = text("SELECT name FROM sqlite_master WHERE type='table' AND name = :table_name")
+        validation_result = await db.execute(validation_query, {"table_name": table_name})
+        if not validation_result.fetchone():
+            raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
+        
         # Get table schema
         schema_query = text(f"PRAGMA table_info({table_name})")
         schema_result = await db.execute(schema_query)
@@ -370,11 +376,11 @@ async def get_detailed_table_analysis(
         )
         
     except Exception as e:
-        logger.error(f"Error analyzing table {table_name}: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail=f"Failed to analyze table: {str(e)}")
+        logger.exception("Error analyzing table %s", table_name)
+        raise HTTPException(status_code=500, detail=f"Failed to analyze table: {e!s}") from e
 
 
-async def _get_detailed_table_size(db: AsyncSession, table_name: str) -> Dict[str, Any]:
+async def _get_detailed_table_size(db: AsyncSession, table_name: str) -> dict[str, Any]:
     """Get detailed size information for a table."""
     try:
         # Get row count
@@ -460,8 +466,8 @@ async def get_fts_analysis(
         )
         
     except Exception as e:
-        logger.error(f"Error analyzing FTS tables: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail=f"Failed to analyze FTS tables: {str(e)}")
+        logger.exception("Error analyzing FTS tables")
+        raise HTTPException(status_code=500, detail=f"Failed to analyze FTS tables: {e!s}") from e
 
 
 @router.get("/sample-data/{table_name}", response_model=SampleRowsResponse)
@@ -473,6 +479,12 @@ async def get_table_sample_data(
 ):
     """Get sample data from a table."""
     try:
+        # Validate table name exists to prevent SQL injection
+        validation_query = text("SELECT name FROM sqlite_master WHERE type='table' AND name = :table_name")
+        validation_result = await db.execute(validation_query, {"table_name": table_name})
+        if not validation_result.fetchone():
+            raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
+        
         # Get row count
         count_query = text(f"SELECT COUNT(*) FROM {table_name}")
         count_result = await db.execute(count_query)
@@ -494,5 +506,5 @@ async def get_table_sample_data(
         )
         
     except Exception as e:
-        logger.error(f"Error getting sample data from {table_name}: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail=f"Failed to get sample data: {str(e)}")
+        logger.exception("Error getting sample data from %s", table_name)
+        raise HTTPException(status_code=500, detail=f"Failed to get sample data: {e!s}") from e

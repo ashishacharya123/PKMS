@@ -33,7 +33,7 @@ export interface Project {
   progressPercentage?: number;
 }
 
-export interface LegacyProjectCreate {
+export interface ProjectCreate {
   name: string;
   description?: string;
   // color field removed - backend removed for professional management
@@ -50,25 +50,25 @@ class TodosService {
   private baseUrl = '/todos';
 
   // Project methods (legacy - will be moved to projectsService)
-  async createProject(projectData: LegacyProjectCreate): Promise<LegacyProject> {
-    const response = await apiService.post<LegacyProject>(`${this.baseUrl}/projects`, projectData);
+  async createProject(projectData: ProjectCreate): Promise<Project> {
+    const response = await apiService.post<Project>(`${this.baseUrl}/projects`, projectData);
     return response.data;
   }
 
-  async getProjects(archived: boolean = false): Promise<LegacyProject[]> {
+  async getProjects(archived: boolean = false): Promise<Project[]> {
     // URL query parameter - remains snake_case
     const url = `${this.baseUrl}/projects?archived=${archived}`;
-    const response = await apiService.get<LegacyProject[]>(url);
+    const response = await apiService.get<Project[]>(url);
     return response.data;
   }
 
-  async getProject(projectUuid: string): Promise<LegacyProject> {
-    const response = await apiService.get<LegacyProject>(`${this.baseUrl}/projects/${projectUuid}`);
+  async getProject(projectUuid: string): Promise<Project> {
+    const response = await apiService.get<Project>(`${this.baseUrl}/projects/${projectUuid}`);
     return response.data;
   }
 
-  async updateProject(projectUuid: string, projectData: LegacyProjectUpdate): Promise<LegacyProject> {
-    const response = await apiService.put<LegacyProject>(`${this.baseUrl}/projects/${projectUuid}`, projectData);
+  async updateProject(projectUuid: string, projectData: ProjectUpdate): Promise<Project> {
+    const response = await apiService.put<Project>(`${this.baseUrl}/projects/${projectUuid}`, projectData);
     return response.data;
   }
 
@@ -309,7 +309,7 @@ export const {
 } = todosService; 
 
 // Subtask management functions
-export const createSubtask = async (parentUuid: string, subtaskData: Omit<TodoCreate, 'parent_id'>): Promise<Todo> => {
+export const createSubtask = async (parentUuid: string, subtaskData: Omit<TodoCreate, 'parentUuid'>): Promise<Todo> => {
   const response = await apiService.post(`/todos`, {
     ...subtaskData,
     parentUuid: parentUuid  // camelCase for JSON body
@@ -318,9 +318,9 @@ export const createSubtask = async (parentUuid: string, subtaskData: Omit<TodoCr
 };
 
 export const getSubtasks = async (parentUuid: string): Promise<Todo[]> => {
-  const response = await apiService.get(`/todos?limit=100`);
-  const allTodos = response.data as Todo[];
-  return allTodos.filter(todo => todo.parentUuid === parentUuid);
+  // Backend should support parent_uuid filter parameter
+  const response = await apiService.get(`/todos?parent_uuid=${encodeURIComponent(parentUuid)}`);
+  return response.data as Todo[];
 };
 
 export const moveSubtask = async (subtaskUuid: string, newParentUuid: string | null): Promise<Todo> => {
@@ -336,6 +336,6 @@ export const reorderSubtasks = async (parentUuid: string, subtaskUuids: string[]
   // Uses todos.order_index field for subtask ordering
   // JSON payload - uses camelCase
   await apiService.patch(`/todos/${parentUuid}/subtasks/reorder`, {
-    subtaskUuids: subtaskUuids
+    subtask_uuids: subtaskUuids
   });
 }; 

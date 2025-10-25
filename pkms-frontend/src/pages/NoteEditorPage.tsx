@@ -139,8 +139,7 @@ export function NoteEditorPage() {
       );
       setIsExclusive(currentNote.isExclusiveMode || false);
       setHasUnsavedChanges(false);
-      // Load attachments for this note
-      notesService.getNoteFiles(currentNote.uuid).then(setNoteFiles).catch(() => setNoteFiles([]));
+      // Files are loaded by <UnifiedFileSection>; it will call onFilesUpdate(setNoteFiles)
     } else if (!isEditing) {
       setTitle('');
       setContent('');

@@ -2,7 +2,7 @@ from .note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary
 from .archive import FolderCreate, FolderUpdate, ItemUpdate, FolderResponse, ItemResponse, ItemSummary, FolderTree, BulkMoveRequest, CommitUploadRequest
 from .diary import EncryptionSetupRequest, EncryptionUnlockRequest, DiaryEntryCreate, DiaryEntryUpdate, DiaryEntryResponse, DiaryEntrySummary, DiaryCalendarData, MoodStats, DiaryDailyMetadata, DiaryDailyMetadataResponse, DiaryDailyMetadataUpdate, WeeklyHighlights, WellnessTrendPoint
 from .document import DocumentCreate, DocumentUpdate, DocumentResponse, CommitDocumentUploadRequest, ArchiveDocumentRequest
-from .tag import TagResponse, TagAutocompleteResponse
+from .tag import TagResponse
 from .todo import TodoCreate, TodoUpdate, TodoResponse
 from .project import ProjectCreate, ProjectResponse
 from .auth import UserSetup, UserLogin, PasswordChange, RecoveryReset, RecoveryKeyResponse, TokenResponse, UserResponse, RefreshTokenRequest, UsernameBody, LoginPasswordHintUpdate

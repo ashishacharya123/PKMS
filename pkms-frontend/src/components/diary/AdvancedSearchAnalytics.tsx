@@ -24,12 +24,11 @@ import {
   ThemeIcon,
   Timeline,
   RingProgress,
-  LineChart,
-  BarChart,
   Table,
   ActionIcon,
   Tooltip
 } from '@mantine/core';
+import { LineChart, BarChart } from '@mantine/charts';
 import {
   IconSearch,
   IconBolt,
@@ -137,7 +136,20 @@ export function AdvancedSearchAnalytics() {
       // Load recent searches
       const recentResponse = await fetch('/api/v1/search/recent');
       const recentData = await recentResponse.json();
-      setRecentSearches(recentData);
+      const recentNormalized = Array.isArray(recentData)
+        ? recentData.map((it: any) => ({
+            id: it.id ?? it.uuid ?? '',
+            title: it.title ?? it.name ?? 'Untitled',
+            preview: it.preview ?? it.preview_text ?? '',
+            module: it.module ?? it.module_type ?? it.type ?? 'notes',
+            score: it.score ?? it.relevance ?? it.relevanceScore,
+            createdAt: it.createdAt ?? it.created_at,
+            updatedAt: it.updatedAt ?? it.updated_at,
+            tags: it.tags ?? [],
+            metadata: it.metadata ?? {},
+          }))
+        : [];
+      setRecentSearches(recentNormalized);
     } catch (error) {
       notifications.show({
         title: 'Error',
@@ -180,6 +192,9 @@ export function AdvancedSearchAnalytics() {
 
   const getModuleIcon = (module: string) => {
     switch (module) {
+      case 'archive': return '🗄️';
+      case 'archive-folder': return '🗂️';
+      case 'folders': return '📂';
       case 'notes': return '📝';
       case 'todos': return '✅';
       case 'documents': return '📄';
@@ -191,6 +206,9 @@ export function AdvancedSearchAnalytics() {
 
   const getModuleColor = (module: string) => {
     switch (module) {
+      case 'archive': return 'teal';
+      case 'archive-folder': return 'cyan';
+      case 'folders': return 'indigo';
       case 'notes': return 'blue';
       case 'todos': return 'green';
       case 'documents': return 'orange';
@@ -457,7 +475,9 @@ export function AdvancedSearchAnalytics() {
                     />
                     <Select
                       value={searchType}
-                      onChange={(value) => setSearchType(value as any)}
+                      onChange={(value) =>
+                        setSearchType((value as 'fts5' | 'fuzzy' | 'advanced-fuzzy') ?? 'fts5')
+                      }
                       data={[
                         { value: 'fts5', label: 'FTS5 (Fast)' },
                         { value: 'fuzzy', label: 'Fuzzy (Typo-tolerant)' },
@@ -492,7 +512,7 @@ export function AdvancedSearchAnalytics() {
                               </Group>
                               <Group gap="xs">
                                 <Badge color="blue" variant="light">
-                                  {Math.round((result.score || 0) * 100)}% match
+                                  {Math.round(((result.score ?? 0) > 1 ? (result.score ?? 0) : (result.score ?? 0) * 100))}% match
                                 </Badge>
                                 <ActionIcon variant="light" color="blue" size="sm">
                                   <IconEye size={14} />
@@ -524,7 +544,7 @@ export function AdvancedSearchAnalytics() {
                           </div>
                         </Group>
                         <Badge color={getModuleColor(search.module)} variant="light">
-                          {Math.round((search.score || 0) * 100)}%
+                          {Math.round(((search.score ?? 0) > 1 ? (search.score ?? 0) : (search.score ?? 0) * 100))}%
                         </Badge>
                       </Group>
                     </Paper>

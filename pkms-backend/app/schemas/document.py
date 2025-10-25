@@ -1,5 +1,5 @@
 from pydantic import Field, field_validator
-from typing import List, Optional
+from typing import Optional
 from datetime import datetime
 from .base import CamelCaseModel
 
@@ -7,7 +7,7 @@ from .base import CamelCaseModel
 class DocumentCreate(CamelCaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=1000)
-    tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
+    tags: list[str] = Field(default_factory=list, max_items=20)
     
     @field_validator('tags')
     def validate_tags(cls, v):
@@ -17,10 +17,10 @@ class DocumentCreate(CamelCaseModel):
 class DocumentUpdate(CamelCaseModel):
     title: Optional[str] = Field(None, min_length=1)
     description: Optional[str] = None
-    tags: Optional[List[str]] = Field(None, max_items=20)
+    tags: list[str] | None = Field(None, max_items=20)
     is_favorite: Optional[bool] = None
     is_archived: Optional[bool] = None
-    project_uuids: Optional[List[str]] = Field(None, max_items=10, description="List of project UUIDs to link this document to")
+    project_uuids: list[str] | None = Field(None, max_items=10, description="List of project UUIDs to link this document to")
     are_projects_exclusive: Optional[bool] = Field(None, description="Apply exclusive flag to all project associations")
     @field_validator('project_uuids')
     @classmethod
@@ -46,28 +46,31 @@ class DocumentResponse(CamelCaseModel):
     uuid: str
     title: str
     description: Optional[str] = None
-    original_name: str  # CamelCaseModel converts to originalName
+    original_name: str
     filename: str
-    file_path: str  # CamelCaseModel converts to filePath
-    file_size: int  # CamelCaseModel converts to fileSize
-    mime_type: str  # CamelCaseModel converts to mimeType
-    is_favorite: bool  # CamelCaseModel converts to isFavorite
-    is_archived: bool  # CamelCaseModel converts to isArchived
-    is_encrypted: Optional[bool] = Field(False, description="Whether the file is encrypted (for diary files)")
-    is_deleted: bool  # CamelCaseModel converts to isDeleted
-    thumbnail_path: Optional[str] = None  # CamelCaseModel converts to thumbnailPath
-    created_at: datetime  # CamelCaseModel converts to createdAt
-    updated_at: datetime  # CamelCaseModel converts to updatedAt
-    tags: List[str]
-    projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this document belongs to")
+    file_path: str
+    file_size: int
+    mime_type: str
+    is_favorite: bool
+    is_archived: bool
+    is_encrypted: Optional[bool] = Field(default=False, description="Whether the file is encrypted (for diary files)")
+    is_deleted: bool
+    thumbnail_path: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    tags: list[str]
+    projects: list[ProjectBadge] = Field(default_factory=list, description="Projects this document belongs to")
 
 class CommitDocumentUploadRequest(CamelCaseModel):
     file_id: str
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(None, max_length=1000)
-    tags: Optional[List[str]] = Field(default_factory=list, max_items=20)
-    project_uuids: List[str] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this document to")
+    tags: list[str] = Field(default_factory=list, max_items=20)
+    project_uuids: list[str] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this document to")
     are_projects_exclusive: Optional[bool] = Field(False, description="Apply exclusive flag to all project associations")
+    diary_entry_uuid: Optional[str] = Field(None, description="UUID of diary entry to associate this document with")
+    is_encrypted: bool = Field(False, description="Whether the file is encrypted")
+    original_name: Optional[str] = Field(None, description="Original filename before processing")
 
     @field_validator('tags')
     def validate_tags(cls, v):

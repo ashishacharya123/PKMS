@@ -450,7 +450,10 @@ async def get_sample_rows(
 
         # Build query with user filtering, special-case system tables
         if table in system_tables:
-            result = await db.execute(text(f"SELECT * FROM {table} LIMIT :limit"), {"limit": limit})
+            result = await db.execute(
+                text(f"SELECT * FROM {table} WHERE created_by = :uid LIMIT :limit"),
+                {"uid": current_user.uuid, "limit": limit}
+            )
             rows = result.fetchall()
         else:
             query = (

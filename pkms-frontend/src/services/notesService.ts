@@ -7,7 +7,6 @@ import { apiService } from './api';
 import { BaseService } from './BaseService';
 import { coreUploadService, UploadProgress } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
-// import { formatFileSize } from '../components/common/ViewModeLayouts'; // Unused
 
 // Removed SMALL_FILE_THRESHOLD since we're using chunked upload consistently
 

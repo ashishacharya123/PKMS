@@ -260,14 +260,14 @@ async def test_documents_crud(db: AsyncSession, user: User, test_id: str, test_p
 
         # Create test file
         test_file_path = get_data_dir() / "test_storage" / f"crud_test_{test_id}.txt"
-        doc_data["file_size"] = len(test_content.encode('utf-8'))  # set to actual content length
         test_file_path.parent.mkdir(parents=True, exist_ok=True)
         test_content = f"Test document content for {test_id}\nPassword: {test_password}\nCRUD Test Data"
         test_file_path.write_text(test_content, encoding='utf-8')
+        doc_data["file_size"] = len(test_content.encode('utf-8'))  # set to actual content length
 
         document = Document(**doc_data)
         db.add(document)
-        await db.commit()
+        await db.flush()
         await db.refresh(document)
 
         operations["create"] = {

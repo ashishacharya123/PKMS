@@ -8,23 +8,17 @@
 import { apiService } from '../api';
 
 // CRUD Testing Types
+type CrudModule = 'notes' | 'documents' | 'todos' | 'archive' | 'projects';
 export interface CrudTestResult {
-  test_id: string;
-  test_password: string;
-  start_time: string;
-  modules_tested: Record<string, any>;
-  overall_status: string;
+  testId: string;
+  testPassword: string;
+  startTime: string;
+  modulesTested: Record<string, any>;
+  overallStatus: string;
   timestamp: string;
 }
 
-export interface TestRunResult {
-  test_id: string;
-  test_password: string;
-  start_time: string;
-  modules_tested: Record<string, any>;
-  overall_status: string;
-  timestamp: string;
-}
+export type TestRunResult = CrudTestResult;
 
 // CRUD Testing Functions
 export const crudTestingService = {
@@ -33,13 +27,13 @@ export const crudTestingService = {
     return response.data;
   },
 
-  async runModuleTest(module: string): Promise<any> {
-    const response = await apiService.post(`/testing/crud/test-${module}`);
+  async runModuleTest(module: CrudModule): Promise<any> {
+    const response = await apiService.post(`/testing/crud/test-${encodeURIComponent(module)}`);
     return response.data;
   },
 
   async cleanupTestData(testId: string): Promise<any> {
-    const response = await apiService.delete(`/testing/crud/cleanup/${testId}`);
+    const response = await apiService.delete(`/testing/crud/cleanup/${encodeURIComponent(testId)}`);
     return response.data;
   },
 

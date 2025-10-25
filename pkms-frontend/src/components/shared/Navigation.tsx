@@ -33,7 +33,7 @@ import {
   IconRotateClockwise,
 } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
-import dashboardService from '../../services/dashboardService';
+import { dashboardService } from '../../services/dashboardService';
 import { TestingInterface } from './TestingInterface';
 import { BackupRestoreModal } from './BackupRestoreModal';
 import RecoveryViewModal from '../auth/RecoveryViewModal';

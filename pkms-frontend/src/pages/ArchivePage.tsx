@@ -33,6 +33,7 @@ import {
   IconCode,
   IconStar,
   IconStarFilled,
+  IconFolder,
 } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
@@ -237,7 +238,7 @@ export default function ArchivePageNew() {
     if (!selectedItem || !newName.trim()) return;
     
     try {
-      if (selectedItem.mimeType === 'folder') {
+      if (selectedItem.itemType === 'folder') {
         await archiveService.updateFolder(selectedItem.uuid, { name: newName.trim() });
       } else {
         await archiveService.updateItem(selectedItem.uuid, { name: newName.trim() });
@@ -272,7 +273,7 @@ export default function ArchivePageNew() {
     if (!selectedItem) return;
     
     try {
-      if (selectedItem.mimeType === 'folder') {
+      if (selectedItem.itemType === 'folder') {
         await archiveService.deleteFolder(selectedItem.uuid);
       } else {
         await archiveService.deleteItem(selectedItem.uuid);
@@ -304,7 +305,7 @@ export default function ArchivePageNew() {
 
   const handleToggleFavorite = async (item: any) => {
     try {
-      if (item.mimeType === 'folder') {
+      if (item.itemType === 'folder') {
         await archiveService.updateFolder(item.uuid, { isFavorite: !item.isFavorite });
       } else {
         await archiveService.updateItem(item.uuid, { isFavorite: !item.isFavorite });
@@ -420,12 +421,12 @@ export default function ArchivePageNew() {
           // Archive items don't have archive functionality in this context
           console.log('Archive toggle not implemented for items');
         }}
-        onDelete={(item: any) => {
-          setSelectedItem({ uuid: item.uuid, name: item.name, mimeType: 'file' });
+        onDelete={(item: ArchiveItem | ArchiveFolder) => {
+          setSelectedItem({ uuid: item.uuid, name: item.name, itemType: item.itemType });
           openDeleteModal();
         }}
-        onEdit={(item: any) => {
-          setSelectedItem({ uuid: item.uuid, name: item.name, mimeType: 'file' });
+        onEdit={(item: ArchiveItem | ArchiveFolder) => {
+          setSelectedItem({ uuid: item.uuid, name: item.name, itemType: item.itemType });
           setNewName(item.name);
           openRenameModal();
         }}

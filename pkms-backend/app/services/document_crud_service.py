@@ -411,18 +411,18 @@ class DocumentCRUDService:
         return DocumentResponse(
             uuid=doc.uuid,
             title=doc.title,
-            original_name=doc.original_name,  # CamelCaseModel converts to originalName
+            original_name=doc.original_name,
             filename=doc.filename,
-            file_path=doc.file_path,  # CamelCaseModel converts to filePath
-            file_size=doc.file_size,  # CamelCaseModel converts to fileSize
-            mime_type=doc.mime_type,  # CamelCaseModel converts to mimeType
+            file_path=doc.file_path,
+            file_size=doc.file_size,
+            mime_type=doc.mime_type,
             description=doc.description,
-            is_favorite=doc.is_favorite,  # CamelCaseModel converts to isFavorite
-            is_archived=doc.is_archived,  # CamelCaseModel converts to isArchived
+            is_favorite=doc.is_favorite,
+            is_archived=doc.is_archived,
             # REMOVED: is_project_exclusive and is_diary_exclusive - exclusivity now handled in association tables
-            is_deleted=doc.is_deleted,  # CamelCaseModel converts to isDeleted
-            created_at=doc.created_at,  # CamelCaseModel converts to createdAt
-            updated_at=doc.updated_at,  # CamelCaseModel converts to updatedAt
+            is_deleted=doc.is_deleted,
+            created_at=doc.created_at,
+            updated_at=doc.updated_at
             tags=[t.name for t in doc.tag_objs] if doc.tag_objs else [],
             projects=project_badges or []
         )

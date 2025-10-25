@@ -9,12 +9,14 @@ Refactored to follow "thin router, thick service" architecture pattern.
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, and_, update
 from typing import List, Optional
 from datetime import date
 import logging
 
 from app.database import get_db
 from app.models.user import User
+from app.models.todo import Todo
 from app.auth.dependencies import get_current_user
 from app.schemas.todo import TodoCreate, TodoUpdate, TodoResponse
 from app.services.todo_crud_service import todo_crud_service

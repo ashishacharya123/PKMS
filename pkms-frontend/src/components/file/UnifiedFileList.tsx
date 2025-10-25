@@ -33,6 +33,7 @@ import {
 import { unifiedFileService, UnifiedFileItem } from '../../services/unifiedFileService';
 import { fileService } from '../../services/fileCacheService';
 import { reorderArray, getDragPreviewStyles, getDropZoneStyles } from '../../utils/dragAndDrop';
+import { ImageViewer } from '../common/ImageViewer';
 
 interface UnifiedFileListProps {
   files: UnifiedFileItem[];
@@ -56,6 +57,10 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
+  
+  // Image viewing state
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<UnifiedFileItem | null>(null);
   
   // Drag and drop state
   const [draggedFile, setDraggedFile] = useState<UnifiedFileItem | null>(null);
@@ -135,6 +140,11 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
     }
   };
 
+  const handleViewImage = (file: UnifiedFileItem) => {
+    setSelectedImage(file);
+    setImageViewerOpen(true);
+  };
+
   const handleDelete = async (fileId: string) => {
     if (window.confirm('Are you sure you want to delete this file?')) {
       try {
@@ -207,6 +217,7 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   }
 
   return (
+    <>
     <Stack gap="sm" className={className}>
       {files.map((file, index) => {
         const FileIcon = getFileIcon(file.mimeType, file.mediaType);
@@ -221,14 +232,14 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
             padding="md"
             radius="md"
             withBorder
-            draggable={enableDragDrop}
+            draggable={enableDragDrop && file.module === 'projects'}
             onDragStart={(e) => handleDragStart(e, file)}
             onDragOver={(e) => handleDragOver(e, index)}
             onDragLeave={handleDragLeave}
             onDrop={(e) => handleDrop(e, index)}
             style={{
-              ...(dragOverIndex === index ? getDropZoneStyles() : {}),
-              ...(draggedFile?.uuid === file.uuid ? getDragPreviewStyles() : {})
+              ...(dragOverIndex === index ? getDropZoneStyles(true, true) : {}),
+              ...(draggedFile?.uuid === file.uuid ? getDragPreviewStyles(true) : {})
             }}
           >
             <Group justify="space-between" align="flex-start">
@@ -320,8 +331,23 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
         );
       })}
     </Stack>
+    
+    {/* Image Viewer Modal */}
+    {selectedImage && (
+      <ImageViewer
+        opened={imageViewerOpen}
+        onClose={() => {
+          setImageViewerOpen(false);
+          setSelectedImage(null);
+        }}
+        imageUrl={selectedImage.originalName} // This would need to be the actual image URL
+        imageName={selectedImage.originalName}
+        onDownload={() => handleDownload(selectedImage)}
+        size="lg"
+      />
+    )}
+  </>
   );
-};
 
 // Thumbnail renderer component with caching
 const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
@@ -336,7 +362,10 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
     try {
       const cachedThumbnail = await fileService.getThumbnail(cacheKey, module);
       if (cachedThumbnail) {
-        console.log(`🎯 THUMBNAIL CACHE HIT: ${file.originalName}`);
+        if (process.env.NODE_ENV !== 'production') {
+          // eslint-disable-next-line no-console
+          console.log(`🎯 THUMBNAIL CACHE HIT: ${file.originalName}`);
+        }
         return URL.createObjectURL(cachedThumbnail);
       }
     } catch (error) {
@@ -349,7 +378,8 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
     }
     if (file.filePath) {
       const basePath = file.filePath.replace(/\\/g, '/');
-      return `/api/v1/thumbnails/file/${basePath}?size=${size}`;
+      const encoded = encodeURIComponent(basePath);
+      return `/api/v1/thumbnails/file/${encoded}?size=${size}`;
     }
     return null;
   };
@@ -435,4 +465,8 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
   }
 
   return getFileIcon(file.mimeType, file.mediaType);
+};
+
+// Add ImageViewer at the end of the component
+export { ImageViewer };
 };

@@ -10,9 +10,8 @@ import { Button, Group, Title, Progress, Alert, Stack } from '@mantine/core';
 import { IconUpload, IconLink } from '@tabler/icons-react';
 import { FileUploadModal } from './FileUploadModal';
 import { AudioRecorderModal } from './AudioRecorderModal';
-import { UnifiedFileList, UnifiedFileItem } from './UnifiedFileList';
-import { unifiedFileService } from '../../services/unifiedFileService';
-import { projectApi } from '../../services/projectApi';
+import { UnifiedFileList } from './UnifiedFileList';
+import { unifiedFileService, UnifiedFileItem } from '../../services/unifiedFileService';
 
 interface UnifiedFileSectionProps {
   module: 'notes' | 'diary' | 'documents' | 'archive' | 'projects';

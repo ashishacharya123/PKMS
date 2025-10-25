@@ -125,7 +125,6 @@ class UnifiedFileService {
    */
   private async getArchiveFiles(options: FileRetrievalOptions = {}): Promise<UnifiedFileItem[]> {
     const params = new URLSearchParams();
-    params.append('archived', 'true'); // Archive files are always archived
     if (options.limit !== undefined) {
       params.append('limit', options.limit.toString());
     }
@@ -133,7 +132,7 @@ class UnifiedFileService {
       params.append('offset', options.offset.toString());
     }
 
-    const response = await apiService.get(`/documents/?${params.toString()}`);
+    const response = await apiService.get(`/archive/items?${params.toString()}`);
     const files = response.data as any[];
     
     return files.map(file => this.normalizeFileItem(file, 'archive', ''));
@@ -186,18 +185,23 @@ class UnifiedFileService {
    * Get download URL for a file
    */
   getDownloadUrl(file: UnifiedFileItem): string {
-    switch (file.module) {
+    return this.getDownloadPath(file.module, file.uuid);
+  }
+
+  private getDownloadPath(module: string, uuid: string): string {
+    switch (module) {
       case 'documents':
-        return `/documents/${file.uuid}/download`;
-      case 'notes':
-      case 'diary':
-        return `/${file.module}/files/${file.uuid}/download`;
-      case 'archive':
-        return `/archive/items/${file.uuid}/download`;
       case 'projects':
-        return `/documents/${file.uuid}/download`; // Projects use documents endpoint
+        return `/documents/${uuid}/download`;
+      case 'notes':
+        return `/notes/files/${uuid}/download`;
+      case 'diary':
+        // Diary files are documents under the hood
+        return `/documents/${uuid}/download`;
+      case 'archive':
+        return `/archive/items/${uuid}/download`;
       default:
-        throw new Error(`Unsupported module for download: ${file.module}`);
+        throw new Error(`Unsupported module for download: ${module}`);
     }
   }
 
@@ -243,9 +247,11 @@ class UnifiedFileService {
         });
         break;
       case 'documents':
-      case 'archive':
       case 'projects':
         await apiService.delete(`/documents/${file.uuid}`);
+        break;
+      case 'archive':
+        await apiService.delete(`/archive/items/${file.uuid}`);
         break;
       default:
         throw new Error(`Unsupported module for delete: ${file.module}`);
@@ -452,18 +458,7 @@ class UnifiedFileService {
    */
   getFileDownloadUrl(uuid: string, module: string = 'documents'): string {
     const baseURL = apiService.getAxiosInstance().defaults.baseURL;
-    switch (module) {
-      case 'notes':
-        return `${baseURL}/notes/files/${uuid}/download`;
-      case 'diary':
-        return `${baseURL}/documents/${uuid}/download`;
-      case 'documents':
-      case 'archive':
-      case 'projects':
-        return `${baseURL}/documents/${uuid}/download`;
-      default:
-        return `${baseURL}/documents/${uuid}/download`;
-    }
+    return `${baseURL}${this.getDownloadPath(module, uuid)}`;
   }
 
   /**

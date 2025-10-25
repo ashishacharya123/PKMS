@@ -118,8 +118,8 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         if (isSetup) {
           try {
             // Try to get encryption status to see if already unlocked
-            const response = await apiService.get<{ is_setup: boolean; is_unlocked: boolean }>('/diary/encryption/status');
-            isUnlocked = response.data.is_unlocked || false;
+            const response = await apiService.get<{ isSetup: boolean; isUnlocked: boolean }>('/diary/encryption/status');
+            isUnlocked = response.data.isUnlocked || false;
             logger.info('Session unlock status:', isUnlocked);
           } catch (error) {
             // If status check fails, assume locked

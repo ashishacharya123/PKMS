@@ -10,30 +10,24 @@ import { apiService } from '../api';
 // System Health Types
 export interface DetailedHealth {
   status: string;
-  database: {
-    connectivity: string;
-    version: string;
-    table_count: number;
-  };
-  user_session: {
-    user_id: number;
-    username: string;
-    account_created: string;
-  };
-  system_info: {
-    table_count: number;
-    tables: string[];
-  };
+  database: Record<string, any>;
+  userSession: Record<string, any>;
+  systemInfo: Record<string, any>;
   timestamp: string;
 }
 
 export interface ConsoleCommands {
-  description: string;
+  status: string;
   commands: {
-    system_commands: Record<string, any>;
-    recovery_commands: Record<string, any>;
-    api_testing: Record<string, any>;
+    databaseOperations: Record<string, any>;
+    systemMonitoring: Record<string, any>;
+    debuggingCommands: Record<string, any>;
+    recoveryCommands: Record<string, any>;
+    apiTesting: Record<string, any>;
   };
+  userUuid: string;
+  timestamp: string;
+  note?: string;
 }
 
 // System Testing Functions

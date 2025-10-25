@@ -12,13 +12,10 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, delete
+from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
-from fastapi.responses import FileResponse
-
 from app.config import get_file_storage_dir
-from pathlib import Path
 from app.models.note import Note
 # NoteFile model removed - notes now use Document + note_documents association
 from app.models.document import Document
@@ -28,7 +25,7 @@ from app.models.tag_associations import note_tags
 from app.models.project import Project
 # REMOVED: note_projects import - now using polymorphic project_items
 from app.models.enums import ModuleType
-from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFile
+from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary
 # NoteFile schemas removed - notes now use Document + note_documents association
 from app.schemas.project import ProjectBadge
 from app.utils.security import sanitize_text_input, sanitize_tags
@@ -101,7 +98,7 @@ class NoteCRUDService:
             note = Note(
                 uuid=str(uuid_lib.uuid4()),
                 title=sanitized_title,
-                is_favorite=note_data.is_favorite or False,
+                is_favorite=bool(getattr(note_data, "is_favorite", False)),
                 created_by=user_uuid,
                 size_bytes=content_size_bytes  # Store the full size
             )
@@ -579,7 +576,7 @@ class NoteCRUDService:
         db: AsyncSession, 
         user_uuid: str, 
         note_uuid: str
-    ) -> List[NoteFile]:
+    ) -> list[Document]:
         """Get all files attached to a note"""
         try:
             # Verify note ownership first
@@ -607,29 +604,16 @@ class NoteCRUDService:
             )
             documents = result.fetchall()
             
-            return [
-                NoteFile(
-                    uuid=doc.uuid,
-                    note_uuid=note_uuid,
-                    filename=doc.filename,
-                    original_name=doc.original_name,  # CamelCaseModel converts to originalName
-                    file_size=doc.file_size,  # CamelCaseModel converts to fileSize
-                    mime_type=doc.mime_type,  # CamelCaseModel converts to mimeType
-                    description=doc.description,
-                    is_deleted=doc.is_deleted,  # CamelCaseModel converts to isDeleted
-                    created_at=doc.created_at.isoformat()  # CamelCaseModel converts to createdAt
-                )
-                for doc, is_exclusive, sort_order in documents
-            ]
+            return [doc for doc, _is_exclusive, _sort_order in documents]
             
         except HTTPException:
             raise
         except Exception as e:
-            logger.exception(f"Error getting files for note {note_uuid}")
+            logger.exception("Error getting files for note %s", note_uuid)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to get note files: {str(e)}"
-            )
+                detail=f"Failed to get note files: {e!s}"
+            ) from e
 
 
 # Global instance

@@ -10,8 +10,8 @@ import { apiService } from './api';
 // Type definitions for backup operations
 export interface BackupFile {
   filename: string;
-  full_path: string;
-  relative_path: string;
+  fullPath: string;
+  relativePath: string;
   fileSizeBytes: number;
   fileSizeKb: number;
   fileSizeMb: number;
@@ -180,7 +180,7 @@ class BackupService {
   async isBackupSystemWorking(): Promise<boolean> {
     try {
       const info = await this.getBackupInfo();
-      return info.status === 'success' && !info.current_limitations.length;
+      return info.status === 'success' && !info.currentLimitations.length;
     } catch {
       return false;
     }
@@ -207,9 +207,11 @@ class BackupService {
       const recentBackups = backups.filter(backup => backup.isRecent).length;
 
       // Sort by creation date for oldest/newest
-      const sortedByDate = [...backups].sort((a, b) => 
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      );
+      const time = (s: string) => {
+        const t = new Date(s).getTime();
+        return Number.isFinite(t) ? t : 0;
+      };
+      const sortedByDate = [...backups].sort((a, b) => time(a.createdAt) - time(b.createdAt));
 
       return {
         totalBackups: backups.length,
@@ -278,31 +280,30 @@ class BackupService {
     if (!walStatus?.wal_analysis) return 'Unknown';
 
     const analysis = walStatus.wal_analysis ?? {};
-
+    const toNum = (v: unknown) => {
+      const n = typeof v === 'string' ? Number(v) : (v as number);
+      return Number.isFinite(n) ? n : NaN;
+    };
     // Handle multiple field naming conventions (camelCase/snake_case)
-    const sizeMb =
+    const sizeMb = toNum(
       analysis.currentSizeMb ??
       analysis.current_sizeMb ??
       analysis.current_size_mb ??
       analysis.currentSizeMB ??
-      analysis.size_mb ?? 0;
-
-    const pct =
+      analysis.size_mb
+    );
+    const pct = toNum(
       analysis.percentageOfThreshold ??
       analysis.percentage_of_threshold ??
-      analysis.percentageThreshold ?? 0;
-
+      analysis.percentageThreshold ??
+      analysis.pct_of_threshold
+    );
     const rec =
       analysis.recommendation ??
       analysis.recommendationText ??
-      analysis.recommendation ?? 'No recommendation';
-
-    // Guard against invalid values
-    if (typeof sizeMb !== 'number' || !Number.isFinite(sizeMb) ||
-        typeof pct !== 'number' || !Number.isFinite(pct)) {
-      return 'Invalid WAL data';
-    }
-
+      analysis.recommendation_text ??
+      'No recommendation';
+    if (!Number.isFinite(sizeMb) || !Number.isFinite(pct)) return 'Unknown';
     return `${sizeMb.toFixed(1)}MB (${pct.toFixed(1)}% of threshold) - ${rec}`;
   }
 

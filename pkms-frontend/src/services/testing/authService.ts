@@ -9,35 +9,35 @@ import { apiService } from '../api';
 
 // Auth Testing Types
 export interface SessionStatus {
-  has_token: boolean;
-  is_expired: boolean;
-  expires_at: string;
-  remaining_time_seconds: number;
-  token_length: number;
-  user_id: number;
+  hasToken: boolean;
+  isExpired: boolean;
+  expiresAt: string;
+  remainingTimeSeconds: number;
+  tokenLength: number;
+  userId: number;
   username: string;
 }
 
 export interface UserDatabase {
-  user_count: number;
+  userCount: number;
   users: Array<{
     uuid: string;
     username: string;
-    created_at: string;
+    createdAt: string;
   }>;
 }
 
 export interface HealthCheck {
   status: string;
-  database_accessible: boolean;
+  databaseAccessible: boolean;
   timestamp: string;
   error?: string;
 }
 
 export interface DiaryEncryptionDetails {
-  encrypted_blob_length: number;
-  iv_length: number;
-  tag_length: number;
+  encryptedBlobLength: number;
+  ivLength: number;
+  tagLength: number;
 }
 
 // Auth Testing Functions

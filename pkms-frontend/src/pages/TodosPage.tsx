@@ -254,10 +254,11 @@ export function TodosPage() {
   // Sorted and paginated todos
   const sortedTodos = useMemo(() => {
     const sorted = [...todos].sort((a, b) => {
-      let aValue: string | number = a[sortField] ?? (sortField.includes('date') ? '' : 0);
-      let bValue: string | number = b[sortField] ?? (sortField.includes('date') ? '' : 0);
+      const isDateField = sortField === 'createdAt' || sortField === 'dueDate';
+      let aValue: string | number = a[sortField] ?? (isDateField ? '' : 0);
+      let bValue: string | number = b[sortField] ?? (isDateField ? '' : 0);
       
-      if (sortField.includes('date')) {
+      if (isDateField) {
         aValue = aValue ? new Date(aValue as string).getTime() : 0;
         bValue = bValue ? new Date(bValue as string).getTime() : 0;
       } else if (sortField === 'priority') {
@@ -419,7 +420,7 @@ export function TodosPage() {
     return colors[strStatus as keyof typeof colors] || 'gray';
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDateLocal = (dateString: string) => {
     if (!dateString) return 'N/A';
     
     try {

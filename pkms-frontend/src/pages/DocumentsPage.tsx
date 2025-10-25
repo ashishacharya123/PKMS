@@ -40,6 +40,9 @@ import { searchService } from '../services/searchService';
 import { useDocumentsStore } from '../stores/documentsStore';
 import { ActionMenu } from '../components/common/ActionMenu';
 import { FileUploadModal } from '../components/file/FileUploadModal';
+import { ModuleLayout } from '../components/common/ModuleLayout';
+import { ModuleHeader } from '../components/common/ModuleHeader';
+import { ModuleFilters, getModuleFilterConfig } from '../components/common/ModuleFilters';
 
 type SortField = 'originalName' | 'fileSize' | 'createdAt' | 'updatedAt';
 type SortOrder = 'asc' | 'desc';
@@ -94,6 +97,16 @@ export function DocumentsPage() {
   const searchQuery = searchParams.get('q') || '';
   const [sortField, setSortField] = useState<SortField>('updatedAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  
+  // Modular filter state
+  const [filters, setFilters] = useState({
+    sortBy: 'updatedAt',
+    sortOrder: 'desc',
+    favorites: false,
+    showArchived: false
+  });
+  const [filtersOpened, setFiltersOpened] = useState(false);
+  const filterConfig = getModuleFilterConfig('documents');
   const [currentPage, setCurrentPage] = useState(1);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -529,28 +542,12 @@ export function DocumentsPage() {
                 />
                 
                 <Button
-                  variant={sortField === 'originalName' ? 'filled' : 'subtle'}
-                  size="xs"
-                  leftSection={sortField === 'originalName' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
-                  onClick={() => handleSort('originalName')}
+                  variant="light"
+                  size="sm"
+                  leftSection={<IconFilter size={16} />}
+                  onClick={() => setFiltersOpened(true)}
                 >
-                  Name
-                </Button>
-                <Button
-                  variant={sortField === 'fileSize' ? 'filled' : 'subtle'}
-                  size="xs"
-                  leftSection={sortField === 'fileSize' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
-                  onClick={() => handleSort('fileSize')}
-                >
-                  Size
-                </Button>
-                <Button
-                  variant={sortField === 'updatedAt' ? 'filled' : 'subtle'}
-                  size="xs"
-                  leftSection={sortField === 'updatedAt' && sortOrder === 'asc' ? <IconSortAscending size={14} /> : <IconSortDescending size={14} />}
-                  onClick={() => handleSort('updatedAt')}
-                >
-                  Date
+                  Filters
                 </Button>
                 <Button
                   leftSection={<IconUpload size={14} />}
@@ -814,6 +811,27 @@ export function DocumentsPage() {
         }}
         multiple={true}
       />
+
+      {/* Modular Filter Modal */}
+      <Modal 
+        opened={filtersOpened} 
+        onClose={() => setFiltersOpened(false)} 
+        title="Document Filters & Sorting" 
+        size="lg"
+      >
+        <ModuleFilters
+          filters={filters}
+          onFiltersChange={setFilters}
+          activeFiltersCount={Object.values(filters).filter(v => Array.isArray(v) ? v.length > 0 : v !== false && v !== 'all' && v !== 'updatedAt' && v !== 'desc').length}
+          showFavorites={filterConfig.showFavorites}
+          showMimeTypes={filterConfig.showMimeTypes}
+          showDateRange={filterConfig.showDateRange}
+          showArchived={filterConfig.showArchived}
+          showSorting={filterConfig.showSorting}
+          customFilters={filterConfig.customFilters}
+          sortOptions={filterConfig.sortOptions}
+        />
+      </Modal>
     </Container>
   );
 }

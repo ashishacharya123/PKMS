@@ -134,7 +134,9 @@ export default function NoteViewPage() {
             ))}
           </Group>
           <Text size="xs" c="dimmed" mb="md">
-            Updated {new Date(note.updatedAt).toLocaleString()}
+            {note.updatedAt && !isNaN(new Date(note.updatedAt).getTime())
+              ? `Updated ${new Date(note.updatedAt).toLocaleString()}`
+              : 'Updated: Unknown'}
           </Text>
           <Paper p="md">
             <MDEditor.Markdown source={note.content} />
