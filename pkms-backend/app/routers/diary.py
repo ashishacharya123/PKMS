@@ -285,6 +285,55 @@ async def list_diary_entries(
         )
 
 
+@router.get("/entries/deleted", response_model=List[DiaryEntrySummary])
+async def list_deleted_diary_entries(
+    year: Optional[int] = Query(None),
+    month: Optional[int] = Query(None),
+    mood: Optional[int] = Query(None),
+    search_title: Optional[str] = Query(None, description="Search by entry title, tag, or metadata"),
+    day_of_week: Optional[int] = Query(None, description="Filter by day of week (0=Sun, 1=Mon..)", ge=0, le=6),
+    limit: int = Query(20, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List deleted diary entries for Recycle Bin. Uses FTS5 for text search if search_title is provided."""
+    try:
+        # Check if diary is unlocked
+        diary_key = await diary_session_service.get_password_from_session(current_user.uuid)
+        if not diary_key:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Diary is locked. Please unlock diary first."
+            )
+        
+        return await diary_crud_service.list_deleted_entries(
+            db=db,
+            user_uuid=current_user.uuid,
+            diary_key=diary_key,
+            year=year,
+            month=month,
+            mood=mood,
+            search_title=search_title,
+            day_of_week=day_of_week,
+            limit=limit,
+            offset=offset
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing deleted diary entries for user {current_user.uuid}: {type(e).__name__}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list deleted diary entries"
+        )
+
+
+# NOTE: For viewing ALL diary entries (active + deleted), use RecycleBinPage with showAll=true
+# This provides a unified interface for managing all items across all modules
+
+
 @router.get("/entries/date/{entry_date}", response_model=List[DiaryEntryResponse])
 async def get_diary_entries_by_date(
     entry_date: date,
@@ -418,7 +467,11 @@ async def restore_diary_entry(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Restore a soft-deleted diary entry from Recycle Bin."""
+    """Restore a soft-deleted diary entry from Recycle Bin.
+    
+    NOTE: This endpoint does NOT require diary unlock session check
+    since restore operations should work even when diary is locked.
+    """
     try:
         await diary_crud_service.restore_entry(
             db=db,

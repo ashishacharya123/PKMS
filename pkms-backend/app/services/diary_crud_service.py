@@ -244,6 +244,7 @@ class DiaryCRUDService:
     ) -> List[DiaryEntrySummary]:
         """
         List diary entries with filtering. Uses FTS5 for text search if search_title is provided.
+        Only returns active (non-deleted) entries by default.
         
         Args:
             db: Database session
@@ -307,7 +308,7 @@ class DiaryCRUDService:
                     DiaryEntry.created_by == daily_metadata_alias.created_by,
                     func.date(DiaryEntry.date) == func.date(daily_metadata_alias.date)
                 ))
-                .where(and_(DiaryEntry.uuid.in_(uuid_list), DiaryEntry.created_by == user_uuid))
+                .where(and_(DiaryEntry.uuid.in_(uuid_list), DiaryEntry.created_by == user_uuid, DiaryEntry.active_only()))
             )
             
             # Apply filters
@@ -384,7 +385,7 @@ class DiaryCRUDService:
                     DiaryEntry.created_by == daily_metadata_alias.created_by,
                     func.date(DiaryEntry.date) == func.date(daily_metadata_alias.date)
                 ))
-                .where(DiaryEntry.created_by == user_uuid)
+                .where(and_(DiaryEntry.created_by == user_uuid, DiaryEntry.active_only()))
             )
             
             # Apply filters
@@ -407,6 +408,202 @@ class DiaryCRUDService:
                 query = query.where(DiaryEntry.is_template.is_(True))
             elif templates is False:
                 query = query.where(DiaryEntry.is_template.is_(False))
+                
+            query = query.order_by(DiaryEntry.date.desc()).offset(offset).limit(limit)
+            result = await db.execute(query)
+            entry_rows = result.all()
+            tag_map = await DiaryCRUDService.get_tags_for_entries(db, [row.uuid for row in entry_rows])
+            
+            for row in entry_rows:
+                summary = DiaryEntrySummary(
+                    uuid=row.uuid,
+                    date=row.date.date() if isinstance(row.date, datetime) else row.date,
+                    title=row.title,
+                    mood=row.mood,
+                    weather_code=row.weather_code,
+                    location=row.location,
+                    daily_metrics=json.loads(row.default_habits_json) if row.default_habits_json else {},
+                    nepali_date=row.nepali_date,
+                    is_template=row.is_template,
+                    from_template_id=row.from_template_id,
+                    created_at=row.created_at,
+                    file_count=row.file_count,
+                    tags=tag_map.get(row.uuid, []),
+                    content_length=row.content_length,
+                    content_available=row.content_length > 0,
+                )
+                summaries.append(summary)
+            return summaries
+    
+    @staticmethod
+    async def list_deleted_entries(
+        db: AsyncSession,
+        user_uuid: str,
+        diary_key: bytes,
+        year: Optional[int] = None,
+        month: Optional[int] = None,
+        mood: Optional[int] = None,
+        search_title: Optional[str] = None,
+        day_of_week: Optional[int] = None,
+        limit: int = 20,
+        offset: int = 0
+    ) -> List[DiaryEntrySummary]:
+        """
+        List deleted diary entries for Recycle Bin. Uses FTS5 for text search if search_title is provided.
+        
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            diary_key: Decrypted diary key
+            year: Filter by year
+            month: Filter by month
+            mood: Filter by mood
+            search_title: Search by title/tags/metadata
+            day_of_week: Filter by day of week (0=Sun, 1=Mon..)
+            limit: Maximum entries to return
+            offset: Number of entries to skip
+            
+        Returns:
+            List of DiaryEntrySummary
+        """
+        # Subquery to count documents per entry (using document_diary association)
+        from app.models.associations import document_diary
+        file_count_subquery = (
+            select(document_diary.c.diary_entry_uuid, func.count(document_diary.c.document_uuid).label("file_count"))
+            .group_by(document_diary.c.diary_entry_uuid)
+            .subquery()
+        )
+
+        daily_metadata_alias = aliased(DiaryDailyMetadata)
+        summaries = []
+        
+        if search_title:
+            # Use unified FTS5 search
+            fts_results = await search_service.search(db, user_uuid, search_title, item_types=["diary"], limit=limit)
+
+            if not fts_results:
+                return []
+
+            # Extract UUIDs from FTS results
+            uuid_list = [r["uuid"] for r in fts_results if r["type"] == "diary"]
+            if not uuid_list:
+                return []
+
+            # Fetch full rows, preserving FTS5 order
+            entry_query = (
+                select(
+                    DiaryEntry.uuid,
+                    DiaryEntry.title,
+                    DiaryEntry.date,
+                    DiaryEntry.mood,
+                    DiaryEntry.weather_code,
+                    DiaryEntry.location,
+                    DiaryEntry.is_template,
+                    DiaryEntry.from_template_id,
+                    DiaryEntry.created_at,
+                    DiaryEntry.updated_at,
+                    func.coalesce(file_count_subquery.c.file_count, 0).label("file_count"),
+                    daily_metadata_alias.default_habits_json.label("default_habits_json"),
+                    daily_metadata_alias.nepali_date.label("nepali_date"),
+                    DiaryEntry.content_length,
+                )
+                .outerjoin(file_count_subquery, DiaryEntry.uuid == file_count_subquery.c.diary_entry_uuid)
+                .outerjoin(daily_metadata_alias, and_(
+                    DiaryEntry.created_by == daily_metadata_alias.created_by,
+                    func.date(DiaryEntry.date) == func.date(daily_metadata_alias.date)
+                ))
+                .where(and_(DiaryEntry.uuid.in_(uuid_list), DiaryEntry.created_by == user_uuid, DiaryEntry.deleted_only()))
+            )
+            
+            # Apply filters
+            if year and month:
+                start = datetime(year, month, 1)
+                if month == 12:
+                    end = datetime(year + 1, 1, 1)
+                else:
+                    end = datetime(year, month + 1, 1)
+                entry_query = entry_query.where(and_(DiaryEntry.date >= start, DiaryEntry.date < end))
+            elif year:
+                start = datetime(year, 1, 1)
+                end = datetime(year + 1, 1, 1)
+                entry_query = entry_query.where(and_(DiaryEntry.date >= start, DiaryEntry.date < end))
+            if mood:
+                entry_query = entry_query.where(DiaryEntry.mood == mood)
+            if day_of_week is not None:
+                entry_query = entry_query.where(daily_metadata_alias.day_of_week == day_of_week)
+                
+            entry_result = await db.execute(entry_query)
+            entry_rows = entry_result.fetchall()
+            
+            # Map uuid to row for FTS5 order
+            row_map = {row.uuid: row for row in entry_rows}
+            tag_map = await DiaryCRUDService.get_tags_for_entries(db, list(row_map.keys()))
+            
+            for uuid in uuid_list:
+                r = row_map.get(uuid)
+                if r:
+                    summary = DiaryEntrySummary(
+                        uuid=r.uuid,
+                        date=r.date.date() if isinstance(r.date, datetime) else r.date,
+                        title=r.title,
+                        mood=r.mood,
+                        weather_code=r.weather_code,
+                        location=r.location,
+                        daily_metrics=json.loads(r.default_habits_json) if r.default_habits_json else {},
+                        nepali_date=r.nepali_date,
+                        is_template=r.is_template,
+                        from_template_id=r.from_template_id,
+                        created_at=r.created_at,
+                        file_count=r.file_count,
+                        tags=tag_map.get(uuid, []),
+                        content_length=r.content_length,
+                        content_available=r.content_length > 0,
+                    )
+                    summaries.append(summary)
+            return summaries
+        else:
+            # Default: no search, use existing logic
+            query = (
+                select(
+                    DiaryEntry.uuid,
+                    DiaryEntry.title,
+                    DiaryEntry.date,
+                    DiaryEntry.mood,
+                    DiaryEntry.weather_code,
+                    DiaryEntry.location,
+                    DiaryEntry.is_template,
+                    DiaryEntry.from_template_id,
+                    DiaryEntry.created_at,
+                    DiaryEntry.updated_at,
+                    func.coalesce(file_count_subquery.c.file_count, 0).label("file_count"),
+                    daily_metadata_alias.default_habits_json.label("default_habits_json"),
+                    daily_metadata_alias.nepali_date.label("nepali_date"),
+                    DiaryEntry.content_length,
+                )
+                .outerjoin(file_count_subquery, DiaryEntry.uuid == file_count_subquery.c.diary_entry_uuid)
+                .outerjoin(daily_metadata_alias, and_(
+                    DiaryEntry.created_by == daily_metadata_alias.created_by,
+                    func.date(DiaryEntry.date) == func.date(daily_metadata_alias.date)
+                ))
+                .where(and_(DiaryEntry.created_by == user_uuid, DiaryEntry.deleted_only()))
+            )
+            
+            # Apply filters
+            if year and month:
+                start = datetime(year, month, 1)
+                if month == 12:
+                    end = datetime(year + 1, 1, 1)
+                else:
+                    end = datetime(year, month + 1, 1)
+                query = query.where(and_(DiaryEntry.date >= start, DiaryEntry.date < end))
+            elif year:
+                start = datetime(year, 1, 1)
+                end = datetime(year + 1, 1, 1)
+                query = query.where(and_(DiaryEntry.date >= start, DiaryEntry.date < end))
+            if mood:
+                query = query.where(DiaryEntry.mood == mood)
+            if day_of_week is not None:
+                query = query.where(daily_metadata_alias.day_of_week == day_of_week)
                 
             query = query.order_by(DiaryEntry.date.desc()).offset(offset).limit(limit)
             result = await db.execute(query)

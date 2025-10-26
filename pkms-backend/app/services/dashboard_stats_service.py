@@ -225,9 +225,8 @@ class DashboardStatsService:
         """
         Get recent activity statistics across all modules using optimized queries.
         
-        PERFORMANCE OPTIMIZATION: Uses separate optimized queries for each module
-        instead of 5 separate queries. This is more efficient than a complex UNION
-        query across different tables with different schemas.
+        PERFORMANCE NOTE: Uses separate optimized queries per module.
+        This avoids a single complex UNION across heterogeneous tables/schemas.
         """
         cutoff = datetime.now(NEPAL_TZ) - timedelta(days=days)
         

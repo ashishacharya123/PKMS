@@ -62,7 +62,7 @@ class Document(Base, SoftDeleteMixin):
     user = relationship("User", back_populates="documents")
     tag_objs = relationship("Tag", secondary=document_tags, back_populates="documents")
     # REMOVED: projects relationship - replaced with polymorphic project_items
-    notes = relationship("Note", secondary=note_documents, back_populates="notes")  # NEW: Notes via note_documents
+    notes = relationship("Note", secondary=note_documents, back_populates="documents")  # NEW: Notes via note_documents
     # Note: No diary_entries relationship - documents don't need to know about diary entries
     
     def __repr__(self):

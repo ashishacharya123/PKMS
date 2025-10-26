@@ -221,6 +221,36 @@ class TodoCRUDService:
                 detail=f"Failed to list todos: {str(e)}"
             )
     
+    async def list_deleted_todos(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str
+    ) -> List[TodoResponse]:
+        """List soft-deleted todos for Recycle Bin."""
+        try:
+            query = select(Todo).where(
+                and_(
+                    Todo.deleted_only(),
+                    Todo.created_by == user_uuid
+                )
+            )
+            query = query.options(selectinload(Todo.tag_objs))
+            result = await db.execute(query.order_by(Todo.updated_at.desc()))
+            todos = result.scalars().all()
+            
+            responses = []
+            for todo in todos:
+                responses.append(self._convert_todo_to_response(todo, [], None, None))
+            
+            return responses
+            
+        except Exception as e:
+            logger.exception(f"Error listing deleted todos for user {user_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to list deleted todos: {str(e)}"
+            )
+    
     async def get_todo(
         self, 
         db: AsyncSession, 

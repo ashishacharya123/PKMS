@@ -284,6 +284,24 @@ async def list_folder_items(
         )
 
 
+@router.get("/items/deleted", response_model=List[ItemResponse])
+async def list_deleted_items(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List deleted archive items for Recycle Bin."""
+    try:
+        return await archive_item_service.list_deleted_items(db, current_user.uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error listing deleted archive items for user %s", current_user.uuid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list deleted archive items"
+        )
+
+
 @router.get("/items/{item_uuid}", response_model=ItemResponse)
 async def get_item(
     item_uuid: str,
@@ -381,6 +399,7 @@ async def permanent_delete_item(
     """Permanently delete archive item (hard delete) - WARNING: Cannot be undone!"""
     try:
         await archive_item_service.hard_delete_archive_item(db, current_user.uuid, item_uuid)
+        await db.commit()
         return {"message": "Archive item permanently deleted"}
     except HTTPException:
         raise

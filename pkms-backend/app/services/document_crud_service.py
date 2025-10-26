@@ -253,6 +253,36 @@ class DocumentCRUDService:
                 detail=f"Failed to list documents: {str(e)}"
             )
 
+    async def list_deleted_documents(
+        self,
+        db: AsyncSession,
+        user_uuid: str,
+    ) -> List[DocumentResponse]:
+        """List soft-deleted documents for Recycle Bin."""
+        try:
+            query = select(Document).where(
+                and_(
+                    Document.deleted_only(),
+                    Document.created_by == user_uuid
+                )
+            )
+            query = query.options(selectinload(Document.tag_objs))
+            result = await db.execute(query.order_by(Document.updated_at.desc()))
+            documents = result.scalars().all()
+            
+            responses = []
+            for doc in documents:
+                responses.append(self._convert_doc_to_response(doc, []))
+            
+            return responses
+            
+        except Exception as e:
+            logger.exception(f"Error listing deleted documents for user {user_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to list deleted documents: {str(e)}"
+            )
+
     async def get_document(
         self, db: AsyncSession, user_uuid: str, document_uuid: str
     ) -> DocumentResponse:

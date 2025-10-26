@@ -78,6 +78,24 @@ async def list_todos(
         )
 
 
+@router.get("/deleted", response_model=List[TodoResponse])
+async def list_deleted_todos(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List deleted todos for Recycle Bin."""
+    try:
+        return await todo_crud_service.list_deleted_todos(db, current_user.uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error listing deleted todos")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list deleted todos"
+        )
+
+
 @router.get("/{todo_uuid}", response_model=TodoResponse)
 async def get_todo(
     todo_uuid: str,

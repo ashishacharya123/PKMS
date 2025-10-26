@@ -5,6 +5,7 @@
  */
 
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import {
   Container,
@@ -25,6 +26,7 @@ import {
   IconSearch,
   IconBolt,
   IconRefresh,
+  IconEye,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 
@@ -47,6 +49,7 @@ interface SearchStats {
 }
 
 export const DiaryPage = React.memo(function DiaryPage() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(false);
   const [wellnessScore, setWellnessScore] = useState<number | null>(null);
@@ -94,6 +97,10 @@ export const DiaryPage = React.memo(function DiaryPage() {
     return '💪';
   };
 
+  const handleViewAll = () => {
+    navigate('/recycle-bin?showAll=true');
+  };
+
   return (
     <Container size="xl" py="md">
       <Stack gap="lg">
@@ -107,9 +114,19 @@ export const DiaryPage = React.memo(function DiaryPage() {
           showRefresh={true}
           isLoading={loading}
           customActions={
-            <Text c="dimmed" size="sm">
-              Unlock the full power of your wellness data
-            </Text>
+            <Group gap="md">
+              <Text c="dimmed" size="sm">
+                Unlock the full power of your wellness data
+              </Text>
+              <Button
+                variant="light"
+                leftSection={<IconEye size={16} />}
+                onClick={handleViewAll}
+                size="sm"
+              >
+                View All Module Items
+              </Button>
+            </Group>
           }
         />
 

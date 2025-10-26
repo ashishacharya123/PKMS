@@ -77,6 +77,24 @@ async def list_documents(
         )
 
 
+@router.get("/deleted", response_model=List[DocumentResponse])
+async def list_deleted_documents(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List deleted documents for Recycle Bin."""
+    try:
+        return await document_crud_service.list_deleted_documents(db, current_user.uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error listing deleted documents")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list deleted documents"
+        )
+
+
 @router.get("/{document_uuid}", response_model=DocumentResponse)
 async def get_document(
     document_uuid: UUID4,

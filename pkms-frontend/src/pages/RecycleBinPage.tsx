@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Container,
   Title,
@@ -38,9 +39,19 @@ import deletionImpactService from '../services/deletionImpactService';
 
 type TabValue = 'all' | 'projects' | 'notes' | 'todos' | 'documents' | 'diary' | 'archive';
 
-interface RecycleBinPageProps {}
+interface RecycleBinPageProps {
+  showAll?: boolean; // When true, shows both active and deleted items
+  // NOTE: This page serves dual purposes:
+  // - showAll=false: Standard recycle bin (deleted items only)
+  // - showAll=true: "View All" management interface (active + deleted items)
+  // Used by diary "View All" button to show all items across all modules
+}
 
-export function RecycleBinPage({}: RecycleBinPageProps) {
+export function RecycleBinPage({ showAll: propShowAll = false }: RecycleBinPageProps) {
+  const [searchParams] = useSearchParams();
+  const urlShowAll = searchParams.get('showAll') === 'true';
+  const showAll = propShowAll || urlShowAll;
+  
   const [activeTab, setActiveTab] = useState<TabValue>('all');
   const [items, setItems] = useState<RecycleBinItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,42 +69,76 @@ export function RecycleBinPage({}: RecycleBinPageProps) {
     try {
       let fetchedItems: RecycleBinItem[] = [];
       
-      switch (activeTab) {
-        case 'all':
-          fetchedItems = await recycleBinService.getAllDeletedItems();
-          break;
-        case 'projects':
-          const projects = await recycleBinService.getDeletedProjects();
-          fetchedItems = projects.map(item => ({ ...item, type: 'project' as const }));
-          break;
-        case 'notes':
-          const notes = await recycleBinService.getDeletedNotes();
-          fetchedItems = notes.map(item => ({ ...item, type: 'note' as const }));
-          break;
-        case 'todos':
-          const todos = await recycleBinService.getDeletedTodos();
-          fetchedItems = todos.map(item => ({ ...item, type: 'todo' as const }));
-          break;
-        case 'documents':
-          const documents = await recycleBinService.getDeletedDocuments();
-          fetchedItems = documents.map(item => ({ ...item, type: 'document' as const }));
-          break;
-        case 'diary':
-          const diary = await recycleBinService.getDeletedDiaryEntries();
-          fetchedItems = diary.map(item => ({ ...item, type: 'diary' as const }));
-          break;
-        case 'archive':
-          const archive = await recycleBinService.getDeletedArchiveItems();
-          fetchedItems = archive.map(item => ({ ...item, type: 'archive' as const }));
-          break;
+      if (showAll) {
+        // Show all items (active + deleted) for management view
+        switch (activeTab) {
+          case 'all':
+            fetchedItems = await recycleBinService.getAllItems();
+            break;
+          case 'projects':
+            const allProjects = await recycleBinService.getAllProjects();
+            fetchedItems = allProjects.map(item => ({ ...item, type: 'project' as const, title: item.name }));
+            break;
+          case 'notes':
+            const allNotes = await recycleBinService.getAllNotes();
+            fetchedItems = allNotes.map(item => ({ ...item, type: 'note' as const }));
+            break;
+          case 'todos':
+            const allTodos = await recycleBinService.getAllTodos();
+            fetchedItems = allTodos.map(item => ({ ...item, type: 'todo' as const }));
+            break;
+          case 'documents':
+            const allDocuments = await recycleBinService.getAllDocuments();
+            fetchedItems = allDocuments.map(item => ({ ...item, type: 'document' as const }));
+            break;
+          case 'diary':
+            const allDiary = await recycleBinService.getAllDiaryEntries();
+            fetchedItems = allDiary.map(item => ({ ...item, type: 'diary' as const }));
+            break;
+          case 'archive':
+            const allArchive = await recycleBinService.getAllArchiveItems();
+            fetchedItems = allArchive.map(item => ({ ...item, type: 'archive' as const, title: item.name }));
+            break;
+        }
+      } else {
+        // Show only deleted items (recycle bin view)
+        switch (activeTab) {
+          case 'all':
+            fetchedItems = await recycleBinService.getAllDeletedItems();
+            break;
+          case 'projects':
+            const projects = await recycleBinService.getDeletedProjects();
+            fetchedItems = projects.map(item => ({ ...item, type: 'project' as const, title: item.name }));
+            break;
+          case 'notes':
+            const notes = await recycleBinService.getDeletedNotes();
+            fetchedItems = notes.map(item => ({ ...item, type: 'note' as const }));
+            break;
+          case 'todos':
+            const todos = await recycleBinService.getDeletedTodos();
+            fetchedItems = todos.map(item => ({ ...item, type: 'todo' as const }));
+            break;
+          case 'documents':
+            const documents = await recycleBinService.getDeletedDocuments();
+            fetchedItems = documents.map(item => ({ ...item, type: 'document' as const }));
+            break;
+          case 'diary':
+            const diary = await recycleBinService.getDeletedDiaryEntries();
+            fetchedItems = diary.map(item => ({ ...item, type: 'diary' as const }));
+            break;
+          case 'archive':
+            const archive = await recycleBinService.getDeletedArchiveItems();
+            fetchedItems = archive.map(item => ({ ...item, type: 'archive' as const, title: item.name }));
+            break;
+        }
       }
       
       setItems(fetchedItems);
     } catch (error) {
-      console.error('Error loading deleted items:', error);
+      console.error('Error loading items:', error);
       notifications.show({
         title: 'Error',
-        message: 'Failed to load deleted items',
+        message: 'Failed to load items',
         color: 'red'
       });
     } finally {
@@ -258,6 +303,11 @@ export function RecycleBinPage({}: RecycleBinPageProps) {
                 <Badge size="xs" color={getItemTypeColor(item.type)}>
                   {item.type}
                 </Badge>
+                {showAll && item.deletedAt && (
+                  <Badge size="xs" color="red" variant="light">
+                    Deleted
+                  </Badge>
+                )}
                 {item.tags && item.tags.length > 0 && (
                   <Badge size="xs" variant="light">
                     {item.tags.length} tag{item.tags.length !== 1 ? 's' : ''}
@@ -342,12 +392,17 @@ export function RecycleBinPage({}: RecycleBinPageProps) {
     <Container size="lg" py="md">
       <Group justify="space-between" align="center" mb="md">
         <div>
-          <Title order={2}>Recycle Bin</Title>
+          <Title order={2}>
+            {showAll ? 'View All Items' : 'Recycle Bin'}
+          </Title>
           <Text c="dimmed" size="sm">
-            Manage your deleted items
+            {showAll 
+              ? 'View and manage all your items (active and deleted)' 
+              : 'Manage your deleted items'
+            }
           </Text>
         </div>
-        {items.length > 0 && (
+        {items.length > 0 && !showAll && (
           <Button
             variant="filled"
             color="red"

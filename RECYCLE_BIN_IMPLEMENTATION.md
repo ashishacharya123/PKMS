@@ -95,6 +95,20 @@ class SoftDeleteMixin:
 - ✅ Consistent behavior across all models
 - ✅ Easy to query deleted items with `deleted_only()`
 
+**Three Query Scopes Explained**:
+
+1. **`active_only()`** - Filters `is_deleted == False` (default for normal operations)
+   - Used in: All standard list/get operations
+   - Purpose: Show only active, non-deleted items
+
+2. **`deleted_only()`** - Filters `is_deleted == True` (recycle bin)
+   - Used in: Recycle bin endpoints (`/deleted`)
+   - Purpose: Show only soft-deleted items for restoration
+
+3. **`include_deleted()`** - Returns `True` (no filter, shows ALL)
+   - Used in: Diary "View All Entries" feature (`/diary/entries/all`)
+   - Purpose: Show both active and deleted items for management/analysis
+
 ### 2. Simple Soft Delete
 
 **Pattern Applied to All CRUD Services**:
@@ -285,6 +299,9 @@ GET  /api/v1/documents/deleted             # List deleted documents
 GET  /api/v1/diary/entries/deleted         # List deleted diary entries
 GET  /api/v1/archive/items/deleted         # List deleted archive items
 
+# Diary Management (NEW)
+GET  /api/v1/diary/entries/all             # List ALL diary entries (active + deleted) for management
+
 # Restore Operations
 POST /api/v1/projects/{uuid}/restore       # Restore project
 POST /api/v1/notes/{uuid}/restore          # Restore note
@@ -296,6 +313,33 @@ POST /api/v1/archive/items/{uuid}/restore  # Restore archive item
 # Deletion Impact Analysis
 GET  /api/v1/deletion-impact/analyze/{type}/{uuid}?mode=soft|hard
 ```
+
+### 8. Diary "View All" Feature (Reuses RecycleBinPage)
+
+**NEW Feature**: "View All" button in diary that opens RecycleBinPage with `showAll=true` to show all items across all modules.
+
+**Implementation**: 
+- Reuses existing RecycleBinPage component with `showAll` parameter
+- When `showAll=true`: Shows both active and deleted items from ALL modules
+- When `showAll=false`: Shows only deleted items (standard recycle bin)
+
+**Purpose**: 
+- Allows users to see ALL items (active + deleted) across all modules in one unified interface
+- Useful for analysis, management, and understanding deletion patterns
+- Provides consistent UI experience using existing recycle bin infrastructure
+
+**Key Features**:
+- **Unified Interface**: Single page for managing all items across all modules
+- **Module Tabs**: Projects, Notes, Todos, Documents, Diary, Archive
+- **Visual Indicators**: "Deleted" badges for soft-deleted items when `showAll=true`
+- **Consistent Actions**: Restore and permanent delete work the same way
+- **No Code Duplication**: Reuses existing RecycleBinPage instead of creating separate diary-only interface
+
+**Frontend Integration**:
+- Add "View All" button in diary left sidebar
+- Opens RecycleBinPage with `showAll=true` parameter
+- Shows deleted indicators for soft-deleted entries
+- Hides "Empty Recycle Bin" button when `showAll=true`
 
 ## 🚀 Usage Guide
 

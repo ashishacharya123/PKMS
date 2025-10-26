@@ -138,6 +138,41 @@ class RecycleBinService {
   }
 
   /**
+   * Fetch ALL items (active + deleted) for management view
+   */
+  async getAllItems(): Promise<RecycleBinItem[]> {
+    try {
+      const [projects, notes, todos, documents, diary, archive] = await Promise.all([
+        this.getAllProjects(),
+        this.getAllNotes(),
+        this.getAllTodos(),
+        this.getAllDocuments(),
+        this.getAllDiaryEntries(),
+        this.getAllArchiveItems()
+      ]);
+
+      const allItems: RecycleBinItem[] = [
+        ...projects.map(item => ({ ...item, type: 'project' as const, title: item.name })),
+        ...notes.map(item => ({ ...item, type: 'note' as const, title: item.title })),
+        ...todos.map(item => ({ ...item, type: 'todo' as const, title: item.title })),
+        ...documents.map(item => ({ ...item, type: 'document' as const, title: item.title })),
+        ...diary.map(item => ({ ...item, type: 'diary' as const, title: item.title })),
+        ...archive.map(item => ({ ...item, type: 'archive' as const, title: item.name }))
+      ];
+
+      // Sort by updated date (most recent first)
+      return allItems.sort((a, b) => {
+        const dateA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const dateB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return dateB - dateA;
+      });
+    } catch (error) {
+      console.error('Error fetching all items:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Fetch deleted projects
    */
   async getDeletedProjects(): Promise<ProjectResponse[]> {
@@ -211,6 +246,87 @@ class RecycleBinService {
       return response.data;
     } catch (error) {
       console.error('Error fetching deleted archive items:', error);
+      throw error;
+    }
+  }
+
+  // ===== NEW: "All" methods for showAll=true mode =====
+
+  /**
+   * Fetch ALL projects (active + deleted) for management view
+   */
+  async getAllProjects(): Promise<ProjectResponse[]> {
+    try {
+      const response = await apiService.get<ProjectResponse[]>('/api/v1/projects');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching all projects:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch ALL notes (active + deleted) for management view
+   */
+  async getAllNotes(): Promise<NoteResponse[]> {
+    try {
+      const response = await apiService.get<NoteResponse[]>('/api/v1/notes');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching all notes:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch ALL todos (active + deleted) for management view
+   */
+  async getAllTodos(): Promise<TodoResponse[]> {
+    try {
+      const response = await apiService.get<TodoResponse[]>('/api/v1/todos');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching all todos:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch ALL documents (active + deleted) for management view
+   */
+  async getAllDocuments(): Promise<DocumentResponse[]> {
+    try {
+      const response = await apiService.get<DocumentResponse[]>('/api/v1/documents');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching all documents:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch ALL diary entries (active + deleted) for management view
+   * NOTE: Uses regular diary endpoint - RecycleBinPage handles showAll logic
+   */
+  async getAllDiaryEntries(): Promise<DiaryEntryResponse[]> {
+    try {
+      const response = await apiService.get<DiaryEntryResponse[]>('/api/v1/diary/entries');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching all diary entries:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch ALL archive items (active + deleted) for management view
+   */
+  async getAllArchiveItems(): Promise<ArchiveItemResponse[]> {
+    try {
+      const response = await apiService.get<ArchiveItemResponse[]>('/api/v1/archive/items');
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching all archive items:', error);
       throw error;
     }
   }

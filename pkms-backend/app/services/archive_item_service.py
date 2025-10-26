@@ -188,6 +188,36 @@ class ArchiveItemService:
         
         return [ItemResponse.model_validate(item) for item in items]
     
+    async def list_deleted_items(
+        self,
+        db: AsyncSession,
+        user_uuid: str,
+    ) -> List[ItemResponse]:
+        """List soft-deleted archive items for Recycle Bin."""
+        try:
+            query = select(ArchiveItem).where(
+                and_(
+                    ArchiveItem.deleted_only(),
+                    ArchiveItem.created_by == user_uuid
+                )
+            )
+            query = query.options(selectinload(ArchiveItem.tag_objs))
+            result = await db.execute(query.order_by(ArchiveItem.updated_at.desc()))
+            items = result.scalars().all()
+            
+            responses = []
+            for item in items:
+                responses.append(ItemResponse.model_validate(item))
+            
+            return responses
+            
+        except Exception as e:
+            logger.exception(f"Error listing deleted archive items for user {user_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to list deleted archive items: {str(e)}"
+            )
+    
     async def get_item(
         self, 
         db: AsyncSession, 
@@ -425,7 +455,6 @@ class ArchiveItemService:
             
             # Hard delete item record
             await db.delete(item)
-            await db.commit()
             
             logger.info(f"Archive item permanently deleted: {item_uuid}")
             
