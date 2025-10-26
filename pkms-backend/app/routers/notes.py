@@ -69,6 +69,24 @@ async def create_note(
         )
 
 
+@router.get("/deleted", response_model=List[NoteSummary])
+async def list_deleted_notes(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List all soft-deleted notes for the current user."""
+    try:
+        return await note_crud_service.list_deleted_notes(db, current_user.uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error listing deleted notes for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list deleted notes: {str(e)}"
+        )
+
+
 @router.get("/{note_uuid}", response_model=NoteResponse)
 async def get_note(
     note_uuid: str,
@@ -128,6 +146,26 @@ async def delete_note(
         )
 
 
+@router.post("/{note_uuid}/restore")
+async def restore_note(
+    note_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Restore a soft-deleted note from Recycle Bin."""
+    try:
+        await note_crud_service.restore_note(db, current_user.uuid, note_uuid)
+        return {"message": "Note restored successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error restoring note {note_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to restore note: {str(e)}"
+        )
+
+
 @router.post("/{note_uuid}/archive")
 async def archive_note(
     note_uuid: str,
@@ -145,6 +183,25 @@ async def archive_note(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to archive note: {str(e)}"
+        )
+
+@router.delete("/{note_uuid}/permanent")
+async def hard_delete_note(
+    note_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Permanently delete note (hard delete) - WARNING: Cannot be undone!"""
+    try:
+        await note_crud_service.hard_delete_note(db, current_user.uuid, note_uuid)
+        return {"message": "Note permanently deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error permanently deleting note {note_uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to permanently delete note: {str(e)}"
         )
 
 

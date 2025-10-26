@@ -35,7 +35,8 @@ from app.routers import (
     tags,
     testing_router,
     advanced_fuzzy,
-    delete_preflight,
+    deletion_impact,
+    recyclebin,
 )
 # Import refactored testing routers
 from app.testing import (
@@ -230,7 +231,8 @@ app.include_router(testing_auth.router, prefix="/api/v1")
 app.include_router(testing_system.router, prefix="/api/v1")
 app.include_router(testing_crud.router, prefix="/api/v1")
 app.include_router(advanced_fuzzy.router, prefix="/api/v1")  # Re-enabled for hybrid search
-app.include_router(delete_preflight.router, prefix="/api/v1/delete-preflight")  # Unified delete preflight
+app.include_router(deletion_impact.router, prefix="/api/v1/deletion-impact")  # Unified deletion impact analysis
+app.include_router(recyclebin.router, prefix="/api/v1/recycle-bin", tags=["recycle-bin"])  # Recycle bin operations
 
 # Add SlowAPI middleware for rate limiting
 app.add_middleware(SlowAPIMiddleware)

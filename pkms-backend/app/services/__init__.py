@@ -268,19 +268,21 @@ This module serves as:
 │     - Type-based routing for appropriate CRUD service
 │     - Unified statistics and search across item types
 │
-└── link_count_service.py
+└── association_counter_service.py
 │   PURPOSE: Cross-module association counting and statistics
 │   KEY FEATURES: Link metrics, association validation, analytics
 │   FUNCTIONS:
-│     - count_project_links(): Get total items per project
-│     - update_link_counts(): Refresh association counts
-│     - get_association_analytics(): Generate cross-module statistics
+│     - get_item_link_count(): Get total associations for any item type
+│     - get_document_link_count(): Count document associations
+│     - get_note_link_count(): Count note associations
+│     - get_todo_link_count(): Count todo associations
+│     - get_project_link_count(): Count project children
 │   IMPORTS NEEDED:
-│     from app.services.link_count_service import link_count_service
-│     counts = await link_count_service.count_project_links(db, project_uuid)
+│     from app.services.association_counter_service import association_counter_service
+│     count = await association_counter_service.get_item_link_count(db, item_type, item_uuid)
 │   USAGE:
-│     - Project dashboard statistics
-│     - Cross-module relationship visualization
+│     - Orphan detection for deletion lifecycle
+│     - Cross-module relationship validation
 │     - Data migration and cleanup operations
 
 • ── User Data & Diary Services
@@ -482,7 +484,7 @@ from . import (
     archive_folder_service,
     archive_item_service,
     archive_path_service,
-    file_validation_service,
+    file_validation,
     file_detection,
     unified_upload_service,
 
@@ -498,7 +500,6 @@ from . import (
 
     # Project Management
     project_service,
-    link_count_service,
 
     # User Data & Diary
     diary_crud_service,
@@ -509,7 +510,6 @@ from . import (
     dashboard_service,
     search_service,
     cache_invalidation_service,
-    analytics_config_service,
 
     # Utility & Supporting
     chunk_service,
@@ -536,7 +536,6 @@ __all__ = [
 
     # Project Management
     'project_service',
-    'link_count_service',
 
     # User Data & Diary
     'diary_crud_service',
@@ -547,7 +546,6 @@ __all__ = [
     'dashboard_service',
     'search_service',
     'cache_invalidation_service',
-    'analytics_config_service',
 
     # Utility & Supporting
     'chunk_service',

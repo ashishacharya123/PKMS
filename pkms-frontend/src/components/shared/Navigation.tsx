@@ -31,6 +31,7 @@ import {
   IconKey,
   IconRefresh,
   IconRotateClockwise,
+  IconTrash,
 } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
 import { dashboardService } from '../../services/dashboardService';
@@ -353,6 +354,13 @@ export function Navigation({ collapsed = false }: NavigationProps) {
               }}
             >
               Build Thumbnails
+            </Menu.Item>
+            
+            <Menu.Item
+              leftSection={<IconTrash size={14} />}
+              onClick={() => { navigate('/recyclebin'); setUserMenuOpened(false); }}
+            >
+              Recycle Bin
             </Menu.Item>
             
             <Menu.Item 

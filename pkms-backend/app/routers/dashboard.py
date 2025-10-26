@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.dashboard import DashboardStats, ModuleActivity, QuickStats
+from app.schemas.dashboard import DashboardStats, ModuleActivity, QuickStats, RecentActivityTimeline
 from app.services.dashboard_service import dashboard_service
 from app.services.unified_cache_service import get_all_cache_stats
 
@@ -62,7 +62,7 @@ async def get_dashboard_stats(
 
 @router.get("/activity", response_model=ModuleActivity)
 async def get_recent_activity(
-    days: int = 7,
+    days: int = 3,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -99,6 +99,33 @@ async def get_quick_stats(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to load quick statistics: {str(e)}"
+        )
+
+
+@router.get("/timeline", response_model=RecentActivityTimeline)
+async def get_recent_activity_timeline(
+    days: int = 3,
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get unified recent activity timeline sorted by creation time.
+    
+    Shows activities across all modules in chronological order:
+    Projects, Todos, Notes, Documents, Archive, Diary
+    
+    Args:
+        days: Number of days to look back (default 3)
+        limit: Maximum number of items to return (default 20)
+    """
+    try:
+        return await dashboard_service.get_recent_activity_timeline(db, current_user.uuid, days, limit)
+    except Exception as e:
+        logger.exception(f"Error getting activity timeline for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load activity timeline: {str(e)}"
         )
 
 

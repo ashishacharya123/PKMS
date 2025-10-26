@@ -8,14 +8,14 @@ from sqlalchemy.orm import relationship
 from uuid import uuid4
 import enum
 
-from app.models.base import Base
+from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
 from app.models.tag_associations import todo_tags, project_tags
 from app.models.associations import todo_dependencies
 from app.models.enums import TodoStatus, TodoType, TaskPriority
 
 
-class Todo(Base):
+class Todo(Base, SoftDeleteMixin):
     """Todo model for task management"""
     
     __tablename__ = "todos"
@@ -53,8 +53,7 @@ class Todo(Base):
     # Audit trail
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     
-    # Soft Delete
-    is_deleted = Column(Boolean, default=False, index=True)
+    # is_deleted now provided by SoftDeleteMixin
     
     # Composite indexes for common query patterns
     __table_args__ = (

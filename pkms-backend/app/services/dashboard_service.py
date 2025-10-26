@@ -9,7 +9,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, Final
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, select, and_
+from sqlalchemy import func, select, and_, or_
 
 from app.config import NEPAL_TZ
 from app.models.note import Note
@@ -19,8 +19,8 @@ from app.models.project import Project, ProjectStatus
 from app.models.diary import DiaryEntry
 from app.models.associations import document_diary
 from app.models.archive import ArchiveFolder, ArchiveItem
-from app.schemas.dashboard import DashboardStats, ModuleActivity, QuickStats
-from app.services.unified_cache_service import dashboard_cache
+from app.schemas.dashboard import DashboardStats, ModuleActivity, QuickStats, RecentActivityTimeline, RecentActivityItem
+from app.services.dashboard_cache_service import dashboard_cache_service
 
 CACHE_TTL_SECONDS: Final[int] = 120
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class DashboardService:
     """Service for dashboard statistics and aggregations"""
     
     def __init__(self):
-        self.cache = dashboard_cache
+        self.cache = dashboard_cache_service
     
     async def get_dashboard_stats(
         self, 
@@ -55,8 +55,8 @@ class DashboardService:
         from app.services.dashboard_stats_service import dashboard_stats_service
         
         # Get module statistics using shared service
-        notes_stats = await dashboard_stats_service.get_notes_stats(db, user_uuid, 7)
-        docs_stats = await dashboard_stats_service.get_documents_stats(db, user_uuid, 7)
+        notes_stats = await dashboard_stats_service.get_notes_stats(db, user_uuid, 3)
+        docs_stats = await dashboard_stats_service.get_documents_stats(db, user_uuid, 3)
         todos_stats = await dashboard_stats_service.get_todo_stats(db, user_uuid)
         projects_stats = await dashboard_stats_service.get_projects_stats(db, user_uuid)
         diary_stats = await dashboard_stats_service.get_diary_stats(db, user_uuid)
@@ -146,8 +146,8 @@ class DashboardService:
         from app.services.dashboard_stats_service import dashboard_stats_service
         
         # Get all module statistics using shared service
-        notes_stats = await dashboard_stats_service.get_notes_stats(db, user_uuid, 7)
-        docs_stats = await dashboard_stats_service.get_documents_stats(db, user_uuid, 7)
+        notes_stats = await dashboard_stats_service.get_notes_stats(db, user_uuid, 3)
+        docs_stats = await dashboard_stats_service.get_documents_stats(db, user_uuid, 3)
         todos_stats = await dashboard_stats_service.get_todo_stats(db, user_uuid)
         projects_stats = await dashboard_stats_service.get_projects_stats(db, user_uuid)
         diary_stats = await dashboard_stats_service.get_diary_stats(db, user_uuid)
@@ -180,6 +180,219 @@ class DashboardService:
         # Cache the result
         self.cache.set(cache_key, quick_stats, ttl_seconds=CACHE_TTL_SECONDS)
         return quick_stats
+    
+    async def get_recent_activity_timeline(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        days: int = 3, 
+        limit: int = 20
+    ) -> RecentActivityTimeline:
+        """
+        Get unified recent activity timeline sorted by creation time.
+        
+        Returns activities across all modules in chronological order:
+        Projects, Todos, Notes, Documents, Archive, Diary
+        """
+        # Check cache first
+        cache_key = f"timeline:{user_uuid}:{days}:{limit}"
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            logger.debug(f"Activity timeline cache hit for user {user_uuid}")
+            return cached
+        
+        logger.debug(f"Activity timeline cache miss for user {user_uuid}")
+        
+        cutoff = datetime.now(NEPAL_TZ) - timedelta(days=days)
+        all_activities = []
+        
+        # Get projects (both created and updated)
+        projects_result = await db.execute(
+            select(Project.uuid, Project.name, Project.description, Project.status, Project.created_at, Project.updated_at)
+            .where(
+                and_(
+                    Project.created_by == user_uuid,
+                    Project.is_deleted.is_(False),
+                    or_(Project.created_at >= cutoff, Project.updated_at >= cutoff)
+                )
+            )
+            .order_by(Project.updated_at.desc())
+            .limit(limit)
+        )
+        for row in projects_result:
+            is_updated = row.updated_at > row.created_at and row.updated_at >= cutoff
+            all_activities.append(RecentActivityItem(
+                id=row.uuid,
+                type="project",
+                title=row.name,
+                description=row.description,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                is_updated=is_updated,
+                attachment_count=None,
+                metadata={"status": row.status}
+            ))
+        
+        # Get todos (both created and updated)
+        todos_result = await db.execute(
+            select(Todo.uuid, Todo.title, Todo.description, Todo.status, Todo.priority, Todo.created_at, Todo.updated_at)
+            .where(
+                and_(
+                    Todo.created_by == user_uuid,
+                    Todo.is_deleted.is_(False),
+                    Todo.is_archived.is_(False),
+                    or_(Todo.created_at >= cutoff, Todo.updated_at >= cutoff)
+                )
+            )
+            .order_by(Todo.updated_at.desc())
+            .limit(limit)
+        )
+        for row in todos_result:
+            is_updated = row.updated_at > row.created_at and row.updated_at >= cutoff
+            all_activities.append(RecentActivityItem(
+                id=row.uuid,
+                type="todo",
+                title=row.title,
+                description=row.description,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                is_updated=is_updated,
+                attachment_count=None,
+                metadata={"status": row.status, "priority": row.priority}
+            ))
+        
+        # Get notes (both created and updated) with attachment count
+        notes_result = await db.execute(
+            select(Note.uuid, Note.title, Note.content, Note.file_count, Note.created_at, Note.updated_at)
+            .where(
+                and_(
+                    Note.created_by == user_uuid,
+                    Note.is_deleted.is_(False),
+                    Note.is_archived.is_(False),
+                    or_(Note.created_at >= cutoff, Note.updated_at >= cutoff)
+                )
+            )
+            .order_by(Note.updated_at.desc())
+            .limit(limit)
+        )
+        for row in notes_result:
+            is_updated = row.updated_at > row.created_at and row.updated_at >= cutoff
+            # Truncate content for description
+            description = row.content[:100] + "..." if row.content and len(row.content) > 100 else row.content
+            all_activities.append(RecentActivityItem(
+                id=row.uuid,
+                type="note",
+                title=row.title,
+                description=description,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                is_updated=is_updated,
+                attachment_count=row.file_count,
+                metadata=None
+            ))
+        
+        # Get documents (both created and updated)
+        docs_result = await db.execute(
+            select(Document.uuid, Document.title, Document.mime_type, Document.created_at, Document.updated_at)
+            .where(
+                and_(
+                    Document.created_by == user_uuid,
+                    Document.is_deleted.is_(False),
+                    Document.is_archived.is_(False),
+                    or_(Document.created_at >= cutoff, Document.updated_at >= cutoff)
+                )
+            )
+            .order_by(Document.updated_at.desc())
+            .limit(limit)
+        )
+        for row in docs_result:
+            is_updated = row.updated_at > row.created_at and row.updated_at >= cutoff
+            all_activities.append(RecentActivityItem(
+                id=row.uuid,
+                type="document",
+                title=row.title,
+                description=f"File type: {row.mime_type}",
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                is_updated=is_updated,
+                attachment_count=None,
+                metadata={"mime_type": row.mime_type}
+            ))
+        
+        # Get archive items (both created and updated)
+        archive_result = await db.execute(
+            select(ArchiveItem.uuid, ArchiveItem.name, ArchiveItem.item_type, ArchiveItem.created_at, ArchiveItem.updated_at)
+            .where(
+                and_(
+                    ArchiveItem.created_by == user_uuid,
+                    ArchiveItem.is_deleted.is_(False),
+                    or_(ArchiveItem.created_at >= cutoff, ArchiveItem.updated_at >= cutoff)
+                )
+            )
+            .order_by(ArchiveItem.updated_at.desc())
+            .limit(limit)
+        )
+        for row in archive_result:
+            is_updated = row.updated_at > row.created_at and row.updated_at >= cutoff
+            all_activities.append(RecentActivityItem(
+                id=row.uuid,
+                type="archive",
+                title=row.name,
+                description=f"Type: {row.item_type}",
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                is_updated=is_updated,
+                attachment_count=None,
+                metadata={"item_type": row.item_type}
+            ))
+        
+        # Get diary entries (metadata only, show count instead of title)
+        diary_result = await db.execute(
+            select(DiaryEntry.uuid, DiaryEntry.mood, DiaryEntry.weather_code, DiaryEntry.file_count, DiaryEntry.created_at, DiaryEntry.updated_at)
+            .where(
+                and_(
+                    DiaryEntry.created_by == user_uuid,
+                    DiaryEntry.is_deleted.is_(False),
+                    or_(DiaryEntry.created_at >= cutoff, DiaryEntry.updated_at >= cutoff)
+                )
+            )
+            .order_by(DiaryEntry.updated_at.desc())
+            .limit(limit)
+        )
+        for row in diary_result:
+            is_updated = row.updated_at > row.created_at and row.updated_at >= cutoff
+            # Create description from metadata
+            mood_text = f"Mood: {row.mood}/5" if row.mood else "No mood"
+            weather_text = f"Weather: {row.weather_code}" if row.weather_code else "No weather"
+            description = f"{mood_text}, {weather_text}"
+            
+            all_activities.append(RecentActivityItem(
+                id=row.uuid,
+                type="diary",
+                title="Diary Entry",  # Generic title instead of actual title
+                description=description,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                is_updated=is_updated,
+                attachment_count=row.file_count,
+                metadata={"mood": row.mood, "weather_code": row.weather_code}
+            ))
+        
+        # Sort all activities by updated_at (most recent first)
+        all_activities.sort(key=lambda x: x.updated_at or x.created_at, reverse=True)
+        
+        # Limit to requested number
+        limited_activities = all_activities[:limit]
+        
+        timeline = RecentActivityTimeline(
+            items=limited_activities,
+            total_count=len(all_activities),
+            cutoff_days=days
+        )
+        
+        # Cache the result
+        self.cache.set(cache_key, timeline, ttl_seconds=CACHE_TTL_SECONDS)
+        return timeline
     
     async def _calculate_storage(
         self, 

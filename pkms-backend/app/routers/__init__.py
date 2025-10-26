@@ -254,21 +254,18 @@ This module serves as:
 │     from app.routers.advanced_fuzzy import fuzzy_router
 │     app.include_router(fuzzy_router, prefix="/api/v1/fuzzy")
 │
-└── delete_preflight.py
-│   PURPOSE: Pre-deletion validation and dependency checking
-│   KEY FEATURES: Safety checks, dependency warnings, cascade preview
+└── deletion_impact.py
+│   PURPOSE: Deletion impact analysis and safety recommendations
+│   KEY FEATURES: Impact analysis, safety warnings, orphan detection
 │   ENDPOINTS:
-│     - POST /preflight/check-deletion: Validate item deletion impact
-│     - GET /preflight/dependencies: Get dependency tree for item
-│     - GET /preflight/cascade-preview: Preview cascade deletion effects
-│     - GET /preflight/project-impact: Check project impact of deletion
+│     - GET /analyze/{item_type}/{item_uuid}: Analyze deletion impact
 │   SAFETY:
 │     - Prevents accidental data loss
-│     - Shows impact before destructive operations
-│     - Validates dependency constraints
+│     - Shows detailed impact before destructive operations
+│     - Identifies orphaned and preserved items
 │   IMPORTS NEEDED:
-│     from app.routers.delete_preflight import preflight_router
-│     app.include_router(preflight_router, prefix="/api/v1/preflight")
+│     from app.routers.deletion_impact import deletion_impact_router
+│     app.include_router(deletion_impact_router, prefix="/api/v1/deletion-impact")
 
 ─── ROUTER DEVELOPMENT PATTERNS ───────────────────────────────────────
 1. DEPENDENCY INJECTION:
@@ -392,7 +389,7 @@ from . import (
     advanced_fuzzy_router,
 
     # Safety & Utilities
-    delete_preflight_router,
+    deletion_impact_router,
 )
 
 __all__ = [
@@ -414,5 +411,5 @@ __all__ = [
     'advanced_fuzzy_router',
 
     # Safety & Utilities
-    'delete_preflight_router',
+    'deletion_impact_router',
 ] 

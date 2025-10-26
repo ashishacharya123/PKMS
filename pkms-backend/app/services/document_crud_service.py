@@ -155,9 +155,9 @@ class DocumentCRUDService:
                 # Fetch documents by UUIDs with eager loading for tags
                 query = select(Document).options(selectinload(Document.tag_objs)).where(
                     and_(
+                        Document.active_only(),  # Auto-excludes soft-deleted
                         Document.created_by == user_uuid,
                         Document.is_archived == archived,
-                        Document.is_deleted.is_(False),  # Exclude deleted items
                         Document.uuid.in_(doc_uuids),
                         # REMOVED: is_project_exclusive and is_diary_exclusive - exclusivity now handled in association tables
                     )
@@ -196,9 +196,9 @@ class DocumentCRUDService:
                 logger.info(f"Using regular query for archived={archived}")
                 query = select(Document).options(selectinload(Document.tag_objs)).where(
                     and_(
+                        Document.active_only(),  # Auto-excludes soft-deleted
                         Document.created_by == user_uuid,
-                        Document.is_archived == archived,
-                        Document.is_deleted.is_(False)  # Exclude deleted items
+                        Document.is_archived == archived
                         # REMOVED: is_project_exclusive and is_diary_exclusive - exclusivity now handled in association tables
                     )
                 )
@@ -356,6 +356,14 @@ class DocumentCRUDService:
         if not doc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
         
+        # PRE-CHECK: Use exclusivity service
+        from app.services.document_exclusivity_service import document_exclusivity_service
+        if await document_exclusivity_service.has_exclusive_associations(db, document_uuid):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="Cannot delete. Document is exclusively owned by project/note."
+            )
+        
         # Log archive status for clarity
         if doc.is_archived:
             logger.info(f"Soft-deleting archived document {document_uuid}")
@@ -377,6 +385,87 @@ class DocumentCRUDService:
         dashboard_service.invalidate_user_cache(user_uuid, "document_deleted")
 
         logger.info(f"Document {document_uuid} soft-deleted successfully")
+
+    async def restore_document(self, db: AsyncSession, user_uuid: str, document_uuid: str):
+        """
+        Restores a soft-deleted document. SIMPLE operation.
+        All associations are still intact, just flip the flag.
+        """
+        # 1. Get soft-deleted document
+        result = await db.execute(
+            select(Document).options(selectinload(Document.tag_objs)).where(
+                and_(
+                    Document.deleted_only(),  # Only soft-deleted
+                    Document.uuid == document_uuid,
+                    Document.created_by == user_uuid
+                )
+            )
+        )
+        doc = result.scalar_one_or_none()
+        if not doc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deleted document not found")
+        
+        # 2. Flip flag
+        doc.is_deleted = False
+        doc.updated_at = datetime.now(NEPAL_TZ)
+        await db.add(doc)
+        
+        # 3. Commit
+        await db.commit()
+        
+        # 4. Re-index in search
+        await search_service.index_item(db, doc, 'document')
+        dashboard_service.invalidate_user_cache(user_uuid, "document_restored")
+        logger.info(f"Document restored: {doc.title}")
+
+    async def permanent_delete_document(self, db: AsyncSession, user_uuid: str, document_uuid: str):
+        """Permanently delete document and its file from disk."""
+        from app.services.association_counter_service import association_counter_service
+        from app.utils.safe_file_ops import safe_delete_with_db
+        
+        # Get document
+        result = await db.execute(
+            select(Document).options(selectinload(Document.tag_objs)).where(
+                and_(Document.uuid == document_uuid, Document.created_by == user_uuid)
+            )
+        )
+        doc = result.scalar_one_or_none()
+        if not doc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+        
+        # PRE-CHECK 1: Exclusivity
+        from app.services.document_exclusivity_service import document_exclusivity_service
+        if await document_exclusivity_service.has_exclusive_associations(db, document_uuid):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="Still exclusively owned. Remove associations first."
+            )
+        
+        # PRE-CHECK 2: Association count
+        link_count = await association_counter_service.get_document_link_count(db, document_uuid)
+        if link_count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail=f"Still linked to {link_count} items. Remove associations first."
+            )
+        
+        # All checks passed - purge
+        file_path = get_file_storage_dir() / doc.file_path
+        
+        # Clean up tags/search if not already soft-deleted
+        if not doc.is_deleted:
+            await tag_service.decrement_tags_on_delete(db, doc)
+            await search_service.remove_item(db, document_uuid)
+        
+        # Clean up junction tables (should be 0, but final cleanup)
+        await db.execute(delete(project_items).where(project_items.c.item_uuid == document_uuid))
+        await db.execute(delete(note_documents).where(note_documents.c.document_uuid == document_uuid))
+        await db.execute(delete(document_diary).where(document_diary.c.document_uuid == document_uuid))
+        
+        # Atomic file + DB delete (DB first, then file)
+        await safe_delete_with_db(file_path, doc, db)
+        
+        dashboard_service.invalidate_user_cache(user_uuid, "document_purged")
 
     async def download_document(
         self, db: AsyncSession, user_uuid: str, document_uuid: str

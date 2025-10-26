@@ -93,8 +93,8 @@ class ProjectService:
             # Build base query
             query = select(Project).where(
                 and_(
-                    Project.created_by == user_uuid,
-                    Project.is_deleted.is_(False)
+                    Project.active_only(),  # Auto-excludes soft-deleted
+                    Project.created_by == user_uuid
                 )
             )
             
@@ -129,6 +129,40 @@ class ProjectService:
                 detail=f"Failed to list projects: {str(e)}"
             )
 
+    async def list_deleted_projects(
+        self,
+        db: AsyncSession,
+        user_uuid: str,
+    ) -> List[ProjectResponse]:
+        """List all soft-deleted projects for the current user."""
+        try:
+            # Build query for soft-deleted projects only
+            query = select(Project).where(
+                and_(
+                    Project.deleted_only(),  # Only soft-deleted projects
+                    Project.created_by == user_uuid
+                )
+            )
+            
+            # Execute query with eager loading for tags
+            query = query.options(selectinload(Project.tag_objs))
+            result = await db.execute(query.order_by(Project.updated_at.desc()))
+            projects = result.scalars().all()
+            
+            # Build responses (no todo counts for deleted projects)
+            responses = []
+            for project in projects:
+                responses.append(self._convert_project_to_response(project, 0, 0))
+            
+            return responses
+            
+        except Exception as e:
+            logger.exception("Error listing deleted projects")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to list deleted projects: {str(e)}"
+            )
+
     async def get_project(
         self, db: AsyncSession, user_uuid: str, project_uuid: str
     ) -> ProjectResponse:
@@ -136,9 +170,9 @@ class ProjectService:
         result = await db.execute(
             select(Project).where(
                 and_(
+                    Project.active_only(),  # Auto-excludes soft-deleted
                     Project.uuid == project_uuid,
-                    Project.created_by == user_uuid,
-                    Project.is_deleted.is_(False)
+                    Project.created_by == user_uuid
                 )
             )
         )
@@ -156,9 +190,9 @@ class ProjectService:
         result = await db.execute(
             select(Project).where(
                 and_(
+                    Project.active_only(),  # Auto-excludes soft-deleted
                     Project.uuid == project_uuid,
-                    Project.created_by == user_uuid,
-                    Project.is_deleted.is_(False)
+                    Project.created_by == user_uuid
                 )
             )
         )
@@ -189,80 +223,136 @@ class ProjectService:
         todo_count, completed_count = await self._get_project_counts(db, project.uuid, user_uuid)
         return self._convert_project_to_response(project, todo_count, completed_count)
 
-    async def delete_project(self, db: AsyncSession, user_uuid: str, project_uuid: str):
-        """Delete a project with exclusive item cleanup."""
+    async def soft_delete_project(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        project_uuid: str
+    ):
+        """
+        Soft-deletes a project. SIMPLE operation - just set flag.
+        No unlinking. Associations stay intact for easy restore.
+        """
+        # 1. Get project
         result = await db.execute(
             select(Project).where(
                 and_(
+                    Project.active_only(),  # Auto-excludes soft-deleted
                     Project.uuid == project_uuid,
-                    Project.created_by == user_uuid,
-                    Project.is_deleted.is_(False)
+                    Project.created_by == user_uuid
                 )
             )
         )
         project = result.scalar_one_or_none()
         if not project:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        
+        # 2. Set flag (that's it!)
+        project.is_deleted = True
+        project.updated_at = datetime.now(NEPAL_TZ)
+        await db.add(project)
+        
+        # 3. Commit
+        await db.commit()
+        
+        # 4. Post-commit cleanup
+        await search_service.remove_item(db, project_uuid, 'project')
+        dashboard_service.invalidate_user_cache(user_uuid, "project_deleted")
+        logger.info(f"Project soft-deleted: {project.name}")
 
-        # Get all exclusive items that should be deleted with the project
-        exclusive_items_result = await db.execute(
-            select(project_items.c.item_type, project_items.c.item_uuid)
-            .where(
+    async def restore_project(self, db: AsyncSession, user_uuid: str, project_uuid: str):
+        """
+        Restores a soft-deleted project. SIMPLE operation.
+        All associations are still intact, just flip the flag.
+        """
+        # 1. Get soft-deleted project
+        result = await db.execute(
+            select(Project).where(
                 and_(
-                    project_items.c.project_uuid == project_uuid,
-                    project_items.c.is_exclusive == True
+                    Project.deleted_only(),  # Only soft-deleted
+                    Project.uuid == project_uuid,
+                    Project.created_by == user_uuid
                 )
             )
         )
-        exclusive_items = exclusive_items_result.all()
-
-        # Soft delete the project
-        project.is_deleted = True
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deleted project not found")
+        
+        # 2. Flip flag
+        project.is_deleted = False
         project.updated_at = datetime.now(NEPAL_TZ)
+        await db.add(project)
         
-        # Delete exclusive items
-        for item_type, item_uuid in exclusive_items:
-            if item_type == 'Note':
-                note_result = await db.execute(
-                    select(Note).where(Note.uuid == item_uuid)
-                )
-                note = note_result.scalar_one_or_none()
-                if note:
-                    note.is_deleted = True
-                    
-                    # Delete content file if it exists
-                    if note.content_file_path:
-                        from app.config import get_file_storage_dir
-                        full_path = get_file_storage_dir() / note.content_file_path
-                        if full_path.exists():
-                            try:
-                                full_path.unlink()
-                            except Exception as e:
-                                logger.warning(f"Could not delete note content file {full_path}: {e}")
-            elif item_type == 'Document':
-                doc_result = await db.execute(
-                    select(Document).where(Document.uuid == item_uuid)
-                )
-                doc = doc_result.scalar_one_or_none()
-                if doc:
-                    doc.is_deleted = True
-            elif item_type == 'Todo':
-                todo_result = await db.execute(
-                    select(Todo).where(Todo.uuid == item_uuid)
-                )
-                todo = todo_result.scalar_one_or_none()
-                if todo:
-                    todo.is_deleted = True
-        
+        # 3. Commit
         await db.commit()
         
-        # Remove from search index
-        await search_service.remove_item(db, project_uuid, 'project')
+        # 4. Re-index in search
+        await search_service.index_item(db, project, 'project')
+        dashboard_service.invalidate_user_cache(user_uuid, "project_restored")
+        logger.info(f"Project restored: {project.name}")
+
+    async def permanent_delete_project(self, db: AsyncSession, user_uuid: str, project_uuid: str):
+        """
+        PERMANENTLY deletes a project. This is complex and destructive.
+        1. Must be soft-deleted first
+        2. Unlinks all children
+        3. Checks each child for orphan status
+        4. Hard-deletes orphaned children
+        5. Hard-deletes the project
+        """
+        from app.services.association_counter_service import association_counter_service
         
-        # Invalidate dashboard cache
-        dashboard_service.invalidate_user_cache(user_uuid, "project_deleted")
+        # 1. Get soft-deleted project
+        project = await db.get(Project, project_uuid)
+        if not project or project.created_by != user_uuid:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        if not project.is_deleted:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Project must be soft-deleted first (move to Recycle Bin)")
         
-        logger.info(f"Project deleted: {project.name}")
+        # 2. Get all children BEFORE unlinking
+        children_result = await db.execute(
+            select(project_items.c.item_type, project_items.c.item_uuid)
+            .where(project_items.c.project_uuid == project_uuid)
+        )
+        children = children_result.all()
+        
+        # 3. Unlink all children (THIS IS THE KEY FIX)
+        await db.execute(
+            delete(project_items).where(project_items.c.project_uuid == project_uuid)
+        )
+        
+        # 4. Check each child for orphan status and hard-delete if orphan
+        for item_type, item_uuid in children:
+            try:
+                # Count remaining links AFTER unlinking
+                link_count = await association_counter_service.get_item_link_count(db, item_type, item_uuid)
+                
+                if link_count == 0:
+                    # It's an orphan - purge it
+                    logger.info(f"Purging orphan {item_type} {item_uuid}")
+                    
+                    if item_type == 'Document':
+                        from app.services.document_crud_service import document_crud_service
+                        await document_crud_service.permanent_delete_document(db, user_uuid, item_uuid)
+                    elif item_type == 'Note':
+                        from app.services.note_crud_service import note_crud_service
+                        await note_crud_service.hard_delete_note(db, user_uuid, item_uuid)
+                    elif item_type == 'Todo':
+                        from app.services.todo_crud_service import todo_crud_service
+                        await todo_crud_service.hard_delete_todo(db, user_uuid, item_uuid)
+                else:
+                    logger.info(f"Preserving shared {item_type} {item_uuid} (still has {link_count} links)")
+            except Exception as e:
+                logger.error(f"Error purging orphan {item_type} {item_uuid}: {e}")
+                # Don't let one failure break the whole operation
+        
+        # 5. Hard delete the project itself
+        await db.delete(project)
+        await db.commit()
+        
+        dashboard_service.invalidate_user_cache(user_uuid, "project_purged")
+        logger.info(f"Project permanently deleted: {project.name}")
 
     # REMOVED: duplicate_project method - moved to dedicated DuplicationService
     # All project duplication logic now handled by app.services.duplication_service
@@ -275,9 +365,9 @@ class ProjectService:
         result = await db.execute(
             select(Project).where(
                 and_(
+                    Project.active_only(),  # Auto-excludes soft-deleted
                     Project.uuid == project_uuid,
-                    Project.created_by == user_uuid,
-                    Project.is_deleted.is_(False)
+                    Project.created_by == user_uuid
                 )
             )
         )
@@ -348,9 +438,9 @@ class ProjectService:
         result = await db.execute(
             select(Project).where(
                 and_(
+                    Project.active_only(),  # Auto-excludes soft-deleted
                     Project.uuid == project_uuid,
-                    Project.created_by == user_uuid,
-                    Project.is_deleted.is_(False)
+                    Project.created_by == user_uuid
                 )
             )
         )
@@ -395,9 +485,9 @@ class ProjectService:
         result = await db.execute(
             select(Project).where(
                 and_(
+                    Project.active_only(),  # Auto-excludes soft-deleted
                     Project.uuid == project_uuid,
-                    Project.created_by == user_uuid,
-                    Project.is_deleted.is_(False)
+                    Project.created_by == user_uuid
                 )
             )
         )
@@ -480,9 +570,9 @@ class ProjectService:
         result = await db.execute(
             select(Project).where(
                 and_(
+                    Project.active_only(),  # Auto-excludes soft-deleted
                     Project.uuid == project_uuid,
-                    Project.created_by == user_uuid,
-                    Project.is_deleted.is_(False)
+                    Project.created_by == user_uuid
                 )
             )
         )
@@ -525,9 +615,9 @@ class ProjectService:
         result = await db.execute(
             select(Project).where(
                 and_(
+                    Project.active_only(),  # Auto-excludes soft-deleted
                     Project.uuid == project_uuid,
-                    Project.created_by == user_uuid,
-                    Project.is_deleted.is_(False)
+                    Project.created_by == user_uuid
                 )
             )
         )

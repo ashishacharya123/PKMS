@@ -135,6 +135,7 @@ class NotesService extends BaseService<Note, CreateNoteRequest, UpdateNoteReques
     has_files?: boolean;
     limit?: number;
     offset?: number;
+    isDeleted?: boolean;
   } = {}): Promise<NoteSummary[]> {
     // URL parameters must use snake_case (not converted by CamelCaseModel)
     const queryParams = new URLSearchParams();
@@ -146,6 +147,7 @@ class NotesService extends BaseService<Note, CreateNoteRequest, UpdateNoteReques
     if (params.has_files !== undefined) queryParams.append('has_files', String(params.has_files));
     if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
     if (params.offset !== undefined) queryParams.append('offset', params.offset.toString());
+    if (params.isDeleted !== undefined) queryParams.append('is_deleted', String(params.isDeleted));
 
     const url = `/notes/${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
     const response = await apiService.get<NoteSummary[]>(url);

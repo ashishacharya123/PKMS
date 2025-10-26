@@ -12,13 +12,13 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
-from app.models.base import Base
+from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
 from app.models.tag_associations import diary_entry_tags
 from app.models.associations import document_diary
 
 
-class DiaryEntry(Base):
+class DiaryEntry(Base, SoftDeleteMixin):
     """
     Diary entry model for personal journaling with mood tracking and metadata.
     Stores journal content, mood ratings, and relationships to tags/documents.
@@ -45,7 +45,7 @@ class DiaryEntry(Base):
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     
-    is_deleted = Column(Boolean, default=False, index=True)
+    # is_deleted now provided by SoftDeleteMixin
     
     # Composite indexes for common query patterns
     __table_args__ = (

@@ -95,7 +95,7 @@ class DashboardStatsService:
         }
     
     @staticmethod
-    async def get_notes_stats(db: AsyncSession, created_by: str, recent_days: int = 7) -> Dict[str, int]:
+    async def get_notes_stats(db: AsyncSession, created_by: str, recent_days: int = 3) -> Dict[str, int]:
         """Get notes statistics"""
         recent_cutoff = datetime.now(NEPAL_TZ) - timedelta(days=recent_days)
         
@@ -126,7 +126,7 @@ class DashboardStatsService:
         }
     
     @staticmethod
-    async def get_documents_stats(db: AsyncSession, created_by: str, recent_days: int = 7) -> Dict[str, int]:
+    async def get_documents_stats(db: AsyncSession, created_by: str, recent_days: int = 3) -> Dict[str, int]:
         """Get documents statistics"""
         recent_cutoff = datetime.now(NEPAL_TZ) - timedelta(days=recent_days)
         
@@ -221,7 +221,7 @@ class DashboardStatsService:
         }
     
     @staticmethod
-    async def get_recent_activity_stats(db: AsyncSession, created_by: str, days: int = 7) -> Dict[str, int]:
+    async def get_recent_activity_stats(db: AsyncSession, created_by: str, days: int = 3) -> Dict[str, int]:
         """
         Get recent activity statistics across all modules using optimized queries.
         

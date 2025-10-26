@@ -412,6 +412,56 @@ async def delete_diary_entry(
         )
 
 
+@router.post("/entries/{entry_ref}/restore")
+async def restore_diary_entry(
+    entry_ref: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Restore a soft-deleted diary entry from Recycle Bin."""
+    try:
+        await diary_crud_service.restore_entry(
+            db=db,
+            user_uuid=current_user.uuid,
+            entry_ref=entry_ref
+        )
+        return {"message": "Diary entry restored successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error restoring diary entry for user {current_user.uuid}: {type(e).__name__}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to restore diary entry"
+        )
+
+
+@router.delete("/entries/{entry_ref}/permanent")
+async def permanent_delete_diary_entry(
+    entry_ref: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Permanently delete diary entry (hard delete) - WARNING: Cannot be undone!"""
+    try:
+        await diary_crud_service.hard_delete_diary_entry(
+            db=db,
+            user_uuid=current_user.uuid,
+            entry_uuid=entry_ref
+        )
+        return {"message": "Diary entry permanently deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error permanently deleting diary entry for user {current_user.uuid}: {type(e).__name__}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to permanently delete diary entry"
+        )
+
+
 # --- File Operations ---
 
 # Old diary file endpoints removed - using Document + document_diary association instead

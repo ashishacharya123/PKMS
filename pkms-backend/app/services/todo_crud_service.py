@@ -63,9 +63,9 @@ class TodoCRUDService:
                 projects_result = await db.execute(
                     select(Project).where(
                         and_(
+                            Project.active_only(),  # Auto-excludes soft-deleted
                             Project.uuid.in_(project_uuids),
-                            Project.created_by == user_uuid,
-                            Project.is_deleted.is_(False)
+                            Project.created_by == user_uuid
                         )
                     )
                 )
@@ -431,8 +431,8 @@ class TodoCRUDService:
                 subtask_count_result = await db.execute(
                     select(func.count(Todo.uuid)).where(
                         and_(
-                            Todo.parent_uuid == todo_uuid,
-                            Todo.is_deleted.is_(False)
+                            Todo.active_only(),  # Auto-excludes soft-deleted
+                            Todo.parent_uuid == todo_uuid
                         )
                     )
                 )
@@ -488,6 +488,104 @@ class TodoCRUDService:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to delete todo: {str(e)}"
+            )
+
+    async def restore_todo(self, db: AsyncSession, user_uuid: str, todo_uuid: str):
+        """
+        Restores a soft-deleted todo. SIMPLE operation.
+        All associations are still intact, just flip the flag.
+        """
+        # 1. Get soft-deleted todo
+        result = await db.execute(
+            select(Todo).where(
+                and_(
+                    Todo.deleted_only(),  # Only soft-deleted
+                    Todo.uuid == todo_uuid,
+                    Todo.created_by == user_uuid
+                )
+            )
+        )
+        todo = result.scalar_one_or_none()
+        if not todo:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deleted todo not found")
+        
+        # 2. Flip flag
+        todo.is_deleted = False
+        todo.updated_at = datetime.now(NEPAL_TZ)
+        await db.add(todo)
+        
+        # 3. Commit
+        await db.commit()
+        
+        # 4. Re-index in search
+        await search_service.index_item(db, todo, 'todo')
+        dashboard_service.invalidate_user_cache(user_uuid, "todo_restored")
+        logger.info(f"Todo restored: {todo.title}")
+
+    async def hard_delete_todo(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        todo_uuid: str
+    ) -> None:
+        """Permanently delete todo (hard delete) - WARNING: Cannot be undone!"""
+        try:
+            # Check link count
+            from app.services.association_counter_service import association_counter_service
+            link_count = await association_counter_service.get_todo_link_count(db, todo_uuid)
+            if link_count > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, 
+                    detail=f"Todo still linked to {link_count} projects"
+                )
+            
+            result = await db.execute(
+                select(Todo).where(
+                    and_(Todo.uuid == todo_uuid, Todo.created_by == user_uuid, Todo.is_deleted.is_(True))
+                )
+            )
+            todo = result.scalar_one_or_none()
+            
+            if not todo:
+                raise HTTPException(status_code=404, detail="Deleted todo not found")
+            
+            # Delete all subtasks first (cascade delete)
+            subtasks_result = await db.execute(
+                select(Todo).where(
+                    and_(
+                        Todo.parent_uuid == todo_uuid,
+                        Todo.created_by == user_uuid
+                    )
+                )
+            )
+            subtasks = subtasks_result.scalars().all()
+            
+            for subtask in subtasks:
+                # Remove subtask from search index
+                await search_service.remove_item(db, subtask.uuid, 'todo')
+                # Delete subtask record
+                await db.delete(subtask)
+                logger.info(f"Deleted subtask '{subtask.title}' (parent: {todo.title})")
+            
+            # Remove from search index
+            await search_service.remove_item(db, todo_uuid, 'todo')
+            
+            # Hard delete main todo record
+            await db.delete(todo)
+            
+            await db.commit()
+            
+            # Invalidate dashboard cache
+            dashboard_service.invalidate_user_cache(user_uuid, "todo_hard_deleted")
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.exception(f"Error hard deleting todo {todo_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to hard delete todo: {str(e)}"
             )
     
     async def update_todo_status(

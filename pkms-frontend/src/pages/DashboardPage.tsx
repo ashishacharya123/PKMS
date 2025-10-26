@@ -37,10 +37,11 @@ import {
   IconChevronRight
 } from '@tabler/icons-react';
 import { useAuthStore } from '../stores/authStore';
-import { dashboardService, type DashboardStats, type QuickStats } from '../services/dashboardService';
+import { dashboardService, type DashboardStats, type QuickStats, type RecentActivityTimeline } from '../services/dashboardService';
 import MainDashboard from '../components/dashboard/MainDashboard';
 import { todosService, type LegacyProject } from '../services/todosService';
 import { StorageBreakdownCard } from '../components/dashboard/StorageBreakdownCard';
+import { ActivityTimeline } from '../components/dashboard/ActivityTimeline';
 
 // Update interfaces to match backend response
 interface ModuleStats {
@@ -269,6 +270,7 @@ export function DashboardPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quick, setQuick] = useState<QuickStats | null>(null);
+  const [activityTimeline, setActivityTimeline] = useState<RecentActivityTimeline | null>(null);
 
   useAuthenticatedEffect(() => {
     // Pre-cache Nepali dates for dashboard (past 7 + today + next 3 days)
@@ -295,13 +297,15 @@ export function DashboardPage() {
     
     try {
       console.log('[Dashboard] Loading dashboard data…');
-      const [dashboardStats, quickStats] = await Promise.all([
+      const [dashboardStats, quickStats, timeline] = await Promise.all([
         dashboardService.getMainDashboardData(),
-        dashboardService.getQuickStats()
+        dashboardService.getQuickStats(),
+        dashboardService.getRecentActivityTimeline(3, 20)
       ]);
       console.log('[Dashboard] Stats received:', dashboardStats);
       setStats(dashboardStats);
       setQuick(quickStats);
+      setActivityTimeline(timeline);
     } catch (err) {
       setError('Failed to load dashboard data');
       console.error('Dashboard load error:', err);
@@ -753,110 +757,24 @@ function OldDashboardPage() {
           </div>
         )}
 
-        {/* Recent Updates */}
+        {/* Recent Activity Timeline */}
         <div>
-          <Text fw={600} size="lg" mb="md">Recent Updates</Text>
-          <Card padding="lg" radius="md" withBorder>
-            <Stack gap="md">
-              {stats && (
-                <>
-                  {(stats?.notes?.recent || 0) > 0 && (
-                    <Group justify="space-between" wrap="nowrap">
-                      <Group gap="sm">
-                        <ThemeIcon size="sm" variant="light" color="blue">
-                          <IconNotes size={14} />
-                        </ThemeIcon>
-                        <Text size="sm">Recent notes created</Text>
-                      </Group>
-                      <Badge variant="light" color="blue" size="sm">
-                        {stats?.notes?.recent || 0} in last 7 days
-                      </Badge>
-                    </Group>
-                  )}
-                  
-                  {(stats?.documents?.recent || 0) > 0 && (
-                    <Group justify="space-between" wrap="nowrap">
-                      <Group gap="sm">
-                        <ThemeIcon size="sm" variant="light" color="green">
-                          <IconFiles size={14} />
-                        </ThemeIcon>
-                        <Text size="sm">Documents uploaded</Text>
-                      </Group>
-                      <Badge variant="light" color="green" size="sm">
-                        {stats?.documents?.recent || 0} in last 7 days
-                      </Badge>
-                    </Group>
-                  )}
-                  
-                  {(stats?.todos?.pending || 0) > 0 && (
-                    <Group justify="space-between" wrap="nowrap">
-                      <Group gap="sm">
-                        <ThemeIcon size="sm" variant="light" color="orange">
-                          <IconChecklist size={14} />
-                        </ThemeIcon>
-                        <Text size="sm">Pending todos</Text>
-                      </Group>
-                      <Badge variant="light" color="orange" size="sm">
-                        {stats?.todos?.pending || 0} tasks
-                      </Badge>
-                    </Group>
-                  )}
-                  
-                  {(stats?.diary?.streak || 0) > 0 && (
-                    <Group justify="space-between" wrap="nowrap">
-                      <Group gap="sm">
-                        <ThemeIcon size="sm" variant="light" color="purple">
-                          <IconBook size={14} />
-                        </ThemeIcon>
-                        <Text size="sm">Diary writing streak</Text>
-                      </Group>
-                      <Badge variant="light" color="purple" size="sm">
-                        {stats?.diary?.streak || 0} days
-                      </Badge>
-                    </Group>
-                  )}
-                  
-                  {(stats?.archive?.items || 0) > 0 && (
-                    <Group justify="space-between" wrap="nowrap">
-                      <Group gap="sm">
-                        <ThemeIcon size="sm" variant="light" color="indigo">
-                          <IconArchive size={14} />
-                        </ThemeIcon>
-                        <Text size="sm">Archive items organized</Text>
-                      </Group>
-                      <Badge variant="light" color="indigo" size="sm">
-                        {stats?.archive?.items || 0} items
-                      </Badge>
-                    </Group>
-                  )}
-                  
-                  {/* Safe check for empty state */}
-                  {(stats?.notes?.recent || 0) === 0 && 
-                   (stats?.documents?.recent || 0) === 0 && 
-                   (stats?.todos?.pending || 0) === 0 && 
-                   (stats?.diary?.streak || 0) === 0 && 
-                   (stats?.archive?.items || 0) === 0 && (
-                    <Group justify="center" py="xl">
-                      <Stack align="center" gap="xs">
-                        <ThemeIcon size="lg" variant="light" color="gray">
-                          <IconTrendingUp size={24} />
-                        </ThemeIcon>
-                        <Text size="sm" c="dimmed" ta="center">
-                          Start using PKMS to see your recent activity here
-                        </Text>
-                      </Stack>
-                    </Group>
-                  )}
-                </>
-              )}
-              
-              {!stats && (
-                <Group justify="center" py="xl">
-                  <Skeleton height={20} width="60%" />
-                </Group>
-              )}
-            </Stack>
-          </Card>
+          <Text fw={600} size="lg" mb="md">Recent Activity</Text>
+          {activityTimeline ? (
+            <ActivityTimeline 
+              items={activityTimeline.items}
+              totalCount={activityTimeline.totalCount}
+              cutoffDays={activityTimeline.cutoffDays}
+            />
+          ) : (
+            <Card withBorder>
+              <Stack align="center" py="xl">
+                <Skeleton height={20} width="60%" />
+                <Skeleton height={16} width="40%" />
+                <Skeleton height={16} width="30%" />
+              </Stack>
+            </Card>
+          )}
         </div>
       </Stack>
     </Container>

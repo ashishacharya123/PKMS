@@ -9,14 +9,14 @@ from sqlalchemy.orm import relationship
 from uuid import uuid4
 from datetime import datetime, date
 
-from app.models.base import Base
+from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
 from app.models.enums import ProjectStatus, TodoStatus, TaskPriority
 from app.models.tag_associations import project_tags
 from app.models.associations import project_items
 
 
-class Project(Base):
+class Project(Base, SoftDeleteMixin):
     """Project model for organizing todos, documents, and notes"""
 
     __tablename__ = "projects"
@@ -36,7 +36,7 @@ class Project(Base):
     priority = Column(Enum(TaskPriority), default=TaskPriority.MEDIUM, nullable=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
-    is_deleted = Column(Boolean, default=False, index=True)
+    # is_deleted now provided by SoftDeleteMixin
     progress_percentage = Column(Integer, default=0)  # Auto-calculated from todos or manual override
 
     # Timeline

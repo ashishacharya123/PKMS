@@ -350,6 +350,49 @@ async def delete_item(
         )
 
 
+@router.post("/items/{item_uuid}/restore")
+async def restore_item(
+    item_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Restore a soft-deleted archive item from Recycle Bin."""
+    try:
+        await archive_item_service.restore_item(db, current_user.uuid, item_uuid)
+        await db.commit()
+        return {"message": "Item restored successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error restoring item %s", item_uuid)
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to restore item: {str(e)}"
+        )
+
+
+@router.delete("/items/{item_uuid}/permanent")
+async def permanent_delete_item(
+    item_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Permanently delete archive item (hard delete) - WARNING: Cannot be undone!"""
+    try:
+        await archive_item_service.hard_delete_archive_item(db, current_user.uuid, item_uuid)
+        return {"message": "Archive item permanently deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error permanently deleting archive item %s", item_uuid)
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to permanently delete archive item: {str(e)}"
+        )
+
+
 @router.get("/search", response_model=List[ItemSummary])
 async def search_items(
     q: str = Query(..., description="Search query"),

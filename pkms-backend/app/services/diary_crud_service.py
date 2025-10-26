@@ -460,9 +460,9 @@ class DiaryCRUDService:
             select(DiaryEntry)
             .where(
                 and_(
+                    DiaryEntry.active_only(),  # Auto-excludes soft-deleted
                     DiaryEntry.created_by == user_uuid,
-                    func.date(DiaryEntry.date) == entry_date,
-                    DiaryEntry.is_deleted.is_(False)
+                    func.date(DiaryEntry.date) == entry_date
                 )
             )
             .order_by(DiaryEntry.created_at.desc())
@@ -558,9 +558,9 @@ class DiaryCRUDService:
         # Query by UUID
         query = select(DiaryEntry).where(
             and_(
+                DiaryEntry.active_only(),  # Auto-excludes soft-deleted
                 DiaryEntry.uuid == entry_ref,
-                DiaryEntry.created_by == user_uuid,
-                DiaryEntry.is_deleted.is_(False)
+                DiaryEntry.created_by == user_uuid
             )
         )
         
@@ -659,9 +659,9 @@ class DiaryCRUDService:
         # Query by UUID
         query = select(DiaryEntry).where(
             and_(
+                DiaryEntry.active_only(),  # Auto-excludes soft-deleted
                 DiaryEntry.uuid == entry_ref,
-                DiaryEntry.created_by == user_uuid,
-                DiaryEntry.is_deleted.is_(False)
+                DiaryEntry.created_by == user_uuid
             )
         )
         
@@ -733,9 +733,9 @@ class DiaryCRUDService:
         # Get existing entry
         query = select(DiaryEntry).where(
             and_(
+                DiaryEntry.active_only(),  # Auto-excludes soft-deleted
                 DiaryEntry.uuid == entry_ref,
-                DiaryEntry.created_by == user_uuid,
-                DiaryEntry.is_deleted.is_(False)
+                DiaryEntry.created_by == user_uuid
             )
         )
         
@@ -842,9 +842,9 @@ class DiaryCRUDService:
         # Get existing entry
         query = select(DiaryEntry).where(
             and_(
+                DiaryEntry.active_only(),  # Auto-excludes soft-deleted
                 DiaryEntry.uuid == entry_ref,
-                DiaryEntry.created_by == user_uuid,
-                DiaryEntry.is_deleted.is_(False)
+                DiaryEntry.created_by == user_uuid
             )
         )
         
@@ -863,6 +863,135 @@ class DiaryCRUDService:
         # Remove from search index
         await search_service.remove_item(db, entry.uuid)
         await db.commit()
+
+    @staticmethod
+    async def restore_entry(
+        db: AsyncSession,
+        user_uuid: str,
+        entry_ref: str
+    ) -> None:
+        """
+        Restore a soft-deleted diary entry. SIMPLE operation.
+        All associations are still intact, just flip the flag.
+        """
+        # 1. Get soft-deleted entry
+        query = select(DiaryEntry).where(
+            and_(
+                DiaryEntry.deleted_only(),  # Only soft-deleted
+                DiaryEntry.uuid == entry_ref,
+                DiaryEntry.created_by == user_uuid
+            )
+        )
+        
+        result = await db.execute(query)
+        entry = result.scalar_one_or_none()
+        
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Deleted diary entry not found: {entry_ref}")
+        
+        # 2. Flip flag
+        entry.is_deleted = False
+        entry.updated_at = datetime.now(NEPAL_TZ)
+        await db.add(entry)
+        
+        # 3. Commit
+        await db.commit()
+        
+        # 4. Re-index in search
+        await search_service.index_item(db, entry, 'diary')
+        dashboard_service.invalidate_user_cache(user_uuid, "diary_restored")
+        logger.info(f"Diary entry restored: {entry.title}")
+
+    async def hard_delete_diary_entry(
+        self,
+        db: AsyncSession,
+        user_uuid: str,
+        entry_uuid: str
+    ) -> None:
+        """Permanently delete diary entry (hard delete) - WARNING: Cannot be undone!"""
+        try:
+            # Get entry
+            result = await db.execute(
+                select(DiaryEntry).where(
+                    and_(
+                        DiaryEntry.uuid == entry_uuid,
+                        DiaryEntry.created_by == user_uuid,
+                        DiaryEntry.is_deleted.is_(True)
+                    )
+                )
+            )
+            entry = result.scalar_one_or_none()
+            
+            if not entry:
+                raise HTTPException(status_code=404, detail="Deleted diary entry not found")
+            
+            # Handle associated documents with exclusivity check
+            from app.models.associations import document_diary
+            from app.models.document import Document
+            
+            # Get all documents associated with this diary entry
+            associated_docs_result = await db.execute(
+                select(Document.uuid, Document.file_path, Document.is_exclusive)
+                .join(document_diary, Document.uuid == document_diary.c.document_uuid)
+                .where(document_diary.c.diary_uuid == entry_uuid)
+            )
+            associated_docs = associated_docs_result.fetchall()
+            
+            # Remove diary-document associations
+            await db.execute(
+                delete(document_diary).where(document_diary.c.diary_uuid == entry_uuid)
+            )
+            
+            # Handle each associated document
+            for doc_uuid, doc_file_path, is_exclusive in associated_docs:
+                if is_exclusive:
+                    # Document is exclusive to this diary entry - safe to delete
+                    if doc_file_path:
+                        full_path = get_file_storage_dir() / doc_file_path
+                        if full_path.exists():
+                            try:
+                                full_path.unlink()
+                                logger.info(f"Deleted exclusive document file: {full_path}")
+                            except Exception as e:
+                                logger.warning(f"Could not delete document file {full_path}: {e}")
+                    
+                    # Delete document record
+                    await db.execute(
+                        delete(Document).where(Document.uuid == doc_uuid)
+                    )
+                else:
+                    # Document is shared - just remove association
+                    logger.info(f"Document {doc_uuid} is shared, keeping file and record")
+            
+            # Delete content file if it exists
+            if entry.content_file_path:
+                full_path = get_file_storage_dir() / entry.content_file_path
+                if full_path.exists():
+                    try:
+                        full_path.unlink()
+                        logger.info(f"Deleted diary content file: {full_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not delete diary content file {full_path}: {e}")
+            
+            # Remove from search index
+            await search_service.remove_item(db, entry_uuid)
+            
+            # Hard delete diary entry record
+            await db.delete(entry)
+            
+            await db.commit()
+            
+            logger.info(f"Diary entry permanently deleted: {entry_uuid}")
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.exception(f"Error hard deleting diary entry {entry_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to hard delete diary entry: {str(e)}"
+            )
 
     # Habit tracking methods - integrating with diary workflow
     @staticmethod

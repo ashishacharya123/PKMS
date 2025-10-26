@@ -136,6 +136,44 @@ async def delete_todo(
             detail="Failed to delete todo"
         )
 
+@router.post("/{todo_uuid}/restore")
+async def restore_todo(
+    todo_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Restore a soft-deleted todo from Recycle Bin."""
+    try:
+        await todo_crud_service.restore_todo(db, current_user.uuid, todo_uuid)
+        return {"message": "Todo restored successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error restoring todo %s", todo_uuid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to restore todo"
+        )
+
+@router.delete("/{todo_uuid}/permanent")
+async def hard_delete_todo(
+    todo_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Permanently delete todo (hard delete) - WARNING: Cannot be undone!"""
+    try:
+        await todo_crud_service.hard_delete_todo(db, current_user.uuid, todo_uuid)
+        return {"message": "Todo permanently deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error permanently deleting todo %s", todo_uuid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to permanently delete todo"
+        )
+
 
 @router.patch("/{todo_uuid}/status", response_model=TodoResponse)
 async def update_todo_status(
