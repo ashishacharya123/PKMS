@@ -26,6 +26,8 @@ class Note(Base, SoftDeleteMixin):
     size_bytes = Column(BigInteger, default=0, nullable=False)  # Calculated on the fly and stored for analytics
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
+    is_template = Column(Boolean, default=False, index=True)  # Template flag for reusable notes
+    from_template_id = Column(String(36), nullable=True, index=True)  # Source template UUID/ID
     # REMOVED: is_project_exclusive - exclusivity now handled in project_items association table
     # Ownership
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
@@ -50,6 +52,7 @@ class Note(Base, SoftDeleteMixin):
         Index('ix_note_user_archived', 'created_by', 'is_archived'),
         Index('ix_note_user_created_desc', 'created_by', 'created_at'),
         Index('ix_note_user_favorite', 'created_by', 'is_favorite'),
+        Index('ix_note_user_template', 'created_by', 'is_template'),
         Index('ix_note_user_deleted', 'created_by', 'is_deleted'),
     )
     thumbnail_path = Column(String(500), nullable=True)  # Path to note thumbnail (if applicable)

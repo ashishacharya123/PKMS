@@ -29,5 +29,9 @@ export { QuickActions } from './QuickActions';
 export { DuplicationModal } from './DuplicationModal';
 export { ImageViewer } from './ImageViewer';
 
+// Content Components
+export { ContentEditor } from './ContentEditor';
+export { ContentViewer } from './ContentViewer';
+
 // View Mode Layouts
 export { default as ViewModeLayouts } from './ViewModeLayouts';

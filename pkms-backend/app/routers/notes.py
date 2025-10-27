@@ -29,6 +29,8 @@ async def list_notes(
     search: Optional[str] = Query(None, description="Search term for note content"),
     tags: Optional[List[str]] = Query(None, description="Filter by tag names"),
     is_favorite: Optional[bool] = Query(None, description="Filter by favorite status"),
+    is_template: Optional[bool] = Query(None, description="Filter by template status"),
+    template_uuid: Optional[str] = Query(None, description="Filter notes created from specific template UUID"),
     project_uuid: Optional[str] = Query(None, description="Filter by project UUID"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of notes to return"),
     offset: int = Query(0, ge=0, description="Number of notes to skip"),
@@ -38,7 +40,7 @@ async def list_notes(
     """List notes with filters and pagination"""
     try:
         return await note_crud_service.list_notes(
-            db, current_user.uuid, search, tags, is_favorite, project_uuid, limit, offset
+            db, current_user.uuid, search, tags, is_favorite, is_template, template_uuid, project_uuid, limit, offset
         )
     except HTTPException:
         raise
@@ -47,6 +49,83 @@ async def list_notes(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list notes: {str(e)}"
+        )
+
+
+@router.post("/{note_uuid}/create-from-template")
+async def create_note_from_template(
+    note_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a new note from an existing template"""
+    try:
+        # Get the template note
+        template_note = await note_crud_service.get_note(db, note_uuid, current_user.uuid)
+        if not template_note:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Template note not found"
+            )
+        
+        if not template_note.is_template:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Note is not a template"
+            )
+        
+        # Create new note from template
+        new_note_data = NoteCreate(
+            title=template_note.title,
+            content=template_note.content,
+            description=template_note.description,
+            tags=template_note.tags,
+            is_template=False,
+            from_template_id=note_uuid
+        )
+        
+        return await note_crud_service.create_note(db, new_note_data, current_user.uuid)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error creating note from template {note_uuid} for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create note from template"
+        )
+
+
+@router.post("/{note_uuid}/save-as-template")
+async def save_note_as_template(
+    note_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Save an existing note as a template"""
+    try:
+        # Get the note
+        note = await note_crud_service.get_note(db, note_uuid, current_user.uuid)
+        if not note:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Note not found"
+            )
+        
+        # Update note to be a template
+        await note_crud_service.update_note(
+            db, note_uuid, current_user.uuid, NoteUpdate(is_template=True)
+        )
+        
+        return {"message": "Note saved as template successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error saving note {note_uuid} as template for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save note as template"
         )
 
 

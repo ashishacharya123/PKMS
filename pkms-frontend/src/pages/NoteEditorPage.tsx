@@ -446,6 +446,9 @@ export function NoteEditorPage() {
                 entityId={currentNote?.uuid || ''}
                 files={noteFiles as any}
                 onFilesUpdate={setNoteFiles as any}
+                showUpload={true}
+                showAudioRecorder={true}
+                enableDragDrop={true}
               />
 
               {/* Preview */}

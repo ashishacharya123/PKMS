@@ -34,10 +34,9 @@ class DiaryEntry(Base, SoftDeleteMixin):
     location = Column(String(100), nullable=True)
     file_count = Column(Integer, nullable=False, default=0)  # Count of associated files (documents)
     content_length = Column(Integer, nullable=False, default=0)
-    content_file_path = Column(String(500), nullable=True)
-    file_hash = Column(String(128), nullable=True)
-    encryption_tag = Column(String(255), nullable=True)
-    encryption_iv = Column(String(255), nullable=True)
+    # content_file_path, file_hash removed - now stored via Document service
+    encryption_tag = Column(String(255), nullable=True)  # For main content document
+    encryption_iv = Column(String(255), nullable=True)   # For main content document
     is_favorite = Column(Boolean, default=False, index=True)
     is_template = Column(Boolean, default=False, index=True)  # Template flag for reusable entries
     from_template_id = Column(String(36), nullable=True, index=True)  # Source template UUID/ID

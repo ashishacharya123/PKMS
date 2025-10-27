@@ -218,7 +218,7 @@ app.include_router(backup.router, prefix="/api/v1/backup")
 app.include_router(tags.router, prefix="/api/v1/tags")
 app.include_router(unified_uploads.router)
 # Include testing routers
-app.include_router(testing_router, prefix="/api/v1/testing")
+app.include_router(testing_router.router, prefix="/api/v1/testing")
 app.include_router(testing_database.router, prefix="/api/v1")
 app.include_router(testing_database_enhanced.router, prefix="/api/v1")  # Enhanced database testing
 app.include_router(testing_auth.router, prefix="/api/v1")

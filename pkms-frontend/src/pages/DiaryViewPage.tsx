@@ -3,6 +3,8 @@ import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Container, Stack, Group, Button, Title, Text, Badge, Card, Skeleton, Alert, Paper, Image } from '@mantine/core';
 import { IconEdit, IconArrowLeft, IconTrash, IconAlertTriangle, IconLock } from '@tabler/icons-react';
+import { UnifiedFileSection } from '../components/file/UnifiedFileSection';
+import { UnifiedFileItem } from '../services/unifiedFileService';
 import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
 import MDEditor from '@uiw/react-md-editor';
@@ -17,6 +19,7 @@ export default function DiaryViewPage() {
   const [decryptedContent, setDecryptedContent] = useState<string>('');
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [diaryFiles, setDiaryFiles] = useState<UnifiedFileItem[]>([]);
 
   // Track when user is on diary page for session management
   useEffect(() => {
@@ -34,6 +37,8 @@ export default function DiaryViewPage() {
       store.loadEntries();
     }
   }, []);
+
+  // Files are loaded by <UnifiedFileSection>; it will call onFilesUpdate(setDiaryFiles)
 
   const entry = useMemo(() => {
     return store.entries.find((e) => e.uuid === id);
@@ -180,6 +185,17 @@ export default function DiaryViewPage() {
             </Paper>
           )}
         </Card>
+
+        {/* Files Section */}
+        <UnifiedFileSection
+          module="diary"
+          entityId={id || ''}
+          files={diaryFiles}
+          onFilesUpdate={setDiaryFiles}
+          showUpload={true}
+          showAudioRecorder={true}
+          enableDragDrop={true}
+        />
       </Stack>
     </Container>
   );

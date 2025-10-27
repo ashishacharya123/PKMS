@@ -110,10 +110,8 @@
  *      - FileList.tsx: File list with sorting/filtering
  *      - FileSection.tsx: Organized file display by category
  *      - FilePreviewCard.tsx: Card component for file previews
- *      - AudioRecorder.tsx: Audio recording functionality
- *      - FileUpload_unused.tsx: Legacy upload (DEPRECATED)
  *    Exports: FileUploadZone, FileUploadModal, FileList, FileSection,
- *             FilePreviewCard, AudioRecorder
+ *             FilePreviewCard
  *    Usage: import { FileUploadZone, FileUploadModal } from '../components'
  *    Dependencies: HTML5 File API, coreUploadService, audio recording
  *
@@ -285,7 +283,6 @@
  *
  * TODO: Remove deprecated components:
  * - /calendar/UnifiedCalendar_unused.tsx (unused legacy calendar)
- * - /file/FileUpload_unused.tsx (replaced by FileUploadZone)
  *
  * TODO: Improve component consistency:
  * - Ensure all modals follow consistent close/confirm patterns
@@ -337,7 +334,6 @@ export { default as EncryptionStatus } from './diary/EncryptionStatus';
 export { default as FileUploadZone } from './file/FileUploadZone';
 export { default as FileUploadModal } from './file/FileUploadModal';
 export { UnifiedFileList } from './file/UnifiedFileList';
-export { default as AudioRecorder } from './file/AudioRecorder';
 
 // Notes Components
 export { default as NoteEditor } from './notes/NoteEditor';
@@ -390,7 +386,6 @@ export const ComponentsRegistry = {
     FileUploadZone: 'Drag-drop file upload area',
     FileUploadModal: 'Multi-file upload modal',
     FileList: 'File list with sorting and filtering',
-    AudioRecorder: 'Audio recording functionality'
   },
   notes: {
     NoteEditor: 'Rich text note editor',

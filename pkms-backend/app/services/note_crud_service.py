@@ -159,6 +159,8 @@ class NoteCRUDService:
         search: Optional[str] = None,
         tags: Optional[List[str]] = None,
         is_favorite: Optional[bool] = None,
+        is_template: Optional[bool] = None,
+        template_uuid: Optional[str] = None,
         project_uuid: Optional[str] = None,
         limit: int = 50,
         offset: int = 0
@@ -176,6 +178,13 @@ class NoteCRUDService:
             
             if is_favorite is not None:
                 cond = and_(cond, Note.is_favorite == is_favorite)
+            
+            # Template filtering
+            if is_template is not None:
+                cond = and_(cond, Note.is_template == is_template)
+            
+            if template_uuid:
+                cond = and_(cond, Note.from_template_id == template_uuid)
             
             if project_uuid:
                 # Join with project_items to filter by project

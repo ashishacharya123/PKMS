@@ -44,19 +44,218 @@ class DiaryCRUDService:
     """
     
     @staticmethod
-    def generate_diary_file_path(entry_uuid: str) -> Path:
+    async def _create_content_document(
+        db: AsyncSession,
+        entry_uuid: str,
+        user_uuid: str,
+        encrypted_blob: str,
+        encryption_iv: str,
+        content_length: int
+    ) -> None:
         """
-        Generate stable file path for diary entry using UUID.
-        
-        Format: diary_{UUID}.dat
-        Example: diary_550e8400-e29b-41d4-a716-446655440000.dat
+        Create a Document for diary content with sort_order = 0.
+        Stores encrypted content in /documents/diary/ folder.
         """
-        data_dir = get_file_storage_dir()
-        diary_dir = data_dir / "secure" / "entries" / "text"
-        diary_dir.mkdir(parents=True, exist_ok=True)
+        from app.models.document import Document
+        from app.models.associations import document_diary
+        from app.services.unified_upload_service import get_user_storage_path
+        from app.services.file_detection import FileTypeDetectionService
         
-        filename = f"diary_{entry_uuid}.dat"
-        return diary_dir / filename
+        # Generate content document UUID
+        content_doc_uuid = str(uuid_lib.uuid4())
+        
+        # Create diary folder structure: /documents/diary/{user_uuid}/
+        diary_storage_dir = get_user_storage_path(user_uuid, "documents") / "diary"
+        diary_storage_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename: {entry_uuid}_content.dat
+        content_filename = f"{entry_uuid}_content.dat"
+        content_file_path = diary_storage_dir / content_filename
+        
+        # Write encrypted content to file
+        encrypted_data = base64.b64decode(encrypted_blob)
+        async with aiofiles.open(content_file_path, 'wb') as f:
+            await f.write(encrypted_data)
+        
+        # Calculate file hash
+        file_hash = hashlib.sha256(encrypted_data).hexdigest()
+        
+        # Create Document record
+        content_document = Document(
+            uuid=content_doc_uuid,
+            title=f"Diary Content - {entry_uuid}",
+            original_name=content_filename,
+            filename=content_filename,
+            file_path=str(content_file_path.relative_to(get_file_storage_dir())),
+            file_size=len(encrypted_data),
+            file_hash=file_hash,
+            mime_type="application/octet-stream",  # Encrypted content
+            description="Diary entry content",
+            is_favorite=False,
+            is_archived=False,
+            created_by=user_uuid
+        )
+        
+        db.add(content_document)
+        await db.flush()
+        
+        # Create document_diary association with sort_order = 0 (main content)
+        await db.execute(
+            document_diary.insert().values(
+                document_uuid=content_doc_uuid,
+                diary_entry_uuid=entry_uuid,
+                sort_order=0,  # Main content
+                is_exclusive=True,  # Diary content is always exclusive
+                is_encrypted=True,  # Content is encrypted
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+        )
+        
+        # Update file count
+        await db.execute(
+            DiaryEntry.__table__.update()
+            .where(DiaryEntry.uuid == entry_uuid)
+            .values(file_count=DiaryEntry.file_count + 1)
+        )
+
+    @staticmethod
+    async def _update_content_document(
+        db: AsyncSession,
+        entry_uuid: str,
+        user_uuid: str,
+        encrypted_blob: str,
+        encryption_iv: str,
+        content_length: int
+    ) -> None:
+        """
+        Update the content document for a diary entry.
+        """
+        from app.models.document import Document
+        from app.models.associations import document_diary
+        from app.services.unified_upload_service import get_user_storage_path
+        
+        # Find existing content document (sort_order = 0)
+        content_doc_result = await db.execute(
+            select(Document.uuid, Document.file_path)
+            .join(document_diary, Document.uuid == document_diary.c.document_uuid)
+            .where(
+                and_(
+                    document_diary.c.diary_entry_uuid == entry_uuid,
+                    document_diary.c.sort_order == 0
+                )
+            )
+        )
+        content_doc = content_doc_result.first()
+        
+        if not content_doc:
+            # Create new content document if none exists
+            await DiaryCRUDService._create_content_document(
+                db=db,
+                entry_uuid=entry_uuid,
+                user_uuid=user_uuid,
+                encrypted_blob=encrypted_blob,
+                encryption_iv=encryption_iv,
+                content_length=content_length
+            )
+            return
+        
+        # Update existing content document
+        content_doc_uuid = content_doc.uuid
+        old_file_path = get_file_storage_dir() / content_doc.file_path
+        
+        # Create new file with updated content
+        diary_storage_dir = get_user_storage_path(user_uuid, "documents") / "diary"
+        diary_storage_dir.mkdir(parents=True, exist_ok=True)
+        
+        content_filename = f"{entry_uuid}_content.dat"
+        new_file_path = diary_storage_dir / content_filename
+        
+        # Write new encrypted content
+        encrypted_data = base64.b64decode(encrypted_blob)
+        async with aiofiles.open(new_file_path, 'wb') as f:
+            await f.write(encrypted_data)
+        
+        # Calculate new file hash
+        file_hash = hashlib.sha256(encrypted_data).hexdigest()
+        
+        # Update Document record
+        await db.execute(
+            Document.__table__.update()
+            .where(Document.uuid == content_doc_uuid)
+            .values(
+                file_path=str(new_file_path.relative_to(get_file_storage_dir())),
+                file_size=len(encrypted_data),
+                file_hash=file_hash,
+                updated_at=datetime.now()
+            )
+        )
+        
+        # Remove old file
+        try:
+            if old_file_path.exists():
+                old_file_path.unlink()
+        except OSError as e:
+            logger.warning(f"Could not delete old diary content file {old_file_path}: {e}")
+
+    @staticmethod
+    async def check_duplicate_hash(
+        db: AsyncSession,
+        user_uuid: str,
+        file_hash: str,
+        exclude_entry_uuid: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Check for duplicate file hashes within user's diary entries.
+        Returns list of duplicate entries with their details.
+        """
+        from app.models.document import Document
+        from app.models.associations import document_diary
+        
+        # Find documents with same hash in user's diary entries
+        query = (
+            select(
+                Document.uuid,
+                Document.title,
+                Document.original_name,
+                Document.file_size,
+                Document.created_at,
+                document_diary.c.diary_entry_uuid,
+                DiaryEntry.title.label('entry_title'),
+                DiaryEntry.date.label('entry_date')
+            )
+            .join(document_diary, Document.uuid == document_diary.c.document_uuid)
+            .join(DiaryEntry, document_diary.c.diary_entry_uuid == DiaryEntry.uuid)
+            .where(
+                and_(
+                    Document.file_hash == file_hash,
+                    Document.created_by == user_uuid,
+                    DiaryEntry.is_deleted.is_(False)
+                )
+            )
+        )
+        
+        if exclude_entry_uuid:
+            query = query.where(DiaryEntry.uuid != exclude_entry_uuid)
+        
+        result = await db.execute(query)
+        duplicates = []
+        
+        for row in result:
+            duplicates.append({
+                'document_uuid': row.uuid,
+                'document_title': row.title,
+                'original_name': row.original_name,
+                'file_size': row.file_size,
+                'created_at': row.created_at,
+                'diary_entry_uuid': row.diary_entry_uuid,
+                'entry_title': row.entry_title,
+                'entry_date': row.entry_date
+            })
+        
+        return duplicates
+
+    # generate_diary_file_path method removed - now using Document service
     
     @staticmethod
     def calculate_day_of_week(entry_date: date) -> int:
@@ -155,42 +354,19 @@ class DiaryCRUDService:
         await db.flush()
         await db.refresh(entry)
         
-        # Store encrypted content directly (frontend already encrypted it)
-        final_file_path = DiaryCRUDService.generate_diary_file_path(entry.uuid)
-        
-        # Write the encrypted blob directly to file
-        encrypted_data = base64.b64decode(entry_data.encrypted_blob)
-        async with aiofiles.open(final_file_path, 'wb') as f:
-            await f.write(encrypted_data)
-        
-        # Calculate file hash for integrity checking
-        file_hash = hashlib.sha256(encrypted_data).hexdigest()
-        
-        entry.content_file_path = str(final_file_path)
-        entry.file_hash = file_hash
-        entry.encryption_tag = None  # Frontend handles all encryption
+        # Store encrypted content as Document with sort_order = 0 (main content)
+        await DiaryCRUDService._create_content_document(
+            db=db,
+            entry_uuid=entry.uuid,
+            user_uuid=user_uuid,
+            encrypted_blob=entry_data.encrypted_blob,
+            encryption_iv=entry_data.encryption_iv,
+            content_length=entry_data.content_length or 0
+        )
         if entry_data.content_length is not None:
             entry.content_length = entry_data.content_length
         
         await db.commit()
-        
-        # SECURITY: Move encrypted file to final location ONLY after successful DB commit
-        try:
-            import os
-            os.replace(temp_file_path, final_file_path)
-            entry.content_file_path = str(final_file_path)
-            await db.commit()
-            logger.info(f"SUCCESS: Diary entry file moved to final location: {final_file_path}")
-        except Exception as move_error:
-            logger.exception("ERROR: Failed to move diary entry file to final location")
-            # Clean up temp file
-            try:
-                if await asyncio.to_thread(temp_file_path.exists):
-                    await asyncio.to_thread(temp_file_path.unlink)
-            except Exception:
-                pass
-            raise HTTPException(status_code=500, detail="Failed to move encrypted diary entry file to final storage location") from move_error
-        
         await db.refresh(entry)
         
         if entry_data.tags:
@@ -233,7 +409,8 @@ class DiaryCRUDService:
         year: Optional[int] = None,
         month: Optional[int] = None,
         mood: Optional[int] = None,
-        templates: bool = False,
+        template_uuid: Optional[str] = None,
+        is_template: Optional[bool] = None,
         search_title: Optional[str] = None,
         day_of_week: Optional[int] = None,
         limit: int = 20,
@@ -401,10 +578,13 @@ class DiaryCRUDService:
                 query = query.where(DiaryEntry.mood == mood)
             if day_of_week is not None:
                 query = query.where(daily_metadata_alias.day_of_week == day_of_week)
-            if templates is True:
-                query = query.where(DiaryEntry.is_template.is_(True))
-            elif templates is False:
-                query = query.where(DiaryEntry.is_template.is_(False))
+            # Template filtering
+            if is_template is not None:
+                query = query.where(DiaryEntry.is_template.is_(is_template))
+            
+            # Filter by specific template UUID (entries created from this template)
+            if template_uuid:
+                query = query.where(DiaryEntry.from_template_id == template_uuid)
                 
             query = query.order_by(DiaryEntry.date.desc()).offset(offset).limit(limit)
             result = await db.execute(query)
@@ -950,35 +1130,21 @@ class DiaryCRUDService:
         
         # Update encrypted content if provided (frontend already encrypted it)
         if updates.encrypted_blob and updates.encryption_iv:
-            # Write new encrypted content directly
-            final_file_path = DiaryCRUDService.generate_diary_file_path(entry.uuid)
-            
-            # Write the encrypted blob directly to file
-            encrypted_data = base64.b64decode(updates.encrypted_blob)
-            async with aiofiles.open(final_file_path, 'wb') as f:
-                await f.write(encrypted_data)
-            
-            # Calculate file hash for integrity checking
-            file_hash = hashlib.sha256(encrypted_data).hexdigest()
+            # Update content document
+            await DiaryCRUDService._update_content_document(
+                db=db,
+                entry_uuid=entry.uuid,
+                user_uuid=entry.created_by,
+                encrypted_blob=updates.encrypted_blob,
+                encryption_iv=updates.encryption_iv,
+                content_length=updates.content_length or 0
+            )
             
             entry.encryption_iv = updates.encryption_iv
-            entry.file_hash = file_hash
-            entry.encryption_tag = None  # Frontend handles all encryption
             if updates.content_length is not None:
                 entry.content_length = updates.content_length
             
             await db.commit()
-            
-            # Move to final location
-            try:
-                import os
-                os.replace(temp_file_path, final_file_path)
-            except Exception as move_error:
-                logger.exception("Failed to move updated diary file")
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to move updated diary entry file to final storage location"
-                ) from move_error
         
         # Update daily metadata if provided
         if (updates.daily_metrics is not None or 
@@ -1159,16 +1325,7 @@ class DiaryCRUDService:
                     # Document still has other links - just remove association, keep the file
                     logger.info(f"Preserving shared document {doc_uuid} (still has links)")
             
-            # Delete content file if it exists
-            if entry.content_file_path:
-                full_path = get_file_storage_dir() / entry.content_file_path
-                if full_path.exists():
-                    try:
-                        full_path.unlink()
-                        logger.info(f"Deleted diary content file: {full_path}")
-                    except OSError as e:
-                        logger.warning(f"Could not delete diary content file {full_path}: {e}")
-            
+            # Content and files are now handled by Document service deletion
             # Remove from search index
             await search_service.remove_item(db, entry_uuid)
             

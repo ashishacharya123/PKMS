@@ -18,6 +18,8 @@ class NoteCreate(CamelCaseModel):
     project_uuids: Optional[list[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this note to")
     are_projects_exclusive: Optional[bool] = Field(False, description="Apply exclusive flag to all project associations")
     force_file_storage: Optional[bool] = Field(False, description="Force content to be saved as file even if small")
+    is_template: Optional[bool] = Field(False, description="Mark this note as a template")
+    from_template_id: Optional[str] = Field(None, description="UUID of the template this note was created from")
 
     @field_validator('title', mode='before')
     def validate_safe_text(cls, v: str):
@@ -41,6 +43,8 @@ class NoteUpdate(CamelCaseModel):
     force_file_storage: Optional[bool] = Field(None, description="Force content to be saved as file even if small")
     is_archived: Optional[bool] = None
     is_favorite: Optional[bool] = None
+    is_template: Optional[bool] = None
+    from_template_id: Optional[str] = None
     project_uuids: Optional[list[str]] = Field(None, max_items=10, description="List of project UUIDs to link this note to")
     are_projects_exclusive: Optional[bool] = Field(None, description="Apply exclusive flag to all project associations")
 
@@ -66,6 +70,8 @@ class NoteResponse(CamelCaseModel):
     thumbnailPath: Optional[str] = Field(alias="thumbnail_path")  # ✅ ADDED - now exists in Note model
     isFavorite: bool = Field(alias="is_favorite")
     isArchived: bool = Field(alias="is_archived")
+    isTemplate: bool = Field(alias="is_template")
+    fromTemplateId: Optional[str] = Field(alias="from_template_id")
     # REMOVED: is_project_exclusive - exclusivity now handled in project_items association
     createdAt: datetime = Field(alias="created_at")
     updatedAt: datetime = Field(alias="updated_at")
@@ -78,6 +84,8 @@ class NoteSummary(CamelCaseModel):
     fileCount: int = Field(alias="file_count")
     isFavorite: bool = Field(alias="is_favorite")
     isArchived: bool = Field(alias="is_archived")
+    isTemplate: bool = Field(alias="is_template")
+    fromTemplateId: Optional[str] = Field(alias="from_template_id")
     # REMOVED: is_project_exclusive - exclusivity now handled in project_items association
     createdAt: datetime = Field(alias="created_at")
     updatedAt: datetime = Field(alias="updated_at")

@@ -11,7 +11,8 @@ import {
   Group,
   Box,
   Badge,
-  Loader
+  Loader,
+  useMantineColorScheme
 } from '@mantine/core';
 import { IconAlertCircle, IconUser, IconLock, IconLogin, IconWifi, IconWifiOff } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
@@ -35,6 +36,7 @@ export function LoginForm({ onSwitchToSetup, onShowRecovery }: LoginFormProps) {
     checking: true
   });
   const { login, isLoading, error, clearError } = useAuthStore();
+  const { colorScheme } = useMantineColorScheme();
 
   // Perform an initial backend connectivity check when component mounts
   useEffect(() => {
@@ -125,17 +127,22 @@ export function LoginForm({ onSwitchToSetup, onShowRecovery }: LoginFormProps) {
     <Paper 
       p="xl" 
       radius="md" 
-      shadow="sm"
+      shadow="xl"
       style={{ 
         width: '100%', 
         maxWidth: '420px',
-        backgroundColor: 'white'
+        backgroundColor: colorScheme === 'dark' ? 'var(--mantine-color-dark-6)' : 'white',
+        border: colorScheme === 'dark' ? '1px solid var(--mantine-color-dark-4)' : '1px solid var(--mantine-color-gray-2)',
+        backdropFilter: 'blur(10px)',
+        boxShadow: colorScheme === 'dark' 
+          ? '0 8px 32px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.05)' 
+          : '0 8px 32px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.05)'
       }}
     >
       <Stack gap="md">
         {/* Header Section */}
         <Box ta="center">
-          <Title order={2} fw={600} c="dark.8" mb="xs">
+          <Title order={2} fw={600} c={colorScheme === 'dark' ? 'white' : 'dark.8'} mb="xs">
             Welcome Back
           </Title>
           <Text size="sm" c="dimmed">

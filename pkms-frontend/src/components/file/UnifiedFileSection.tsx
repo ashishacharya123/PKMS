@@ -156,14 +156,15 @@ export const UnifiedFileSection: React.FC<UnifiedFileSectionProps> = ({
 
   const handleFileReorder = async (reorderedFiles: UnifiedFileItem[]) => {
     try {
-      // Only allow reordering for projects (uses project_items.sort_order)
-      if (module !== 'projects') {
-        throw new Error('Reordering only supported for projects');
+      // Check if this module supports reordering
+      const supportedModules = ['projects', 'diary', 'notes', 'documents', 'archive'];
+      if (!supportedModules.includes(module)) {
+        throw new Error(`Reordering not supported for module: ${module}`);
       }
       
       // Use unified file service for reordering
       const fileUuids = reorderedFiles.map(f => f.uuid);
-      await unifiedFileService.reorderFiles(module, entityId, fileUuids);
+      await unifiedFileService.reorderFiles(module as any, entityId, fileUuids);
       
       onFilesUpdate(reorderedFiles);
     } catch (err) {
