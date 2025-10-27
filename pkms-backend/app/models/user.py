@@ -3,9 +3,7 @@ User Model for Authentication and User Management
 """
 
 from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey
-from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
-from datetime import datetime
 from uuid import uuid4
 
 from app.models.base import Base

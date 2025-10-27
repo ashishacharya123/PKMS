@@ -3,7 +3,6 @@ Note Model for Knowledge Management
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Index
-from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 

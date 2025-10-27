@@ -1,14 +1,14 @@
 """
 Document Model for File Management
 """
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Enum, Index, UniqueConstraint
+from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 
 from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
 from app.models.tag_associations import document_tags
-from app.models.associations import document_diary, note_documents
+from app.models.associations import note_documents
 # UploadStatus import removed - documents no longer store upload status
 
 

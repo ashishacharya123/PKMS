@@ -20,12 +20,12 @@ class SoftDeleteMixin:
     @classmethod
     def active_only(cls):
         """Query scope to exclude soft-deleted items"""
-        return cls.is_deleted == False
+        return ~cls.is_deleted
     
     @classmethod
     def deleted_only(cls):
         """Query scope for recycle bin"""
-        return cls.is_deleted == True
+        return cls.is_deleted
     
     @classmethod
     def include_deleted(cls):

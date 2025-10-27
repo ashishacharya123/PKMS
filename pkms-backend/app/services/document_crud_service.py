@@ -6,12 +6,10 @@ file management, project associations, and search indexing.
 """
 
 import logging
-import asyncio
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 from datetime import datetime
-from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, delete
+from sqlalchemy import select, and_, delete
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 from fastapi.responses import FileResponse
@@ -19,7 +17,7 @@ from fastapi.responses import FileResponse
 from app.config import NEPAL_TZ, get_file_storage_dir
 from app.models.document import Document
 from app.models.project import Project
-from app.models.associations import project_items
+from app.models.associations import project_items, note_documents, document_diary
 from app.models.enums import ModuleType
 from app.schemas.document import (
     DocumentResponse,
@@ -32,7 +30,6 @@ from app.services.tag_service import tag_service
 from app.services.project_service import project_service
 from app.services.unified_upload_service import unified_upload_service
 from app.services.search_service import search_service
-from app.services.dashboard_service import dashboard_service
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +83,6 @@ class DocumentCRUDService:
             project_badges = project_badges_map.get(document_with_tags.uuid, [])
 
             # Invalidate dashboard cache
-            dashboard_service.invalidate_user_cache(user_uuid, "document_uploaded")
 
             logger.info(f"Document committed successfully: {document_with_tags.filename}")
             return self._convert_doc_to_response(document_with_tags, project_badges)
@@ -367,7 +363,6 @@ class DocumentCRUDService:
         project_badges = project_badges_map.get(doc.uuid, [])
 
         # Invalidate dashboard cache
-        dashboard_service.invalidate_user_cache(user_uuid, "document_updated")
         
         return self._convert_doc_to_response(doc, project_badges)
 
@@ -408,11 +403,10 @@ class DocumentCRUDService:
         
         # Soft delete: set is_deleted flag instead of hard delete
         doc.is_deleted = True
-        await db.add(doc)
+        db.add(doc)
         await db.commit()
 
         # Invalidate dashboard cache
-        dashboard_service.invalidate_user_cache(user_uuid, "document_deleted")
 
         logger.info(f"Document {document_uuid} soft-deleted successfully")
 
@@ -438,14 +432,14 @@ class DocumentCRUDService:
         # 2. Flip flag
         doc.is_deleted = False
         doc.updated_at = datetime.now(NEPAL_TZ)
-        await db.add(doc)
+        db.add(doc)
         
         # 3. Commit
         await db.commit()
         
         # 4. Re-index in search
         await search_service.index_item(db, doc, 'document')
-        dashboard_service.invalidate_user_cache(user_uuid, "document_restored")
+        await db.commit()
         logger.info(f"Document restored: {doc.title}")
 
     async def permanent_delete_document(self, db: AsyncSession, user_uuid: str, document_uuid: str):
@@ -495,7 +489,6 @@ class DocumentCRUDService:
         # Atomic file + DB delete (DB first, then file)
         await safe_delete_with_db(file_path, doc, db)
         
-        dashboard_service.invalidate_user_cache(user_uuid, "document_purged")
 
     async def download_document(
         self, db: AsyncSession, user_uuid: str, document_uuid: str
@@ -541,7 +534,7 @@ class DocumentCRUDService:
             # REMOVED: is_project_exclusive and is_diary_exclusive - exclusivity now handled in association tables
             is_deleted=doc.is_deleted,
             created_at=doc.created_at,
-            updated_at=doc.updated_at
+            updated_at=doc.updated_at,
             tags=[t.name for t in doc.tag_objs] if doc.tag_objs else [],
             projects=project_badges or []
         )

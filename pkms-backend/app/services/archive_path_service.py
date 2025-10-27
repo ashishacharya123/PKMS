@@ -5,7 +5,6 @@ Handles path generation, validation, and hierarchy traversal for archive system
 
 import re
 import os
-from pathlib import Path
 from typing import Optional, List, Dict, Any, Set
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_

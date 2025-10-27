@@ -348,6 +348,7 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
     )}
   </>
   );
+};
 
 // Thumbnail renderer component with caching
 const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
@@ -451,11 +452,6 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
         height={40}
         radius="sm"
         fit="cover"
-        fallback={
-          <div className="w-10 h-10 rounded bg-gray-100 border border-gray-200 flex items-center justify-center">
-            <IconPhoto size={16} className="text-gray-400" />
-          </div>
-        }
         onError={() => {
           // Fallback to icon on error
           setThumbUrl(null);
@@ -465,8 +461,4 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
   }
 
   return getFileIcon(file.mimeType, file.mediaType);
-};
-
-// Add ImageViewer at the end of the component
-export { ImageViewer };
 };

@@ -9,31 +9,26 @@ Consolidates functionality from both project_crud_service.py and project_service
 
 import logging
 from typing import List, Optional, Dict, Any, Tuple
-from datetime import datetime, date
+from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, delete, func, case, update
+from sqlalchemy import select, and_, delete, func, case, update
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
-from pathlib import Path
-
-from app.config import NEPAL_TZ, get_file_storage_dir, get_data_dir
+from app.config import NEPAL_TZ
 from app.models.project import Project, ProjectSectionOrder
 from app.models.document import Document
 from app.models.note import Note
 from app.models.todo import Todo
 from app.models.tag import Tag
-from app.models.associations import project_items, note_documents
-from app.models.enums import TodoStatus, TaskPriority
+from app.models.associations import project_items
+from app.models.enums import TodoStatus
 from app.models.tag_associations import project_tags
 from app.schemas.project import (
     ProjectCreate, ProjectUpdate, ProjectResponse, ProjectBadge, 
-    ProjectDuplicateRequest, ProjectDuplicateResponse,
-    ProjectDocumentsReorderRequest, ProjectDocumentsLinkRequest, ProjectDocumentUnlinkRequest,
     ProjectSectionReorderRequest
 )
 from app.services.tag_service import tag_service
 from app.services.search_service import search_service
-from app.services.dashboard_service import dashboard_service
 from app.services.shared_utilities_service import shared_utilities_service
 
 logger = logging.getLogger(__name__)
@@ -66,7 +61,6 @@ class ProjectService:
             await db.commit()
             
             # Invalidate dashboard cache
-            dashboard_service.invalidate_user_cache(user_uuid, "project_created")
             
             logger.info(f"Project created: {project.name}")
             return self._convert_project_to_response(project, 0, 0)  # New project has 0 todos
@@ -218,7 +212,6 @@ class ProjectService:
         await db.commit()
         
         # Invalidate dashboard cache
-        dashboard_service.invalidate_user_cache(user_uuid, "project_updated")
         
         todo_count, completed_count = await self._get_project_counts(db, project.uuid, user_uuid)
         return self._convert_project_to_response(project, todo_count, completed_count)
@@ -250,14 +243,13 @@ class ProjectService:
         # 2. Set flag (that's it!)
         project.is_deleted = True
         project.updated_at = datetime.now(NEPAL_TZ)
-        await db.add(project)
+        db.add(project)
         
         # 3. Commit
         await db.commit()
         
         # 4. Post-commit cleanup
-        await search_service.remove_item(db, project_uuid, 'project')
-        dashboard_service.invalidate_user_cache(user_uuid, "project_deleted")
+        await search_service.remove_item(db, project_uuid)
         logger.info(f"Project soft-deleted: {project.name}")
 
     async def restore_project(self, db: AsyncSession, user_uuid: str, project_uuid: str):
@@ -282,14 +274,13 @@ class ProjectService:
         # 2. Flip flag
         project.is_deleted = False
         project.updated_at = datetime.now(NEPAL_TZ)
-        await db.add(project)
+        db.add(project)
         
         # 3. Commit
         await db.commit()
         
         # 4. Re-index in search
         await search_service.index_item(db, project, 'project')
-        dashboard_service.invalidate_user_cache(user_uuid, "project_restored")
         logger.info(f"Project restored: {project.name}")
 
     async def permanent_delete_project(self, db: AsyncSession, user_uuid: str, project_uuid: str):
@@ -343,15 +334,14 @@ class ProjectService:
                         await todo_crud_service.hard_delete_todo(db, user_uuid, item_uuid)
                 else:
                     logger.info(f"Preserving shared {item_type} {item_uuid} (still has {link_count} links)")
-            except Exception as e:
-                logger.error(f"Error purging orphan {item_type} {item_uuid}: {e}")
+            except Exception:
+                logger.exception("Error purging orphan %s %s", item_type, item_uuid)
                 # Don't let one failure break the whole operation
         
         # 5. Hard delete the project itself
         await db.delete(project)
         await db.commit()
         
-        dashboard_service.invalidate_user_cache(user_uuid, "project_purged")
         logger.info(f"Project permanently deleted: {project.name}")
 
     # REMOVED: duplicate_project method - moved to dedicated DuplicationService
@@ -474,7 +464,6 @@ class ProjectService:
         await db.commit()
         
         # Invalidate dashboard cache
-        dashboard_service.invalidate_user_cache(user_uuid, f"project_{item_type}_reordered")
 
     async def link_items_to_project(
         self, db: AsyncSession, user_uuid: str, project_uuid: str, item_type: str, item_uuids: List[str],
@@ -560,7 +549,6 @@ class ProjectService:
         await db.commit()
         
         # Invalidate dashboard cache
-        dashboard_service.invalidate_user_cache(user_uuid, f"project_{item_type}_linked")
 
     async def unlink_item_from_project(
         self, db: AsyncSession, user_uuid: str, project_uuid: str, item_type: str, item_uuid: str
@@ -605,7 +593,6 @@ class ProjectService:
         await db.commit()
         
         # Invalidate dashboard cache
-        dashboard_service.invalidate_user_cache(user_uuid, f"project_{item_type}_unlinked")
 
     async def reorder_sections(
         self, db: AsyncSession, user_uuid: str, project_uuid: str, reorder_data: ProjectSectionReorderRequest
@@ -661,7 +648,6 @@ class ProjectService:
         await db.commit()
         
         # Invalidate dashboard cache
-        dashboard_service.invalidate_user_cache(user_uuid, "project_sections_reordered")
 
     # ===== POLYMORPHIC ASSOCIATION METHODS =====
 

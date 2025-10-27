@@ -8,11 +8,11 @@ with a maintainable, fast, and powerful search experience.
 
 from typing import List, Dict, Optional, Any
 from datetime import datetime
+import logging
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select
 from sqlalchemy.orm import selectinload
-import logging
-logger = logging.getLogger(__name__)
 
 from ..models.note import Note
 from ..models.document import Document
@@ -20,7 +20,8 @@ from ..models.todo import Todo
 from ..models.project import Project
 from ..models.diary import DiaryEntry
 from ..models.archive import ArchiveFolder, ArchiveItem
-from .simple_search_cache import simple_search_cache_service
+
+logger = logging.getLogger(__name__)
 
 
 class SearchService:
@@ -97,7 +98,6 @@ class SearchService:
             })
 
             # Invalidate user's search cache since content changed
-            await simple_search_cache_service.invalidate_user_cache(created_by, "content_index_update")
 
         except Exception:
             # Log error but don't fail the main operation
@@ -127,7 +127,7 @@ class SearchService:
 
             # Invalidate user's search cache since content was removed
             if created_by:
-                await simple_search_cache_service.invalidate_user_cache(created_by, "content_deletion")
+                pass  # Cache invalidation removed - see cache refactor
 
         except Exception:
             logger.exception("Error removing %s from search index", item_uuid)
@@ -156,70 +156,7 @@ class SearchService:
             List of search results with item details
         """
         try:
-            # Step 1: Check simple cache first (UUIDs + scores only)
-            cached_results = await simple_search_cache_service.get_search_results(
-                query=query,
-                user_uuid=created_by,
-                item_types=item_types,
-                limit=limit,
-                offset=offset,
-                has_attachments=has_attachments
-            )
-
-            if cached_results:
-                logger.debug(f"Cache HIT for search query: '{query[:30]}...' - returning {len(cached_results)} cached results")
-
-                # Load full item data for cached UUIDs
-                results = []
-                for cached_item in cached_results:
-                    item_uuid = cached_item["uuid"]
-                    item_type = cached_item["item_type"]
-
-                    # Get the actual item with relationships
-                    item = await self._get_item_with_relationships(db, item_uuid, item_type)
-                    if not item:
-                        continue
-
-                    # Apply additional filters that weren't cached
-                    if has_attachments is not None:
-                        has_files = await self._item_has_attachments(db, item, item_type)
-                        if has_files != has_attachments:
-                            continue
-
-                    # Build full result from cached data + loaded item
-                    result_item = {
-                        "uuid": item_uuid,
-                        "type": item_type,
-                        "title": getattr(item, 'title', None) or getattr(item, 'name', None),
-                        "description": getattr(item, 'description', None),
-                        "created_at": getattr(item, 'created_at', None).isoformat() if getattr(item, 'created_at', None) else None,
-                        "score": cached_item["score"],
-                        "tags": [t.name for t in getattr(item, 'tag_objs', [])] if hasattr(item, 'tag_objs') else [],
-                        "attachments": await self._extract_attachments(db, item, item_type)
-                    }
-
-                    # Add type-specific fields
-                    if item_type == 'note':
-                        result_item["content_preview"] = getattr(item, 'content', '')[:200] + '...' if getattr(item, 'content', '') else ''
-                    elif item_type == 'document':
-                        result_item["filename"] = getattr(item, 'filename', None)
-                    elif item_type == 'archive_item':
-                        result_item["filename"] = getattr(item, 'original_filename', None) or getattr(item, 'stored_filename', None)
-                    elif item_type == 'archive_folder':
-                        result_item["name"] = getattr(item, 'name', None)
-                    elif item_type == 'todo':
-                        result_item["status"] = getattr(item, 'status', None)
-                    elif item_type == 'project':
-                        result_item["status"] = getattr(item, 'status', None)
-                        result_item["progress_percentage"] = getattr(item, 'progress_percentage', None)
-
-                    results.append(result_item)
-
-                return results
-
-            logger.debug(f"Cache MISS for search query: '{query[:30]}...' - performing FTS search")
-
-            # Step 2: FTS search to get candidate UUIDs
+            # FTS search to get candidate UUIDs
             fts_query = self._build_fts_query(query)
             
             sql = """
@@ -248,7 +185,7 @@ class SearchService:
             if not fts_results:
                 return []
             
-            # Step 2: Structured SQL filtering for additional criteria
+            # Load full item data and apply filters
             results = []
             for row in fts_results:
                 item_uuid, item_type, score = row
@@ -293,18 +230,6 @@ class SearchService:
                 
                 results.append(result_item)
 
-            # Step 3: Cache the results for future fast access
-            if results:
-                await simple_search_cache_service.store_search_results(
-                    query=query,
-                    user_uuid=created_by,
-                    results=results,
-                    item_types=item_types,
-                    limit=limit,
-                    offset=offset,
-                    has_attachments=has_attachments
-                )
-                logger.debug(f"Cached {len(results)} search results for query: '{query[:30]}...'")
 
             return results
 
@@ -453,12 +378,7 @@ class SearchService:
         for entry in diary_result.scalars():
             await self.index_item(db, entry, 'diary')
 
-        # Index links
-        links_result = await db.execute(
-            select(Link).options(selectinload(Link.tag_objs)).where(Link.created_by == created_by)
-        )
-        for link in links_result.scalars():
-            await self.index_item(db, link, 'link')
+        # Note: Link model not implemented yet - skipping link indexing
 
         # Index archive folders
         folders_result = await db.execute(

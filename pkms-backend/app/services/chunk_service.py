@@ -31,7 +31,7 @@ import shutil
 import zlib
 from datetime import datetime, timedelta
 
-from app.config import settings, get_data_dir, NEPAL_TZ
+from app.config import get_data_dir, NEPAL_TZ
 from app.models.enums import ChunkUploadStatus
 
 # File size validation

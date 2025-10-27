@@ -9,21 +9,22 @@ import os
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, update, delete
+from sqlalchemy import select, and_, or_, update
+from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status, UploadFile
 from fastapi.responses import FileResponse
 import logging
-import aiofiles
 from datetime import datetime
 
+from app.config import NEPAL_TZ
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.schemas.archive import ItemUpdate, ItemResponse, ItemSummary, CommitUploadRequest
 from app.services.archive_folder_service import archive_folder_service
 from app.services.archive_path_service import archive_path_service
 from app.services.document_hash_service import document_hash_service
 from app.services.thumbnail_service import thumbnail_service
-from app.services.chunk_service import chunk_manager
 from app.services.unified_upload_service import unified_upload_service
+from app.services.search_service import search_service
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +78,9 @@ class ArchiveItemService:
                 existing_items = await db.execute(
                     select(ArchiveItem).where(
                         and_(
+                            ArchiveItem.active_only(),
                             ArchiveItem.file_hash == file_hash,
-                            ArchiveItem.created_by == user_uuid,
-                            ArchiveItem.is_deleted == False
+                            ArchiveItem.created_by == user_uuid
                         )
                     )
                 )
@@ -397,14 +398,13 @@ class ArchiveItemService:
         # 2. Flip flag
         item.is_deleted = False
         item.updated_at = datetime.now(NEPAL_TZ)
-        await db.add(item)
+        db.add(item)
         
-        # 3. Commit
-        await db.commit()
-        
-        # 4. Re-index in search
+        # 3. Re-index in search
         await search_service.index_item(db, item, 'archive')
-        dashboard_service.invalidate_user_cache(user_uuid, "item_restored")
+        
+        # 4. Commit once
+        await db.commit()
         logger.info(f"Archive item restored: {item.name}")
 
     async def hard_delete_archive_item(

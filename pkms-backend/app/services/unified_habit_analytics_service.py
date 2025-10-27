@@ -12,18 +12,14 @@ daily_insights_service.py, providing a single interface for all habit analytics.
 
 import logging
 import json
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from app.config import NEPAL_TZ
 
-from .analytics_config import (
-    TIME_FRAMES, get_timeframe_config, get_date_range,
-    should_show_loading_state, quantize_data_for_chart
-)
-from .unified_analytics_cache import analytics_cache
 from .habit_trend_analysis_service import habit_trend_analysis_service
 from .habit_data_service import HabitDataService
+from .unified_cache_service import analytics_cache
 
 logger = logging.getLogger(__name__)
 
@@ -64,9 +60,13 @@ class UnifiedHabitAnalyticsService:
         if sma_windows is None:
             sma_windows = [7, 14, 30]
         
+        # Calculate date range
+        end_date = datetime.now(NEPAL_TZ).date()
+        start_date = end_date - timedelta(days=days)
+        
         # Check cache first
-        cache_key = f"default_habits_{days}_{include_sma}_{'-'.join(map(str, sma_windows))}"
-        cached_result = analytics_cache.get(user_uuid, "month", days, cache_key)
+        cache_key = f"default_habits_{user_uuid}_{days}_{include_sma}_{'-'.join(map(str, sma_windows))}"
+        cached_result = analytics_cache.get(cache_key)
         if cached_result:
             logger.info(f"Using cached default habits analytics for user {user_uuid}")
             return cached_result
@@ -166,7 +166,7 @@ class UnifiedHabitAnalyticsService:
             }
             
             # Cache the result
-            analytics_cache.set(user_uuid, "month", days, cache_key, result, 600)  # 10 min TTL
+            analytics_cache.set(cache_key, result, 10)  # 10 min TTL
             
             return result
             
@@ -198,8 +198,8 @@ class UnifiedHabitAnalyticsService:
             >>> # Returns: {"habits": {"water_intake": {"average": 8.5, "normalized_percentage": 85}}}
         """
         # Check cache first
-        cache_key = f"defined_habits_{days}_{normalize}"
-        cached_result = analytics_cache.get(user_uuid, "month", days, cache_key)
+        cache_key = f"defined_habits_{user_uuid}_{days}_{normalize}"
+        cached_result = analytics_cache.get(cache_key)
         if cached_result:
             logger.info(f"Using cached defined habits analytics for user {user_uuid}")
             return cached_result
@@ -289,7 +289,7 @@ class UnifiedHabitAnalyticsService:
             }
             
             # Cache the result
-            analytics_cache.set(user_uuid, "month", days, cache_key, result, 600)  # 10 min TTL
+            analytics_cache.set(cache_key, result, 10)  # 10 min TTL
             
             return result
             
@@ -319,8 +319,8 @@ class UnifiedHabitAnalyticsService:
             >>> # Returns: {"default_habits": {...}, "defined_habits": {...}, "mood": {...}, "financial": {...}}
         """
         # Check cache first
-        cache_key = f"comprehensive_{days}"
-        cached_result = analytics_cache.get(user_uuid, "month", days, cache_key)
+        cache_key = f"comprehensive_{user_uuid}_{days}"
+        cached_result = analytics_cache.get(cache_key)
         if cached_result:
             logger.info(f"Using cached comprehensive analytics for user {user_uuid}")
             return cached_result
@@ -362,7 +362,7 @@ class UnifiedHabitAnalyticsService:
             }
             
             # Cache the result
-            analytics_cache.set(user_uuid, "month", days, cache_key, result, 600)  # 10 min TTL
+            analytics_cache.set(cache_key, result, 10)  # 10 min TTL
             
             return result
             
@@ -398,8 +398,8 @@ class UnifiedHabitAnalyticsService:
             >>> # Returns: {"correlation_coefficient": 0.65, "interpretation": "Strong positive correlation"}
         """
         # Check cache first
-        cache_key = f"correlation_{habit_x}_{habit_y}_{days}_{normalize}"
-        cached_result = analytics_cache.get(user_uuid, "month", days, cache_key)
+        cache_key = f"correlation_{user_uuid}_{habit_x}_{habit_y}_{days}_{normalize}"
+        cached_result = analytics_cache.get(cache_key)
         if cached_result:
             logger.info(f"Using cached correlation for {habit_x} vs {habit_y}")
             return cached_result
@@ -465,7 +465,7 @@ class UnifiedHabitAnalyticsService:
             }
             
             # Cache the result
-            analytics_cache.set(user_uuid, "month", days, cache_key, result, 300)  # 5 min TTL
+            analytics_cache.set(cache_key, result, 5)  # 5 min TTL
             
             return result
             
@@ -504,8 +504,8 @@ class UnifiedHabitAnalyticsService:
             sma_windows = [7, 14, 30]
         
         # Check cache first
-        cache_key = f"trend_{habit_key}_{days}_{include_sma}_{'-'.join(map(str, sma_windows))}"
-        cached_result = analytics_cache.get(user_uuid, "month", days, cache_key)
+        cache_key = f"trend_{user_uuid}_{habit_key}_{days}_{include_sma}_{'-'.join(map(str, sma_windows))}"
+        cached_result = analytics_cache.get(cache_key)
         if cached_result:
             logger.info(f"Using cached trend for {habit_key}")
             return cached_result
@@ -594,7 +594,7 @@ class UnifiedHabitAnalyticsService:
             }
             
             # Cache the result
-            analytics_cache.set(user_uuid, "month", days, cache_key, result, 300)  # 5 min TTL
+            analytics_cache.set(cache_key, result, 5)  # 5 min TTL
             
             return result
             
@@ -618,9 +618,9 @@ class UnifiedHabitAnalyticsService:
             >>> result = await get_dashboard_summary(db, user_uuid)
             >>> # Returns: {"sleep_avg_7d": 7.2, "exercise_streak": 5, "mood_today": 4}
         """
-        # Check cache first (aggressive 30s TTL for instant loads)
-        cache_key = "dashboard_summary"
-        cached_result = analytics_cache.get(user_uuid, "month", 7, cache_key)
+        # Check cache first (daily data changes once per day)
+        cache_key = f"dashboard_summary_{user_uuid}"
+        cached_result = analytics_cache.get(cache_key)
         if cached_result:
             return cached_result
         
@@ -637,8 +637,7 @@ class UnifiedHabitAnalyticsService:
             
             # Check for missing today's data
             missing_today = []
-            today = datetime.now(NEPAL_TZ).date()
-            
+
             # Simple check - would be enhanced with actual today's data check
             if sleep_avg_7d == 0:
                 missing_today.append("sleep")
@@ -665,8 +664,8 @@ class UnifiedHabitAnalyticsService:
                 "from_cache": False
             }
             
-            # Cache with aggressive TTL for instant loads
-            analytics_cache.set(user_uuid, "month", 7, cache_key, result, 30)  # 30s TTL
+            # Cache for daily data (changes once per day)
+            analytics_cache.set(cache_key, result, 60)  # 60 min TTL (daily data)
             
             return result
             
@@ -795,7 +794,7 @@ class UnifiedHabitAnalyticsService:
         db: AsyncSession,
         user_uuid: str,
         days: int = 30
-    ) -> 'WellnessStats':
+    ) -> Dict[str, Any]:
         """
         Generate comprehensive wellness analytics and insights for personal development tracking.
         
@@ -986,7 +985,7 @@ class UnifiedHabitAnalyticsService:
     @staticmethod
     def get_cache_stats() -> Dict[str, Any]:
         """Get analytics cache statistics"""
-        return analytics_cache.get_cache_stats()
+        return analytics_cache.get_stats()
 
 
 # Global service instance

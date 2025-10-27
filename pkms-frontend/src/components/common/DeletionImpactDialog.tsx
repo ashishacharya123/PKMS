@@ -6,7 +6,6 @@ import {
   Button,
   Alert,
   Group,
-  Badge,
   List,
   LoadingOverlay,
   Box

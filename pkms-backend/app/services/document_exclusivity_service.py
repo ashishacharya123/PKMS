@@ -6,13 +6,11 @@ It provides CTE queries to check for exclusivity conflicts and determine
 if documents can be safely deleted or modified.
 """
 
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text, select
-from sqlalchemy.orm import selectinload
+from sqlalchemy import text
 
 from app.models.document import Document
-from app.models.associations import note_documents, document_diary, project_items
 import logging
 
 logger = logging.getLogger(__name__)
@@ -26,7 +24,7 @@ class DocumentExclusivityService:
         db: AsyncSession, 
         document_uuid: str
     ) -> bool:
-	logger.info(f"[EXCLUSIVITY CHECK] Service: Running has_exclusive_associations for doc {document_uuid}.")
+        logger.info(f"[EXCLUSIVITY CHECK] Service: Running has_exclusive_associations for doc {document_uuid}.")
         """
         Fast validator query to check if document has any exclusive associations.
         Uses simple SELECT 1 ... LIMIT 1 for performance.
@@ -74,7 +72,7 @@ class DocumentExclusivityService:
         db: AsyncSession, 
         document_uuid: str
     ) -> List[Dict[str, str]]:
-	logger.info(f"[EXCLUSIVITY CHECK] Service: Running get_exclusivity_conflict_report for doc {document_uuid}.")
+        logger.info(f"[EXCLUSIVITY CHECK] Service: Running get_exclusivity_conflict_report for doc {document_uuid}.")
         # --- END LOGGING ---
         """
         Get detailed conflict report for user-friendly error messages.
@@ -341,7 +339,7 @@ class DocumentExclusivityService:
         db: AsyncSession, 
         document_uuid: str
     ) -> bool:
-	logger.info(f"[EXCLUSIVITY CHECK] Service: Running check_and_delete_if_exclusive_orphan for doc {document_uuid}.")
+        logger.info(f"[EXCLUSIVITY CHECK] Service: Running check_and_delete_if_exclusive_orphan for doc {document_uuid}.")
         """
         CRITICAL: Check if document is an orphan and delete if so.
         

@@ -7,7 +7,7 @@ financial data, and wellness analytics. Supports Nepali calendar integration.
 """
 
 from uuid import uuid4
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, SmallInteger, UniqueConstraint, Index, func
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, SmallInteger, UniqueConstraint, Index, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional

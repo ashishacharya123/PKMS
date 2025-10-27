@@ -7,13 +7,12 @@ Supports FTS5 search and project duplication functionality.
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Date, Enum, Index
 from sqlalchemy.orm import relationship
 from uuid import uuid4
-from datetime import datetime, date
+from datetime import date
 
 from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
-from app.models.enums import ProjectStatus, TodoStatus, TaskPriority
+from app.models.enums import ProjectStatus, TaskPriority
 from app.models.tag_associations import project_tags
-from app.models.associations import project_items
 
 
 class Project(Base, SoftDeleteMixin):

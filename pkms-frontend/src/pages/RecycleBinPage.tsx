@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Container,
@@ -30,8 +30,7 @@ import {
   IconNotes,
   IconCheckbox,
   IconBook,
-  IconArchive,
-  IconCalendar
+  IconArchive
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import recycleBinService, { RecycleBinItem } from '../services/recyclebinService';
@@ -72,64 +71,78 @@ export function RecycleBinPage({ showAll: propShowAll = false }: RecycleBinPageP
       if (showAll) {
         // Show all items (active + deleted) for management view
         switch (activeTab) {
-          case 'all':
+          case 'all': {
             fetchedItems = await recycleBinService.getAllItems();
             break;
-          case 'projects':
+          }
+          case 'projects': {
             const allProjects = await recycleBinService.getAllProjects();
             fetchedItems = allProjects.map(item => ({ ...item, type: 'project' as const, title: item.name }));
             break;
-          case 'notes':
+          }
+          case 'notes': {
             const allNotes = await recycleBinService.getAllNotes();
             fetchedItems = allNotes.map(item => ({ ...item, type: 'note' as const }));
             break;
-          case 'todos':
+          }
+          case 'todos': {
             const allTodos = await recycleBinService.getAllTodos();
             fetchedItems = allTodos.map(item => ({ ...item, type: 'todo' as const }));
             break;
-          case 'documents':
+          }
+          case 'documents': {
             const allDocuments = await recycleBinService.getAllDocuments();
             fetchedItems = allDocuments.map(item => ({ ...item, type: 'document' as const }));
             break;
-          case 'diary':
+          }
+          case 'diary': {
             const allDiary = await recycleBinService.getAllDiaryEntries();
             fetchedItems = allDiary.map(item => ({ ...item, type: 'diary' as const }));
             break;
-          case 'archive':
+          }
+          case 'archive': {
             const allArchive = await recycleBinService.getAllArchiveItems();
             fetchedItems = allArchive.map(item => ({ ...item, type: 'archive' as const, title: item.name }));
             break;
+          }
         }
       } else {
         // Show only deleted items (recycle bin view)
         switch (activeTab) {
-          case 'all':
+          case 'all': {
             fetchedItems = await recycleBinService.getAllDeletedItems();
             break;
-          case 'projects':
+          }
+          case 'projects': {
             const projects = await recycleBinService.getDeletedProjects();
             fetchedItems = projects.map(item => ({ ...item, type: 'project' as const, title: item.name }));
             break;
-          case 'notes':
+          }
+          case 'notes': {
             const notes = await recycleBinService.getDeletedNotes();
             fetchedItems = notes.map(item => ({ ...item, type: 'note' as const }));
             break;
-          case 'todos':
+          }
+          case 'todos': {
             const todos = await recycleBinService.getDeletedTodos();
             fetchedItems = todos.map(item => ({ ...item, type: 'todo' as const }));
             break;
-          case 'documents':
+          }
+          case 'documents': {
             const documents = await recycleBinService.getDeletedDocuments();
             fetchedItems = documents.map(item => ({ ...item, type: 'document' as const }));
             break;
-          case 'diary':
+          }
+          case 'diary': {
             const diary = await recycleBinService.getDeletedDiaryEntries();
             fetchedItems = diary.map(item => ({ ...item, type: 'diary' as const }));
             break;
-          case 'archive':
+          }
+          case 'archive': {
             const archive = await recycleBinService.getDeletedArchiveItems();
             fetchedItems = archive.map(item => ({ ...item, type: 'archive' as const, title: item.name }));
             break;
+          }
         }
       }
       
@@ -315,7 +328,7 @@ export function RecycleBinPage({ showAll: propShowAll = false }: RecycleBinPageP
                 )}
               </Group>
               <Text size="xs" c="dimmed" mt="xs">
-                Deleted: {formatDate(item.deletedAt || item.updatedAt)}
+                Deleted: {formatDate(item.deletedAt || item.updatedAt || item.createdAt || '')}
               </Text>
             </div>
           </Group>

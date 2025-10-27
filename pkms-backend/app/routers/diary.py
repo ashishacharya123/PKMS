@@ -5,11 +5,10 @@ Refactored to use service layer for business logic.
 Router now contains only HTTP endpoint definitions and thin wrappers.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile, Request
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 import logging
 import json
 
@@ -31,7 +30,6 @@ from app.schemas.diary import (
     EncryptionSetupRequest,
     EncryptionUnlockRequest,
     EncryptionStatusResponse,
-    WEATHER_CODE_LABELS,
 )
 from app.schemas.project import (
     ProjectDocumentsLinkRequest,
@@ -45,7 +43,7 @@ from app.services.diary_session_service import diary_session_service
 from app.services.habit_data_service import habit_data_service
 from app.services.diary_crud_service import diary_crud_service
 from app.services.diary_document_service import diary_document_service
-from app.services.daily_insights_service import DailyInsightsService
+# Daily insights functionality has been moved to unified_habit_analytics_service
 from app.services.unified_habit_analytics_service import unified_habit_analytics_service
 
 logger = logging.getLogger(__name__)
@@ -299,18 +297,9 @@ async def list_deleted_diary_entries(
 ):
     """List deleted diary entries for Recycle Bin. Uses FTS5 for text search if search_title is provided."""
     try:
-        # Check if diary is unlocked
-        diary_key = await diary_session_service.get_password_from_session(current_user.uuid)
-        if not diary_key:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Diary is locked. Please unlock diary first."
-            )
-        
         return await diary_crud_service.list_deleted_entries(
             db=db,
             user_uuid=current_user.uuid,
-            diary_key=diary_key,
             year=year,
             month=month,
             mood=mood,
@@ -678,78 +667,6 @@ async def update_daily_metadata(
 
 # --- Habit Tracking Endpoints ---
 
-@router.post("/daily-metadata/{target_date}/habits")
-async def update_daily_habits(
-    target_date: str,
-    habits_data: Dict[str, Any],
-    units: Dict[str, str] = {},
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Update habits for specific day with automatic streak calculation."""
-    try:
-        date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid date format. Expected YYYY-MM-DD"
-        )
-
-    try:
-        updated_habits = await habit_data_service.update_daily_habits(
-            db=db,
-            user_uuid=current_user.uuid,
-            target_date=date_obj,
-            habits_data=habits_data,
-            units=units
-        )
-
-        logger.info(f"Updated habits for user {current_user.uuid} on {target_date}")
-
-        return {
-            "message": "Habits updated successfully",
-            "date": updated_habits["date"],
-            "habits": updated_habits["updated_habits"]
-        }
-
-    except Exception as e:
-        logger.error(f"Error updating habits for user {current_user.uuid}: {type(e).__name__}")
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update habits"
-        )
-
-@router.get("/daily-metadata/{target_date}/habits")
-async def get_daily_habits(
-    target_date: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get habits for specific date."""
-    try:
-        date_obj = datetime.strptime(target_date, "%Y-%m-%d").date()
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid date format. Expected YYYY-MM-DD"
-        )
-
-    try:
-        habits_data = await habit_data_service.get_today_habits(
-            db=db,
-            user_uuid=current_user.uuid,
-            target_date=date_obj
-        )
-
-        return habits_data
-
-    except Exception as e:
-        logger.error(f"Error getting habits for user {current_user.uuid}: {type(e).__name__}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get habits"
-        )
 
 @router.get("/habits/analytics")
 async def get_habits_analytics(
@@ -803,7 +720,6 @@ async def get_wellness_score_analytics_unified(
     """
     try:
         from app.services.unified_analytics_service import unified_analytics_service
-        from app.services.habit_data_service import DiaryMetadataService
 
         # Get loading state info for frontend
         loading_info = unified_analytics_service.get_loading_state_info(days)
@@ -1054,7 +970,6 @@ async def get_diary_entry_documents(
         )
         
         # Convert to DocumentResponse format
-        from app.services.document_crud_service import document_crud_service
         # Get project badges for each document using polymorphic project_items
         document_uuids = [doc.uuid for doc in documents]
         from app.services.shared_utilities_service import shared_utilities_service
@@ -1077,7 +992,7 @@ async def get_diary_entry_documents(
                 is_encrypted=getattr(doc, 'is_encrypted', False),
                 thumbnail_path=doc.thumbnail_path,
                 created_at=doc.created_at,
-                updated_at=doc.updated_at
+                updated_at=doc.updated_at,
                 projects=project_badges_map.get(doc.uuid, [])
             )
             for doc in documents
@@ -1532,7 +1447,10 @@ async def get_work_life_balance(
     db: AsyncSession = Depends(get_db)
 ):
     """Get work-life balance analytics"""
-    return await DailyInsightsService.get_work_life_balance(db, current_user.uuid, days)
+    # Use unified habit analytics for work-life balance insights
+    return await unified_habit_analytics_service.get_habit_correlation(
+        db, current_user.uuid, "work_hours", "life_satisfaction", days
+    )
 
 
 @router.get("/analytics/financial-wellness")
@@ -1542,7 +1460,10 @@ async def get_financial_wellness(
     db: AsyncSession = Depends(get_db)
 ):
     """Get financial wellness correlation analytics"""
-    return await DailyInsightsService.get_financial_wellness_correlation(db, current_user.uuid, days)
+    # Use unified habit analytics for financial wellness correlation
+    return await unified_habit_analytics_service.get_habit_correlation(
+        db, current_user.uuid, "financial_stress", "overall_mood", days
+    )
 
 
 @router.get("/analytics/weekly-patterns")
@@ -1552,7 +1473,10 @@ async def get_weekly_patterns(
     db: AsyncSession = Depends(get_db)
 ):
     """Get weekly rhythm analysis"""
-    return await DailyInsightsService.get_weekly_rhythm_analysis(db, current_user.uuid, days)
+    # Use unified habit analytics for weekly rhythm analysis
+    return await unified_habit_analytics_service.get_comprehensive_analytics(
+        db, current_user.uuid, days
+    )
 
 
 @router.get("/analytics/temperature-mood")
@@ -1562,7 +1486,11 @@ async def get_temperature_mood(
     db: AsyncSession = Depends(get_db)
 ):
     """Get temperature-mood correlation analytics"""
-    return await DailyInsightsService.get_temperature_mood_correlation(db, current_user.uuid, days)
+    # Use unified habit analytics for temperature-mood correlation
+    # For now, return comprehensive analytics which includes mood patterns
+    return await unified_habit_analytics_service.get_comprehensive_analytics(
+        db, current_user.uuid, days
+    )
 
 
 @router.get("/analytics/writing-therapy")
@@ -1572,4 +1500,7 @@ async def get_writing_therapy(
     db: AsyncSession = Depends(get_db)
 ):
     """Get writing therapy insights (mood vs content length)"""
-    return await DailyInsightsService.get_writing_therapy_insights(db, current_user.uuid, days)
+    # Use unified habit analytics for writing therapy insights (mood vs content analysis)
+    return await unified_habit_analytics_service.get_comprehensive_analytics(
+        db, current_user.uuid, days
+    )

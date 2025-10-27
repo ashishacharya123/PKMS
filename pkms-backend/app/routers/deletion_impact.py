@@ -27,7 +27,7 @@ ItemType = Literal["document", "note", "todo", "project", "diary", "archive"]
 async def analyze_deletion_impact(
     item_type: ItemType,
     item_uuid: str,
-    mode: str = Query("soft", regex="^(soft|hard)$"),  # NEW parameter
+    mode: str = Query("soft", pattern="^(soft|hard)$"),  # NEW parameter
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -50,8 +50,8 @@ async def analyze_deletion_impact(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error analyzing {item_type} deletion impact")
+        logger.exception("Error analyzing %s deletion impact", item_type)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=f"Failed to analyze deletion impact: {str(e)}"
-        )
+            detail="Failed to analyze deletion impact"
+        ) from e

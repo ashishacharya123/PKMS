@@ -9,7 +9,6 @@ This eliminates schema duplication and provides a unified interface for upload r
 
 from pydantic import Field, field_validator, UUID4
 from typing import List, Optional, Literal
-from datetime import datetime
 from .base import CamelCaseModel
 
 from app.utils.security import sanitize_tags

@@ -4,11 +4,10 @@ Handles user registration, login, logout, and password recovery
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie, Query
-from fastapi.security import HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func, and_
-from app.schemas.auth import UserSetup, UserLogin, PasswordChange, RecoveryReset, RecoveryKeyResponse, TokenResponse, UserResponse, RefreshTokenRequest, UsernameBody, LoginPasswordHintUpdate
-from typing import List, Optional
+from app.schemas.auth import UserSetup, UserLogin, PasswordChange, RecoveryReset, TokenResponse, UserResponse, UsernameBody, LoginPasswordHintUpdate
+from typing import Optional
 from datetime import datetime, timedelta
 import json
 import re
@@ -16,7 +15,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 import logging
 
-from app.database import get_db, init_db
+from app.database import get_db
 from app.models.user import User, Session, RecoveryKey
 from app.auth.security import (
     hash_password, verify_password, create_access_token, generate_session_token,
@@ -121,7 +120,7 @@ async def setup_user(
     session = Session(
         session_token=session_token,
         created_by=user.uuid,
-        expires_at=datetime.now(NEPAL_TZ) + timedelta(days=7),
+        expires_at=datetime.now(NEPAL_TZ) + timedelta(minutes=30),  # 30 minutes session
         ip_address=None,
         user_agent="internal-setup"
     )
@@ -148,7 +147,7 @@ async def setup_user(
         httponly=True,
         samesite="strict",  # SECURITY: Strict SameSite for CSRF protection
         secure=settings.environment == "production",
-        max_age=7*24*60*60
+        max_age=30*60  # 30 minutes
     )
     
     return TokenResponse(
@@ -207,7 +206,7 @@ async def login(
     
     # Create or update session
     session_token = generate_session_token()
-    expires_at = datetime.now(NEPAL_TZ) + timedelta(days=settings.refresh_token_lifetime_days)
+    expires_at = datetime.now(NEPAL_TZ) + timedelta(minutes=30)  # 30 minutes session
     
     # Clean up old sessions for this user
     await db.execute(
@@ -243,7 +242,7 @@ async def login(
     response.set_cookie(
         key="pkms_refresh",
         value=session_token,
-        max_age=settings.refresh_token_lifetime_days * 24 * 60 * 60,
+        max_age=30 * 60,  # 30 minutes
         httponly=True,
         secure=(settings.environment == "production"),
         samesite="strict"  # SECURITY: Consistent strict SameSite for CSRF protection
@@ -258,6 +257,59 @@ async def login(
     )
 
 
+@router.get("/session-status")
+async def get_session_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get current session status and token expiry information."""
+    try:
+        # Get current user's active session
+        session_result = await db.execute(
+            select(Session)
+            .where(Session.created_by == current_user.uuid)
+            .where(Session.expires_at > datetime.now(NEPAL_TZ))
+            .order_by(Session.expires_at.desc())
+            .limit(1)
+        )
+        session = session_result.scalar_one_or_none()
+
+        if not session:
+            return {
+                "status": "no_active_session",
+                "message": "No active session found",
+                "expires_in_seconds": 0,
+                "is_expiring_soon": False,
+                "is_critically_expiring": False
+            }
+
+        now = datetime.now(NEPAL_TZ)
+        time_until_expiry = session.expires_at - now
+        expires_in_seconds = int(time_until_expiry.total_seconds())
+        
+        # Check if expiring soon (within 5 minutes)
+        is_expiring_soon = expires_in_seconds <= 300  # 5 minutes
+        
+        # Check if critically expiring (within 1 minute)
+        is_critically_expiring = expires_in_seconds <= 60  # 1 minute
+
+        return {
+            "status": "active",
+            "expires_in_seconds": max(0, expires_in_seconds),
+            "is_expiring_soon": is_expiring_soon,
+            "is_critically_expiring": is_critically_expiring,
+            "expires_at": session.expires_at.isoformat(),
+            "last_activity": session.last_activity.isoformat() if session.last_activity else None
+        }
+
+    except Exception:
+        logger.exception("Error getting session status for user %s", current_user.uuid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get session status"
+        )
+
+
 @router.post("/logout")
 async def logout(
     response: Response,
@@ -270,8 +322,8 @@ async def logout(
     """
     try:
         # Clear diary session (in-memory) on logout for safety
-        from app.routers.diary import _clear_diary_session
-        await _clear_diary_session(current_user.uuid)
+        # TODO: Implement diary session cleanup if needed
+        # Note: _clear_diary_session function does not exist - removing broken import
         
         # Delete session from database (only current user's session)
         if session_token:
@@ -504,12 +556,12 @@ async def refresh_access_token(
         session.session_token = new_session_token
         session.last_activity = now
         
-        # SIMPLE LOGIC: Extend by configured days from NOW
-        new_expiry = now + timedelta(days=settings.refresh_token_lifetime_days)
+        # SIMPLE LOGIC: Extend by 30 minutes from NOW (manual extension only)
+        new_expiry = now + timedelta(minutes=30)
 
-        # But don't extend beyond 1 day total from session creation (security limit)
+        # But don't extend beyond 1 hour total from session creation (security limit)
         created_at = session.created_at.replace(tzinfo=NEPAL_TZ) if session.created_at.tzinfo is None else session.created_at
-        max_expiry = created_at + timedelta(days=1)
+        max_expiry = created_at + timedelta(hours=1)
 
         # Use the earlier of the two dates
         session.expires_at = min(new_expiry, max_expiry)
@@ -528,7 +580,7 @@ async def refresh_access_token(
 
         # Set new refresh cookie with new token
         # Use the updated session.expires_at
-        remaining = int((session.expires_at - now).total_seconds()) if session.expires_at else settings.refresh_token_lifetime_days * 24 * 60 * 60
+        remaining = int((session.expires_at - now).total_seconds()) if session.expires_at else 30 * 60
         response.set_cookie(
             key="pkms_refresh",
             value=new_session_token,
@@ -547,7 +599,7 @@ async def refresh_access_token(
     except HTTPException:
         # Pass through expected auth errors
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("/auth/refresh unexpected failure")
         # Return 401 to allow client to handle gracefully rather than surfacing as network error
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh failed")
@@ -604,4 +656,7 @@ async def get_any_login_password_hint(db: AsyncSession = Depends(get_db)):
         return {"hint": user.login_password_hint, "username": ""}  # Don't leak username
     else:
         # Return generic response even if no user exists
-        return {"hint": "", "username": ""} 
+        return {"hint": "", "username": ""}
+
+# Export router with conventional name
+auth_router = router 

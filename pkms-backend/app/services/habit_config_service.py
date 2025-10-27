@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Literal
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 
 from app.models.config import AppConfig
 from app.config import NEPAL_TZ

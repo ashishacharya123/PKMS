@@ -183,25 +183,31 @@ class ApiService {
   }
 
   /**
-   * @deprecated Token expiry checking moved to backend
-   * HttpOnly cookies prevent client-side token access
    * Check if JWT token is expiring soon (within 5 minutes)
+   * Uses backend endpoint to check session status
    */
-  isTokenExpiringSoon(): boolean {
-    // Can't read HttpOnly cookies from JavaScript
-    // Token expiry is handled by backend and automatic refresh
-    return false;
+  async isTokenExpiringSoon(): Promise<boolean> {
+    try {
+      const response = await this.instance.get('/api/v1/auth/session-status');
+      return response.data.is_expiring_soon || false;
+    } catch (error) {
+      console.warn('Failed to check token expiry status:', error);
+      return false;
+    }
   }
 
   /**
-   * @deprecated Token expiry checking moved to backend
-   * HttpOnly cookies prevent client-side token access
    * Check if JWT token is critically close to expiry (<= 1 minute)
+   * Uses backend endpoint to check session status
    */
-  isTokenCriticallyExpiring(): boolean {
-    // Can't read HttpOnly cookies from JavaScript
-    // Token expiry is handled by backend and automatic refresh
-    return false;
+  async isTokenCriticallyExpiring(): Promise<boolean> {
+    try {
+      const response = await this.instance.get('/api/v1/auth/session-status');
+      return response.data.is_critically_expiring || false;
+    } catch (error) {
+      console.warn('Failed to check token expiry status:', error);
+      return false;
+    }
   }
 
   /**
@@ -332,7 +338,7 @@ class ApiService {
       // Cookie is already refreshed by server automatically
       notifications.show({
         title: '✅ Session Extended',
-        message: 'Your session has been extended successfully!',
+        message: 'Your session has been extended by 30 minutes!',
         color: 'green',
         autoClose: 3000,
       });

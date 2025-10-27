@@ -70,7 +70,7 @@ async def list_todos(
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error listing todos for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -88,7 +88,7 @@ async def list_deleted_todos(
         return await todo_crud_service.list_deleted_todos(db, current_user.uuid)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error listing deleted todos")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -107,7 +107,7 @@ async def get_todo(
         return await todo_crud_service.get_todo(db, current_user.uuid, todo_uuid)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error getting todo %s", todo_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -127,7 +127,7 @@ async def update_todo(
         return await todo_crud_service.update_todo(db, current_user.uuid, todo_uuid, update_data)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error updating todo %s", todo_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -147,7 +147,7 @@ async def delete_todo(
         return {"message": "Todo deleted successfully"}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error deleting todo %s", todo_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -166,7 +166,7 @@ async def restore_todo(
         return {"message": "Todo restored successfully"}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error restoring todo %s", todo_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -185,7 +185,7 @@ async def hard_delete_todo(
         return {"message": "Todo permanently deleted"}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error permanently deleting todo %s", todo_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -205,7 +205,7 @@ async def update_todo_status(
         return await todo_crud_service.update_todo_status(db, current_user.uuid, todo_uuid, status_value)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error updating todo status %s", todo_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -224,7 +224,7 @@ async def complete_todo(
         return await todo_crud_service.complete_todo(db, current_user.uuid, todo_uuid)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error completing todo %s", todo_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -244,7 +244,7 @@ async def get_overdue_todos(
         return await todo_workflow_service.get_overdue_todos(db, current_user.uuid, days_overdue)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error getting overdue todos for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -263,7 +263,7 @@ async def get_upcoming_todos(
         return await todo_workflow_service.get_upcoming_todos(db, current_user.uuid, days_ahead)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error getting upcoming todos for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -281,7 +281,7 @@ async def get_high_priority_todos(
         return await todo_workflow_service.get_high_priority_todos(db, current_user.uuid)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error getting high priority todos for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -300,7 +300,7 @@ async def get_completion_analytics(
         return await todo_workflow_service.get_completion_analytics(db, current_user.uuid, days)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error getting completion analytics for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -318,7 +318,7 @@ async def get_productivity_insights(
         return await todo_workflow_service.get_productivity_insights(db, current_user.uuid)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error getting productivity insights for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -336,7 +336,7 @@ async def auto_update_overdue_todos(
         return await todo_workflow_service.auto_update_overdue_todos(db, current_user.uuid)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error auto-updating overdue todos for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -394,7 +394,7 @@ async def get_todo_stats(
         return await todo_crud_service.get_todo_stats(db, current_user.uuid)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error getting todo stats for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -419,7 +419,7 @@ async def add_dependency(
         return {"message": "Dependency added successfully"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
+    except Exception:
         logger.exception("Error adding dependency")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -440,7 +440,7 @@ async def remove_dependency(
             db, todo_uuid, blocker_uuid
         )
         return {"message": "Dependency removed successfully"}
-    except Exception as e:
+    except Exception:
         logger.exception("Error removing dependency")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -460,7 +460,7 @@ async def get_blocking_todos(
             db, todo_uuid
         )
         return {"blocking_todos": blocking_todos}
-    except Exception as e:
+    except Exception:
         logger.exception("Error getting blocking todos")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -480,7 +480,7 @@ async def get_blocked_by_todos(
             db, todo_uuid
         )
         return {"blocked_by_todos": blocked_todos}
-    except Exception as e:
+    except Exception:
         logger.exception("Error getting blocked todos")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -541,7 +541,7 @@ async def reorder_subtasks(
         
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         await db.rollback()
         logger.exception("Error reordering subtasks for parent %s", parent_uuid)
         raise HTTPException(

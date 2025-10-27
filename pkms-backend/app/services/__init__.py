@@ -359,20 +359,6 @@ This module serves as:
 │     - Parallel search across multiple content types
 
 • ── Utility & Supporting Services
-├── cache_invalidation_service.py
-│   PURPOSE: Cache management and invalidation across modules
-│   KEY FEATURES: Redis integration, targeted cache clearing, cache warming
-│   FUNCTIONS:
-│     - invalidate_user_cache(): Clear all cache for user
-│     - invalidate_module_cache(): Clear specific module cache
-│     - warm_cache(): Pre-load frequently accessed data
-│   IMPORTS NEEDED:
-│     from app.services.cache_invalidation_service import cache_invalidation_service
-│     await cache_invalidation_service.invalidate_user_cache(user_uuid)
-│   CACHE STRATEGY:
-│     - User-specific cache keys for isolation
-│     - Version-based cache invalidation
-│     - Background cache warming for performance
 │
 ├── analytics_config_service.py
 │   PURPOSE: Analytics configuration and metric definitions
@@ -509,7 +495,6 @@ from . import (
     # Analytics & Performance
     dashboard_service,
     search_service,
-    cache_invalidation_service,
 
     # Utility & Supporting
     chunk_service,
@@ -520,7 +505,7 @@ __all__ = [
     'archive_folder_service',
     'archive_item_service',
     'archive_path_service',
-    'file_validation_service',
+    'file_validation',
     'file_detection',
     'unified_upload_service',
 
@@ -545,7 +530,6 @@ __all__ = [
     # Analytics & Performance
     'dashboard_service',
     'search_service',
-    'cache_invalidation_service',
 
     # Utility & Supporting
     'chunk_service',

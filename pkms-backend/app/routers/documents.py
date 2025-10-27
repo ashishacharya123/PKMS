@@ -8,7 +8,6 @@ Refactored to follow "thin router, thick service" architecture pattern.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from pydantic.types import UUID4
@@ -39,7 +38,7 @@ async def commit_document_upload(
         return await document_crud_service.commit_document_upload(db, current_user.uuid, payload)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error committing document upload for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -69,7 +68,7 @@ async def list_documents(
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error listing documents for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -87,7 +86,7 @@ async def list_deleted_documents(
         return await document_crud_service.list_deleted_documents(db, current_user.uuid)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error listing deleted documents")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -106,7 +105,7 @@ async def get_document(
         return await document_crud_service.get_document(db, current_user.uuid, document_uuid)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error getting document {document_uuid} for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -128,7 +127,7 @@ async def update_document(
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error updating document {document_uuid} for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -147,7 +146,7 @@ async def delete_document(
         await document_crud_service.delete_document(db, current_user.uuid, document_uuid)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error deleting document {document_uuid} for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -167,7 +166,7 @@ async def restore_document(
         return {"message": "Document restored successfully"}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error restoring document {document_uuid} for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -187,7 +186,7 @@ async def permanent_delete_document(
         return {"message": "Document permanently deleted"}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error permanently deleting document {document_uuid} for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -206,7 +205,7 @@ async def download_document(
         return await document_crud_service.download_document(db, current_user.uuid, document_uuid)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error downloading document {document_uuid} for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -238,7 +238,7 @@ export const documentsCacheAware = {
     return cacheAwareService.get(
       'documents_list',
       documentsCache,
-      () => import('./documentService').then(s => s.documentService.getDocuments()),
+      () => import('./unifiedFileService').then(s => s.unifiedFileService.getDocumentFiles()),
       { tags: ['documents'], enableRevalidation: true }
     );
   },
@@ -256,7 +256,7 @@ export const projectsCacheAware = {
     return cacheAwareService.get(
       'projects_list',
       projectsCache,
-      () => import('./projectService').then(s => s.projectService.getProjects()),
+      () => import('./projectApi').then(s => s.projectApi.getProjects()),
       { tags: ['projects'], enableRevalidation: true }
     );
   },

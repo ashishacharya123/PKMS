@@ -7,12 +7,10 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
-from datetime import datetime
 
 from app.database import get_db
-from app.models.user import User, Session
+from app.models.user import User
 from app.auth.security import verify_token
-from app.config import settings, NEPAL_TZ
 import logging
 
 logger = logging.getLogger(__name__)

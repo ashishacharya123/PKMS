@@ -7,8 +7,7 @@ Handles only HTTP concerns: request/response mapping, authentication, error hand
 Refactored to follow "thin router, thick service" architecture pattern.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 import logging
@@ -16,7 +15,8 @@ import logging
 from app.database import get_db
 from app.models.user import User
 from app.auth.dependencies import get_current_user
-from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFile
+from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary
+from app.schemas.document import CommitDocumentUploadRequest as CommitNoteFileRequest
 from app.services.note_crud_service import note_crud_service
 from app.services.chunk_service import chunk_manager
 
@@ -80,11 +80,11 @@ async def list_deleted_notes(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error listing deleted notes for user {current_user.uuid}")
+        logger.exception("Error listing deleted notes for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list deleted notes: {str(e)}"
-        )
+            detail="Failed to list deleted notes"
+        ) from e
 
 
 @router.get("/{note_uuid}", response_model=NoteResponse)
@@ -159,11 +159,11 @@ async def restore_note(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error restoring note {note_uuid}")
+        logger.exception("Error restoring note %s", note_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to restore note: {str(e)}"
-        )
+            detail="Failed to restore note"
+        ) from e
 
 
 @router.post("/{note_uuid}/archive")
@@ -198,11 +198,11 @@ async def hard_delete_note(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error permanently deleting note {note_uuid}")
+        logger.exception("Error permanently deleting note %s", note_uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to permanently delete note: {str(e)}"
-        )
+            detail="Failed to permanently delete note"
+        ) from e
 
 
 # Note file endpoints removed - file handling now done via Document + note_documents association
@@ -249,7 +249,7 @@ async def upload_note_file(
         )
 
 
-@router.post("/{note_uuid}/files/commit", response_model=NoteFileResponse)
+@router.post("/{note_uuid}/files/commit", response_model=NoteResponse)
 async def commit_note_file_upload(
     note_uuid: str,
     commit_request: CommitNoteFileRequest,
@@ -313,7 +313,7 @@ async def duplicate_note(
         )
 
 
-@router.get("/{note_uuid}/files", response_model=List[NoteFile])
+@router.get("/{note_uuid}/files", response_model=List[NoteResponse])
 async def get_note_files(
     note_uuid: str,
     current_user: User = Depends(get_current_user),

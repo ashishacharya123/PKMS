@@ -6,7 +6,7 @@ All modules should use this service instead of duplicating queries.
 """
 
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, and_
 

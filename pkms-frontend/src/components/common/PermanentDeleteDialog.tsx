@@ -77,12 +77,24 @@ export function PermanentDeleteDialog({
 
     setDeleting(true);
     try {
-      const response = await fetch(`/api/v1/${itemType}s/${itemUuid}/permanent`, {
+      const endpoints: Record<ItemType, string> = {
+        project: '/api/v1/projects',
+        note: '/api/v1/notes',
+        todo: '/api/v1/todos',
+        document: '/api/v1/documents',
+        diary: '/api/v1/diary/entries',
+        archive: '/api/v1/archive/items'
+      };
+      const url = `${endpoints[itemType]}/${itemUuid}/permanent`;
+      
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      const token = localStorage.getItem('token');
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      
+      const response = await fetch(url, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+        headers,
+        credentials: 'same-origin'
       });
 
       if (!response.ok) {
@@ -120,8 +132,8 @@ export function PermanentDeleteDialog({
           <Alert icon={<IconTrash size={16} />} color="red" variant="light">
             <Text fw={500} size="sm">Will be permanently deleted:</Text>
             <List size="sm" mt="xs">
-              {details.willBeDeleted.map((item, index) => (
-                <List.Item key={index}>
+              {details.willBeDeleted.map((item) => (
+                <List.Item key={item.uuid ?? item.title}>
                   <Group gap="xs" align="center">
                     <Text>{item.title}</Text>
                     <Badge size="xs" color="red" variant="light">
@@ -138,8 +150,8 @@ export function PermanentDeleteDialog({
           <Alert icon={<IconShield size={16} />} color="green" variant="light">
             <Text fw={500} size="sm">Will be preserved (shared items):</Text>
             <List size="sm" mt="xs">
-              {details.willBePreserved.map((item, index) => (
-                <List.Item key={index}>
+              {details.willBePreserved.map((item) => (
+                <List.Item key={item.uuid ?? item.title}>
                   <Group gap="xs" align="center">
                     <Text>{item.title}</Text>
                     <Badge size="xs" color="green" variant="light">
@@ -156,8 +168,8 @@ export function PermanentDeleteDialog({
           <Alert icon={<IconAlertTriangle size={16} />} color="yellow" variant="light">
             <Text fw={500} size="sm">Warnings:</Text>
             <List size="sm" mt="xs">
-              {details.warnings.map((warning, index) => (
-                <List.Item key={index}>{warning}</List.Item>
+              {details.warnings.map((warning) => (
+                <List.Item key={warning}>{warning}</List.Item>
               ))}
             </List>
           </Alert>
@@ -188,7 +200,9 @@ export function PermanentDeleteDialog({
           </Alert>
 
           <Text size="sm">
-            {deletionImpactService.getModalDescription('hard', impact || {} as DeletionImpact)}
+            {impact 
+              ? deletionImpactService.getModalDescription('hard', impact)
+              : 'Analyzing deletion impact...'}
           </Text>
 
           {impact && renderImpactDetails()}
@@ -197,8 +211,8 @@ export function PermanentDeleteDialog({
             <Alert icon={<IconInfoCircle size={16} />} color="blue">
               <Text fw={500}>Cannot delete:</Text>
               <List size="sm" mt="xs">
-                {impact.blockers.map((blocker, index) => (
-                  <List.Item key={index}>{blocker}</List.Item>
+                {impact.blockers.map((blocker) => (
+                  <List.Item key={blocker}>{blocker}</List.Item>
                 ))}
               </List>
             </Alert>

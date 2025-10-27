@@ -1,7 +1,7 @@
 from pydantic import Field
 from typing import Dict, List, Optional, Any
 from datetime import datetime
-from app.models.enums import TodoStatsKey, ModuleStatsKey
+from app.models.enums import ModuleStatsKey
 from .base import CamelCaseModel
 
 class DashboardStats(CamelCaseModel):

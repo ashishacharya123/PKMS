@@ -4,9 +4,8 @@ Tag Model for Content Organization
 
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, Boolean, ForeignKey,
-    UniqueConstraint, Enum, Index
+    UniqueConstraint, Index
 )
-from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 

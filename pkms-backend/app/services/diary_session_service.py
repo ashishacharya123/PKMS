@@ -17,8 +17,8 @@ from cryptography.hazmat.primitives import hashes
 
 logger = logging.getLogger(__name__)
 
-# Session timeout (30 minutes, aligned with app session)
-DIARY_SESSION_TIMEOUT = 1800
+# Session timeout (5 minutes after leaving diary page)
+DIARY_SESSION_TIMEOUT = 300
 
 
 class DiarySessionService:

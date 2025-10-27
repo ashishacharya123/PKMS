@@ -12,9 +12,8 @@ Benefits:
 - Easier to maintain and extend
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from typing import Dict, Any
 import json
 import io
@@ -24,7 +23,6 @@ from app.auth.dependencies import get_current_user
 from app.models.user import User
 from app.services.unified_upload_service import unified_upload_service
 from app.schemas.unified_upload import (
-    BaseCommitUploadRequest,
     DocumentCommitUploadRequest,
     NoteCommitUploadRequest,
     ArchiveCommitUploadRequest,

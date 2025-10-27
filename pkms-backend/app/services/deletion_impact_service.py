@@ -6,16 +6,16 @@ Provides detailed warnings, blockers, and impact analysis for safe deletion deci
 """
 
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, text
+from sqlalchemy import select, and_, func
 from fastapi import HTTPException, status
 
 from app.models.project import Project
 from app.models.note import Note
 from app.models.todo import Todo
 from app.models.document import Document
-from app.models.associations import project_items, note_documents, document_diary
+from app.models.associations import project_items, note_documents
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +57,10 @@ class DeletionImpactService:
                     "orphan_items": [],
                     "preserved_items": []
                 }
-            
-            elif mode == "hard":
-                # Run the real analysis for hard delete
-                pass  # Continue with existing logic
-            else:
+            elif mode != "hard":
                 raise HTTPException(status_code=400, detail="Mode must be 'soft' or 'hard'")
             
+            # Run the real analysis for hard delete mode
             # Verify item exists and user owns it
             item = await self._verify_item_ownership(db, item_type, item_uuid, user_uuid)
             if not item:
@@ -249,7 +246,7 @@ class DeletionImpactService:
                         and_(
                             note_documents.c.document_uuid == doc_uuid,
                             note_documents.c.note_uuid != note_uuid,
-                            note_documents.c.is_exclusive == True
+                            note_documents.c.is_exclusive.is_(True)
                         )
                     )
                 )

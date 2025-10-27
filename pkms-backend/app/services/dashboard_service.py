@@ -7,30 +7,25 @@ Refactored from dashboard.py router to follow "thin router, thick service" patte
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Final
+from typing import Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, and_, or_
 
 from app.config import NEPAL_TZ
 from app.models.note import Note
 from app.models.document import Document
-from app.models.todo import Todo, TodoStatus
-from app.models.project import Project, ProjectStatus
+from app.models.todo import Todo
+from app.models.project import Project
 from app.models.diary import DiaryEntry
 from app.models.associations import document_diary
-from app.models.archive import ArchiveFolder, ArchiveItem
+from app.models.archive import ArchiveItem
 from app.schemas.dashboard import DashboardStats, ModuleActivity, QuickStats, RecentActivityTimeline, RecentActivityItem
-from app.services.dashboard_cache_service import dashboard_cache_service
-
-CACHE_TTL_SECONDS: Final[int] = 120
 logger = logging.getLogger(__name__)
 
 
 class DashboardService:
     """Service for dashboard statistics and aggregations"""
     
-    def __init__(self):
-        self.cache = dashboard_cache_service
     
     async def get_dashboard_stats(
         self, 
@@ -39,17 +34,7 @@ class DashboardService:
     ) -> DashboardStats:
         """
         Get comprehensive dashboard statistics for all modules.
-        
-        Cached with 120-second TTL for performance.
         """
-        # Check cache first
-        cache_key = f"stats:{user_uuid}"
-        cached = self.cache.get(cache_key)
-        if cached is not None:
-            logger.debug(f"Dashboard stats cache hit for user {user_uuid}")
-            return cached
-        
-        logger.debug(f"Dashboard stats cache miss for user {user_uuid}")
         
         # Use shared dashboard stats service to avoid duplication
         from app.services.dashboard_stats_service import dashboard_stats_service
@@ -72,8 +57,6 @@ class DashboardService:
             last_updated=datetime.now(NEPAL_TZ)
         )
         
-        # Cache the result
-        self.cache.set(cache_key, stats, ttl_seconds=CACHE_TTL_SECONDS)
         return stats
     
     async def get_recent_activity(
@@ -93,14 +76,6 @@ class DashboardService:
         Returns:
             ModuleActivity with counts of recent items
         """
-        # Check cache first (keyed by user and days)
-        cache_key = f"activity:{user_uuid}:{days}"
-        cached = self.cache.get(cache_key)
-        if cached is not None:
-            logger.debug(f"Activity cache hit for user {user_uuid}, days={days}")
-            return cached
-        
-        logger.debug(f"Activity cache miss for user {user_uuid}, days={days}")
         
         # Use shared service to get recent activity stats
         from app.services.dashboard_stats_service import dashboard_stats_service
@@ -114,8 +89,6 @@ class DashboardService:
             recent_archive_items=activity_stats.get("recent_archive_items", 0)
         )
         
-        # Cache the result
-        self.cache.set(cache_key, activity, ttl_seconds=CACHE_TTL_SECONDS)
         return activity
     
     async def get_quick_stats(
@@ -133,14 +106,6 @@ class DashboardService:
         - Diary streak
         - Storage usage by module
         """
-        # Check cache first
-        cache_key = f"quick:{user_uuid}"
-        cached = self.cache.get(cache_key)
-        if cached is not None:
-            logger.debug(f"Quick stats cache hit for user {user_uuid}")
-            return cached
-        
-        logger.debug(f"Quick stats cache miss for user {user_uuid}")
         
         # Use shared service to get all statistics
         from app.services.dashboard_stats_service import dashboard_stats_service
@@ -177,8 +142,6 @@ class DashboardService:
             storage_by_module=storage_data["by_module"]
         )
         
-        # Cache the result
-        self.cache.set(cache_key, quick_stats, ttl_seconds=CACHE_TTL_SECONDS)
         return quick_stats
     
     async def get_recent_activity_timeline(
@@ -189,19 +152,11 @@ class DashboardService:
         limit: int = 20
     ) -> RecentActivityTimeline:
         """
-        Get unified recent activity timeline sorted by creation time.
+        Get unified recent activity timeline sorted by last activity time (updated_at if present, fallback to created_at).
         
         Returns activities across all modules in chronological order:
         Projects, Todos, Notes, Documents, Archive, Diary
         """
-        # Check cache first
-        cache_key = f"timeline:{user_uuid}:{days}:{limit}"
-        cached = self.cache.get(cache_key)
-        if cached is not None:
-            logger.debug(f"Activity timeline cache hit for user {user_uuid}")
-            return cached
-        
-        logger.debug(f"Activity timeline cache miss for user {user_uuid}")
         
         cutoff = datetime.now(NEPAL_TZ) - timedelta(days=days)
         all_activities = []
@@ -321,7 +276,7 @@ class DashboardService:
         
         # Get archive items (both created and updated)
         archive_result = await db.execute(
-            select(ArchiveItem.uuid, ArchiveItem.name, ArchiveItem.item_type, ArchiveItem.created_at, ArchiveItem.updated_at)
+            select(ArchiveItem.uuid, ArchiveItem.name, ArchiveItem.mime_type, ArchiveItem.created_at, ArchiveItem.updated_at)
             .where(
                 and_(
                     ArchiveItem.created_by == user_uuid,
@@ -338,12 +293,12 @@ class DashboardService:
                 id=row.uuid,
                 type="archive",
                 title=row.name,
-                description=f"Type: {row.item_type}",
+                description=f"File: {row.mime_type}",
                 created_at=row.created_at,
                 updated_at=row.updated_at,
                 is_updated=is_updated,
                 attachment_count=None,
-                metadata={"item_type": row.item_type}
+                metadata={"item_type": "file", "mime_type": row.mime_type}
             ))
         
         # Get diary entries (metadata only, show count instead of title)
@@ -390,8 +345,6 @@ class DashboardService:
             cutoff_days=days
         )
         
-        # Cache the result
-        self.cache.set(cache_key, timeline, ttl_seconds=CACHE_TTL_SECONDS)
         return timeline
     
     async def _calculate_storage(
@@ -480,30 +433,6 @@ class DashboardService:
             }
         }
     
-    def invalidate_user_cache(self, user_uuid: str, reason: str = "data_update") -> int:
-        """
-        Invalidate all dashboard cache entries for a specific user.
-        
-        Call this when user data changes (CRUD operations).
-        
-        Args:
-            user_uuid: User UUID to invalidate cache for
-            reason: Reason for invalidation (for logging)
-            
-        Returns:
-            Number of cache entries invalidated
-        """
-        # Invalidate all cache entries for this user with specific prefixes
-        count = self.cache.invalidate_pattern(f"stats:{user_uuid}")
-        count += self.cache.invalidate_pattern(f"activity:{user_uuid}")
-        count += self.cache.invalidate_pattern(f"quick:{user_uuid}")
-        
-        logger.info(f"Invalidated {count} dashboard cache entries for user {user_uuid} - reason: {reason}")
-        return count
-    
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache performance statistics for monitoring."""
-        return self.cache.get_stats()
 
 
 # Global instance

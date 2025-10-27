@@ -6,10 +6,9 @@ This eliminates code duplication and provides a single source of truth for share
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, update
-from sqlalchemy.orm import selectinload
 
 from app.schemas.project import ProjectBadge
 from app.models.project import Project

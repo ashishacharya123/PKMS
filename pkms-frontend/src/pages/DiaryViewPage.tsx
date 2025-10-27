@@ -18,6 +18,16 @@ export default function DiaryViewPage() {
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
+  // Track when user is on diary page for session management
+  useEffect(() => {
+    store.setOnDiaryPage(true);
+    
+    // Cleanup when component unmounts (user leaves diary page)
+    return () => {
+      store.setOnDiaryPage(false);
+    };
+  }, [store]);
+
   // Ensure entries are loaded
   useAuthenticatedEffect(() => {
     if (!store.entries || store.entries.length === 0) {

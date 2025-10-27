@@ -55,7 +55,6 @@ class TodosService {
     return response.data;
   }
 
-<<<<<<< Updated upstream
   async getProjects(archived: boolean = false, isDeleted?: boolean): Promise<LegacyProject[]> {
     // URL query parameter - remains snake_case
     const queryParams = new URLSearchParams();
@@ -65,7 +64,6 @@ class TodosService {
     }
     const url = `${this.baseUrl}/projects?${queryParams.toString()}`;
     const response = await apiService.get<LegacyProject[]>(url);
->>>>>>> Stashed changes
     return response.data;
   }
 

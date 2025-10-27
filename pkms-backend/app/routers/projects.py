@@ -9,10 +9,12 @@ Refactored to follow "thin router, thick service" architecture pattern.
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional, Dict, Any
+from sqlalchemy import select
+from typing import List, Optional
 import logging
 
 from app.database import get_db
+from app.models.associations import project_items
 from app.models.user import User
 from app.auth.dependencies import get_current_user
 from app.schemas.project import (
@@ -177,11 +179,11 @@ async def permanent_delete_project(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error permanently deleting project {project_uuid} for user {current_user.uuid}")
+        logger.exception("Error permanently deleting project %s for user %s", project_uuid, current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to permanently delete project"
-        )
+        ) from e
 
 
 @router.post("/{project_uuid}/duplicate", response_model=ProjectDuplicateResponse)

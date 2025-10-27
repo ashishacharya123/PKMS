@@ -12,7 +12,7 @@
  * - Personalized insights and recommendations
  * - Quick action buttons for navigation
  * - Mini sparkline trends
- * - 30-second cache for instant loads
+ * - Smart refresh only when needed (tab focus, manual refresh)
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -140,10 +140,17 @@ export default function HabitDashboard() {
     loadDashboardData();
   }, [loadDashboardData]);
 
-  // Auto-refresh every 30 seconds
+  // Smart refresh: only when user returns to tab or manually refreshes
   useEffect(() => {
-    const interval = setInterval(loadDashboardData, 30000);
-    return () => clearInterval(interval);
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // User returned to tab, refresh data (might have changed)
+        loadDashboardData();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [loadDashboardData]);
 
   if (loading && !dashboardData) {

@@ -4,13 +4,14 @@ export interface RecycleBinItem {
   uuid: string;
   type: 'project' | 'note' | 'todo' | 'document' | 'diary' | 'archive';
   title: string;
-  deletedAt: string;
+  deletedAt?: string;
   description?: string;
   tags?: string[];
   status?: string;
   priority?: string;
   dueDate?: string;
   createdBy?: string;
+  createdAt?: string;
   updatedAt?: string;
 }
 
@@ -480,7 +481,7 @@ class RecycleBinService {
    */
   async emptyRecycleBin(): Promise<{ deletedCount: number }> {
     try {
-      const response = await apiService.post('/api/v1/recycle-bin/empty');
+      const response = await apiService.post<{ deletedCount: number }>('/api/v1/recycle-bin/empty');
       return response.data;
     } catch (error) {
       console.error('Error emptying recycle bin:', error);

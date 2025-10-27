@@ -3,7 +3,6 @@ Archive Models for File Organization
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger
-from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 

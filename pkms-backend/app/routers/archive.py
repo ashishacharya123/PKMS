@@ -4,10 +4,9 @@ Handles hierarchical file and folder organization with enhanced security
 Refactored to use service layer for better maintainability
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 import logging
 
 from app.database import get_db
@@ -26,7 +25,6 @@ from app.schemas.archive import (
 )
 from app.services.archive_folder_service import archive_folder_service
 from app.services.archive_item_service import archive_item_service
-from app.services.chunk_service import chunk_manager
 from app.services.file_validation import file_validation_service
 
 logger = logging.getLogger(__name__)
@@ -248,7 +246,7 @@ async def create_item_in_folder(
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error creating items in folder %s", folder_uuid)
         await db.rollback()
         raise HTTPException(
@@ -294,7 +292,7 @@ async def list_deleted_items(
         return await archive_item_service.list_deleted_items(db, current_user.uuid)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error listing deleted archive items for user %s", current_user.uuid)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -377,7 +375,6 @@ async def restore_item(
     """Restore a soft-deleted archive item from Recycle Bin."""
     try:
         await archive_item_service.restore_item(db, current_user.uuid, item_uuid)
-        await db.commit()
         return {"message": "Item restored successfully"}
     except HTTPException:
         raise
@@ -542,10 +539,13 @@ async def get_fts_status(
     try:
         # TODO: Implement FTS status check
         return {"status": "FTS not implemented yet"}
-    except Exception as e:
+    except Exception:
         logger.exception("Error getting FTS status")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get FTS status"
         )
+
+# Export router with conventional name
+archive_router = router
 

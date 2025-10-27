@@ -7,13 +7,14 @@ Ensures we never have orphaned DB records pointing to deleted files.
 
 import logging
 from pathlib import Path
+from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
 
-async def safe_delete_with_db(file_path: Path, db_object, db: AsyncSession):
+async def safe_delete_with_db(file_path: Path, db_object: Any, db: AsyncSession):
     """
     Atomically delete DB record and file, with DB delete happening FIRST.
     This ensures we never have orphaned DB records pointing to deleted files.

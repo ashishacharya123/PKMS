@@ -3,14 +3,10 @@ Thumbnail Generation Service
 Creates and manages thumbnails for images and documents
 """
 
-import asyncio
-import os
-import shutil
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
-from PIL import Image, ImageOps
+from typing import Optional, Dict
+from PIL import Image
 import logging
-from io import BytesIO
 
 # Note: Pillow is now included in both requirements.txt and requirements-slim.txt
 # for full thumbnail generation support. Compatible with python:3.11-slim base image.
@@ -144,7 +140,7 @@ class ThumbnailService:
             thumbnail = Image.new('RGB', (max_width, max_height), '#f8f9fa')
             
             # Add document icon (simplified)
-            from PIL import ImageDraw, ImageFont
+            from PIL import ImageDraw
             draw = ImageDraw.Draw(thumbnail)
             
             # Draw document outline

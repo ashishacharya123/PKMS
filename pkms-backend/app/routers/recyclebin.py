@@ -16,7 +16,7 @@ from app.models.todo import Todo
 from app.models.document import Document
 from app.models.diary import DiaryEntry
 from app.models.archive import ArchiveItem
-from app.auth import get_current_user
+from app.auth.dependencies import get_current_user
 from app.services.project_service import project_service
 from app.services.note_crud_service import note_crud_service
 from app.services.todo_crud_service import todo_crud_service
@@ -162,48 +162,60 @@ async def empty_recycle_bin(
             try:
                 await project_service.permanent_delete_project(db, user_uuid, project_uuid)
                 deleted_count += 1
-            except Exception as e:
-                logger.error(f"Error permanently deleting project {project_uuid}: {e}")
+            except HTTPException as e:
+                logger.info("Skip project %s: %s", project_uuid, e.detail)
+            except Exception:
+                logger.exception("Error permanently deleting project %s", project_uuid)
         
         # Delete notes
         for note_uuid in note_uuids:
             try:
                 await note_crud_service.hard_delete_note(db, user_uuid, note_uuid)
                 deleted_count += 1
-            except Exception as e:
-                logger.error(f"Error permanently deleting note {note_uuid}: {e}")
+            except HTTPException as e:
+                logger.info("Skip note %s: %s", note_uuid, e.detail)
+            except Exception:
+                logger.exception("Error permanently deleting note %s", note_uuid)
         
         # Delete todos
         for todo_uuid in todo_uuids:
             try:
                 await todo_crud_service.hard_delete_todo(db, user_uuid, todo_uuid)
                 deleted_count += 1
-            except Exception as e:
-                logger.error(f"Error permanently deleting todo {todo_uuid}: {e}")
+            except HTTPException as e:
+                logger.info("Skip todo %s: %s", todo_uuid, e.detail)
+            except Exception:
+                logger.exception("Error permanently deleting todo %s", todo_uuid)
         
         # Delete documents
         for document_uuid in document_uuids:
             try:
                 await document_crud_service.permanent_delete_document(db, user_uuid, document_uuid)
                 deleted_count += 1
-            except Exception as e:
-                logger.error(f"Error permanently deleting document {document_uuid}: {e}")
+            except HTTPException as e:
+                logger.info("Skip document %s: %s", document_uuid, e.detail)
+            except Exception:
+                logger.exception("Error permanently deleting document %s", document_uuid)
         
         # Delete diary entries
         for diary_uuid in diary_uuids:
             try:
                 await diary_crud_service.hard_delete_entry(db, user_uuid, diary_uuid)
                 deleted_count += 1
-            except Exception as e:
-                logger.error(f"Error permanently deleting diary entry {diary_uuid}: {e}")
+            except HTTPException as e:
+                logger.info("Skip diary entry %s: %s", diary_uuid, e.detail)
+            except Exception:
+                logger.exception("Error permanently deleting diary entry %s", diary_uuid)
         
         # Delete archive items
         for archive_uuid in archive_uuids:
             try:
-                await archive_item_service.hard_delete_item(db, user_uuid, archive_uuid)
+                await archive_item_service.hard_delete_archive_item(db, user_uuid, archive_uuid)
                 deleted_count += 1
-            except Exception as e:
-                logger.error(f"Error permanently deleting archive item {archive_uuid}: {e}")
+            except HTTPException as e:
+                logger.info("Skip archive item %s: %s", archive_uuid, e.detail)
+            except Exception:
+                logger.exception("Error permanently deleting archive item %s", archive_uuid)
         
         logger.info(f"Successfully purged {deleted_count} items from recycle bin for user {user_uuid}")
         

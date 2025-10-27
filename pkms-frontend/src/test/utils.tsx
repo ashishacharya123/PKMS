@@ -62,6 +62,9 @@ export const mockUser = {
   email: 'test@example.com'
 };
 
+// Import Jest DOM matchers
+import '@testing-library/jest-dom';
+
 // Re-export everything
 export * from '@testing-library/react';
 export { customRender as render };

@@ -16,7 +16,7 @@ The Recycle Bin feature provides a comprehensive deletion lifecycle for the PKMS
 
 ### Deletion Lifecycle
 
-```
+```text
 User Action → Pre-Check → Soft Delete → Recycle Bin → Restore/Hard Delete
      ↓           ↓           ↓            ↓              ↓
   Delete      Impact     Move to      View Items    Restore or
@@ -27,7 +27,7 @@ User Action → Pre-Check → Soft Delete → Recycle Bin → Restore/Hard Delet
 
 ### Backend Files
 
-```
+```text
 pkms-backend/
 ├── app/models/base.py                    # SoftDeleteMixin with query scopes
 ├── app/services/
@@ -51,7 +51,7 @@ pkms-backend/
 
 ### Frontend Files
 
-```
+```text
 pkms-frontend/src/
 ├── pages/
 │   └── RecycleBinPage.tsx                # Main recycle bin interface
@@ -394,8 +394,8 @@ GET  /api/v1/deletion-impact/analyze/{type}/{uuid}?mode=soft|hard
    # Deleted items only
    query = select(YourModel).where(YourModel.deleted_only())
    
-   # All items (including deleted)
-   query = select(YourModel).where(YourModel.include_deleted())
+   # All items (including deleted) - no filter needed
+   query = select(YourModel)
    ```
 
 ## 🧪 Testing

@@ -8,10 +8,9 @@ for system validation and troubleshooting.
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, text, func
-from typing import Dict, List, Any, Optional
+from sqlalchemy import select, text, func
+from typing import Optional
 from datetime import datetime, timedelta
-import json
 import logging
 
 # Set up logger
@@ -21,7 +20,8 @@ from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User, Session
 from app.models.diary import DiaryEntry
-from app.services.diary_crypto_service import DiaryCryptoService
+# Note: Encryption is handled in frontend, not backend
+# from app.services.diary_crypto_service import DiaryCryptoService
 from app.models.associations import document_diary
 
 from app.config import NEPAL_TZ, get_data_dir
@@ -113,7 +113,7 @@ async def test_diary_encryption(
         if not test_content:
             test_content = f"PKMS Encryption Test\nUser: {current_user.username}\nTime: {datetime.now(NEPAL_TZ)}\nSecret Data: TEST_PASSWORD_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
-        crypto_service = DiaryCryptoService()
+        # crypto_service = DiaryCryptoService()  # Encryption handled in frontend
 
         # Test encryption
         try:
@@ -201,7 +201,7 @@ async def debug_authentication_status(
 
         # Test crypto service
         try:
-            crypto_service = DiaryCryptoService()
+            # crypto_service = DiaryCryptoService()  # Encryption handled in frontend
             test_encrypt = crypto_service.encrypt_content("test")
             debug_info["encryption"]["test_result"] = "encryption_working"
         except Exception as e:
@@ -448,7 +448,7 @@ async def encryption_stress_test(
         import random
         import string
 
-        crypto_service = DiaryCryptoService()
+        # crypto_service = DiaryCryptoService()  # Encryption handled in frontend
 
         # Generate test content
         def generate_test_content(size):

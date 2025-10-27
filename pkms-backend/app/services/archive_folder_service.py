@@ -6,8 +6,7 @@ Handles folder CRUD operations, tree structure, and bulk operations
 import uuid
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, update, delete
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, and_, func, update
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 import logging
@@ -701,15 +700,6 @@ class ArchiveFolderService:
             "moved_items": len(move_request.item_uuids or []),
             "destination_folder": move_request.destination_folder_uuid
         }
-    
-    async def update_folder_stats(
-        self, 
-        db: AsyncSession, 
-        user_uuid: str, 
-        folder_uuid: str
-    ) -> None:
-        """Update derived columns for folder (item_count, total_size)"""
-        await self._update_folder_stats(db, user_uuid, folder_uuid)
     
     async def download_folder(
         self, 

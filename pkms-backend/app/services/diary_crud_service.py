@@ -8,27 +8,26 @@ Includes entry creation, reading, updating, deletion, and file operations.
 import logging
 import json
 import uuid as uuid_lib
-import base64
 import asyncio
+import base64
+import hashlib
+import aiofiles
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, or_
+from sqlalchemy import select, and_, func, delete
 from sqlalchemy.orm import aliased
 from fastapi import HTTPException, status
-from fastapi.responses import FileResponse
 
 from app.config import NEPAL_TZ, get_file_storage_dir
 from app.models.diary import DiaryEntry, DiaryDailyMetadata
 from app.models.tag import Tag
 from app.models.tag_associations import diary_entry_tags
 from app.models.enums import ModuleType
-from app.utils.diary_encryption import write_encrypted_file, read_encrypted_header, InvalidPKMSFile
+# Note: Diary encryption is handled client-side. Backend receives fully-formed encrypted blobs.
 from app.services.tag_service import tag_service
 from app.services.search_service import search_service
-from app.services.unified_upload_service import unified_upload_service
-from app.services.unified_download_service import unified_download_service
 from app.schemas.diary import (
     DiaryEntryCreate,
     DiaryEntryUpdate,
@@ -101,8 +100,7 @@ class DiaryCRUDService:
     async def create_entry(
         db: AsyncSession,
         user_uuid: str,
-        entry_data: DiaryEntryCreate,
-        diary_key: bytes
+        entry_data: DiaryEntryCreate
     ) -> DiaryEntryResponse:
         """
         Create a new diary entry with file-based encrypted storage.
@@ -157,20 +155,20 @@ class DiaryCRUDService:
         await db.flush()
         await db.refresh(entry)
         
-        # Persist encrypted content to TEMPORARY location first
+        # Store encrypted content directly (frontend already encrypted it)
         final_file_path = DiaryCRUDService.generate_diary_file_path(entry.uuid)
-        temp_file_path = final_file_path.parent / f"temp_{final_file_path.name}"
         
-        file_result = write_encrypted_file(
-            dest_path=temp_file_path,
-            iv_b64=entry_data.encryption_iv,
-            encrypted_blob_b64=entry_data.encrypted_blob,
-            original_extension="",
-        )
+        # Write the encrypted blob directly to file
+        encrypted_data = base64.b64decode(entry_data.encrypted_blob)
+        async with aiofiles.open(final_file_path, 'wb') as f:
+            await f.write(encrypted_data)
         
-        entry.content_file_path = str(temp_file_path)  # update to final after successful move
-        entry.file_hash = file_result["file_hash"]
-        entry.encryption_tag = file_result.get("tag_b64")
+        # Calculate file hash for integrity checking
+        file_hash = hashlib.sha256(encrypted_data).hexdigest()
+        
+        entry.content_file_path = str(final_file_path)
+        entry.file_hash = file_hash
+        entry.encryption_tag = None  # Frontend handles all encryption
         if entry_data.content_length is not None:
             entry.content_length = entry_data.content_length
         
@@ -232,7 +230,6 @@ class DiaryCRUDService:
     async def list_entries(
         db: AsyncSession,
         user_uuid: str,
-        diary_key: bytes,
         year: Optional[int] = None,
         month: Optional[int] = None,
         mood: Optional[int] = None,
@@ -439,7 +436,6 @@ class DiaryCRUDService:
     async def list_deleted_entries(
         db: AsyncSession,
         user_uuid: str,
-        diary_key: bytes,
         year: Optional[int] = None,
         month: Optional[int] = None,
         mood: Optional[int] = None,
@@ -454,7 +450,6 @@ class DiaryCRUDService:
         Args:
             db: Database session
             user_uuid: User's UUID
-            diary_key: Decrypted diary key
             year: Filter by year
             month: Filter by month
             mood: Filter by mood
@@ -635,8 +630,7 @@ class DiaryCRUDService:
     async def get_entries_by_date(
         db: AsyncSession,
         user_uuid: str,
-        entry_date: date,
-        diary_key: bytes
+        entry_date: date
     ) -> List[DiaryEntryResponse]:
         """
         Get all diary entries for a specific date.
@@ -684,7 +678,6 @@ class DiaryCRUDService:
         for entry in entries:
             # SECURITY: Never decrypt content in list responses
             # Content should only be decrypted when explicitly requested via get_entry_by_ref
-            encrypted_blob = ""
             
             # Get tags
             tags = await DiaryCRUDService.get_entry_tags(db, entry.uuid)
@@ -769,7 +762,6 @@ class DiaryCRUDService:
         
         # For single entry retrieval, we don't decrypt on server side
         # Client handles decryption. Return empty blob for security.
-        encrypted_blob = ""
         
         # Get daily metadata
         from app.services.habit_data_service import habit_data_service
@@ -956,22 +948,22 @@ class DiaryCRUDService:
         if updates.from_template_id is not None:
             entry.from_template_id = updates.from_template_id
         
-        # Update encrypted content if provided
+        # Update encrypted content if provided (frontend already encrypted it)
         if updates.encrypted_blob and updates.encryption_iv:
-            # Write new encrypted content
+            # Write new encrypted content directly
             final_file_path = DiaryCRUDService.generate_diary_file_path(entry.uuid)
-            temp_file_path = final_file_path.parent / f"temp_{final_file_path.name}"
             
-            file_result = write_encrypted_file(
-                dest_path=temp_file_path,
-                iv_b64=updates.encryption_iv,
-                encrypted_blob_b64=updates.encrypted_blob,
-                original_extension="",
-            )
+            # Write the encrypted blob directly to file
+            encrypted_data = base64.b64decode(updates.encrypted_blob)
+            async with aiofiles.open(final_file_path, 'wb') as f:
+                await f.write(encrypted_data)
+            
+            # Calculate file hash for integrity checking
+            file_hash = hashlib.sha256(encrypted_data).hexdigest()
             
             entry.encryption_iv = updates.encryption_iv
-            entry.file_hash = file_result["file_hash"]
-            entry.encryption_tag = file_result.get("tag_b64")
+            entry.file_hash = file_hash
+            entry.encryption_tag = None  # Frontend handles all encryption
             if updates.content_length is not None:
                 entry.content_length = updates.content_length
             
@@ -1089,14 +1081,13 @@ class DiaryCRUDService:
         # 2. Flip flag
         entry.is_deleted = False
         entry.updated_at = datetime.now(NEPAL_TZ)
-        await db.add(entry)
+        db.add(entry)
         
         # 3. Commit
         await db.commit()
         
         # 4. Re-index in search
         await search_service.index_item(db, entry, 'diary')
-        dashboard_service.invalidate_user_cache(user_uuid, "diary_restored")
         logger.info(f"Diary entry restored: {entry.title}")
 
     async def hard_delete_diary_entry(
@@ -1126,39 +1117,47 @@ class DiaryCRUDService:
             from app.models.associations import document_diary
             from app.models.document import Document
             
+            # Import association counter service
+            from app.services.association_counter_service import association_counter_service
+
             # Get all documents associated with this diary entry
             associated_docs_result = await db.execute(
-                select(Document.uuid, Document.file_path, Document.is_exclusive)
+                select(Document.uuid, Document.file_path)
                 .join(document_diary, Document.uuid == document_diary.c.document_uuid)
-                .where(document_diary.c.diary_uuid == entry_uuid)
+                .where(document_diary.c.diary_entry_uuid == entry_uuid)
             )
             associated_docs = associated_docs_result.fetchall()
-            
+
             # Remove diary-document associations
             await db.execute(
-                delete(document_diary).where(document_diary.c.diary_uuid == entry_uuid)
+                delete(document_diary).where(document_diary.c.diary_entry_uuid == entry_uuid)
             )
-            
-            # Handle each associated document
-            for doc_uuid, doc_file_path, is_exclusive in associated_docs:
-                if is_exclusive:
-                    # Document is exclusive to this diary entry - safe to delete
+
+            # Handle each associated document - check if it's now an orphan
+            for doc_uuid, doc_file_path in associated_docs:
+                # Check if document has any remaining associations after unlinking
+                link_count = await association_counter_service.get_document_link_count(db, doc_uuid)
+                if link_count == 0:
+                    # Document is now an orphan (no remaining links) - safe to delete
+                    # Remove document from search index first
+                    await search_service.remove_item(db, doc_uuid)
+                    
                     if doc_file_path:
                         full_path = get_file_storage_dir() / doc_file_path
                         if full_path.exists():
                             try:
                                 full_path.unlink()
-                                logger.info(f"Deleted exclusive document file: {full_path}")
-                            except Exception as e:
-                                logger.warning(f"Could not delete document file {full_path}: {e}")
+                                logger.info(f"Deleted orphaned document file: {full_path}")
+                            except OSError as e:
+                                logger.warning(f"Could not delete orphaned document file {full_path}: {e}")
                     
                     # Delete document record
                     await db.execute(
                         delete(Document).where(Document.uuid == doc_uuid)
                     )
                 else:
-                    # Document is shared - just remove association
-                    logger.info(f"Document {doc_uuid} is shared, keeping file and record")
+                    # Document still has other links - just remove association, keep the file
+                    logger.info(f"Preserving shared document {doc_uuid} (still has links)")
             
             # Delete content file if it exists
             if entry.content_file_path:
@@ -1167,7 +1166,7 @@ class DiaryCRUDService:
                     try:
                         full_path.unlink()
                         logger.info(f"Deleted diary content file: {full_path}")
-                    except Exception as e:
+                    except OSError as e:
                         logger.warning(f"Could not delete diary content file {full_path}: {e}")
             
             # Remove from search index
@@ -1184,11 +1183,11 @@ class DiaryCRUDService:
             raise
         except Exception as e:
             await db.rollback()
-            logger.exception(f"Error hard deleting diary entry {entry_uuid}")
+            logger.exception("Error hard deleting diary entry %s", entry_uuid)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to hard delete diary entry: {str(e)}"
-            )
+                detail="Failed to hard delete diary entry"
+            ) from e
 
     # Habit tracking methods - integrating with diary workflow
     @staticmethod
@@ -1425,21 +1424,23 @@ class DiaryCRUDService:
             Current streak count
         """
         from app.services.unified_habit_analytics_service import UnifiedHabitAnalyticsService
-        from datetime import datetime
 
         try:
-            # Parse end_date or use today
+            # Calculate days to look back based on end_date
             if end_date:
+                from datetime import datetime
                 end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-            else:
                 from app.config import NEPAL_TZ
-                end_dt = datetime.now(NEPAL_TZ).date()
+                today = datetime.now(NEPAL_TZ).date()
+                days_back = (today - end_dt).days + 30  # Add buffer for streak calculation
+            else:
+                days_back = 90  # Use 90 days to capture longer streaks
 
             # Get analytics which includes streak data
             analytics = await UnifiedHabitAnalyticsService.get_default_habits_analytics(
                 db=db,
                 user_uuid=user_uuid,
-                days=90  # Use 90 days to capture longer streaks
+                days=days_back
             )
 
             # Extract streak for the specific habit

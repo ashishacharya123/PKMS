@@ -33,7 +33,6 @@ from app.routers import (
     dashboard,
     backup,
     tags,
-    testing_router,
     advanced_fuzzy,
     deletion_impact,
     recyclebin,
@@ -44,6 +43,7 @@ from app.testing import (
     testing_auth,
     testing_system,
     testing_crud,
+    testing_router,
 )
 # Import enhanced database testing
 from app.testing import testing_database_enhanced
@@ -146,10 +146,6 @@ async def lifespan(app: FastAPI):
         await chunk_manager.start()
 
         # Initialize cache invalidation service
-        from app.services.cache_invalidation_service import cache_invalidation_service, initialize_invalidation_service
-        initialize_invalidation_service()
-        await cache_invalidation_service.start()
-        logger.info("Cache invalidation service started")
 
         logger.info("Background tasks started")
 
@@ -170,8 +166,6 @@ async def lifespan(app: FastAPI):
         await chunk_manager.stop()
         
         # Stop cache invalidation service
-        from app.services.cache_invalidation_service import cache_invalidation_service
-        await cache_invalidation_service.stop()
         logger.info("Cache invalidation service stopped")
         
         await close_db()

@@ -324,11 +324,18 @@ export const useAuthStore = create<AuthState & AuthActions>()(
       setLoading: (loading: boolean) => set({ isLoading: loading }),
 
       startSessionMonitoring: () => {
-        const timer = setInterval(() => {
-          if (apiService.isTokenCriticallyExpiring()) {
-            apiService.showFinalExpiryPrompt();
-          } else if (apiService.isTokenExpiringSoon()) {
-            apiService.showExpiryWarning();
+        const timer = setInterval(async () => {
+          try {
+            const isCriticallyExpiring = await apiService.isTokenCriticallyExpiring();
+            const isExpiringSoon = await apiService.isTokenExpiringSoon();
+            
+            if (isCriticallyExpiring) {
+              apiService.showFinalExpiryPrompt();
+            } else if (isExpiringSoon) {
+              apiService.showExpiryWarning();
+            }
+          } catch (error) {
+            console.warn('Session monitoring error:', error);
           }
         }, 15_000); // Check every 15 seconds for more responsive UX near expiry
 

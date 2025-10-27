@@ -314,7 +314,7 @@ from app.routers import (
     backup_router,
     uploads_router,
     fuzzy_router,
-    preflight_router
+    deletion_impact_router
 )
 
 # Include all routers with API versioning
@@ -370,27 +370,18 @@ and maintainability.
 """
 
 # Import all routers for easier app initialization
-from . import (
-    # Core System
-    auth_router,
-    archive_router,
-    backup_router,
-
-    # Content Management
-    documents_router,
-    notes_router,
-    projects_router,
-    todos_router,
-    diary_router,
-    unified_uploads_router,
-
-    # Analytics & Search
-    dashboard_router,
-    advanced_fuzzy_router,
-
-    # Safety & Utilities
-    deletion_impact_router,
-)
+from .auth import router as auth_router
+from .archive import router as archive_router
+from .backup import router as backup_router
+from .documents import router as documents_router
+from .notes import router as notes_router
+from .projects import router as projects_router
+from .todos import router as todos_router
+from .diary import router as diary_router
+from .unified_uploads import router as unified_uploads_router
+from .dashboard import router as dashboard_router
+from .advanced_fuzzy import router as advanced_fuzzy_router
+from .deletion_impact import router as deletion_impact_router
 
 __all__ = [
     # Core System

@@ -6,10 +6,8 @@ Comprehensive database performance monitoring and alerting
 import asyncio
 import time
 import psutil
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass, field
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
+from typing import Dict, List, Any
+from dataclasses import dataclass
 import logging
 
 logger = logging.getLogger(__name__)

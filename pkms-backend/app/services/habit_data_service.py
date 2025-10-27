@@ -17,7 +17,7 @@ NO ANALYTICS - For analytics, use unified_habit_analytics_service.py
 import logging
 import json
 import calendar
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 from datetime import datetime, date, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, extract
@@ -27,7 +27,7 @@ from app.models.diary import DiaryEntry, DiaryDailyMetadata
 from app.models.note import Note
 from app.models.document import Document
 from app.models.associations import document_diary
-from app.models.todo import Todo, TodoStatus
+from app.models.todo import Todo
 from app.models.project import Project, ProjectStatus
 from app.models.archive import ArchiveItem
 from app.schemas.diary import (

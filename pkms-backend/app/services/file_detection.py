@@ -8,7 +8,6 @@ import mimetypes
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 import asyncio
-import hashlib
 
 logger = logging.getLogger(__name__)
 

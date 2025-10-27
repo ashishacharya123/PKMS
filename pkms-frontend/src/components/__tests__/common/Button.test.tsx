@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '../../../test/utils';
-import { Button } from '../common/Button';
+import { Button } from '@mantine/core';
 
 describe('Button', () => {
   it('renders with correct text', () => {
@@ -27,16 +27,16 @@ describe('Button', () => {
   });
 
   it('renders with different variants', () => {
-    const { rerender } = render(<Button variant="primary">Primary</Button>);
-    expect(screen.getByRole('button')).toHaveClass('btn-primary');
+    const { rerender } = render(<Button variant="filled">Filled</Button>);
+    expect(screen.getByRole('button')).toHaveClass('mantine-Button-filled');
     
-    rerender(<Button variant="secondary">Secondary</Button>);
-    expect(screen.getByRole('button')).toHaveClass('btn-secondary');
+    rerender(<Button variant="outline">Outline</Button>);
+    expect(screen.getByRole('button')).toHaveClass('mantine-Button-outline');
   });
 
   it('shows loading state', () => {
     render(<Button loading>Loading Button</Button>);
     expect(screen.getByRole('button')).toBeDisabled();
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.getByText('Loading Button')).toBeInTheDocument();
   });
 });

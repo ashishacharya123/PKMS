@@ -3,14 +3,12 @@ Todo Model for Task Management
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Enum, Date, Index
-from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
-import enum
 
 from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
-from app.models.tag_associations import todo_tags, project_tags
+from app.models.tag_associations import todo_tags
 from app.models.associations import todo_dependencies
 from app.models.enums import TodoStatus, TodoType, TaskPriority
 

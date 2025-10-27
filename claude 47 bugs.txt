@@ -1,0 +1,295 @@
+# 51 Bug Report - Complete Fix List
+
+## THE TRUTH: 47 Fixes Needed (Not 10!)
+
+**Out of 51 reported issues:**
+- ✅ Already Fixed: 10 (cache removal from previous session)
+- ❌ **Need to Fix: 47** (this is what we're doing now!)
+- 🚫 Skip: 4 (false positives)
+
+---
+
+# COMPLETE LIST OF 47 FIXES
+
+## PART 1: CRITICAL BUGS (4 fixes)
+
+### Fix #1: React Keys Using Index
+**File**: `pkms-frontend/src/components/common/PermanentDeleteDialog.tsx`
+**Lines**: 123, 142, 160, 201
+**Problem**: Using `key={index}` causes wrong deletions
+**Fix**: Change to `key={item.uuid ?? item.title ?? warning}`
+
+### Fix #2: Unused Import
+**File**: `pkms-frontend/src/components/common/DeletionImpactDialog.tsx`
+**Line**: 9
+**Problem**: `Badge` imported but never used
+**Fix**: Remove `Badge,` from imports
+
+### Fix #3: Missing FTS Cleanup
+**File**: `pkms-backend/app/services/archive_item_service.py`
+**Line**: 459
+**Problem**: Hard delete doesn't remove from search index
+**Fix**: Add `await search_service.remove_item(db, item_uuid)` before `await db.delete(item)`
+
+### Fix #4: Duplicate Import
+**File**: `pkms-backend/app/services/todo_crud_service.py`
+**Line**: 22
+**Problem**: `delete` imported twice (line 13 and 22)
+**Fix**: Change line 22 from `from sqlalchemy import insert, delete` to `from sqlalchemy import insert`
+
+---
+
+## PART 2: EXCEPTION CHAINING (17 fixes)
+
+Add `from e` to preserve stack traces:
+
+### Fix #5: notes.py line 87
+```python
+except Exception as e:
+    raise HTTPException(...) from e  # Add: from e
+```
+
+### Fix #6: notes.py line 167
+```python
+except Exception as e:
+    raise HTTPException(...) from e
+```
+
+### Fix #7: notes.py line 206
+```python
+except Exception as e:
+    raise HTTPException(...) from e
+```
+
+### Fix #8: projects.py line 184
+```python
+except Exception as e:
+    raise HTTPException(...) from e
+```
+
+### Fix #9: todo_crud_service.py line 137
+```python
+except Exception as e:
+    raise HTTPException(...) from e
+```
+
+### Fix #10: todo_crud_service.py line 222
+```python
+except Exception as e:
+    raise HTTPException(...) from e
+```
+
+### Fix #11: todo_crud_service.py line 397
+```python
+except Exception as e:
+    raise HTTPException(...) from e
+```
+
+### Fix #12: todo_crud_service.py line 589
+```python
+except Exception as e:
+    raise HTTPException(...) from e
+```
+
+### Fix #13: todo_crud_service.py line 651
+```python
+except Exception as e:
+    raise HTTPException(...) from e
+```
+
+### Fix #14: diary_crud_service.py line 994
+```python
+except Exception as e:
+    raise HTTPException(...) from e
+```
+
+### Fix #15: deletion_impact.py line 33
+```python
+except Exception as e:
+    raise HTTPException(...) from e
+```
+
+### Fix #16: deletion_impact.py line 57
+```python
+except Exception as e:
+    raise HTTPException(...) from e
+```
+
+---
+
+## PART 3: LOGGER IMPROVEMENTS (7 fixes)
+
+Replace `logger.error()` with `logger.exception()`:
+
+### Fix #17-22: recyclebin.py lines 165-207 (6 locations)
+In the empty recycle bin loops for projects, notes, todos, documents, diary, archive:
+```python
+# Change:
+except Exception as e:
+    logger.error(f"Error: {e}")
+
+# To:
+except HTTPException as e:
+    logger.info("Skip: %s", e.detail)
+except Exception:
+    logger.exception("Error deleting item")
+```
+
+### Fix #23: project_service.py line 356
+```python
+# Change: logger.error(...)
+# To: logger.exception(...)
+```
+
+---
+
+## PART 4: NARROW EXCEPTIONS (2 fixes)
+
+### Fix #24: diary_crud_service.py line 957
+```python
+# Change: except Exception as e:
+# To: except OSError as e:
+```
+
+### Fix #25: diary_crud_service.py line 974
+```python
+# Change: except Exception as e:
+# To: except OSError as e:
+```
+
+---
+
+## PART 5: CODE CONSISTENCY (9 fixes)
+
+### Fix #26: todo_crud_service.py line 339
+```python
+# Change: Project.is_deleted.is_(False)
+# To: Project.active_only()
+```
+
+### Fix #27: todo_crud_service.py line 474
+```python
+# Change: Todo.is_deleted.is_(False)
+# To: Todo.active_only()
+```
+
+### Fix #28: archive_item_service.py line 79
+```python
+# Change: ArchiveItem.is_deleted == False
+# To: ArchiveItem.active_only()
+```
+
+### Fix #29: deletion_impact_service.py line 251
+```python
+# Change: note_documents.c.is_exclusive == True
+# To: note_documents.c.is_exclusive.is_(True)
+```
+
+### Fix #30: deletion_impact.py line 30
+```python
+# Change: regex="^(soft|hard)$"
+# To: pattern="^(soft|hard)$"
+```
+
+### Fix #31: document_crud_service.py line 419
+```python
+await search_service.index_item(db, doc, 'document')
+await db.commit()  # ADD THIS LINE
+```
+
+### Fix #32: archive_item_service.py line 379
+```python
+await search_service.index_item(db, item, 'archive')
+await db.commit()  # ADD THIS LINE
+```
+
+### Fix #33: diary_crud_service.py line 969
+```python
+if is_exclusive:
+    await search_service.remove_item(db, doc_uuid)  # ADD THIS LINE
+    if doc_file_path:
+        ...
+```
+
+### Fix #34: deletion_impact_service.py line 63
+```python
+# Delete this line: pass
+```
+
+---
+
+## PART 6: DOCUMENTATION (9 fixes)
+
+### Fix #35: safe_file_ops.py line 16
+```python
+# Add type hint:
+from typing import Any
+async def safe_delete_with_db(file_path: Path, db_object: Any, db: AsyncSession):
+```
+
+### Fix #36: RecycleBinPage.tsx lines 41-44
+```tsx
+// Remove interface and empty destructuring:
+export function RecycleBinPage() {  // Not: ({}: RecycleBinPageProps)
+```
+
+### Fix #37: dashboard_service.py line 186
+```python
+# Fix docstring:
+"""Get unified recent activity timeline sorted by last activity time (updated_at, fallback created_at)."""
+```
+
+### Fix #38: RECYCLE_BIN_IMPLEMENTATION.md line 19
+```markdown
+# Add language tag:
+```text
+Directory structure...
+```
+```
+
+### Fix #39: RECYCLE_BIN_IMPLEMENTATION.md line 30
+```markdown
+# Add language tag:
+```text
+Backend files...
+```
+```
+
+### Fix #40: RECYCLE_BIN_IMPLEMENTATION.md line 54
+```markdown
+# Add language tag:
+```text
+Frontend files...
+```
+```
+
+### Fix #41: RECYCLE_BIN_IMPLEMENTATION.md line 348
+```markdown
+# Fix example:
+# All items (including deleted) - no filter needed
+query = select(YourModel)
+```
+
+### Fix #42: routers/__init__.py line ~310
+```python
+# Replace: preflight_router
+# With: deletion_impact_router
+```
+
+### Fix #43: RECYCLE_BIN_IMPLEMENTATION.md
+Remove this same issue - it's duplicate of #41
+
+---
+
+# IMPLEMENTATION TIME
+
+**Total: 47 fixes in 85 minutes**
+
+1. Critical bugs (4 fixes) = 10 min
+2. Exception chaining (17 fixes) = 20 min
+3. Logger improvements (7 fixes) = 15 min
+4. Narrow exceptions (2 fixes) = 5 min
+5. Code consistency (9 fixes) = 20 min
+6. Documentation (9 fixes) = 15 min
+
+Ready to start fixing all 47 issues?
