@@ -35,6 +35,7 @@ import { notesService, Note, type NoteFile } from '../services/notesService';
 import { searchService } from '../services/searchService';
 import { MultiProjectSelector } from '../components/common/MultiProjectSelector';
 import { UnifiedFileSection } from '../components/file/UnifiedFileSection';
+import { entityReserveService } from '../services/entityReserveService';
 
 export function NoteEditorPage() {
   const navigate = useNavigate();
@@ -61,6 +62,7 @@ export function NoteEditorPage() {
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [reservedUuid, setReservedUuid] = useState<string | null>(null);
 
   // Load note for editing using consistent pattern
   useAuthenticatedEffect(() => {
@@ -82,6 +84,38 @@ export function NoteEditorPage() {
 
     loadNote();
   }, [isEditing, id]);
+
+  // Reserve UUID for new notes (optimistic UUID flow)
+  useAuthenticatedEffect(() => {
+    if (isEditing || reservedUuid) return;
+    
+    const reserveUuid = async () => {
+      try {
+        const { uuid } = await entityReserveService.reserve('notes');
+        setReservedUuid(uuid);
+        // Create a minimal note object for the reserved UUID
+        setCurrentNote({
+          uuid,
+          name: '',
+          title: '',
+          content: '',
+          fileCount: 0,
+          isFavorite: false,
+          isArchived: false,
+          isProjectExclusive: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          tags: [],
+          projects: []
+        });
+      } catch (err) {
+        console.error('Failed to reserve UUID:', err);
+        setError(err as Error);
+      }
+    };
+
+    reserveUuid();
+  }, [isEditing, reservedUuid]);
 
   const createNoteMutation = useMutation({
     mutationFn: notesService.createNote,
@@ -106,20 +140,25 @@ export function NoteEditorPage() {
 
   const updateNoteMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof notesService.updateNote>[1] }) => notesService.updateNote(id, data),
-    onSuccess: () => {
+    onSuccess: (updatedNote) => {
       queryClient.invalidateQueries({ queryKey: ['note', id] });
       queryClient.invalidateQueries({ queryKey: ['notes'] });
       notifications.show({
-        title: 'Note Updated',
-        message: 'Your note has been saved successfully',
+        title: isEditing ? 'Note Updated' : 'Note Created',
+        message: isEditing ? 'Your note has been saved successfully' : 'Your note has been created successfully',
         color: 'green'
       });
       setHasUnsavedChanges(false);
+      
+      // For new notes with reserved UUID, navigate to notes list
+      if (!isEditing && reservedUuid) {
+        navigate('/notes', { state: { highlightNoteId: updatedNote.uuid } });
+      }
     },
     onError: () => {
       notifications.show({
         title: 'Error',
-        message: 'Failed to update note. Please try again.',
+        message: 'Failed to save note. Please try again.',
         color: 'red'
       });
     }
@@ -203,7 +242,12 @@ export function NoteEditorPage() {
       if (isEditing) {
         await updateNoteMutation.mutateAsync({ id: id!, data: noteData });
       } else {
-        await createNoteMutation.mutateAsync(noteData);
+        // For new notes with reserved UUID, use update with the reserved UUID
+        if (reservedUuid && currentNote) {
+          await updateNoteMutation.mutateAsync({ id: reservedUuid, data: noteData });
+        } else {
+          await createNoteMutation.mutateAsync(noteData);
+        }
       }
     } finally {
       setIsSaving(false);
@@ -211,6 +255,17 @@ export function NoteEditorPage() {
   };
 
   const handleCancel = () => {
+    const hasAnyFiles = (noteFiles?.length || 0) > 0;
+    const isEmptyReserved = !isEditing && reservedUuid && !title.trim() && !content.trim() && !hasAnyFiles;
+
+    if (isEmptyReserved) {
+      // Auto-discard empty reserved note
+      entityReserveService.discard('notes', reservedUuid!).finally(() => {
+        navigate('/notes');
+      });
+      return;
+    }
+
     if (hasUnsavedChanges) {
       if (window.confirm('You have unsaved changes. Are you sure you want to leave?')) {
         navigate('/notes');
@@ -446,9 +501,9 @@ export function NoteEditorPage() {
                 entityId={currentNote?.uuid || ''}
                 files={noteFiles as any}
                 onFilesUpdate={setNoteFiles as any}
-                showUpload={true}
-                showAudioRecorder={true}
-                enableDragDrop={true}
+                showUpload={Boolean(currentNote?.uuid)}
+                showAudioRecorder={Boolean(currentNote?.uuid)}
+                enableDragDrop={Boolean(currentNote?.uuid)}
               />
 
               {/* Preview */}

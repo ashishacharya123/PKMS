@@ -29,6 +29,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+@router.post("/reserve")
+async def reserve_project(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Reserve a project UUID by creating a minimal placeholder project."""
+    try:
+        uuid = await project_service.reserve_project(db, current_user.uuid)
+        return {"uuid": uuid}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error reserving project for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reserve project: {str(e)}"
+        )
+
+
 @router.post("/", response_model=ProjectResponse)
 @router.post("", response_model=ProjectResponse)
 async def create_project(

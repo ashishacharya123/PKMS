@@ -15,6 +15,7 @@ from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.dashboard import DashboardStats, ModuleActivity, QuickStats, RecentActivityTimeline
+from app.models.enums import ModuleStatsKey, ProjectStatsKey
 from app.services.dashboard_service import dashboard_service
 from app.services.unified_cache_service import get_all_cache_stats
 
@@ -35,8 +36,12 @@ def invalidate_user_dashboard_cache(user_uuid: str, reason: str = "data_update")
     Args:
         user_uuid: User UUID to invalidate cache for
         reason: Reason for invalidation (for logging)
+    
+    Note: Method removed - dashboard_service.invalidate_user_cache() doesn't exist.
+    If cache invalidation is needed, implement the method properly or use alternative cache strategy.
     """
-    return dashboard_service.invalidate_user_cache(user_uuid, reason)
+    logger.warning("Dashboard cache invalidation requested but method not implemented: %s", reason)
+    return 0
 
 
 @router.get("/stats", response_model=DashboardStats)
@@ -50,13 +55,33 @@ async def get_dashboard_stats(
     Optimized for fast dashboard loading with 120s TTL cache.
     """
     try:
-        return await dashboard_service.get_dashboard_stats(db, current_user.uuid)
+        raw = await dashboard_service.get_dashboard_stats(db, current_user.uuid)
+        # Translate to enum-stable contract
+        notes = {ModuleStatsKey.TOTAL: raw.notes.get("total", 0), ModuleStatsKey.RECENT: raw.notes.get("recent", 0)}
+        documents = {ModuleStatsKey.TOTAL: raw.documents.get("total", 0), ModuleStatsKey.RECENT: raw.documents.get("recent", 0)}
+        todos = raw.todos  # passthrough (mixed keys are allowed)
+        diary = {ModuleStatsKey.TOTAL: raw.diary.get("entries", raw.diary.get("total", 0)), ModuleStatsKey.RECENT: raw.diary.get("recent", 0)}
+        archive = {ModuleStatsKey.TOTAL: raw.archive.get("items", raw.archive.get("total", 0)), ModuleStatsKey.RECENT: raw.archive.get("recent", 0)}
+        projects = {
+            ProjectStatsKey.TOTAL: raw.projects.get("total", 0),
+            ProjectStatsKey.ACTIVE: raw.projects.get("active", 0),
+        }
+        result = DashboardStats(
+            notes=notes,
+            documents=documents,
+            todos=todos,
+            diary=diary,
+            archive=archive,
+            projects=projects,
+            last_updated=raw.last_updated,
+        )
+        return result
     except Exception as e:
-        logger.exception(f"Error getting dashboard stats for user {current_user.uuid}")
+        logger.exception("Error getting dashboard stats for user %s", current_user.uuid)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to load dashboard statistics: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/activity", response_model=ModuleActivity)
@@ -69,16 +94,16 @@ async def get_recent_activity(
     Get recent activity across all modules.
     
     Args:
-        days: Number of days to look back (default 7)
+        days: Number of days to look back (default 3)
     """
     try:
         return await dashboard_service.get_recent_activity(db, current_user.uuid, days)
     except Exception as e:
-        logger.exception(f"Error getting activity for user {current_user.uuid}")
+        logger.exception("Error getting activity for user %s", current_user.uuid)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to load activity data: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/quick-stats", response_model=QuickStats)
@@ -89,16 +114,16 @@ async def get_quick_stats(
     """
     Get quick overview statistics for dashboard widgets.
     
-    Includes totals, active projects, overdue todos, diary streak, and storage.
+    Includes totals, active projects (Project[]), overdue todos, diary streak, and storage.
     """
     try:
         return await dashboard_service.get_quick_stats(db, current_user.uuid)
     except Exception as e:
-        logger.exception(f"Error getting quick stats for user {current_user.uuid}")
+        logger.exception("Error getting quick stats for user %s", current_user.uuid)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to load quick statistics: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/timeline", response_model=RecentActivityTimeline)
@@ -109,7 +134,7 @@ async def get_recent_activity_timeline(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get unified recent activity timeline sorted by creation time.
+    Get unified recent activity timeline sorted by last activity time (updated_at, fallback created_at).
     
     Shows activities across all modules in chronological order:
     Projects, Todos, Notes, Documents, Archive, Diary
@@ -121,11 +146,11 @@ async def get_recent_activity_timeline(
     try:
         return await dashboard_service.get_recent_activity_timeline(db, current_user.uuid, days, limit)
     except Exception as e:
-        logger.exception(f"Error getting activity timeline for user {current_user.uuid}")
+        logger.exception("Error getting activity timeline for user %s", current_user.uuid)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to load activity timeline: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/cache/stats")
@@ -170,14 +195,13 @@ async def invalidate_my_cache(
     Returns number of cache entries that were invalidated.
     """
     try:
-        count = dashboard_service.invalidate_user_cache(
-            current_user.uuid, 
-            reason="manual_invalidation"
-        )
+        # Note: dashboard_service.invalidate_user_cache() method doesn't exist
+        # If cache invalidation is needed, implement the method properly
+        logger.warning("Manual cache invalidation requested but method not implemented")
         
         return {
-            "message": "Cache invalidated successfully",
-            "entries_cleared": count,
+            "message": "Cache invalidation not implemented",
+            "entries_cleared": 0,
             "user_uuid": current_user.uuid
         }
     except Exception as e:

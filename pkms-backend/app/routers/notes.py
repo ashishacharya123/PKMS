@@ -16,12 +16,30 @@ from app.database import get_db
 from app.models.user import User
 from app.auth.dependencies import get_current_user
 from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary
-from app.schemas.document import CommitDocumentUploadRequest as CommitNoteFileRequest
+from app.schemas.document import CommitDocumentUploadRequest as CommitNoteFileRequest, DocumentResponse
 from app.services.note_crud_service import note_crud_service
 from app.services.chunk_service import chunk_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["notes"])
+@router.post("/reserve")
+async def reserve_note(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Reserve a new note UUID and create a minimal owner-scoped row."""
+    try:
+        new_uuid = await note_crud_service.reserve_note(db, current_user.uuid)
+        return {"uuid": new_uuid}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error reserving note for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reserve note"
+        )
+
 
 
 @router.get("/", response_model=List[NoteSummary])
@@ -328,7 +346,7 @@ async def upload_note_file(
         )
 
 
-@router.post("/{note_uuid}/files/commit", response_model=NoteResponse)
+@router.post("/{note_uuid}/files/commit", response_model=DocumentResponse)
 async def commit_note_file_upload(
     note_uuid: str,
     commit_request: CommitNoteFileRequest,
@@ -337,11 +355,12 @@ async def commit_note_file_upload(
 ):
     """Commit chunked file upload and attach to note"""
     try:
-        # Set the note_uuid in the commit request
-        commit_request = commit_request.model_copy(update={"note_uuid": note_uuid})
-        
-        return await note_crud_service.commit_note_file_upload(
-            db, current_user.uuid, commit_request
+        from app.services.document_crud_service import document_crud_service
+        return await document_crud_service.commit_document_upload(
+            db=db,
+            user_uuid=current_user.uuid,
+            upload_request=commit_request,
+            note_uuid=note_uuid
         )
     except HTTPException:
         raise
@@ -392,7 +411,7 @@ async def duplicate_note(
         )
 
 
-@router.get("/{note_uuid}/files", response_model=List[NoteResponse])
+@router.get("/{note_uuid}/files", response_model=List[DocumentResponse])
 async def get_note_files(
     note_uuid: str,
     current_user: User = Depends(get_current_user),
@@ -419,7 +438,8 @@ async def delete_note_file(
 ):
     """Delete a file attached to a note"""
     try:
-        await note_crud_service.delete_note_file(db, current_user.uuid, file_uuid)
+        from app.services.document_crud_service import document_crud_service
+        await document_crud_service.delete_document(db, current_user.uuid, file_uuid)
         return {"message": "File deleted successfully"}
     except HTTPException:
         raise

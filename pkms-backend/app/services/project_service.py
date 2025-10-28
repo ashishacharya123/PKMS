@@ -40,6 +40,22 @@ class ProjectService:
     project management, item associations, and comprehensive project views.
     """
 
+    async def reserve_project(self, db: AsyncSession, user_uuid: str) -> str:
+        """Create a minimal placeholder project and return its UUID (optimistic UUID)."""
+        try:
+            project = Project(name="", description=None, created_by=user_uuid)
+            db.add(project)
+            await db.commit()
+            await db.refresh(project)
+            return project.uuid
+        except Exception as e:
+            await db.rollback()
+            logger.exception("Error reserving project")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to reserve project: {str(e)}"
+            )
+
     async def create_project(
         self, db: AsyncSession, user_uuid: str, project_data: ProjectCreate
     ) -> ProjectResponse:
@@ -276,12 +292,9 @@ class ProjectService:
         project.updated_at = datetime.now(NEPAL_TZ)
         db.add(project)
         
-        # 3. Commit
+        # 3. Commit (manual search reindex via UI; no auto indexing)
         await db.commit()
-        
-        # 4. Re-index in search
-        await search_service.index_item(db, project, 'project')
-        logger.info(f"Project restored: {project.name}")
+        logger.info(f"Project restored: {project.name}. Reindex via user menu if needed.")
 
     async def permanent_delete_project(self, db: AsyncSession, user_uuid: str, project_uuid: str):
         """

@@ -274,6 +274,6 @@ class NotesService extends BaseService<Note, CreateNoteRequest, UpdateNoteReques
     return '📎';
   }
 
-  }
+}
 
 export const notesService = new NotesService(); 

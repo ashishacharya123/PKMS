@@ -7,8 +7,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import NepaliDate from 'nepali-date-converter';
-import { NEPALI_MONTH_NAMES, NEPALI_DAY_NAMES, convertToDevanagari } from '../utils/nepaliConstants';
+import { nepaliDateCache } from '../utils/nepaliDateCache';
 
 export interface DateTimeInfo {
   currentTime: Date;
@@ -37,32 +36,14 @@ export function useDateTime(): DateTimeInfo {
       setCurrentTime(now);
       
       try {
-        // Convert to Nepali date
-        const nepDate = new NepaliDate(now);
-        
-        // Basic format
-        setNepaliDate(nepDate.format('YYYY/MM/DD'));
-        
-        // Get components
-        const nepYear = nepDate.getYear();
-        const nepMonth = nepDate.getMonth(); // 0-indexed
-        const nepDay = nepDate.getDate();
-        
-        // Format with Nepali month name and Devanagari numerals
-        const nepaliMonthName = NEPALI_MONTH_NAMES[nepMonth] || 'अज्ञात';
-        const devanagariDay = convertToDevanagari(nepDay.toString());
-        const devanagariYear = convertToDevanagari(nepYear.toString());
-        setNepaliDateFormatted(`${nepaliMonthName} ${devanagariDay}, ${devanagariYear}`);
-        
-        // Get Nepali day name
-        const englishDayName = now.toLocaleDateString('en-US', { weekday: 'long' });
-        setNepaliDay(NEPALI_DAY_NAMES[englishDayName] || 'अज्ञात');
-        
-      } catch (error) {
-        console.warn('Failed to convert to Nepali date:', error);
-        setNepaliDate('--/--/----');
-        setNepaliDateFormatted('अज्ञात मिति');
-        setNepaliDay('अज्ञात दिन');
+        const info = nepaliDateCache.convert(now);
+        setNepaliDate(info.nepaliDate);
+        setNepaliDateFormatted(info.nepaliDateDisplay);
+        setNepaliDay(info.dayOfWeek);
+      } catch (_e) {
+        setNepaliDate('N/A');
+        setNepaliDateFormatted('N/A');
+        setNepaliDay('N/A');
       }
       
       setIsLoading(false);

@@ -21,7 +21,7 @@ class Note(Base, SoftDeleteMixin):
     
     title = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)  # Brief description for FTS5 search
-    content = Column(Text, nullable=False)  # Max ~65KB in SQLite TEXT
+    content = Column(Text, nullable=True)  # May be None when file-backed
     content_file_path = Column(String(500), nullable=True)  # For large content stored as files
     size_bytes = Column(BigInteger, default=0, nullable=False)  # Calculated on the fly and stored for analytics
     is_favorite = Column(Boolean, default=False, index=True)

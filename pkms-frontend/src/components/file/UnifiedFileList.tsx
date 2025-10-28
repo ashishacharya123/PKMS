@@ -18,7 +18,8 @@ import {
   IconUnlink, 
   IconGripVertical,
   IconEye,
-  IconChecklist
+  IconChecklist,
+  IconRefresh
 } from '@tabler/icons-react';
 import { 
   Group, 
@@ -37,14 +38,62 @@ import { ImageViewer } from '../common/ImageViewer';
 import { TodoCard } from '../todos/TodoCard';
 import { Todo } from '../../types/todo';
 
+// Utility function for getting cache module
+const getCacheModule = (module: string): 'documents' | 'archive' | 'diary' => {
+  switch (module) {
+    case 'documents':
+      return 'documents';
+    case 'archive':
+      return 'archive';
+    case 'diary':
+      return 'diary';
+    default:
+      return 'documents';
+  }
+};
+
+// Utility function for getting thumbnail URLs
+const getThumbnailUrl = async (file: UnifiedFileItem, size: 'small' | 'medium' | 'large' = 'small'): Promise<string | null> => {
+  // First check if we have a cached thumbnail
+  const cacheKey = `${file.uuid}_thumbnail`;
+  const module = getCacheModule(file.module);
+  
+  try {
+    const cachedThumbnail = await fileService.getThumbnail(cacheKey, module);
+    if (cachedThumbnail) {
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.log(`🎯 THUMBNAIL CACHE HIT: ${file.originalName}`);
+      }
+      return URL.createObjectURL(cachedThumbnail);
+    }
+  } catch (error) {
+    console.warn('Failed to get cached thumbnail:', error);
+  }
+
+  // Fallback to backend thumbnail
+  if (file.thumbnailPath) {
+    return file.thumbnailPath;
+  }
+  if (file.filePath) {
+    const basePath = file.filePath.replace(/\\/g, '/');
+    const encoded = encodeURIComponent(basePath);
+    return `/api/v1/thumbnails/file/${encoded}?size=${size}`;
+  }
+  
+  return null;
+};
+
 interface UnifiedFileListProps {
   files: UnifiedFileItem[];
   onDelete: (fileId: string) => void;
   onUnlink?: (fileId: string) => void; // For project context
   onReorder?: (reorderedFiles: UnifiedFileItem[]) => void; // For drag-and-drop reordering
+  onReplace?: (fileId: string, newFile: File) => void; // For replacing files
   className?: string;
   showUnlink?: boolean; // Show unlink action instead of delete
   enableDragDrop?: boolean; // Enable drag-and-drop reordering
+  encryptionKey?: CryptoKey; // For diary encryption
 }
 
 export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
@@ -52,9 +101,11 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   onDelete,
   onUnlink,
   onReorder,
+  onReplace,
   className = '',
   showUnlink = false,
-  enableDragDrop = false
+  enableDragDrop = false,
+  encryptionKey
 }) => {
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -63,6 +114,7 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   // Image viewing state
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<UnifiedFileItem | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   
   // TODO viewing state
   const [todoViewerOpen, setTodoViewerOpen] = useState(false);
@@ -146,9 +198,29 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
     }
   };
 
-  const handleViewImage = (file: UnifiedFileItem) => {
-    setSelectedImage(file);
-    setImageViewerOpen(true);
+  const handleViewImage = async (file: UnifiedFileItem) => {
+    try {
+      let imageUrl: string;
+
+      if (file.isEncrypted && encryptionKey) {
+        // Decrypt and create blob URL
+        const decryptedBlob = await unifiedFileService.downloadFile(file, encryptionKey);
+        imageUrl = URL.createObjectURL(decryptedBlob);
+      } else {
+        // Use existing thumbnail logic
+        imageUrl = await getThumbnailUrl(file, 'large') || file.filePath || '';
+      }
+
+      setImageUrl(imageUrl);
+      setSelectedImage(file);
+      setImageViewerOpen(true);
+    } catch (error) {
+      console.error('Failed to load image:', error);
+      // Show user-friendly error message
+      setImageUrl(file.filePath || '');
+      setSelectedImage(file);
+      setImageViewerOpen(true);
+    }
   };
 
   const handleViewDocument = (file: UnifiedFileItem) => {
@@ -203,6 +275,19 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
         alert('Failed to unlink file');
       }
     }
+  };
+
+  const handleReplace = (fileId: string) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = false;
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file && onReplace) {
+        onReplace(fileId, file);
+      }
+    };
+    input.click();
   };
 
   // Drag and drop handlers (universal)
@@ -367,7 +452,18 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
                     <IconDownload size={16} />
                   </ActionIcon>
                 </Tooltip>
-                
+
+                {/* Replace button */}
+                <Tooltip label="Replace">
+                  <ActionIcon
+                    variant="light"
+                    size="sm"
+                    onClick={() => handleReplace(file.uuid)}
+                  >
+                    <IconRefresh size={16} />
+                  </ActionIcon>
+                </Tooltip>
+
                 {showUnlink ? (
                   <Tooltip label="Unlink from project">
                     <ActionIcon
@@ -412,7 +508,7 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
             setImageViewerOpen(false);
             setSelectedImage(null);
           }}
-          imageUrl={selectedImage.originalName}
+          imageUrl={imageUrl || selectedImage.originalName}
           imageName={selectedImage.originalName}
           onDownload={() => handleDownload(selectedImage)}
           size="lg"
@@ -452,35 +548,6 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const getThumbnailUrl = async (file: UnifiedFileItem, size: 'small' | 'medium' | 'large' = 'small'): Promise<string | null> => {
-    // First check if we have a cached thumbnail
-    const cacheKey = `${file.uuid}_thumbnail`;
-    const module = getCacheModule(file.module);
-    
-    try {
-      const cachedThumbnail = await fileService.getThumbnail(cacheKey, module);
-      if (cachedThumbnail) {
-        if (process.env.NODE_ENV !== 'production') {
-          // eslint-disable-next-line no-console
-          console.log(`🎯 THUMBNAIL CACHE HIT: ${file.originalName}`);
-        }
-        return URL.createObjectURL(cachedThumbnail);
-      }
-    } catch (error) {
-      console.warn('Failed to get cached thumbnail:', error);
-    }
-
-    // Fallback to backend thumbnail
-    if (file.thumbnailPath) {
-      return file.thumbnailPath;
-    }
-    if (file.filePath) {
-      const basePath = file.filePath.replace(/\\/g, '/');
-      const encoded = encodeURIComponent(basePath);
-      return `/api/v1/thumbnails/file/${encoded}?size=${size}`;
-    }
-    return null;
-  };
 
   const getCacheModule = (module: string): 'documents' | 'archive' | 'diary' => {
     switch (module) {
@@ -536,7 +603,13 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
     };
 
     loadThumbnail();
-  }, [file]);
+
+    return () => {
+      if (thumbUrl && thumbUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(thumbUrl);
+      }
+    };
+  }, [file, thumbUrl]);
 
   if (isLoading) {
     return (

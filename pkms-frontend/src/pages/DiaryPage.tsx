@@ -38,6 +38,7 @@ import { AdvancedSearchAnalytics } from '../components/diary/AdvancedSearchAnaly
 // Import modular components for consistent UI
 import ModuleHeader from '../components/common/ModuleHeader';
 import { dashboardService } from '../services/dashboardService';
+import { nepaliDateCache } from '../utils/nepaliDateCache';
 
 interface SearchStats {
   total_searches?: number;
@@ -58,12 +59,18 @@ export const DiaryPage = React.memo(function DiaryPage() {
   // Track when user is on diary page for session management
   useEffect(() => {
     setOnDiaryPage(true);
+    // Pre-cache ±7 days Nepali dates only when diary is opened
+    try {
+      nepaliDateCache.preCacheDashboard();
+    } catch (_e) {
+      // ignore cache pre-warm errors
+    }
     
     // Cleanup when component unmounts (user leaves diary page)
     return () => {
       setOnDiaryPage(false);
     };
-  }, [setOnDiaryPage]);
+  }, []);
 
   useAuthenticatedEffect(() => {
     loadDashboardData();

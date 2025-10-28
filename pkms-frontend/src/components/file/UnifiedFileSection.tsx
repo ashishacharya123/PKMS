@@ -23,6 +23,7 @@ interface UnifiedFileSectionProps {
   showAudioRecorder?: boolean;
   enableDragDrop?: boolean;
   showUnlink?: boolean; // For project context
+  encryptionKey?: CryptoKey; // For diary encryption
 }
 
 export const UnifiedFileSection: React.FC<UnifiedFileSectionProps> = ({
@@ -34,7 +35,8 @@ export const UnifiedFileSection: React.FC<UnifiedFileSectionProps> = ({
   showUpload = true,
   showAudioRecorder = false,
   enableDragDrop = false,
-  showUnlink = false
+  showUnlink = false,
+  encryptionKey
 }) => {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [audioRecorderOpen, setAudioRecorderOpen] = useState(false);
@@ -173,6 +175,87 @@ export const UnifiedFileSection: React.FC<UnifiedFileSectionProps> = ({
     }
   };
 
+  const handleFileReplace = async (oldFileId: string, newFile: File) => {
+    try {
+      setIsUploading(true);
+      setUploadProgress(0);
+      const oldFile = files.find(f => f.uuid === oldFileId);
+      if (!oldFile) return;
+
+      // Upload the replacement file (minimal metadata)
+      const uploaded = await unifiedFileService.uploadFiles(
+        module,
+        entityId,
+        [newFile],
+        {
+          description: oldFile.description,
+          tags: [],
+          caption: undefined,
+          isExclusive: undefined,
+          projectIds: undefined,
+          encryptionKey,
+          onProgress: (p) => setUploadProgress(p.progress)
+        }
+      );
+
+      // Attempt to delete/unlink the old file (backend will preserve if shared)
+      await unifiedFileService.deleteFile(oldFile);
+
+      // Replace in local list: remove old, append new (keeping order roughly)
+      const withoutOld = files.filter(f => f.uuid !== oldFileId);
+      onFilesUpdate([...withoutOld, ...uploaded]);
+    } catch (e) {
+      console.error('Replace failed:', e);
+      setError('Replace failed');
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
+  // Clipboard paste-to-upload support (images/files)
+  useEffect(() => {
+    if (!entityId) return; // require a target entity
+
+    const onPaste = async (e: ClipboardEvent) => {
+      try {
+        const items = e.clipboardData?.items;
+        if (!items || items.length === 0) return;
+
+        const filesToUpload: File[] = [];
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item.kind === 'file') {
+            const blob = item.getAsFile();
+            if (blob) {
+              // Derive a filename when possible
+              const inferredName = (blob as any).name || `pasted-${Date.now()}`;
+              const file = new File([blob], inferredName, { type: blob.type });
+              filesToUpload.push(file);
+            }
+          }
+        }
+
+        if (filesToUpload.length === 0) return;
+        // Minimal metadata for paste
+        await handleFileUpload(filesToUpload, {
+          description: 'Pasted file',
+          tags: [],
+          caption: undefined,
+          isExclusive: undefined,
+          projectIds: undefined,
+          encryptionKey
+        });
+      } catch (err) {
+        console.error('Paste upload failed:', err);
+        setError('Paste upload failed');
+      }
+    };
+
+    window.addEventListener('paste', onPaste as any);
+    return () => window.removeEventListener('paste', onPaste as any);
+  }, [entityId, module, encryptionKey, files]);
+
   return (
     <Stack gap="md" className={className}>
       <Group justify="space-between" align="center">
@@ -216,8 +299,10 @@ export const UnifiedFileSection: React.FC<UnifiedFileSectionProps> = ({
         onDelete={handleFileDelete}
         onUnlink={showUnlink ? handleFileUnlink : undefined}
         onReorder={enableDragDrop ? handleFileReorder : undefined}
+        onReplace={handleFileReplace}
         showUnlink={showUnlink}
         enableDragDrop={enableDragDrop}
+        encryptionKey={encryptionKey}
       />
 
       <FileUploadModal

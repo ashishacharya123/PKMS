@@ -338,8 +338,6 @@ class DiaryCRUDService:
             title=entry_data.title,
             file_count=0,
             content_length=entry_data.content_length or 0,
-            content_file_path="",
-            file_hash="",
             mood=entry_data.mood,
             weather_code=entry_data.weather_code,
             location=entry_data.location,
@@ -427,7 +425,7 @@ class DiaryCRUDService:
             year: Filter by year
             month: Filter by month
             mood: Filter by mood
-            templates: Filter by template status
+            is_template: Filter by template status
             search_title: Search by title/tags/metadata
             day_of_week: Filter by day of week (0=Sun, 1=Mon..)
             limit: Maximum entries to return
@@ -501,9 +499,9 @@ class DiaryCRUDService:
                 entry_query = entry_query.where(DiaryEntry.mood == mood)
             if day_of_week is not None:
                 entry_query = entry_query.where(daily_metadata_alias.day_of_week == day_of_week)
-            if templates is True:
+            if is_template is True:
                 entry_query = entry_query.where(DiaryEntry.is_template.is_(True))
-            elif templates is False:
+            elif is_template is False:
                 entry_query = entry_query.where(DiaryEntry.is_template.is_(False))
                 
             entry_result = await db.execute(entry_query)
@@ -917,7 +915,7 @@ class DiaryCRUDService:
         try:
             entry_date = datetime.strptime(entry_ref, "%Y-%m-%d").date()
             # Get entries by date and return the first one
-            entries = await DiaryCRUDService.get_entries_by_date(db, user_uuid, entry_date, diary_key)
+            entries = await DiaryCRUDService.get_entries_by_date(db, user_uuid, entry_date)
             if not entries:
                 raise HTTPException(status_code=404, detail=f"No diary entry found for date {entry_date}")
             return entries[0]  # Return first entry for the date
@@ -974,7 +972,7 @@ class DiaryCRUDService:
             file_count=entry.file_count,
             tags=tags,
             content_length=entry.content_length,
-            content_available=bool(diary_key),
+            content_available=entry.content_length > 0,
         )
         return response
     
@@ -1000,7 +998,7 @@ class DiaryCRUDService:
             entry_date = datetime.strptime(entry_ref, "%Y-%m-%d").date()
             # Get entries by date and return the first one
             # fetch summaries without requiring diary_key (bypass gating)
-            entries = await DiaryCRUDService.get_entries_by_date(db, user_uuid, entry_date, diary_key=b"")
+            entries = await DiaryCRUDService.get_entries_by_date(db, user_uuid, entry_date)
             if not entries:
                 raise HTTPException(status_code=404, detail=f"No diary entry found for date {entry_date}")
             e = entries[0]
@@ -1157,9 +1155,8 @@ class DiaryCRUDService:
             await habit_data_service.get_or_create_daily_metadata(
                 db=db,
                 user_uuid=user_uuid,
-                entry_date=entry.date,
+                target_date=entry.date,
                 nepali_date=updates.nepali_date,
-                metrics=updates.daily_metrics or {},
                 daily_income=updates.daily_income,
                 daily_expense=updates.daily_expense,
                 is_office_day=updates.is_office_day,

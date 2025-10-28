@@ -1,3 +1,218 @@
+### 2025-10-28 – Fix dashboard JSON parsing and session-status 500 (by GPT-5)
+
+Changes
+- Frontend: `pkms-frontend/src/services/dashboardService.ts`
+  - Replaced raw `fetch('/api/v1/...')` with centralized `apiService.get/post(...)` calls that use `API_BASE_URL` and `withCredentials`.
+  - Preserved unified cache behavior and safe default fallbacks on errors for `getMainDashboardData`, `getRecentActivity`, `getQuickStats`, and `getRecentActivityTimeline`.
+  - Switched diary/todos auxiliary fetches to `apiService` to avoid accidental HTML responses and ensure cookies are sent.
+
+- Backend: `pkms-backend/app/routers/auth.py`
+  - Normalized timezone handling in `/auth/session-status` by ensuring `expires_at` and `last_activity` are timezone-aware before arithmetic/serialization.
+  - Avoided naive/aware datetime subtraction that triggered 500 errors.
+
+Root Cause
+- Relative `fetch` calls could hit the frontend dev server or redirect paths, returning HTML (`<!doctype ...>`) instead of JSON.
+- Session-status endpoint could raise due to naive vs aware datetime subtraction when comparing `expires_at` with `now`.
+
+Impact
+- Eliminates JSON parse errors on dashboard/timeline.
+- Stops repeated 500s from session monitoring; expiry warnings continue to function.
+
+Security/Best Practice Notes
+- Using a single axios client with `withCredentials` is aligned with best practices for cookie-based auth and consistent headers.
+- Timezone normalization prevents latent bugs; follows robust datetime handling guidelines.
+
+Removed Functionality / Files
+- None. No files removed.
+
+## Final fixes (Authored by GPT-5)
+
+1) Recycle Bin diary hard delete
+- File: `pkms-backend/app/routers/recyclebin.py`
+- Change: `hard_delete_entry` → `hard_delete_diary_entry` to match service API.
+- Impact: Prevents AttributeError during purge.
+
+2) Document schema alignment
+- File: `pkms-backend/app/schemas/document.py`
+- Change: `DocumentResponse.is_encrypted` set to `Optional[bool] = None`.
+- Impact: Avoids fabricating non-existent model fields; schema remains backward compatible.
+
+3) Notes files listing
+- File: `pkms-backend/app/services/note_crud_service.py`
+- Changes: Eager-loaded `Document.tag_objs` with `selectinload`; omitted `is_encrypted` from mapping.
+- Impact: Eliminates N+1 and prevents AttributeError.
+
+4) Unified cache safety and TTL
+- File: `pkms-backend/app/services/unified_cache_service.py`
+- Changes: Added `RLock` for thread safety; TTL check uses absolute expiry; encapsulated stats aggregation via `get_stats()` only.
+- Impact: Prevents races; TTL obeyed; avoids touching private `_cache`.
+
+5) Archive item hard delete completeness
+- File: `pkms-backend/app/services/archive_item_service.py`
+- Changes: Best-effort search eviction; capture folder UUID; update folder stats after delete; single commit at end.
+- Impact: Keeps search in sync when possible; DB consistency guaranteed.
+
+6) Dashboard recent activity metadata
+- File: `pkms-backend/app/services/dashboard_service.py`
+- Change: Serialize enums via `.value` for projects/todos in metadata.
+- Impact: JSON-safe responses per architectural rules.
+
+7) Restore flows commit-only; manual reindex
+- Files: `note_crud_service.py`, `project_service.py`, `todo_crud_service.py`
+- Change: Remove auto reindex after restore; log hint to use manual reindex in UI.
+- Impact: Aligns with manual reindex policy; durability-first.
+
+8) Dashboard timeline docstring
+- File: `pkms-backend/app/routers/dashboard.py`
+- Change: Updated docstring to reflect last-activity sort semantics.
+
+### Removed/renamed items tracking
+- `pkms-backend/app/utils/safe_file_ops.py` (already removed earlier) — superseded by FileCommitConsistencyService.
+
+— AI Agent: GPT-5 (Cursor)
+## 2025-10-28 Final Fixes (by GPT-5)
+
+- Unified delete service introduced (`app/services/unified_delete_service.py`)
+  - Atomic pattern: DB delete + commit, then file unlink with separate error handling
+  - Replaced usage in `document_crud_service.permanent_delete_document`
+- Removed deprecated `app/utils/safe_file_ops.py`
+  - Rationale: consolidated into class-based unified delete service for symmetry
+- Todos: enforced soft-delete guards in listing/get/update and safe subtask purge
+- Notes router: corrected response model to `DocumentResponse[]`, delegate file delete to document service, fixed commit payload handling
+- Diary: fixed method signatures, corrected content_available flag, updated habit metadata call signature
+- Unified habit analytics: corrected return type to `WellnessStats`
+- Base model: `include_deleted()` returns `None` to signal no filter
+- Frontend: `todosService.getProjects` now uses `Project[]` generics
+
+Removed files list:
+- `app/utils/safe_file_ops.py` (migrated to unified delete service)
+## 2025-01-27 – Final Error Fixes Clean Code Stage by AI Agent: Claude Sonnet 4.5
+
+**Priority:** HIGH - Fix 7 critical errors and clean up legacy code for production readiness
+
+## 2025-01-28 – Final 2 Fixes Production Readiness by AI Agent: Claude Sonnet 4.5
+
+**Priority:** CRITICAL - Fix 13 additional critical errors for production readiness
+
+### Problem
+- Search indexing includes soft-deleted items causing stale search results
+- Diary attachments reference non-existent fields causing runtime AttributeError
+- Todo tag syncing fails due to type mismatch (int vs UUID string)
+- Encryption keys can't be properly zeroized from memory (security vulnerability)
+- Habit statistics include deleted/archived items showing inflated counts
+- Calendar data includes deleted entries
+- Exception handling masks debugging errors with overly broad catches
+- Dashboard documentation mismatch (says 7 days, default is 3)
+- Exception chaining missing causing lost error context
+- Frontend references non-existent export endpoint
+- TypeScript compilation errors from missing Project type import
+- Non-existent method calls causing runtime AttributeError crashes
+
+### Solution
+- Added Model.active_only() scope filters to all search indexing queries
+- Fixed diary .media → .documents and media_count → file_count references
+- Changed todo_id: int to todo_uuid: str in tag sync service
+- Changed encryption keys from bytes to bytearray for proper memory zeroization
+- Added Model.active_only() scope filters to all habit statistics count queries
+- Added Model.active_only() scope filters to calendar data queries
+- Replaced broad Exception catches with specific SQLAlchemyError, ValueError, AttributeError
+- Updated dashboard documentation to match actual default (3 days)
+- Added proper exception chaining with "raise ... from e"
+- Added graceful error handling for unimplemented export endpoint
+- Fixed TypeScript Project type import
+- Removed all calls to non-existent invalidate_user_cache() method
+
+### Files Changed
+**Backend (8 files):**
+- Modified: `pkms-backend/app/services/search_service.py` - Added soft-delete filters, fixed diary attachments, added FTS optimization
+- Modified: `pkms-backend/app/routers/advanced_fuzzy.py` - Fixed media_count → file_count references
+- Modified: `pkms-backend/app/testing/testing_database_enhanced.py` - Fixed exception handling
+- Modified: `pkms-backend/app/services/tag_sync_service.py` - Fixed todo ID type mismatch
+- Modified: `pkms-backend/app/services/diary_session_service.py` - Fixed encryption key zeroization
+- Modified: `pkms-backend/app/services/habit_data_service.py` - Added soft-delete/archive filters to all queries
+- Modified: `pkms-backend/app/routers/dashboard.py` - Fixed documentation, exception chaining, removed non-existent method calls
+- Modified: `pkms-backend/app/routers/diary.py` - Removed non-existent method call
+
+**Frontend (2 files):**
+- Modified: `pkms-frontend/src/services/todosService.ts` - Added graceful error handling for export endpoint
+- Modified: `pkms-frontend/src/pages/DashboardPage.tsx` - Fixed TypeScript Project type import
+
+### Impact
+- Cleaner FTS index with no deleted content in search results
+- Prevents runtime crashes from non-existent field references
+- Tag syncing now works correctly for todos
+- Improved security with proper memory zeroization
+- Accurate productivity statistics and dashboard counts
+- Better debugging with specific exception handling
+- Consistent documentation and error context preservation
+- Graceful handling of unimplemented features
+- TypeScript compilation without errors
+- No more runtime crashes from missing methods
+
+### Architectural Compliance
+- ✅ ARCHITECTURAL_RULES.md Rule #11 (SQLAlchemy Query Patterns with and_())
+- ✅ SoftDeleteMixin usage patterns (Model.active_only() scope)
+- ✅ Proper exception handling and chaining (raise ... from e)
+- ✅ Type safety and consistency (UUID strings, not integers)
+- ✅ Security best practices (mutable keys for zeroization)
+- ✅ Performance optimization (cleaner FTS index)
+- ✅ Virgin database approach (no migration scripts needed)
+
+### Problem
+- Soft-delete filtering inconsistency between note and diary file counts
+- Race condition in chunk upload state file without locking
+- Incorrect CASE statement construction causing SQL query failures
+- Stale cache invalidation comments from removed functionality
+- Broken testing endpoints referencing undefined crypto_service
+- ImageViewer receiving filename instead of URL for encrypted diary files
+- Memory leak from unreleased blob URLs in thumbnail rendering
+
+### Solution
+- Fixed soft-delete filtering in diary entry file count query
+- Added asyncio.Lock for chunk upload state file I/O operations
+- Fixed CASE statement to use tuples instead of nested case objects
+- Removed 3 misleading cache invalidation comments
+- Completely removed 4 broken testing endpoints from backend and frontend
+- Added encryption support for diary file viewing with proper URL handling
+- Added blob URL cleanup in useEffect to prevent memory leaks
+
+### Files Changed
+**Backend (4 files):**
+- Modified: `pkms-backend/app/services/shared_utilities_service.py` - Fixed soft-delete filtering
+- Modified: `pkms-backend/app/services/chunk_service.py` - Added async locks for state file I/O
+- Modified: `pkms-backend/app/services/diary_document_service.py` - Fixed CASE statement, removed stale comments
+- Modified: `pkms-backend/app/testing/testing_auth.py` - Removed 4 broken testing endpoints
+
+**Frontend (5 files):**
+- Modified: `pkms-frontend/src/components/file/UnifiedFileList.tsx` - Added encryption support, memory leak fixes
+- Modified: `pkms-frontend/src/components/file/UnifiedFileSection.tsx` - Added encryptionKey prop
+- Modified: `pkms-frontend/src/pages/DiaryViewPage.tsx` - Pass encryption key to file components
+- Modified: `pkms-frontend/src/components/shared/TestingInterface.tsx` - Removed encryption test UI
+- Modified: `pkms-frontend/src/services/testing/authService.ts` - Removed encryption test method
+- Modified: `pkms-frontend/src/services/testingService.ts` - Removed encryption test reference
+
+**Documentation (2 files):**
+- Created: `DEVELOPMENTAL_COMMENTS.md` - Documented all removed features and architectural changes
+- Modified: `ERROR_FIX_DOCUMENTATION.md` - Added this entry
+
+### Key Features Fixed
+1. **Consistent Soft-Delete Filtering**: Diary entry file counts now exclude soft-deleted documents
+2. **Race Condition Prevention**: Chunk upload state file I/O now protected with asyncio.Lock
+3. **SQL Query Fix**: Document reordering now uses correct CASE statement with tuples
+4. **Clean Code**: Removed misleading comments about non-existent cache invalidation
+5. **Testing Cleanup**: Removed all broken testing endpoints and frontend references
+6. **Encrypted File Support**: Diary images, audio, and documents now properly decrypt for viewing
+7. **Memory Management**: Blob URLs properly cleaned up to prevent memory leaks
+
+### Technical Details
+- All fixes follow ARCHITECTURAL_RULES.md patterns
+- No breaking changes - all improvements are internal
+- Virgin database - no migration needed
+- Backward compatible frontend changes
+- Proper error handling and fallbacks implemented
+
+---
+
 ## 2025-01-24 – Complete Recycle Bin Implementation by AI Agent: Claude Sonnet 4.5
 
 **Priority:** HIGH - Complete implementation of missing recycle bin endpoints and diary management features
