@@ -7,8 +7,7 @@ Handles only HTTP concerns: request/response mapping, authentication, error hand
 Refactored to follow "thin router, thick service" architecture pattern.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, status, Query, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 import logging
@@ -16,7 +15,8 @@ import logging
 from app.database import get_db
 from app.models.user import User
 from app.auth.dependencies import get_current_user
-from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary, NoteFile
+from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary
+from app.schemas.document import CommitDocumentUploadRequest as CommitNoteFileRequest
 from app.services.note_crud_service import note_crud_service
 from app.services.chunk_service import chunk_manager
 
@@ -29,6 +29,8 @@ async def list_notes(
     search: Optional[str] = Query(None, description="Search term for note content"),
     tags: Optional[List[str]] = Query(None, description="Filter by tag names"),
     is_favorite: Optional[bool] = Query(None, description="Filter by favorite status"),
+    is_template: Optional[bool] = Query(None, description="Filter by template status"),
+    template_uuid: Optional[str] = Query(None, description="Filter notes created from specific template UUID"),
     project_uuid: Optional[str] = Query(None, description="Filter by project UUID"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of notes to return"),
     offset: int = Query(0, ge=0, description="Number of notes to skip"),
@@ -38,7 +40,7 @@ async def list_notes(
     """List notes with filters and pagination"""
     try:
         return await note_crud_service.list_notes(
-            db, current_user.uuid, search, tags, is_favorite, project_uuid, limit, offset
+            db, current_user.uuid, search, tags, is_favorite, is_template, template_uuid, project_uuid, limit, offset
         )
     except HTTPException:
         raise
@@ -47,6 +49,83 @@ async def list_notes(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list notes: {str(e)}"
+        )
+
+
+@router.post("/{note_uuid}/create-from-template")
+async def create_note_from_template(
+    note_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a new note from an existing template"""
+    try:
+        # Get the template note
+        template_note = await note_crud_service.get_note(db, note_uuid, current_user.uuid)
+        if not template_note:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Template note not found"
+            )
+        
+        if not template_note.is_template:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Note is not a template"
+            )
+        
+        # Create new note from template
+        new_note_data = NoteCreate(
+            title=template_note.title,
+            content=template_note.content,
+            description=template_note.description,
+            tags=template_note.tags,
+            is_template=False,
+            from_template_id=note_uuid
+        )
+        
+        return await note_crud_service.create_note(db, new_note_data, current_user.uuid)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error creating note from template {note_uuid} for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create note from template"
+        )
+
+
+@router.post("/{note_uuid}/save-as-template")
+async def save_note_as_template(
+    note_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Save an existing note as a template"""
+    try:
+        # Get the note
+        note = await note_crud_service.get_note(db, note_uuid, current_user.uuid)
+        if not note:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Note not found"
+            )
+        
+        # Update note to be a template
+        await note_crud_service.update_note(
+            db, note_uuid, current_user.uuid, NoteUpdate(is_template=True)
+        )
+        
+        return {"message": "Note saved as template successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error saving note {note_uuid} as template for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save note as template"
         )
 
 
@@ -67,6 +146,24 @@ async def create_note(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create note: {str(e)}"
         )
+
+
+@router.get("/deleted", response_model=List[NoteSummary])
+async def list_deleted_notes(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List all soft-deleted notes for the current user."""
+    try:
+        return await note_crud_service.list_deleted_notes(db, current_user.uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error listing deleted notes for user %s", current_user.uuid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list deleted notes"
+        ) from e
 
 
 @router.get("/{note_uuid}", response_model=NoteResponse)
@@ -128,6 +225,26 @@ async def delete_note(
         )
 
 
+@router.post("/{note_uuid}/restore")
+async def restore_note(
+    note_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Restore a soft-deleted note from Recycle Bin."""
+    try:
+        await note_crud_service.restore_note(db, current_user.uuid, note_uuid)
+        return {"message": "Note restored successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error restoring note %s", note_uuid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to restore note"
+        ) from e
+
+
 @router.post("/{note_uuid}/archive")
 async def archive_note(
     note_uuid: str,
@@ -146,6 +263,25 @@ async def archive_note(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to archive note: {str(e)}"
         )
+
+@router.delete("/{note_uuid}/permanent")
+async def hard_delete_note(
+    note_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Permanently delete note (hard delete) - WARNING: Cannot be undone!"""
+    try:
+        await note_crud_service.hard_delete_note(db, current_user.uuid, note_uuid)
+        return {"message": "Note permanently deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error permanently deleting note %s", note_uuid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to permanently delete note"
+        ) from e
 
 
 # Note file endpoints removed - file handling now done via Document + note_documents association
@@ -192,7 +328,7 @@ async def upload_note_file(
         )
 
 
-@router.post("/{note_uuid}/files/commit", response_model=NoteFileResponse)
+@router.post("/{note_uuid}/files/commit", response_model=NoteResponse)
 async def commit_note_file_upload(
     note_uuid: str,
     commit_request: CommitNoteFileRequest,
@@ -256,7 +392,7 @@ async def duplicate_note(
         )
 
 
-@router.get("/{note_uuid}/files", response_model=List[NoteFile])
+@router.get("/{note_uuid}/files", response_model=List[NoteResponse])
 async def get_note_files(
     note_uuid: str,
     current_user: User = Depends(get_current_user),

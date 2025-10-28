@@ -119,11 +119,11 @@ class TokenResponse(CamelCaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
-    created_by: int
+    created_by: str  # Changed from int to str (UUID)
     username: str
 
 class UserResponse(CamelCaseModel):
-    id: int
+    uuid: str  # Changed from id: int to uuid: str
     username: str
     email: Optional[str]
     is_active: bool

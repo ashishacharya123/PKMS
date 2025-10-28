@@ -5,10 +5,8 @@ Cross-platform file locking utilities for async operations
 import asyncio
 import aiofiles
 from pathlib import Path
-from typing import Optional
 import fcntl
 import os
-import time
 
 
 class AsyncFileLock:

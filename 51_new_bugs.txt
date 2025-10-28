@@ -1,0 +1,826 @@
+🧹 Nitpick comments (51)
+pkms-backend/app/services/diary_metadata_service.py (1)
+22-22: Fix missing imports for types already in use—this is correct.
+
+Lines 63 and 97 were already using List and Any without importing them, which would fail type checking tools. This change fixes that.
+
+One note: we found no type checker configured in your CI pipeline. Adding mypy or pyright to catch issues like this proactively would prevent similar oversights going forward.
+
+pkms-frontend/src/components/shared/Navigation.tsx (1)
+359-364: Route is properly defined—implementation is correct.
+
+The /recyclebin route is confirmed to exist in pkms-frontend/src/App.tsx (line 241) and RecycleBinPage is correctly imported and rendered. The menu item implementation follows the established pattern and works as intended.
+
+The menu placement suggestion from the original comment is optional. The current location is functional, though you could consider reorganizing the menu into labeled sections if the navigation becomes more complex in the future.
+
+pkms-backend/app/utils/safe_file_ops.py (1)
+16-16: Add type annotation for db_object parameter.
+
+The parameter lacks a type hint, which reduces type safety and IDE support. Consider using a protocol or generic type to maintain flexibility while improving type checking.
+
+-async def safe_delete_with_db(file_path: Path, db_object, db: AsyncSession):
++from typing import Any
++async def safe_delete_with_db(file_path: Path, db_object: Any, db: AsyncSession):
+Or for better type safety, define a protocol if the objects share a common interface.
+
+pkms-backend/app/services/dashboard_stats_service.py (2)
+98-126: 3‑day default: OK; consider naming consistency and 1‑query optimization.
+
+Lowering default to 3 days aligns with the new dashboard/timeline window. LGTM.
+Consider renaming parameter to days for consistency with get_recent_activity_stats.
+You can cut DB round‑trips from 2→1 using FILTER, mirroring get_todo_stats.
+-async def get_notes_stats(db: AsyncSession, created_by: str, recent_days: int = 3) -> Dict[str, int]:
++async def get_notes_stats(db: AsyncSession, created_by: str, recent_days: int = 3) -> Dict[str, int]:
+     """Get notes statistics"""
+     recent_cutoff = datetime.now(NEPAL_TZ) - timedelta(days=recent_days)
+-
+-    notes_total = await db.scalar(
+-        select(func.count(Note.uuid)).where(
+-            and_(
+-                Note.created_by == created_by,
+-                Note.is_deleted.is_(False),
+-                Note.is_archived.is_(False)
+-            )
+-        )
+-    )
+-
+-    notes_recent = await db.scalar(
+-        select(func.count(Note.uuid)).where(
+-            and_(
+-                Note.created_by == created_by,
+-                Note.is_deleted.is_(False),
+-                Note.is_archived.is_(False),
+-                Note.created_at >= recent_cutoff
+-            )
+-        )
+-    )
+-
+-    return {
+-        ModuleStatsKey.TOTAL.value: notes_total or 0,
+-        ModuleStatsKey.RECENT.value: notes_recent or 0
+-    }
++    result = await db.execute(
++        select(
++            func.count(Note.uuid).label("total"),
++            func.count(Note.uuid).filter(Note.created_at >= recent_cutoff).label("recent"),
++        ).where(
++            and_(
++                Note.created_by == created_by,
++                Note.is_deleted.is_(False),
++                Note.is_archived.is_(False),
++            )
++        )
++    )
++    row = result.one()
++    return {
++        ModuleStatsKey.TOTAL.value: row.total or 0,
++        ModuleStatsKey.RECENT.value: row.recent or 0,
++    }
+129-157: 3‑day default: OK; mirror the same 1‑query optimization here.
+
+Default change looks good and consistent with the rest of the dashboard.
+Apply the same FILTER pattern to avoid two queries.
+-async def get_documents_stats(db: AsyncSession, created_by: str, recent_days: int = 3) -> Dict[str, int]:
++async def get_documents_stats(db: AsyncSession, created_by: str, recent_days: int = 3) -> Dict[str, int]:
+     """Get documents statistics"""
+     recent_cutoff = datetime.now(NEPAL_TZ) - timedelta(days=recent_days)
+-
+-    docs_total = await db.scalar(
+-        select(func.count(Document.uuid)).where(
+-            and_(
+-                Document.created_by == created_by,
+-                Document.is_deleted.is_(False),
+-                Document.is_archived.is_(False)
+-            )
+-        )
+-    )
+-
+-    docs_recent = await db.scalar(
+-        select(func.count(Document.uuid)).where(
+-            and_(
+-                Document.created_by == created_by,
+-                Document.is_deleted.is_(False),
+-                Document.is_archived.is_(False),
+-                Document.created_at >= recent_cutoff
+-            )
+-        )
+-    )
+-
+-    return {
+-        ModuleStatsKey.TOTAL.value: docs_total or 0,
+-        ModuleStatsKey.RECENT.value: docs_recent or 0
+-    }
++    result = await db.execute(
++        select(
++            func.count(Document.uuid).label("total"),
++            func.count(Document.uuid).filter(Document.created_at >= recent_cutoff).label("recent"),
++        ).where(
++            and_(
++                Document.created_by == created_by,
++                Document.is_deleted.is_(False),
++                Document.is_archived.is_(False),
++            )
++        )
++    )
++    row = result.one()
++    return {
++        ModuleStatsKey.TOTAL.value: row.total or 0,
++        ModuleStatsKey.RECENT.value: row.recent or 0,
++    }
+pkms-frontend/src/components/common/PermanentDeleteDialog.tsx (1)
+123-132: Use stable keys for mapped lists.
+
+Avoid index keys to reduce re-render glitches. Prefer item.uuid (or a composite).
+
+- {details.willBeDeleted.map((item, index) => (
+-   <List.Item key={index}>
++ {details.willBeDeleted.map((item) => (
++   <List.Item key={item.uuid ?? item.title}>
+      ...
+- {details.willBePreserved.map((item, index) => (
+-   <List.Item key={index}>
++ {details.willBePreserved.map((item) => (
++   <List.Item key={item.uuid ?? item.title}>
+      ...
+- {details.warnings.map((warning, index) => (
+-   <List.Item key={index}>{warning}</List.Item>
++ {details.warnings.map((warning) => (
++   <List.Item key={warning}>{warning}</List.Item>
+Also applies to: 141-151, 159-164
+
+pkms-backend/app/routers/notes.py (3)
+72-87: Endpoint wiring LGTM; add exception chaining for clearer traces.
+
+Use raise ... from e in broad except blocks to preserve context.
+
+-    except Exception as e:
++    except Exception as e:
+         logger.exception(f"Error listing deleted notes for user {current_user.uuid}")
+-        raise HTTPException(
++        raise HTTPException(
+             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+             detail=f"Failed to list deleted notes: {str(e)}"
+-        )
++        ) from e
+149-167: Restore endpoint OK; prefer exception chaining.
+
+Same rationale as above.
+
+-    except Exception as e:
++    except Exception as e:
+         logger.exception(f"Error restoring note {note_uuid}")
+-        raise HTTPException(
++        raise HTTPException(
+             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+             detail=f"Failed to restore note: {str(e)}"
+-        )
++        ) from e
+188-206: Hard delete endpoint OK; prefer exception chaining.
+
+Same change for consistency.
+
+-    except Exception as e:
++    except Exception as e:
+         logger.exception(f"Error permanently deleting note {note_uuid}")
+-        raise HTTPException(
++        raise HTTPException(
+             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+             detail=f"Failed to permanently delete note: {str(e)}"
+-        )
++        ) from e
+pkms-backend/app/services/association_counter_service.py (1)
+44-51: Minor consistency: prefer db.scalar(select(...)) over db.execute(...).scalar().
+
+Keeps style uniform across methods.
+
+Also applies to: 71-77
+
+RECYCLE_BIN_IMPLEMENTATION.md (2)
+19-24: Add language hints to fenced blocks for linting and readability.
+
+Specify languages (text, bash, python, typescript) to satisfy MD040.
+
+-```
++```text
+ User Action → Pre-Check → Soft Delete → Recycle Bin → Restore/Hard Delete
+ ...
+- +text
+pkms-backend/
+...
+
+-```
++```text
+pkms-frontend/src/
+...
+
+
+Also applies to: 30-50, 54-66
+
+---
+
+`345-355`: **Clarify `include_deleted()` usage in query examples.**
+
+`include_deleted()` returns a no-op filter; using it inside `.where(...)` is misleading. Show the unfiltered select instead.
+
+```diff
+-# All items (including deleted)
+-query = select(YourModel).where(YourModel.include_deleted())
++# All items (including deleted)
++query = select(YourModel)
+pkms-frontend/src/pages/RecycleBinPage.tsx (4)
+41-44: Remove empty props interface and empty destructuring.
+
+Simplify the signature to satisfy lints.
+
+-interface RecycleBinPageProps {}
+-
+-export function RecycleBinPage({}: RecycleBinPageProps) {
++export function RecycleBinPage() {
+61-89: Wrap per-case declarations in blocks to avoid leakage across cases.
+
+Prevents “noSwitchDeclarations” warnings and accidental scope bleed.
+
+-      switch (activeTab) {
+-        case 'all':
+-          fetchedItems = await recycleBinService.getAllDeletedItems();
+-          break;
+-        case 'projects':
+-          const projects = await recycleBinService.getDeletedProjects();
+-          fetchedItems = projects.map(item => ({ ...item, type: 'project' as const }));
+-          break;
++      switch (activeTab) {
++        case 'all': {
++          fetchedItems = await recycleBinService.getAllDeletedItems();
++          break;
++        }
++        case 'projects': {
++          const projects = await recycleBinService.getDeletedProjects();
++          fetchedItems = projects.map(item => ({ ...item, type: 'project' as const }));
++          break;
++        }
+         // repeat `{ ... }` block pattern for other cases
+234-242: Use toLocaleString when including time components.
+
+toLocaleDateString ignores hour/minute options.
+
+-  return new Date(dateString).toLocaleDateString('en-US', {
++  return new Date(dateString).toLocaleString('en-US', {
+     year: 'numeric',
+     month: 'short',
+     day: 'numeric',
+     hour: '2-digit',
+     minute: '2-digit'
+   });
+155-183: Minor robustness: capture selectedItem.uuid before async work.
+
+Avoids any chance of stale state surprises in finally handlers.
+
+-  const confirmPermanentDelete = async () => {
++  const confirmPermanentDelete = async () => {
+     if (!selectedItem) return;
+-    
++    const sid = selectedItem.uuid;
+     try {
+-      setDeletingItems(prev => [...prev, selectedItem.uuid]);
++      setDeletingItems(prev => [...prev, sid]);
+       await recycleBinService.permanentDeleteItem(selectedItem);
+       ...
+     } catch (error) {
+       ...
+     } finally {
+-      setDeletingItems(prev => prev.filter(id => id !== selectedItem.uuid));
++      setDeletingItems(prev => prev.filter(id => id !== sid));
+     }
+   };
+pkms-frontend/src/services/dashboardService.ts (2)
+79-84: Interface naming is consistent with API; consider documenting field semantics.
+
+Add a brief JSDoc noting that totalCount is the total (pre-trim) within cutoffDays to avoid confusion downstream.
+
+259-302: Harden request params and caching behavior; minor DX tweaks.
+
+Clamp inputs: guard days (e.g., 1–30) and limit (e.g., 1–100) to prevent accidental heavy calls.
+Build URL via URLSearchParams to avoid string concat edge cases.
+Prefer returning the last cached value on error (stale-while-revalidate UX) instead of an empty timeline.
+Avoid duplicating TTL (120000) since dashboardCache already defaults to 120000; pass undefined unless overriding intentionally.
+Apply this diff:
+
+-  async getRecentActivityTimeline(days: number = 3, limit: number = 20): Promise<RecentActivityTimeline> {
+-    const cacheKey = `timeline_${days}_${limit}`;
++  async getRecentActivityTimeline(days: number = 3, limit: number = 20): Promise<RecentActivityTimeline> {
++    // Defensive clamps
++    const safeDays = Math.min(Math.max(Math.trunc(days), 1), 30);
++    const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 100);
++    const cacheKey = `timeline_${safeDays}_${safeLimit}`;
+@@
+-    console.log(`❌ CACHE MISS: Activity timeline (${days} days, ${limit} items) - fetching from backend`);
++    console.log(`❌ CACHE MISS: Activity timeline (${safeDays} days, ${safeLimit} items) - fetching from backend`);
+@@
+-      const response = await fetch(`/api/v1/dashboard/timeline?days=${days}&limit=${limit}`);
++      const params = new URLSearchParams({ days: String(safeDays), limit: String(safeLimit) });
++      const response = await fetch(`/api/v1/dashboard/timeline?${params.toString()}`, {
++        headers: { Accept: 'application/json' }
++      });
+@@
+-      await dashboardCache.set(cacheKey, data, 120000, ['dashboard', 'timeline']);
++      await dashboardCache.set(cacheKey, data, undefined, ['dashboard', 'timeline']);
+@@
+-      console.error(`❌ ERROR: Activity timeline (${responseTime.toFixed(0)}ms):`, error);
+-      
+-      return {
+-        items: [],
+-        totalCount: 0,
+-        cutoffDays: days
+-      };
++      console.error(`❌ ERROR: Activity timeline (${responseTime.toFixed(0)}ms):`, error);
++      // Prefer stale on error
++      const stale = await dashboardCache.get(cacheKey);
++      if (stale) return stale;
++      return { items: [], totalCount: 0, cutoffDays: safeDays };
+pkms-backend/app/routers/__init__.py (1)
+257-269: Docs updated—please also fix the later example that still references preflight_router.
+
+The example import list around Lines 303–318 still mentions preflight_router. Replace with deletion_impact_router for consistency.
+
+pkms-frontend/src/components/dashboard/ActivityTimeline.tsx (2)
+58-73: More robust "time ago" (Intl.RelativeTimeFormat).
+
+Current logic stops at “d ago.” Use Intl.RelativeTimeFormat for week/month/year for better readability and i18n.
+
+-const formatTimeAgo = (dateString: string) => {
+-  const date = new Date(dateString);
+-  const now = new Date();
+-  const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+-  if (diffInMinutes < 1) return 'Just now';
+-  if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+-  const diffInHours = Math.floor(diffInMinutes / 60);
+-  if (diffInHours < 24) return `${diffInHours}h ago`;
+-  const diffInDays = Math.floor(diffInHours / 24);
+-  if (diffInDays < 7) return `${diffInDays}d ago`;
+-  return date.toLocaleDateString();
+-};
++const formatTimeAgo = (dateString: string) => {
++  const date = new Date(dateString);
++  const diffMs = Date.now() - date.getTime();
++  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
++  const mins = Math.floor(diffMs / 60000);
++  if (mins < 1) return 'Just now';
++  if (mins < 60) return rtf.format(-mins, 'minute');
++  const hours = Math.floor(mins / 60);
++  if (hours < 24) return rtf.format(-hours, 'hour');
++  const days = Math.floor(hours / 24);
++  if (days < 30) return rtf.format(-days, 'day');
++  const months = Math.floor(days / 30);
++  if (months < 12) return rtf.format(-months, 'month');
++  const years = Math.floor(months / 12);
++  return rtf.format(-years, 'year');
++};
+75-83: Extend status color mapping to cover backend enums.
+
+Add mappings for 'in_progress', 'blocked', 'done', 'cancelled' to avoid gray badges most of the time.
+
+ const getStatusColor = (status?: string) => {
+   switch (status) {
+-    case 'completed': return 'green';
++    case 'completed':
++    case 'done': return 'green';
+     case 'active': return 'blue';
+-    case 'pending': return 'yellow';
++    case 'pending': return 'yellow';
++    case 'in_progress': return 'cyan';
++    case 'blocked': return 'red';
++    case 'cancelled': return 'gray';
+     case 'overdue': return 'red';
+     default: return 'gray';
+   }
+ };
+Please confirm the exact serialized values for TodoStatus/ProjectStatus (e.g., 'done' vs 'completed') so we can finalize the mapping.
+
+pkms-frontend/src/pages/DashboardPage.tsx (2)
+300-304: Good integration of timeline fetch; add basic input constants.
+
+Consider hoisting days/limit to constants and reusing in UI copy for consistency.
+
+-      const [dashboardStats, quickStats, timeline] = await Promise.all([
++      const DAYS = 3, LIMIT = 20;
++      const [dashboardStats, quickStats, timeline] = await Promise.all([
+         dashboardService.getMainDashboardData(),
+-        dashboardService.getQuickStats(),
+-        dashboardService.getRecentActivityTimeline(3, 20)
++        dashboardService.getQuickStats(),
++        dashboardService.getRecentActivityTimeline(DAYS, LIMIT)
+       ]);
+@@
+-      setActivityTimeline(timeline);
++      setActivityTimeline(timeline);
+Also applies to: 308-308
+
+760-778: Skeleton state looks clean; align copy with DAYS constant if adopted.
+
+If you hoist DAYS as suggested, pass it to the fallback message to keep UX consistent.
+
+pkms-backend/app/services/dashboard_service.py (2)
+184-197: Docstring vs implementation mismatch.
+
+Docstring says “sorted by creation time,” but you sort by updated_at (fallback to created_at). Update the docstring or change the sort to created_at for consistency.
+
+-        """ 
+-        Get unified recent activity timeline sorted by creation time.
++        """
++        Get unified recent activity timeline sorted by last activity time (updated_at if present, else created_at).
+206-221: Per-module LIMIT skews total_count; clarify semantics or compute true total.
+
+Applying .limit(limit) per module means total_count is at most 6×limit and not the true total within days. Either:
+
+Document that total_count is pre-trim across fetched slices, or
+Compute totals separately (COUNT queries per module) and sum them.
+Would you prefer accurate totals (extra COUNT queries) or keep current performance and update the schema doc/UI label to “items fetched”?
+
+Also applies to: 237-249, 265-277, 295-307, 323-334, 350-361
+
+pkms-backend/app/routers/recyclebin.py (4)
+165-207: Use logger.exception and narrow exceptions.
+
+Switch to logger.exception for stack traces; catch HTTPException separately to keep control-flow expected.
+
+-            except Exception as e:
+-                logger.error(f"Error permanently deleting project {project_uuid}: {e}")
++            except HTTPException as e:
++                logger.info("Skip project %s: %s", project_uuid, e.detail)
++            except Exception:
++                logger.exception("Error permanently deleting project %s", project_uuid)
+...
+-            except Exception as e:
+-                logger.error(f"Error permanently deleting note {note_uuid}: {e}")
++            except HTTPException as e:
++                logger.info("Skip note %s: %s", note_uuid, e.detail)
++            except Exception:
++                logger.exception("Error permanently deleting note %s", note_uuid)
+...
+-            except Exception as e:
+-                logger.error(f"Error permanently deleting todo {todo_uuid}: {e}")
++            except HTTPException as e:
++                logger.info("Skip todo %s: %s", todo_uuid, e.detail)
++            except Exception:
++                logger.exception("Error permanently deleting todo %s", todo_uuid)
+...
+-            except Exception as e:
+-                logger.error(f"Error permanently deleting document {document_uuid}: {e}")
++            except HTTPException as e:
++                logger.info("Skip document %s: %s", document_uuid, e.detail)
++            except Exception:
++                logger.exception("Error permanently deleting document %s", document_uuid)
+...
+-            except Exception as e:
+-                logger.error(f"Error permanently deleting diary entry {diary_uuid}: {e}")
++            except HTTPException as e:
++                logger.info("Skip diary entry %s: %s", diary_uuid, e.detail)
++            except Exception:
++                logger.exception("Error permanently deleting diary entry %s", diary_uuid)
+...
+-            except Exception as e:
+-                logger.error(f"Error permanently deleting archive item {archive_uuid}: {e}")
++            except HTTPException as e:
++                logger.info("Skip archive item %s: %s", archive_uuid, e.detail)
++            except Exception:
++                logger.exception("Error permanently deleting archive item %s", archive_uuid)
+160-207: Avoid double-deletes after projects purge children.
+
+Project purge can hard-delete orphaned notes/todos/docs, so subsequent loops 169–206 may hit 404s and inflate “breakdown”. Re-query after project deletion, or track already-deleted UUIDs and skip.
+
+I can provide a chunked, re-querying version to ensure accurate counts and fewer failures. Want a patch?
+
+210-221: Report partial failures accurately.
+
+Current message implies full success. Include failed count, and base breakdown on successful deletions or add a separate “found” breakdown.
+
+-        return {
+-            "message": f"Recycle bin emptied successfully. {deleted_count} items permanently deleted.",
+-            "deletedCount": deleted_count,
++        failed_count = max(total_items - deleted_count, 0)
++        return {
++            "message": ("Recycle bin emptied successfully."
++                        if failed_count == 0
++                        else "Recycle bin emptied with partial failures."),
++            "deletedCount": deleted_count,
++            "failedCount": failed_count,
+             "breakdown": {
+                 "projects": len(project_uuids),
+                 "notes": len(note_uuids),
+                 "todos": len(todo_uuids),
+                 "documents": len(document_uuids),
+                 "diary_entries": len(diary_uuids),
+                 "archive_items": len(archive_uuids)
+             }
+         }
+108-156: Bounded batch processing to protect request latency and memory.
+
+Selecting all UUIDs then deleting sequentially can time out for large bins. Prefer chunked deletes (LIMIT/OFFSET) or bounded concurrency with a semaphore; also consider a background task or job queue for very large bins.
+
+pkms-backend/app/services/document_crud_service.py (1)
+416-419: Persist FTS re-index after restore.
+
+Indexing writes to DB; add a commit to persist and invalidate caches predictably.
+
+         await search_service.index_item(db, doc, 'document')
+         dashboard_service.invalidate_user_cache(user_uuid, "document_restored")
+         logger.info(f"Document restored: {doc.title}")
++        await db.commit()
+pkms-backend/app/routers/projects.py (2)
+176-184: Remove unused exception variable and chain underlying error.
+
+e is unused; also prefer raise ... from e for clarity.
+
+-    except Exception as e:
+-        logger.exception(f"Error permanently deleting project {project_uuid} for user {current_user.uuid}")
+-        raise HTTPException(
+-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+-            detail="Failed to permanently delete project"
+-        )
++    except Exception as e:
++        logger.exception("Error permanently deleting project %s for user %s", project_uuid, current_user.uuid)
++        raise HTTPException(
++            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
++            detail="Failed to permanently delete project"
++        ) from e
+71-75: Ruff B008 on FastAPI Depends.
+
+This is a known false positive for FastAPI patterns. Consider per-file ignore in Ruff rather than changing signatures.
+
+Example pyproject.toml:
+
+[tool.ruff.per-file-ignores]
+"pkms-backend/app/routers/*.py" = ["B008"]
+Also applies to: 128-137, 147-156, 167-176
+
+pkms-frontend/src/components/common/DeletionImpactDialog.tsx (2)
+9-13: Remove unused import.
+
+Badge isn’t used.
+
+-  Badge,
+95-99: Surface server error details.
+
+Return the response text/JSON detail to the user when deletion fails.
+
+-      if (!response.ok) {
+-        throw new Error('Failed to delete item');
+-      }
++      if (!response.ok) {
++        let msg = 'Failed to delete item';
++        try {
++          const data = await response.json();
++          msg = data.detail || data.message || msg;
++        } catch {
++          msg = (await response.text()) || msg;
++        }
++        throw new Error(msg);
++      }
+...
+-      notifications.show({
++      notifications.show({
+         title: 'Error',
+-        message: 'Failed to delete item',
++        message: (error as Error).message || 'Failed to delete item',
+         color: 'red'
+       });
+Also applies to: 109-116
+
+pkms-backend/app/services/archive_item_service.py (3)
+76-83: Use active_only() in duplicate check.
+
+Stay consistent with soft-delete semantics.
+
+-                            ArchiveItem.file_hash == file_hash,
+-                            ArchiveItem.created_by == user_uuid,
+-                            ArchiveItem.is_deleted == False
++                            ArchiveItem.file_hash == file_hash,
++                            ArchiveItem.created_by == user_uuid,
++                            ArchiveItem.active_only()
+406-429: Also remove from search index on hard delete.
+
+Clean up FTS entry before deleting DB row.
+
+-            # Hard delete item record
++            # Remove from search index
++            try:
++                await search_service.remove_item(db, item_uuid)
++            except Exception:
++                logger.debug("Search removal failed for archive item %s (continuing)", item_uuid)
++
++            # Hard delete item record
+             await db.delete(item)
+             await db.commit()
+342-379: Undefined names fixed by import; ensure commit order.
+
+After adding imports, this restore path is fine. Optional: commit after index_item for durability.
+
+         await search_service.index_item(db, item, 'archive')
+         dashboard_service.invalidate_user_cache(user_uuid, "item_restored")
+         logger.info(f"Archive item restored: {item.name}")
++        await db.commit()
+pkms-backend/app/services/todo_crud_service.py (4)
+303-315: Use active_only() consistently for soft‑delete semantics.
+
+This block uses Project.is_deleted.is_(False) while other paths use Project.active_only(). Align for readability and future mixin changes.
+
+-                                and_(
+-                                    Project.uuid.in_(project_uuids),
+-                                    Project.created_by == user_uuid,
+-                                    Project.is_deleted.is_(False)
+-                                )
++                                and_(
++                                    Project.active_only(),
++                                    Project.uuid.in_(project_uuids),
++                                    Project.created_by == user_uuid
++                                )
+232-241: Add active_only() to get/update/status/stats queries.
+
+Ensure deleted items don't show up or affect stats.
+
+-                .where(and_(Todo.uuid == todo_uuid, Todo.created_by == user_uuid))
++                .where(and_(Todo.active_only(), Todo.uuid == todo_uuid, Todo.created_by == user_uuid))
+-                select(Todo).where(
+-                    and_(Todo.uuid == todo_uuid, Todo.created_by == user_uuid)
+-                )
++                select(Todo).where(
++                    and_(Todo.active_only(), Todo.uuid == todo_uuid, Todo.created_by == user_uuid)
++                )
+-                select(Todo).where(
+-                    and_(Todo.uuid == todo_uuid, Todo.created_by == user_uuid)
+-                )
++                select(Todo).where(
++                    and_(Todo.active_only(), Todo.uuid == todo_uuid, Todo.created_by == user_uuid)
++                )
+-                .where(Todo.created_by == user_uuid)
++                .where(and_(Todo.active_only(), Todo.created_by == user_uuid))
+-                    and_(
+-                        Todo.created_by == user_uuid,
++                    and_(
++                        Todo.active_only(),
++                        Todo.created_by == user_uuid,
+                         Todo.due_date < today,
+                         Todo.status.in_([TodoStatus.PENDING.value, TodoStatus.IN_PROGRESS.value])
+                     )
+Also applies to: 272-281, 607-616, 671-677, 695-704
+
+13-22: Duplicate delete import.
+
+delete is imported twice (Lines 13 and 22). Drop the duplicate.
+
+-from sqlalchemy import select, and_, or_, func, delete, case, update
++from sqlalchemy import select, and_, or_, func, delete, case, update
+@@
+-from sqlalchemy import insert, delete
++from sqlalchemy import insert
+586-589: Preserve exception cause and avoid stringifying.
+
+Prefer raise HTTPException(...) from e to maintain trace; avoid str(e) in user‑facing details.
+
+-            raise HTTPException(
+-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+-                detail=f"Failed to hard delete todo: {str(e)}"
+-            )
++            raise HTTPException(
++                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
++                detail="Failed to hard delete todo"
++            ) from e
+(Apply similarly in other except blocks.)
+
+Also applies to: 131-137, 219-222, 395-397, 649-651
+
+pkms-backend/app/services/diary_crud_service.py (3)
+966-978: Remove from search index uses correct signature; consider removing exclusive docs from FTS too.
+
+Call remove_item for exclusive documents you hard‑delete to keep FTS clean.
+
+                 if is_exclusive:
+                     # Document is exclusive to this diary entry - safe to delete
++                    # Remove document from search index first
++                    await search_service.remove_item(db, doc_uuid)
+989-994: Preserve exception cause; avoid leaking error strings.
+
+-            raise HTTPException(
+-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+-                detail=f"Failed to hard delete diary entry: {str(e)}"
+-            )
++            raise HTTPException(
++                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
++                detail="Failed to hard delete diary entry"
++            ) from e
+951-957: Avoid broad except Exception for file ops.
+
+Catch OSError/IOError instead to reduce false positives in error handling.
+
+-                            except Exception as e:
++                            except OSError as e:
+@@
+-                    except Exception as e:
++                    except OSError as e:
+Also applies to: 973-974
+
+pkms-backend/app/services/__init__.py (1)
+481-516: Consider re‑exporting association_counter_service to match docs.
+
+Docs list it, but it’s not imported/exposed here. Optional, but improves DX.
+
+ from . import (
+@@
+     dashboard_service,
+     search_service,
+     cache_invalidation_service,
++    association_counter_service,
+@@
+-    'cache_invalidation_service',
++    'cache_invalidation_service',
++    'association_counter_service',
+Also applies to: 518-552
+
+pkms-backend/app/routers/deletion_impact.py (1)
+30-33: Polish: use pattern= and chain exception cause.
+
+Modern FastAPI prefers pattern over regex. Preserve exception cause with from e.
+
+-    mode: str = Query("soft", regex="^(soft|hard)$"),  # NEW parameter
++    mode: str = Query("soft", pattern="^(soft|hard)$"),  # NEW parameter
+@@
+-    except Exception as e:
++    except Exception as e:
+         logger.exception(f"Error analyzing {item_type} deletion impact")
+-        raise HTTPException(
+-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+-            detail=f"Failed to analyze deletion impact: {str(e)}"
+-        )
++        raise HTTPException(
++            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
++            detail="Failed to analyze deletion impact"
++        ) from e
+Also applies to: 54-57
+
+pkms-frontend/src/services/recyclebinService.ts (1)
+218-417: Reduce boilerplate with a per‑type map.
+
+You can DRY fetch/restore/delete with a config map and generic dispatcher.
+
++type ItemType = RecycleBinItem['type'];
++const endpoints = {
++  project: { list: '/api/v1/projects/deleted', restore: (id:string)=>`/api/v1/projects/${id}/restore`, hard: (id:string)=>`/api/v1/projects/${id}/permanent` },
++  note:    { list: '/api/v1/notes/deleted',    restore: (id:string)=>`/api/v1/notes/${id}/restore`,    hard: (id:string)=>`/api/v1/notes/${id}/permanent` },
++  todo:    { list: '/api/v1/todos/deleted',    restore: (id:string)=>`/api/v1/todos/${id}/restore`,    hard: (id:string)=>`/api/v1/todos/${id}/permanent` },
++  document:{ list: '/api/v1/documents/deleted',restore: (id:string)=>`/api/v1/documents/${id}/restore`,hard: (id:string)=>`/api/v1/documents/${id}/permanent` },
++  diary:   { list: '/api/v1/diary/entries/deleted', restore: (id:string)=>`/api/v1/diary/entries/${id}/restore`, hard: (id:string)=>`/api/v1/diary/entries/${id}/permanent` },
++  archive: { list: '/api/v1/archive/items/deleted', restore: (id:string)=>`/api/v1/archive/items/${id}/restore`, hard: (id:string)=>`/api/v1/archive/items/${id}/permanent` },
++} as const;
++
++// Example consolidation:
++async restoreItem(item: RecycleBinItem): Promise<void> {
++  const ep = endpoints[item.type];
++  await apiService.post(ep.restore(item.uuid));
++}
++
++async permanentDeleteItem(item: RecycleBinItem): Promise<void> {
++  const ep = endpoints[item.type];
++  await apiService.delete(ep.hard(item.uuid));
++}
+pkms-frontend/src/services/deletionImpactService.ts (1)
+3-18: Expose unlink_only_allowed in the type (optional) for better UX.
+
+Backend returns unlink_only_allowed for projects. Surface it as optional to drive UI (e.g., show “Unlink Only” affordance).
+
+ export interface DeletionImpact {
+   can_delete: boolean;
+   warnings: string[];
+   blockers: string[];
+   impact_summary: string;
++  unlink_only_allowed?: boolean;
+   orphan_items: Array<{
+     type: string;
+     uuid: string;
+     title?: string;
+   }>;
+   preserved_items: Array<{
+     type: string;
+     uuid: string;
+     title?: string;
+   }>;
+ }
+pkms-backend/app/services/deletion_impact_service.py (2)
+248-254: Use SQLAlchemy truthiness helpers instead of == True.
+
+Prefer is_(True) for boolean columns.
+
+-                            note_documents.c.is_exclusive == True
++                            note_documents.c.is_exclusive.is_(True)
+61-66: Tiny flow cleanups (optional).
+
+Drop the no-op pass in hard branch and rely on structure.
+Consider building impact_summary only when can_delete to avoid implying action when blocked.
+Also applies to: 101-123
+
+pkms-backend/app/services/project_service.py (1)
+350-356: Optional: use logger.exception in orphan purge loop.
+
+Improves traceback visibility; keep operation non-fatal.
+
+-                logger.error(f"Error purging orphan {item_type} {item_uuid}: {e}")
++                logger.exception(f"Error purging orphan {item_type} {item_uuid}")

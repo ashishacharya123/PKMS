@@ -1,6 +1,3 @@
-from pydantic import Field
-from typing import Optional, List
-from datetime import datetime
 from .base import CamelCaseModel
 
 class TagResponse(CamelCaseModel):

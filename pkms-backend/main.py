@@ -33,9 +33,9 @@ from app.routers import (
     dashboard,
     backup,
     tags,
-    testing_router,
     advanced_fuzzy,
-    delete_preflight,
+    deletion_impact,
+    recyclebin,
 )
 # Import refactored testing routers
 from app.testing import (
@@ -43,6 +43,7 @@ from app.testing import (
     testing_auth,
     testing_system,
     testing_crud,
+    testing_router,
 )
 # Import enhanced database testing
 from app.testing import testing_database_enhanced
@@ -145,10 +146,6 @@ async def lifespan(app: FastAPI):
         await chunk_manager.start()
 
         # Initialize cache invalidation service
-        from app.services.cache_invalidation_service import cache_invalidation_service, initialize_invalidation_service
-        initialize_invalidation_service()
-        await cache_invalidation_service.start()
-        logger.info("Cache invalidation service started")
 
         logger.info("Background tasks started")
 
@@ -169,8 +166,6 @@ async def lifespan(app: FastAPI):
         await chunk_manager.stop()
         
         # Stop cache invalidation service
-        from app.services.cache_invalidation_service import cache_invalidation_service
-        await cache_invalidation_service.stop()
         logger.info("Cache invalidation service stopped")
         
         await close_db()
@@ -223,14 +218,15 @@ app.include_router(backup.router, prefix="/api/v1/backup")
 app.include_router(tags.router, prefix="/api/v1/tags")
 app.include_router(unified_uploads.router)
 # Include testing routers
-app.include_router(testing_router, prefix="/api/v1/testing")
+app.include_router(testing_router.router, prefix="/api/v1/testing")
 app.include_router(testing_database.router, prefix="/api/v1")
 app.include_router(testing_database_enhanced.router, prefix="/api/v1")  # Enhanced database testing
 app.include_router(testing_auth.router, prefix="/api/v1")
 app.include_router(testing_system.router, prefix="/api/v1")
 app.include_router(testing_crud.router, prefix="/api/v1")
 app.include_router(advanced_fuzzy.router, prefix="/api/v1")  # Re-enabled for hybrid search
-app.include_router(delete_preflight.router, prefix="/api/v1/delete-preflight")  # Unified delete preflight
+app.include_router(deletion_impact.router, prefix="/api/v1/deletion-impact")  # Unified deletion impact analysis
+app.include_router(recyclebin.router, prefix="/api/v1/recycle-bin", tags=["recycle-bin"])  # Recycle bin operations
 
 # Add SlowAPI middleware for rate limiting
 app.add_middleware(SlowAPIMiddleware)

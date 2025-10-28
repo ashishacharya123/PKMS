@@ -4,10 +4,9 @@ Handles hierarchical file and folder organization with enhanced security
 Refactored to use service layer for better maintainability
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 import logging
 
 from app.database import get_db
@@ -26,7 +25,6 @@ from app.schemas.archive import (
 )
 from app.services.archive_folder_service import archive_folder_service
 from app.services.archive_item_service import archive_item_service
-from app.services.chunk_service import chunk_manager
 from app.services.file_validation import file_validation_service
 
 logger = logging.getLogger(__name__)
@@ -248,7 +246,7 @@ async def create_item_in_folder(
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error creating items in folder %s", folder_uuid)
         await db.rollback()
         raise HTTPException(
@@ -281,6 +279,24 @@ async def list_folder_items(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list items: {str(e)}"
+        )
+
+
+@router.get("/items/deleted", response_model=List[ItemResponse])
+async def list_deleted_items(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List deleted archive items for Recycle Bin."""
+    try:
+        return await archive_item_service.list_deleted_items(db, current_user.uuid)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error listing deleted archive items for user %s", current_user.uuid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list deleted archive items"
         )
 
 
@@ -347,6 +363,49 @@ async def delete_item(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete item: {str(e)}"
+        )
+
+
+@router.post("/items/{item_uuid}/restore")
+async def restore_item(
+    item_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Restore a soft-deleted archive item from Recycle Bin."""
+    try:
+        await archive_item_service.restore_item(db, current_user.uuid, item_uuid)
+        return {"message": "Item restored successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error restoring item %s", item_uuid)
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to restore item: {str(e)}"
+        )
+
+
+@router.delete("/items/{item_uuid}/permanent")
+async def permanent_delete_item(
+    item_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Permanently delete archive item (hard delete) - WARNING: Cannot be undone!"""
+    try:
+        await archive_item_service.hard_delete_archive_item(db, current_user.uuid, item_uuid)
+        await db.commit()
+        return {"message": "Archive item permanently deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error permanently deleting archive item %s", item_uuid)
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to permanently delete archive item: {str(e)}"
         )
 
 
@@ -480,10 +539,13 @@ async def get_fts_status(
     try:
         # TODO: Implement FTS status check
         return {"status": "FTS not implemented yet"}
-    except Exception as e:
+    except Exception:
         logger.exception("Error getting FTS status")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get FTS status"
         )
+
+# Export router with conventional name
+archive_router = router
 

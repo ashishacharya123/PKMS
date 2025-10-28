@@ -57,6 +57,31 @@ export interface QuickStats {
   };
 }
 
+export interface RecentActivityItem {
+  id: string;
+  type: 'project' | 'todo' | 'note' | 'document' | 'archive' | 'diary';
+  title: string;
+  description?: string;
+  createdAt: string;
+  updatedAt?: string;
+  isUpdated: boolean;
+  attachmentCount?: number;
+  metadata?: {
+    status?: string;
+    priority?: string;
+    mood?: number;
+    weather_code?: number;
+    mime_type?: string;
+    item_type?: string;
+  };
+}
+
+export interface RecentActivityTimeline {
+  items: RecentActivityItem[];
+  totalCount: number;
+  cutoffDays: number;
+}
+
 class DashboardService {
 
   /**
@@ -228,6 +253,51 @@ class DashboardService {
     } catch (error) {
       console.error(`Failed to fetch ${module} dashboard data:`, error);
       return {};
+    }
+  }
+
+  /**
+   * Get recent activity timeline
+   */
+  async getRecentActivityTimeline(days: number = 3, limit: number = 20): Promise<RecentActivityTimeline> {
+    const cacheKey = `timeline_${days}_${limit}`;
+    
+    // Check unified cache first
+    const cached = await dashboardCache.get(cacheKey);
+    if (cached) {
+      console.log(`🎯 CACHE HIT: Activity timeline (${days} days, ${limit} items) - INSTANT response!`);
+      return cached;
+    }
+
+    console.log(`❌ CACHE MISS: Activity timeline (${days} days, ${limit} items) - fetching from backend`);
+    
+    const startTime = performance.now();
+    try {
+      const response = await fetch(`/api/v1/dashboard/timeline?days=${days}&limit=${limit}`);
+      const responseTime = performance.now() - startTime;
+      
+      if (!response.ok) {
+        throw new Error(`Timeline API returned ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Cache with tags
+      await dashboardCache.set(cacheKey, data, 120000, ['dashboard', 'timeline']);
+      
+      console.log(`✅ CACHE SET: Activity timeline cached (${responseTime.toFixed(0)}ms)`);
+      
+      return data;
+    } catch (error) {
+      const responseTime = performance.now() - startTime;
+      
+      console.error(`❌ ERROR: Activity timeline (${responseTime.toFixed(0)}ms):`, error);
+      
+      return {
+        items: [],
+        totalCount: 0,
+        cutoffDays: days
+      };
     }
   }
 

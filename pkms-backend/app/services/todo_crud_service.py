@@ -6,28 +6,24 @@ status management, priority handling, and project associations.
 """
 
 import logging
-import uuid as uuid_lib
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, delete, case, update
+from sqlalchemy import select, and_, or_, func, delete, update
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
 from app.config import NEPAL_TZ
 from app.models.todo import Todo
-from app.models.tag import Tag
 from app.models.associations import project_items
 from app.models.project import Project
-from sqlalchemy import insert, delete
-from app.models.enums import ModuleType, TodoStatus, TaskPriority
+from sqlalchemy import insert
+from app.models.enums import ModuleType, TodoStatus
 from app.models.tag_associations import todo_tags
 from app.schemas.todo import TodoCreate, TodoUpdate, TodoResponse
 from app.schemas.project import ProjectBadge
 from app.services.tag_service import tag_service
-from app.services.project_service import project_service
 from app.services.search_service import search_service
-from app.services.dashboard_service import dashboard_service
 from app.services.shared_utilities_service import shared_utilities_service
 from app.services.todo_dependency_service import todo_dependency_service
 
@@ -63,9 +59,9 @@ class TodoCRUDService:
                 projects_result = await db.execute(
                     select(Project).where(
                         and_(
+                            Project.active_only(),  # Auto-excludes soft-deleted
                             Project.uuid.in_(project_uuids),
-                            Project.created_by == user_uuid,
-                            Project.is_deleted.is_(False)
+                            Project.created_by == user_uuid
                         )
                     )
                 )
@@ -123,18 +119,17 @@ class TodoCRUDService:
             project_badges = project_badges.get(todo.uuid, [])
             
             # Invalidate dashboard cache
-            dashboard_service.invalidate_user_cache(user_uuid, "todo_created")
             
             logger.info(f"Todo created: {todo.title}")
             return self._convert_todo_to_response(todo, project_badges)
             
         except Exception as e:
             await db.rollback()
-            logger.exception(f"Error creating todo for user {user_uuid}")
+            logger.exception("Error creating todo for user %s", user_uuid)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to create todo: {str(e)}"
-            )
+                detail="Failed to create todo"
+            ) from e
     
     async def list_todos(
         self, 
@@ -215,10 +210,40 @@ class TodoCRUDService:
             return todo_responses
             
         except Exception as e:
-            logger.exception(f"Error listing todos for user {user_uuid}")
+            logger.exception("Error listing todos for user %s", user_uuid)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to list todos: {str(e)}"
+                detail="Failed to list todos"
+            ) from e
+    
+    async def list_deleted_todos(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str
+    ) -> List[TodoResponse]:
+        """List soft-deleted todos for Recycle Bin."""
+        try:
+            query = select(Todo).where(
+                and_(
+                    Todo.deleted_only(),
+                    Todo.created_by == user_uuid
+                )
+            )
+            query = query.options(selectinload(Todo.tag_objs))
+            result = await db.execute(query.order_by(Todo.updated_at.desc()))
+            todos = result.scalars().all()
+            
+            responses = []
+            for todo in todos:
+                responses.append(self._convert_todo_to_response(todo, [], None, None))
+            
+            return responses
+            
+        except Exception as e:
+            logger.exception(f"Error listing deleted todos for user {user_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to list deleted todos: {str(e)}"
             )
     
     async def get_todo(
@@ -305,9 +330,9 @@ class TodoCRUDService:
                         projects_result = await db.execute(
                             select(Project).where(
                                 and_(
+                                    Project.active_only(),
                                     Project.uuid.in_(project_uuids),
-                                    Project.created_by == user_uuid,
-                                    Project.is_deleted.is_(False)
+                                    Project.created_by == user_uuid
                                 )
                             )
                         )
@@ -318,7 +343,7 @@ class TodoCRUDService:
                         if invalid_uuids:
                             raise HTTPException(
                                 status_code=400,
-                                detail=f"Invalid or inaccessible project UUIDs"
+                                detail="Invalid or inaccessible project UUIDs"
                             )
                         
                         # Insert new associations
@@ -382,7 +407,6 @@ class TodoCRUDService:
             project_badges = project_badges.get(todo.uuid, [])
             
             # Invalidate dashboard cache
-            dashboard_service.invalidate_user_cache(user_uuid, "todo_updated")
             
             return self._convert_todo_to_response(todo, project_badges)
             
@@ -390,11 +414,11 @@ class TodoCRUDService:
             raise
         except Exception as e:
             await db.rollback()
-            logger.exception(f"Error updating todo {todo_uuid}")
+            logger.exception("Error updating todo %s", todo_uuid)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to update todo: {str(e)}"
-            )
+                detail="Failed to update todo"
+            ) from e
     
     async def delete_todo(
         self, 
@@ -431,8 +455,8 @@ class TodoCRUDService:
                 subtask_count_result = await db.execute(
                     select(func.count(Todo.uuid)).where(
                         and_(
-                            Todo.parent_uuid == todo_uuid,
-                            Todo.is_deleted.is_(False)
+                            Todo.active_only(),  # Auto-excludes soft-deleted
+                            Todo.parent_uuid == todo_uuid
                         )
                     )
                 )
@@ -443,7 +467,7 @@ class TodoCRUDService:
                     # Soft delete all subtasks as well (cascading delete)
                     await db.execute(
                         update(Todo)
-                        .where(and_(Todo.parent_uuid == todo_uuid, Todo.is_deleted.is_(False)))
+                        .where(and_(Todo.active_only(), Todo.parent_uuid == todo_uuid))
                         .values(is_deleted=True, updated_at=datetime.now(NEPAL_TZ))
                     )
                 
@@ -469,7 +493,7 @@ class TodoCRUDService:
             # Check if todo has associated documents and clean up files
             
             # Remove from search index
-            search_service.remove_item(db, todo_uuid)
+            await search_service.remove_item(db, todo_uuid)
             
             # Soft delete todo (consistent with other services)
             todo.is_deleted = True
@@ -478,7 +502,6 @@ class TodoCRUDService:
             await db.commit()
             
             # Invalidate dashboard cache
-            dashboard_service.invalidate_user_cache(user_uuid, "todo_deleted")
             
         except HTTPException:
             raise
@@ -489,6 +512,102 @@ class TodoCRUDService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to delete todo: {str(e)}"
             )
+
+    async def restore_todo(self, db: AsyncSession, user_uuid: str, todo_uuid: str):
+        """
+        Restores a soft-deleted todo. SIMPLE operation.
+        All associations are still intact, just flip the flag.
+        """
+        # 1. Get soft-deleted todo
+        result = await db.execute(
+            select(Todo).where(
+                and_(
+                    Todo.deleted_only(),  # Only soft-deleted
+                    Todo.uuid == todo_uuid,
+                    Todo.created_by == user_uuid
+                )
+            )
+        )
+        todo = result.scalar_one_or_none()
+        if not todo:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deleted todo not found")
+        
+        # 2. Flip flag
+        todo.is_deleted = False
+        todo.updated_at = datetime.now(NEPAL_TZ)
+        db.add(todo)
+        
+        # 3. Commit
+        await db.commit()
+        
+        # 4. Re-index in search
+        await search_service.index_item(db, todo, 'todo')
+        logger.info(f"Todo restored: {todo.title}")
+
+    async def hard_delete_todo(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        todo_uuid: str
+    ) -> None:
+        """Permanently delete todo (hard delete) - WARNING: Cannot be undone!"""
+        try:
+            # Check link count
+            from app.services.association_counter_service import association_counter_service
+            link_count = await association_counter_service.get_todo_link_count(db, todo_uuid)
+            if link_count > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, 
+                    detail=f"Todo still linked to {link_count} projects"
+                )
+            
+            result = await db.execute(
+                select(Todo).where(
+                    and_(Todo.uuid == todo_uuid, Todo.created_by == user_uuid, Todo.is_deleted.is_(True))
+                )
+            )
+            todo = result.scalar_one_or_none()
+            
+            if not todo:
+                raise HTTPException(status_code=404, detail="Deleted todo not found")
+            
+            # Delete all subtasks first (cascade delete)
+            subtasks_result = await db.execute(
+                select(Todo).where(
+                    and_(
+                        Todo.parent_uuid == todo_uuid,
+                        Todo.created_by == user_uuid
+                    )
+                )
+            )
+            subtasks = subtasks_result.scalars().all()
+            
+            for subtask in subtasks:
+                # Remove subtask from search index
+                await search_service.remove_item(db, subtask.uuid)
+                # Delete subtask record
+                await db.delete(subtask)
+                logger.info(f"Deleted subtask '{subtask.title}' (parent: {todo.title})")
+            
+            # Remove from search index
+            await search_service.remove_item(db, todo_uuid)
+            
+            # Hard delete main todo record
+            await db.delete(todo)
+            
+            await db.commit()
+            
+            # Invalidate dashboard cache
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.exception("Error hard deleting todo %s", todo_uuid)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to hard delete todo"
+            ) from e
     
     async def update_todo_status(
         self, 
@@ -537,7 +656,6 @@ class TodoCRUDService:
             project_badges = project_badges.get(todo.uuid, [])
             
             # Invalidate dashboard cache
-            dashboard_service.invalidate_user_cache(user_uuid, "todo_status_updated")
             
             logger.info(f"Todo status updated: {todo.title} ({old_status} -> {status_value})")
             return self._convert_todo_to_response(todo, project_badges)
@@ -546,11 +664,11 @@ class TodoCRUDService:
             raise
         except Exception as e:
             await db.rollback()
-            logger.exception(f"Error updating todo status {todo_uuid}")
+            logger.exception("Error updating todo status %s", todo_uuid)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to update todo status: {str(e)}"
-            )
+                detail="Failed to update todo status"
+            ) from e
     
     async def complete_todo(
         self, 

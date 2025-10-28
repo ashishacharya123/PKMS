@@ -12,8 +12,8 @@ export enum ModuleType {
   TODOS = "todos",
   PROJECTS = "projects",
   DIARY = "diary",
-  ARCHIVE_ITEMS = "archive_items",  // URL param: ?module=archive_items
-  ARCHIVE_FOLDERS = "archive_folders",  // URL param: ?module=archive_folders
+  ARCHIVE_ITEMS = "archive_items",
+  ARCHIVE_FOLDERS = "archive_folders",
   GENERAL = "general"
 }
 
@@ -76,6 +76,6 @@ export enum TodoStatsKey {
 }
 
 export enum ModuleStatsKey {
-  TOTAL = "total",
-  RECENT = "recent"
+  TOTAL = "total",     // Internal stats key for total count
+  RECENT = "recent"    // Internal stats key for recent items count
 }

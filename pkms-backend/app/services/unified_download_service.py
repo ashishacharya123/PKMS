@@ -5,23 +5,22 @@ This service provides consistent download functionality across all modules
 while supporting module-specific requirements like file path resolution.
 '''
 
-import asyncio
 from pathlib import Path
 from typing import Optional, Union, Type
-from fastapi import HTTPException, status, Response, Request
+import os
+import logging
+import hashlib
+
+from fastapi import HTTPException, status, Request
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-import logging
-import hashlib
-import os
 
 from app.models.base import Base
 from app.models.document import Document
 # NoteFile model removed - notes now use Document + note_documents association
 from app.models.archive import ArchiveItem
-from app.models.user import User
-from app.config import get_file_storage_dir, get_data_dir
+from app.config import get_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +197,7 @@ class UnifiedDownloadService:
 
         file_path = Path(file_path_str)
         if file_path.is_absolute():
-            return path
+            return file_path
 
         return (get_data_dir() / file_path_str.lstrip("/")).resolve()
 

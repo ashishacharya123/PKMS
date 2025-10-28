@@ -12,14 +12,12 @@ Provides comprehensive database testing endpoints including:
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text, func, select, inspect
-from typing import Dict, List, Any, Optional
+from sqlalchemy import text, func, select
+from typing import Any
 from datetime import datetime
-import json
 import time
 import logging
 import os
-from pathlib import Path
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -91,7 +89,7 @@ async def get_comprehensive_database_stats(
                 # Get size information
                 await _get_table_size_info(db, table_name, stats)
                 
-            except Exception as e:
+            except Exception:
                 logger.exception("Error getting stats for %s", table_name)
                 stats[f"{table_name}_count"] = 0
                 stats[f"{table_name}_size_bytes"] = 0
@@ -107,7 +105,7 @@ async def get_comprehensive_database_stats(
                 # Get size information
                 await _get_table_size_info(db, table_name, stats)
                 
-            except Exception as e:
+            except Exception:
                 logger.exception("Error getting stats for %s", table_name)
                 stats[f"{table_name}_count"] = 0
                 stats[f"{table_name}_size_bytes"] = 0

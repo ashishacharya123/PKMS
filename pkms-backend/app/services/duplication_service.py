@@ -6,14 +6,13 @@ with user-controlled naming, error tracking, and proper dependency handling.
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select
 from fastapi import HTTPException, status
 
 from app.models.associations import project_items
 from app.models.project import Project
-from app.models.enums import TodoStatus
 from app.schemas.project import ProjectDuplicateRequest, ProjectDuplicateResponse, ProjectCreate
 from app.schemas.todo import TodoCreate
 from app.schemas.note import NoteCreate
@@ -22,7 +21,6 @@ from app.services.todo_crud_service import todo_crud_service
 from app.services.note_crud_service import note_crud_service
 from app.services.tag_service import tag_service
 from app.services.search_service import search_service
-from app.services.dashboard_service import dashboard_service
 from app.models.associations import project_tags
 from app.config import NEPAL_TZ
 from datetime import datetime
@@ -164,7 +162,6 @@ class DuplicationService:
             await search_service.index_item(db, await db.get(Project, new_project_uuid), 'project')
             
             # Invalidate dashboard cache
-            dashboard_service.invalidate_user_cache(user_uuid, "project_duplicated")
             
             logger.info(f"Project duplicated: {original_project.name} -> {request.new_project_name}")
             

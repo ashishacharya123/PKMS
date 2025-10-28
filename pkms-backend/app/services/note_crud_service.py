@@ -8,35 +8,31 @@ file operations integration, and search indexing.
 import logging
 import re
 import uuid as uuid_lib
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from datetime import datetime
 from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func, delete
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
-from app.config import get_file_storage_dir
+from app.config import get_file_storage_dir, NEPAL_TZ
 from app.models.note import Note
 # NoteFile model removed - notes now use Document + note_documents association
 from app.models.document import Document
 from app.models.associations import note_documents, project_items
-from app.models.tag import Tag
 from app.models.tag_associations import note_tags
-from app.models.project import Project
 # REMOVED: note_projects import - now using polymorphic project_items
 from app.models.enums import ModuleType
 from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary
+from app.schemas.document import DocumentResponse
 # NoteFile schemas removed - notes now use Document + note_documents association
 from app.schemas.project import ProjectBadge
 from app.utils.security import sanitize_text_input, sanitize_tags
 from app.services.tag_service import tag_service
 from app.services.project_service import project_service
-from app.services.unified_upload_service import unified_upload_service
 from app.services.search_service import search_service
-from app.services.chunk_service import chunk_manager
 from app.services.shared_utilities_service import shared_utilities_service
 # Import dashboard cache invalidation function directly
-from app.services.dashboard_service import dashboard_service
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +140,6 @@ class NoteCRUDService:
             await db.refresh(note)
             
             # Invalidate dashboard cache
-            dashboard_service.invalidate_user_cache(user_uuid, "note_created")
             
             # Get note with relations for response
             return await self.get_note_with_relations(db, note.uuid, user_uuid)
@@ -164,6 +159,8 @@ class NoteCRUDService:
         search: Optional[str] = None,
         tags: Optional[List[str]] = None,
         is_favorite: Optional[bool] = None,
+        is_template: Optional[bool] = None,
+        template_uuid: Optional[str] = None,
         project_uuid: Optional[str] = None,
         limit: int = 50,
         offset: int = 0
@@ -181,6 +178,13 @@ class NoteCRUDService:
             
             if is_favorite is not None:
                 cond = and_(cond, Note.is_favorite == is_favorite)
+            
+            # Template filtering
+            if is_template is not None:
+                cond = and_(cond, Note.is_template == is_template)
+            
+            if template_uuid:
+                cond = and_(cond, Note.from_template_id == template_uuid)
             
             if project_uuid:
                 # Join with project_items to filter by project
@@ -239,6 +243,51 @@ class NoteCRUDService:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to list notes: {str(e)}"
+            )
+    
+    async def list_deleted_notes(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str
+    ) -> List[NoteSummary]:
+        """List all soft-deleted notes for the current user."""
+        try:
+            # Build query for soft-deleted notes only
+            result = await db.execute(
+                select(Note)
+                .options(selectinload(Note.tag_objs))  # Eager load tags to avoid N+1
+                .where(
+                    and_(
+                        Note.deleted_only(),  # Only soft-deleted notes
+                        Note.created_by == user_uuid
+                    )
+                )
+                .order_by(Note.updated_at.desc())
+            )
+            notes = result.scalars().all()
+            
+            # Build note summaries (no project associations for deleted notes)
+            note_summaries = []
+            for note in notes:
+                note_summaries.append(NoteSummary(
+                    uuid=note.uuid,
+                    title=note.title,
+                    preview=self.extract_preview(note.content) if note.content else "",
+                    file_count=note.file_count,
+                    is_favorite=note.is_favorite,
+                    tags=[tag.name for tag in note.tag_objs],
+                    projects=[],  # No project associations for deleted notes
+                    created_at=note.created_at,
+                    updated_at=note.updated_at
+                ))
+            
+            return note_summaries
+            
+        except Exception as e:
+            logger.exception(f"Error listing deleted notes for user {user_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to list deleted notes: {str(e)}"
             )
     
     async def get_note_with_relations(
@@ -359,7 +408,6 @@ class NoteCRUDService:
             await db.refresh(note)
             
             # Invalidate dashboard cache
-            dashboard_service.invalidate_user_cache(user_uuid, "note_updated")
             
             # Get updated note with relations
             return await self.get_note_with_relations(db, note.uuid, user_uuid)
@@ -393,6 +441,32 @@ class NoteCRUDService:
             if not note:
                 raise HTTPException(status_code=404, detail="Note not found")
             
+            # NEW: Check if any exclusive document is also exclusive elsewhere
+            from app.models.associations import note_documents
+            exclusive_docs_result = await db.execute(
+                select(note_documents.c.document_uuid)
+                .where(note_documents.c.note_uuid == note_uuid, note_documents.c.is_exclusive.is_(True))
+            )
+            exclusive_docs = exclusive_docs_result.fetchall()
+            
+            for (doc_uuid,) in exclusive_docs:
+                other_exclusive_result = await db.execute(
+                    select(func.count()).select_from(note_documents)
+                    .where(
+                        note_documents.c.document_uuid == doc_uuid,
+                        note_documents.c.note_uuid != note_uuid,
+                        note_documents.c.is_exclusive.is_(True)
+                    )
+                )
+                other_exclusive_count = other_exclusive_result.scalar() or 0
+                
+                if other_exclusive_count > 0:
+                    raise HTTPException(
+                        403, 
+                        f"Cannot delete. Document {doc_uuid} is exclusive to multiple notes. "
+                        f"This would break other notes."
+                    )
+            
             # Delete content file if it exists
             if note.content_file_path:
                 full_path = get_file_storage_dir() / note.content_file_path
@@ -403,16 +477,15 @@ class NoteCRUDService:
                         logger.warning(f"Could not delete note content file {full_path}: {e}")
             
             # Remove from search index
-            await search_service.remove_item(db, note_uuid, 'note')
+            await search_service.remove_item(db, note_uuid)
             
             # Soft delete note (consistent with other services)
             note.is_deleted = True
-            await db.add(note)
+            db.add(note)
             
             await db.commit()
             
             # Invalidate dashboard cache
-            dashboard_service.invalidate_user_cache(user_uuid, "note_deleted")
             
         except HTTPException:
             raise
@@ -423,7 +496,38 @@ class NoteCRUDService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to delete note: {str(e)}"
             )
-    
+
+    async def restore_note(self, db: AsyncSession, user_uuid: str, note_uuid: str):
+        """
+        Restores a soft-deleted note. SIMPLE operation.
+        All associations are still intact, just flip the flag.
+        """
+        # 1. Get soft-deleted note
+        result = await db.execute(
+            select(Note).where(
+                and_(
+                    Note.deleted_only(),  # Only soft-deleted
+                    Note.uuid == note_uuid,
+                    Note.created_by == user_uuid
+                )
+            )
+        )
+        note = result.scalar_one_or_none()
+        if not note:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deleted note not found")
+        
+        # 2. Flip flag
+        note.is_deleted = False
+        note.updated_at = datetime.now(NEPAL_TZ)
+        db.add(note)
+        
+        # 3. Commit
+        await db.commit()
+        
+        # 4. Re-index in search
+        await search_service.index_item(db, note, 'note')
+        logger.info(f"Note restored: {note.title}")
+
     async def archive_note(
         self, 
         db: AsyncSession, 
@@ -446,12 +550,11 @@ class NoteCRUDService:
             note.is_archived = True
             
             # Remove from search index
-            await search_service.remove_item(db, note_uuid, 'note')
+            await search_service.remove_item(db, note_uuid)
             
             await db.commit()
             
             # Invalidate dashboard cache
-            dashboard_service.invalidate_user_cache(user_uuid, "note_archived")
             
         except HTTPException:
             raise
@@ -489,7 +592,7 @@ class NoteCRUDService:
                 .where(
                     and_(
                         note_documents.c.note_uuid == note_uuid,
-                        Document.is_deleted == False
+                        Document.active_only()  # Auto-excludes soft-deleted
                     )
                 )
                 .order_by(note_documents.c.sort_order, Document.created_at.desc())
@@ -576,7 +679,7 @@ class NoteCRUDService:
         db: AsyncSession, 
         user_uuid: str, 
         note_uuid: str
-    ) -> list[Document]:
+    ) -> List[DocumentResponse]:
         """Get all files attached to a note"""
         try:
             # Verify note ownership first
@@ -597,14 +700,35 @@ class NoteCRUDService:
                 .where(
                     and_(
                         note_documents.c.note_uuid == note_uuid,
-                        Document.is_deleted.is_(False)
+                        Document.active_only()  # Auto-excludes soft-deleted
                     )
                 )
                 .order_by(note_documents.c.sort_order)
             )
             documents = result.fetchall()
             
-            return [doc for doc, _is_exclusive, _sort_order in documents]
+            return [
+                DocumentResponse(
+                    uuid=doc.uuid,
+                    title=doc.title,
+                    description=doc.description,
+                    original_name=doc.original_name,
+                    filename=doc.filename,
+                    file_path=doc.file_path,
+                    file_size=doc.file_size,
+                    mime_type=doc.mime_type,
+                    is_favorite=doc.is_favorite,
+                    is_archived=doc.is_archived,
+                    is_encrypted=doc.is_encrypted,
+                    is_deleted=doc.is_deleted,
+                    thumbnail_path=doc.thumbnail_path,
+                    created_at=doc.created_at,
+                    updated_at=doc.updated_at,
+                    tags=[tag.name for tag in doc.tag_objs],
+                    projects=[]  # No project associations for note files
+                )
+                for doc, is_exclusive, sort_order in documents
+            ]
             
         except HTTPException:
             raise
@@ -612,8 +736,104 @@ class NoteCRUDService:
             logger.exception("Error getting files for note %s", note_uuid)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to get note files: {e!s}"
-            ) from e
+                detail=f"Failed to get note files: {str(e)}"
+            )
+    
+    async def hard_delete_note(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        note_uuid: str
+    ) -> None:
+        """Permanently delete note (hard delete) - WARNING: Cannot be undone!"""
+        try:
+            # Check link count
+            from app.services.association_counter_service import association_counter_service
+            link_count = await association_counter_service.get_note_link_count(db, note_uuid)
+            if link_count > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, 
+                    detail=f"Note still linked to {link_count} projects"
+                )
+            
+            result = await db.execute(
+                select(Note).where(
+                    and_(Note.uuid == note_uuid, Note.created_by == user_uuid, Note.is_deleted.is_(True))
+                )
+            )
+            note = result.scalar_one_or_none()
+            
+            if not note:
+                raise HTTPException(status_code=404, detail="Deleted note not found")
+            
+            # Handle associated documents with exclusivity check
+            from app.models.associations import note_documents
+            from app.models.document import Document
+            
+            # Get all documents associated with this note
+            associated_docs_result = await db.execute(
+                select(Document.uuid, Document.file_path)
+                .join(note_documents, Document.uuid == note_documents.c.document_uuid)
+                .where(note_documents.c.note_uuid == note_uuid)
+            )
+            associated_docs = associated_docs_result.fetchall()
+
+            # Remove note-document associations
+            await db.execute(
+                delete(note_documents).where(note_documents.c.note_uuid == note_uuid)
+            )
+
+            # Handle each associated document - check if it's now an orphan
+            for doc_uuid, doc_file_path in associated_docs:
+                # Check if document has any remaining associations after unlinking
+                link_count = await association_counter_service.get_document_link_count(db, doc_uuid)
+                if link_count == 0:
+                    # Document is now an orphan (no remaining links) - safe to delete
+                    if doc_file_path:
+                        full_path = get_file_storage_dir() / doc_file_path
+                        if full_path.exists():
+                            try:
+                                full_path.unlink()
+                                logger.info(f"Deleted orphaned document file: {full_path}")
+                            except Exception as e:
+                                logger.warning(f"Could not delete orphaned document file {full_path}: {e}")
+                    
+                    # Delete the document record
+                    await db.execute(
+                        delete(Document).where(Document.uuid == doc_uuid)
+                    )
+                else:
+                    # Document is shared - just remove the association, keep the file
+                    logger.info(f"Preserving shared document {doc_uuid} (still has links)")
+            
+            # Delete note content file if exists (this is always exclusive to the note)
+            if note.content_file_path:
+                full_path = get_file_storage_dir() / note.content_file_path
+                if full_path.exists():
+                    try:
+                        full_path.unlink()
+                        logger.info(f"Deleted note content file: {full_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not delete note content file {full_path}: {e}")
+            
+            # Remove from search index
+            await search_service.remove_item(db, note_uuid)
+            
+            # Hard delete note
+            await db.delete(note)
+            await db.commit()
+            
+            # Invalidate dashboard cache
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.exception(f"Error hard deleting note {note_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to permanently delete note: {str(e)}"
+            )
 
 
 # Global instance

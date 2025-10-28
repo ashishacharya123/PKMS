@@ -8,27 +8,26 @@ Includes entry creation, reading, updating, deletion, and file operations.
 import logging
 import json
 import uuid as uuid_lib
-import base64
 import asyncio
+import base64
+import hashlib
+import aiofiles
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, or_
+from sqlalchemy import select, and_, func, delete
 from sqlalchemy.orm import aliased
 from fastapi import HTTPException, status
-from fastapi.responses import FileResponse
 
 from app.config import NEPAL_TZ, get_file_storage_dir
 from app.models.diary import DiaryEntry, DiaryDailyMetadata
 from app.models.tag import Tag
 from app.models.tag_associations import diary_entry_tags
 from app.models.enums import ModuleType
-from app.utils.diary_encryption import write_encrypted_file, read_encrypted_header, InvalidPKMSFile
+# Note: Diary encryption is handled client-side. Backend receives fully-formed encrypted blobs.
 from app.services.tag_service import tag_service
 from app.services.search_service import search_service
-from app.services.unified_upload_service import unified_upload_service
-from app.services.unified_download_service import unified_download_service
 from app.schemas.diary import (
     DiaryEntryCreate,
     DiaryEntryUpdate,
@@ -45,19 +44,218 @@ class DiaryCRUDService:
     """
     
     @staticmethod
-    def generate_diary_file_path(entry_uuid: str) -> Path:
+    async def _create_content_document(
+        db: AsyncSession,
+        entry_uuid: str,
+        user_uuid: str,
+        encrypted_blob: str,
+        encryption_iv: str,
+        content_length: int
+    ) -> None:
         """
-        Generate stable file path for diary entry using UUID.
-        
-        Format: diary_{UUID}.dat
-        Example: diary_550e8400-e29b-41d4-a716-446655440000.dat
+        Create a Document for diary content with sort_order = 0.
+        Stores encrypted content in /documents/diary/ folder.
         """
-        data_dir = get_file_storage_dir()
-        diary_dir = data_dir / "secure" / "entries" / "text"
-        diary_dir.mkdir(parents=True, exist_ok=True)
+        from app.models.document import Document
+        from app.models.associations import document_diary
+        from app.services.unified_upload_service import get_user_storage_path
+        from app.services.file_detection import FileTypeDetectionService
         
-        filename = f"diary_{entry_uuid}.dat"
-        return diary_dir / filename
+        # Generate content document UUID
+        content_doc_uuid = str(uuid_lib.uuid4())
+        
+        # Create diary folder structure: /documents/diary/{user_uuid}/
+        diary_storage_dir = get_user_storage_path(user_uuid, "documents") / "diary"
+        diary_storage_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate filename: {entry_uuid}_content.dat
+        content_filename = f"{entry_uuid}_content.dat"
+        content_file_path = diary_storage_dir / content_filename
+        
+        # Write encrypted content to file
+        encrypted_data = base64.b64decode(encrypted_blob)
+        async with aiofiles.open(content_file_path, 'wb') as f:
+            await f.write(encrypted_data)
+        
+        # Calculate file hash
+        file_hash = hashlib.sha256(encrypted_data).hexdigest()
+        
+        # Create Document record
+        content_document = Document(
+            uuid=content_doc_uuid,
+            title=f"Diary Content - {entry_uuid}",
+            original_name=content_filename,
+            filename=content_filename,
+            file_path=str(content_file_path.relative_to(get_file_storage_dir())),
+            file_size=len(encrypted_data),
+            file_hash=file_hash,
+            mime_type="application/octet-stream",  # Encrypted content
+            description="Diary entry content",
+            is_favorite=False,
+            is_archived=False,
+            created_by=user_uuid
+        )
+        
+        db.add(content_document)
+        await db.flush()
+        
+        # Create document_diary association with sort_order = 0 (main content)
+        await db.execute(
+            document_diary.insert().values(
+                document_uuid=content_doc_uuid,
+                diary_entry_uuid=entry_uuid,
+                sort_order=0,  # Main content
+                is_exclusive=True,  # Diary content is always exclusive
+                is_encrypted=True,  # Content is encrypted
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+        )
+        
+        # Update file count
+        await db.execute(
+            DiaryEntry.__table__.update()
+            .where(DiaryEntry.uuid == entry_uuid)
+            .values(file_count=DiaryEntry.file_count + 1)
+        )
+
+    @staticmethod
+    async def _update_content_document(
+        db: AsyncSession,
+        entry_uuid: str,
+        user_uuid: str,
+        encrypted_blob: str,
+        encryption_iv: str,
+        content_length: int
+    ) -> None:
+        """
+        Update the content document for a diary entry.
+        """
+        from app.models.document import Document
+        from app.models.associations import document_diary
+        from app.services.unified_upload_service import get_user_storage_path
+        
+        # Find existing content document (sort_order = 0)
+        content_doc_result = await db.execute(
+            select(Document.uuid, Document.file_path)
+            .join(document_diary, Document.uuid == document_diary.c.document_uuid)
+            .where(
+                and_(
+                    document_diary.c.diary_entry_uuid == entry_uuid,
+                    document_diary.c.sort_order == 0
+                )
+            )
+        )
+        content_doc = content_doc_result.first()
+        
+        if not content_doc:
+            # Create new content document if none exists
+            await DiaryCRUDService._create_content_document(
+                db=db,
+                entry_uuid=entry_uuid,
+                user_uuid=user_uuid,
+                encrypted_blob=encrypted_blob,
+                encryption_iv=encryption_iv,
+                content_length=content_length
+            )
+            return
+        
+        # Update existing content document
+        content_doc_uuid = content_doc.uuid
+        old_file_path = get_file_storage_dir() / content_doc.file_path
+        
+        # Create new file with updated content
+        diary_storage_dir = get_user_storage_path(user_uuid, "documents") / "diary"
+        diary_storage_dir.mkdir(parents=True, exist_ok=True)
+        
+        content_filename = f"{entry_uuid}_content.dat"
+        new_file_path = diary_storage_dir / content_filename
+        
+        # Write new encrypted content
+        encrypted_data = base64.b64decode(encrypted_blob)
+        async with aiofiles.open(new_file_path, 'wb') as f:
+            await f.write(encrypted_data)
+        
+        # Calculate new file hash
+        file_hash = hashlib.sha256(encrypted_data).hexdigest()
+        
+        # Update Document record
+        await db.execute(
+            Document.__table__.update()
+            .where(Document.uuid == content_doc_uuid)
+            .values(
+                file_path=str(new_file_path.relative_to(get_file_storage_dir())),
+                file_size=len(encrypted_data),
+                file_hash=file_hash,
+                updated_at=datetime.now()
+            )
+        )
+        
+        # Remove old file
+        try:
+            if old_file_path.exists():
+                old_file_path.unlink()
+        except OSError as e:
+            logger.warning(f"Could not delete old diary content file {old_file_path}: {e}")
+
+    @staticmethod
+    async def check_duplicate_hash(
+        db: AsyncSession,
+        user_uuid: str,
+        file_hash: str,
+        exclude_entry_uuid: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Check for duplicate file hashes within user's diary entries.
+        Returns list of duplicate entries with their details.
+        """
+        from app.models.document import Document
+        from app.models.associations import document_diary
+        
+        # Find documents with same hash in user's diary entries
+        query = (
+            select(
+                Document.uuid,
+                Document.title,
+                Document.original_name,
+                Document.file_size,
+                Document.created_at,
+                document_diary.c.diary_entry_uuid,
+                DiaryEntry.title.label('entry_title'),
+                DiaryEntry.date.label('entry_date')
+            )
+            .join(document_diary, Document.uuid == document_diary.c.document_uuid)
+            .join(DiaryEntry, document_diary.c.diary_entry_uuid == DiaryEntry.uuid)
+            .where(
+                and_(
+                    Document.file_hash == file_hash,
+                    Document.created_by == user_uuid,
+                    DiaryEntry.is_deleted.is_(False)
+                )
+            )
+        )
+        
+        if exclude_entry_uuid:
+            query = query.where(DiaryEntry.uuid != exclude_entry_uuid)
+        
+        result = await db.execute(query)
+        duplicates = []
+        
+        for row in result:
+            duplicates.append({
+                'document_uuid': row.uuid,
+                'document_title': row.title,
+                'original_name': row.original_name,
+                'file_size': row.file_size,
+                'created_at': row.created_at,
+                'diary_entry_uuid': row.diary_entry_uuid,
+                'entry_title': row.entry_title,
+                'entry_date': row.entry_date
+            })
+        
+        return duplicates
+
+    # generate_diary_file_path method removed - now using Document service
     
     @staticmethod
     def calculate_day_of_week(entry_date: date) -> int:
@@ -101,8 +299,7 @@ class DiaryCRUDService:
     async def create_entry(
         db: AsyncSession,
         user_uuid: str,
-        entry_data: DiaryEntryCreate,
-        diary_key: bytes
+        entry_data: DiaryEntryCreate
     ) -> DiaryEntryResponse:
         """
         Create a new diary entry with file-based encrypted storage.
@@ -157,42 +354,19 @@ class DiaryCRUDService:
         await db.flush()
         await db.refresh(entry)
         
-        # Persist encrypted content to TEMPORARY location first
-        final_file_path = DiaryCRUDService.generate_diary_file_path(entry.uuid)
-        temp_file_path = final_file_path.parent / f"temp_{final_file_path.name}"
-        
-        file_result = write_encrypted_file(
-            dest_path=temp_file_path,
-            iv_b64=entry_data.encryption_iv,
-            encrypted_blob_b64=entry_data.encrypted_blob,
-            original_extension="",
+        # Store encrypted content as Document with sort_order = 0 (main content)
+        await DiaryCRUDService._create_content_document(
+            db=db,
+            entry_uuid=entry.uuid,
+            user_uuid=user_uuid,
+            encrypted_blob=entry_data.encrypted_blob,
+            encryption_iv=entry_data.encryption_iv,
+            content_length=entry_data.content_length or 0
         )
-        
-        entry.content_file_path = str(temp_file_path)  # update to final after successful move
-        entry.file_hash = file_result["file_hash"]
-        entry.encryption_tag = file_result.get("tag_b64")
         if entry_data.content_length is not None:
             entry.content_length = entry_data.content_length
         
         await db.commit()
-        
-        # SECURITY: Move encrypted file to final location ONLY after successful DB commit
-        try:
-            import os
-            os.replace(temp_file_path, final_file_path)
-            entry.content_file_path = str(final_file_path)
-            await db.commit()
-            logger.info(f"SUCCESS: Diary entry file moved to final location: {final_file_path}")
-        except Exception as move_error:
-            logger.exception("ERROR: Failed to move diary entry file to final location")
-            # Clean up temp file
-            try:
-                if await asyncio.to_thread(temp_file_path.exists):
-                    await asyncio.to_thread(temp_file_path.unlink)
-            except Exception:
-                pass
-            raise HTTPException(status_code=500, detail="Failed to move encrypted diary entry file to final storage location") from move_error
-        
         await db.refresh(entry)
         
         if entry_data.tags:
@@ -232,11 +406,11 @@ class DiaryCRUDService:
     async def list_entries(
         db: AsyncSession,
         user_uuid: str,
-        diary_key: bytes,
         year: Optional[int] = None,
         month: Optional[int] = None,
         mood: Optional[int] = None,
-        templates: bool = False,
+        template_uuid: Optional[str] = None,
+        is_template: Optional[bool] = None,
         search_title: Optional[str] = None,
         day_of_week: Optional[int] = None,
         limit: int = 20,
@@ -244,6 +418,7 @@ class DiaryCRUDService:
     ) -> List[DiaryEntrySummary]:
         """
         List diary entries with filtering. Uses FTS5 for text search if search_title is provided.
+        Only returns active (non-deleted) entries by default.
         
         Args:
             db: Database session
@@ -307,7 +482,7 @@ class DiaryCRUDService:
                     DiaryEntry.created_by == daily_metadata_alias.created_by,
                     func.date(DiaryEntry.date) == func.date(daily_metadata_alias.date)
                 ))
-                .where(and_(DiaryEntry.uuid.in_(uuid_list), DiaryEntry.created_by == user_uuid))
+                .where(and_(DiaryEntry.uuid.in_(uuid_list), DiaryEntry.created_by == user_uuid, DiaryEntry.active_only()))
             )
             
             # Apply filters
@@ -384,7 +559,7 @@ class DiaryCRUDService:
                     DiaryEntry.created_by == daily_metadata_alias.created_by,
                     func.date(DiaryEntry.date) == func.date(daily_metadata_alias.date)
                 ))
-                .where(DiaryEntry.created_by == user_uuid)
+                .where(and_(DiaryEntry.created_by == user_uuid, DiaryEntry.active_only()))
             )
             
             # Apply filters
@@ -403,10 +578,207 @@ class DiaryCRUDService:
                 query = query.where(DiaryEntry.mood == mood)
             if day_of_week is not None:
                 query = query.where(daily_metadata_alias.day_of_week == day_of_week)
-            if templates is True:
-                query = query.where(DiaryEntry.is_template.is_(True))
-            elif templates is False:
-                query = query.where(DiaryEntry.is_template.is_(False))
+            # Template filtering
+            if is_template is not None:
+                query = query.where(DiaryEntry.is_template.is_(is_template))
+            
+            # Filter by specific template UUID (entries created from this template)
+            if template_uuid:
+                query = query.where(DiaryEntry.from_template_id == template_uuid)
+                
+            query = query.order_by(DiaryEntry.date.desc()).offset(offset).limit(limit)
+            result = await db.execute(query)
+            entry_rows = result.all()
+            tag_map = await DiaryCRUDService.get_tags_for_entries(db, [row.uuid for row in entry_rows])
+            
+            for row in entry_rows:
+                summary = DiaryEntrySummary(
+                    uuid=row.uuid,
+                    date=row.date.date() if isinstance(row.date, datetime) else row.date,
+                    title=row.title,
+                    mood=row.mood,
+                    weather_code=row.weather_code,
+                    location=row.location,
+                    daily_metrics=json.loads(row.default_habits_json) if row.default_habits_json else {},
+                    nepali_date=row.nepali_date,
+                    is_template=row.is_template,
+                    from_template_id=row.from_template_id,
+                    created_at=row.created_at,
+                    file_count=row.file_count,
+                    tags=tag_map.get(row.uuid, []),
+                    content_length=row.content_length,
+                    content_available=row.content_length > 0,
+                )
+                summaries.append(summary)
+            return summaries
+    
+    @staticmethod
+    async def list_deleted_entries(
+        db: AsyncSession,
+        user_uuid: str,
+        year: Optional[int] = None,
+        month: Optional[int] = None,
+        mood: Optional[int] = None,
+        search_title: Optional[str] = None,
+        day_of_week: Optional[int] = None,
+        limit: int = 20,
+        offset: int = 0
+    ) -> List[DiaryEntrySummary]:
+        """
+        List deleted diary entries for Recycle Bin. Uses FTS5 for text search if search_title is provided.
+        
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            year: Filter by year
+            month: Filter by month
+            mood: Filter by mood
+            search_title: Search by title/tags/metadata
+            day_of_week: Filter by day of week (0=Sun, 1=Mon..)
+            limit: Maximum entries to return
+            offset: Number of entries to skip
+            
+        Returns:
+            List of DiaryEntrySummary
+        """
+        # Subquery to count documents per entry (using document_diary association)
+        from app.models.associations import document_diary
+        file_count_subquery = (
+            select(document_diary.c.diary_entry_uuid, func.count(document_diary.c.document_uuid).label("file_count"))
+            .group_by(document_diary.c.diary_entry_uuid)
+            .subquery()
+        )
+
+        daily_metadata_alias = aliased(DiaryDailyMetadata)
+        summaries = []
+        
+        if search_title:
+            # Use unified FTS5 search
+            fts_results = await search_service.search(db, user_uuid, search_title, item_types=["diary"], limit=limit)
+
+            if not fts_results:
+                return []
+
+            # Extract UUIDs from FTS results
+            uuid_list = [r["uuid"] for r in fts_results if r["type"] == "diary"]
+            if not uuid_list:
+                return []
+
+            # Fetch full rows, preserving FTS5 order
+            entry_query = (
+                select(
+                    DiaryEntry.uuid,
+                    DiaryEntry.title,
+                    DiaryEntry.date,
+                    DiaryEntry.mood,
+                    DiaryEntry.weather_code,
+                    DiaryEntry.location,
+                    DiaryEntry.is_template,
+                    DiaryEntry.from_template_id,
+                    DiaryEntry.created_at,
+                    DiaryEntry.updated_at,
+                    func.coalesce(file_count_subquery.c.file_count, 0).label("file_count"),
+                    daily_metadata_alias.default_habits_json.label("default_habits_json"),
+                    daily_metadata_alias.nepali_date.label("nepali_date"),
+                    DiaryEntry.content_length,
+                )
+                .outerjoin(file_count_subquery, DiaryEntry.uuid == file_count_subquery.c.diary_entry_uuid)
+                .outerjoin(daily_metadata_alias, and_(
+                    DiaryEntry.created_by == daily_metadata_alias.created_by,
+                    func.date(DiaryEntry.date) == func.date(daily_metadata_alias.date)
+                ))
+                .where(and_(DiaryEntry.uuid.in_(uuid_list), DiaryEntry.created_by == user_uuid, DiaryEntry.deleted_only()))
+            )
+            
+            # Apply filters
+            if year and month:
+                start = datetime(year, month, 1)
+                if month == 12:
+                    end = datetime(year + 1, 1, 1)
+                else:
+                    end = datetime(year, month + 1, 1)
+                entry_query = entry_query.where(and_(DiaryEntry.date >= start, DiaryEntry.date < end))
+            elif year:
+                start = datetime(year, 1, 1)
+                end = datetime(year + 1, 1, 1)
+                entry_query = entry_query.where(and_(DiaryEntry.date >= start, DiaryEntry.date < end))
+            if mood:
+                entry_query = entry_query.where(DiaryEntry.mood == mood)
+            if day_of_week is not None:
+                entry_query = entry_query.where(daily_metadata_alias.day_of_week == day_of_week)
+                
+            entry_result = await db.execute(entry_query)
+            entry_rows = entry_result.fetchall()
+            
+            # Map uuid to row for FTS5 order
+            row_map = {row.uuid: row for row in entry_rows}
+            tag_map = await DiaryCRUDService.get_tags_for_entries(db, list(row_map.keys()))
+            
+            for uuid in uuid_list:
+                r = row_map.get(uuid)
+                if r:
+                    summary = DiaryEntrySummary(
+                        uuid=r.uuid,
+                        date=r.date.date() if isinstance(r.date, datetime) else r.date,
+                        title=r.title,
+                        mood=r.mood,
+                        weather_code=r.weather_code,
+                        location=r.location,
+                        daily_metrics=json.loads(r.default_habits_json) if r.default_habits_json else {},
+                        nepali_date=r.nepali_date,
+                        is_template=r.is_template,
+                        from_template_id=r.from_template_id,
+                        created_at=r.created_at,
+                        file_count=r.file_count,
+                        tags=tag_map.get(uuid, []),
+                        content_length=r.content_length,
+                        content_available=r.content_length > 0,
+                    )
+                    summaries.append(summary)
+            return summaries
+        else:
+            # Default: no search, use existing logic
+            query = (
+                select(
+                    DiaryEntry.uuid,
+                    DiaryEntry.title,
+                    DiaryEntry.date,
+                    DiaryEntry.mood,
+                    DiaryEntry.weather_code,
+                    DiaryEntry.location,
+                    DiaryEntry.is_template,
+                    DiaryEntry.from_template_id,
+                    DiaryEntry.created_at,
+                    DiaryEntry.updated_at,
+                    func.coalesce(file_count_subquery.c.file_count, 0).label("file_count"),
+                    daily_metadata_alias.default_habits_json.label("default_habits_json"),
+                    daily_metadata_alias.nepali_date.label("nepali_date"),
+                    DiaryEntry.content_length,
+                )
+                .outerjoin(file_count_subquery, DiaryEntry.uuid == file_count_subquery.c.diary_entry_uuid)
+                .outerjoin(daily_metadata_alias, and_(
+                    DiaryEntry.created_by == daily_metadata_alias.created_by,
+                    func.date(DiaryEntry.date) == func.date(daily_metadata_alias.date)
+                ))
+                .where(and_(DiaryEntry.created_by == user_uuid, DiaryEntry.deleted_only()))
+            )
+            
+            # Apply filters
+            if year and month:
+                start = datetime(year, month, 1)
+                if month == 12:
+                    end = datetime(year + 1, 1, 1)
+                else:
+                    end = datetime(year, month + 1, 1)
+                query = query.where(and_(DiaryEntry.date >= start, DiaryEntry.date < end))
+            elif year:
+                start = datetime(year, 1, 1)
+                end = datetime(year + 1, 1, 1)
+                query = query.where(and_(DiaryEntry.date >= start, DiaryEntry.date < end))
+            if mood:
+                query = query.where(DiaryEntry.mood == mood)
+            if day_of_week is not None:
+                query = query.where(daily_metadata_alias.day_of_week == day_of_week)
                 
             query = query.order_by(DiaryEntry.date.desc()).offset(offset).limit(limit)
             result = await db.execute(query)
@@ -438,8 +810,7 @@ class DiaryCRUDService:
     async def get_entries_by_date(
         db: AsyncSession,
         user_uuid: str,
-        entry_date: date,
-        diary_key: bytes
+        entry_date: date
     ) -> List[DiaryEntryResponse]:
         """
         Get all diary entries for a specific date.
@@ -460,9 +831,9 @@ class DiaryCRUDService:
             select(DiaryEntry)
             .where(
                 and_(
+                    DiaryEntry.active_only(),  # Auto-excludes soft-deleted
                     DiaryEntry.created_by == user_uuid,
-                    func.date(DiaryEntry.date) == entry_date,
-                    DiaryEntry.is_deleted.is_(False)
+                    func.date(DiaryEntry.date) == entry_date
                 )
             )
             .order_by(DiaryEntry.created_at.desc())
@@ -487,7 +858,6 @@ class DiaryCRUDService:
         for entry in entries:
             # SECURITY: Never decrypt content in list responses
             # Content should only be decrypted when explicitly requested via get_entry_by_ref
-            encrypted_blob = ""
             
             # Get tags
             tags = await DiaryCRUDService.get_entry_tags(db, entry.uuid)
@@ -558,9 +928,9 @@ class DiaryCRUDService:
         # Query by UUID
         query = select(DiaryEntry).where(
             and_(
+                DiaryEntry.active_only(),  # Auto-excludes soft-deleted
                 DiaryEntry.uuid == entry_ref,
-                DiaryEntry.created_by == user_uuid,
-                DiaryEntry.is_deleted.is_(False)
+                DiaryEntry.created_by == user_uuid
             )
         )
         
@@ -572,7 +942,6 @@ class DiaryCRUDService:
         
         # For single entry retrieval, we don't decrypt on server side
         # Client handles decryption. Return empty blob for security.
-        encrypted_blob = ""
         
         # Get daily metadata
         from app.services.habit_data_service import habit_data_service
@@ -659,9 +1028,9 @@ class DiaryCRUDService:
         # Query by UUID
         query = select(DiaryEntry).where(
             and_(
+                DiaryEntry.active_only(),  # Auto-excludes soft-deleted
                 DiaryEntry.uuid == entry_ref,
-                DiaryEntry.created_by == user_uuid,
-                DiaryEntry.is_deleted.is_(False)
+                DiaryEntry.created_by == user_uuid
             )
         )
         
@@ -733,9 +1102,9 @@ class DiaryCRUDService:
         # Get existing entry
         query = select(DiaryEntry).where(
             and_(
+                DiaryEntry.active_only(),  # Auto-excludes soft-deleted
                 DiaryEntry.uuid == entry_ref,
-                DiaryEntry.created_by == user_uuid,
-                DiaryEntry.is_deleted.is_(False)
+                DiaryEntry.created_by == user_uuid
             )
         )
         
@@ -759,37 +1128,23 @@ class DiaryCRUDService:
         if updates.from_template_id is not None:
             entry.from_template_id = updates.from_template_id
         
-        # Update encrypted content if provided
+        # Update encrypted content if provided (frontend already encrypted it)
         if updates.encrypted_blob and updates.encryption_iv:
-            # Write new encrypted content
-            final_file_path = DiaryCRUDService.generate_diary_file_path(entry.uuid)
-            temp_file_path = final_file_path.parent / f"temp_{final_file_path.name}"
-            
-            file_result = write_encrypted_file(
-                dest_path=temp_file_path,
-                iv_b64=updates.encryption_iv,
-                encrypted_blob_b64=updates.encrypted_blob,
-                original_extension="",
+            # Update content document
+            await DiaryCRUDService._update_content_document(
+                db=db,
+                entry_uuid=entry.uuid,
+                user_uuid=entry.created_by,
+                encrypted_blob=updates.encrypted_blob,
+                encryption_iv=updates.encryption_iv,
+                content_length=updates.content_length or 0
             )
             
             entry.encryption_iv = updates.encryption_iv
-            entry.file_hash = file_result["file_hash"]
-            entry.encryption_tag = file_result.get("tag_b64")
             if updates.content_length is not None:
                 entry.content_length = updates.content_length
             
             await db.commit()
-            
-            # Move to final location
-            try:
-                import os
-                os.replace(temp_file_path, final_file_path)
-            except Exception as move_error:
-                logger.exception("Failed to move updated diary file")
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to move updated diary entry file to final storage location"
-                ) from move_error
         
         # Update daily metadata if provided
         if (updates.daily_metrics is not None or 
@@ -842,9 +1197,9 @@ class DiaryCRUDService:
         # Get existing entry
         query = select(DiaryEntry).where(
             and_(
+                DiaryEntry.active_only(),  # Auto-excludes soft-deleted
                 DiaryEntry.uuid == entry_ref,
-                DiaryEntry.created_by == user_uuid,
-                DiaryEntry.is_deleted.is_(False)
+                DiaryEntry.created_by == user_uuid
             )
         )
         
@@ -863,6 +1218,133 @@ class DiaryCRUDService:
         # Remove from search index
         await search_service.remove_item(db, entry.uuid)
         await db.commit()
+
+    @staticmethod
+    async def restore_entry(
+        db: AsyncSession,
+        user_uuid: str,
+        entry_ref: str
+    ) -> None:
+        """
+        Restore a soft-deleted diary entry. SIMPLE operation.
+        All associations are still intact, just flip the flag.
+        """
+        # 1. Get soft-deleted entry
+        query = select(DiaryEntry).where(
+            and_(
+                DiaryEntry.deleted_only(),  # Only soft-deleted
+                DiaryEntry.uuid == entry_ref,
+                DiaryEntry.created_by == user_uuid
+            )
+        )
+        
+        result = await db.execute(query)
+        entry = result.scalar_one_or_none()
+        
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Deleted diary entry not found: {entry_ref}")
+        
+        # 2. Flip flag
+        entry.is_deleted = False
+        entry.updated_at = datetime.now(NEPAL_TZ)
+        db.add(entry)
+        
+        # 3. Commit
+        await db.commit()
+        
+        # 4. Re-index in search
+        await search_service.index_item(db, entry, 'diary')
+        logger.info(f"Diary entry restored: {entry.title}")
+
+    async def hard_delete_diary_entry(
+        self,
+        db: AsyncSession,
+        user_uuid: str,
+        entry_uuid: str
+    ) -> None:
+        """Permanently delete diary entry (hard delete) - WARNING: Cannot be undone!"""
+        try:
+            # Get entry
+            result = await db.execute(
+                select(DiaryEntry).where(
+                    and_(
+                        DiaryEntry.uuid == entry_uuid,
+                        DiaryEntry.created_by == user_uuid,
+                        DiaryEntry.is_deleted.is_(True)
+                    )
+                )
+            )
+            entry = result.scalar_one_or_none()
+            
+            if not entry:
+                raise HTTPException(status_code=404, detail="Deleted diary entry not found")
+            
+            # Handle associated documents with exclusivity check
+            from app.models.associations import document_diary
+            from app.models.document import Document
+            
+            # Import association counter service
+            from app.services.association_counter_service import association_counter_service
+
+            # Get all documents associated with this diary entry
+            associated_docs_result = await db.execute(
+                select(Document.uuid, Document.file_path)
+                .join(document_diary, Document.uuid == document_diary.c.document_uuid)
+                .where(document_diary.c.diary_entry_uuid == entry_uuid)
+            )
+            associated_docs = associated_docs_result.fetchall()
+
+            # Remove diary-document associations
+            await db.execute(
+                delete(document_diary).where(document_diary.c.diary_entry_uuid == entry_uuid)
+            )
+
+            # Handle each associated document - check if it's now an orphan
+            for doc_uuid, doc_file_path in associated_docs:
+                # Check if document has any remaining associations after unlinking
+                link_count = await association_counter_service.get_document_link_count(db, doc_uuid)
+                if link_count == 0:
+                    # Document is now an orphan (no remaining links) - safe to delete
+                    # Remove document from search index first
+                    await search_service.remove_item(db, doc_uuid)
+                    
+                    if doc_file_path:
+                        full_path = get_file_storage_dir() / doc_file_path
+                        if full_path.exists():
+                            try:
+                                full_path.unlink()
+                                logger.info(f"Deleted orphaned document file: {full_path}")
+                            except OSError as e:
+                                logger.warning(f"Could not delete orphaned document file {full_path}: {e}")
+                    
+                    # Delete document record
+                    await db.execute(
+                        delete(Document).where(Document.uuid == doc_uuid)
+                    )
+                else:
+                    # Document still has other links - just remove association, keep the file
+                    logger.info(f"Preserving shared document {doc_uuid} (still has links)")
+            
+            # Content and files are now handled by Document service deletion
+            # Remove from search index
+            await search_service.remove_item(db, entry_uuid)
+            
+            # Hard delete diary entry record
+            await db.delete(entry)
+            
+            await db.commit()
+            
+            logger.info(f"Diary entry permanently deleted: {entry_uuid}")
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.exception("Error hard deleting diary entry %s", entry_uuid)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to hard delete diary entry"
+            ) from e
 
     # Habit tracking methods - integrating with diary workflow
     @staticmethod
@@ -1099,21 +1581,23 @@ class DiaryCRUDService:
             Current streak count
         """
         from app.services.unified_habit_analytics_service import UnifiedHabitAnalyticsService
-        from datetime import datetime
 
         try:
-            # Parse end_date or use today
+            # Calculate days to look back based on end_date
             if end_date:
+                from datetime import datetime
                 end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-            else:
                 from app.config import NEPAL_TZ
-                end_dt = datetime.now(NEPAL_TZ).date()
+                today = datetime.now(NEPAL_TZ).date()
+                days_back = (today - end_dt).days + 30  # Add buffer for streak calculation
+            else:
+                days_back = 90  # Use 90 days to capture longer streaks
 
             # Get analytics which includes streak data
             analytics = await UnifiedHabitAnalyticsService.get_default_habits_analytics(
                 db=db,
                 user_uuid=user_uuid,
-                days=90  # Use 90 days to capture longer streaks
+                days=days_back
             )
 
             # Extract streak for the specific habit

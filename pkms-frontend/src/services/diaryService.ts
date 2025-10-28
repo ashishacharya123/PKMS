@@ -86,6 +86,7 @@ class DiaryService {
     dayOfWeek?: number;
     limit?: number;
     offset?: number;
+    isDeleted?: boolean;
   }): Promise<DiaryEntrySummary[]> {
     const params = new URLSearchParams();
     
@@ -98,6 +99,7 @@ class DiaryService {
     if (filters?.dayOfWeek !== undefined) params.append('day_of_week', filters.dayOfWeek.toString());
     if (filters?.limit) params.append('limit', filters.limit.toString());
     if (filters?.offset) params.append('offset', filters.offset.toString());
+    if (filters?.isDeleted !== undefined) params.append('is_deleted', String(filters.isDeleted));
     
     const queryString = params.toString();
     const url = queryString ? `${this.baseUrl}/entries?${queryString}` : `${this.baseUrl}/entries`;

@@ -1,18 +1,18 @@
 """
 Document Model for File Management
 """
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Enum, Index, UniqueConstraint
+from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 
-from app.models.base import Base
+from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
 from app.models.tag_associations import document_tags
-from app.models.associations import document_diary, note_documents
+from app.models.associations import note_documents
 # UploadStatus import removed - documents no longer store upload status
 
 
-class Document(Base):
+class Document(Base, SoftDeleteMixin):
     """Document model for file management"""
     
     __tablename__ = "documents"
@@ -30,9 +30,7 @@ class Document(Base):
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
     # REMOVED: is_project_exclusive, is_diary_exclusive - exclusivity moved to association tables
-    
-    # Soft Delete
-    is_deleted = Column(Boolean, default=False, index=True)
+    # is_deleted now provided by SoftDeleteMixin
 
     # Upload status removed - only needed during upload process, handled by upload services
     thumbnail_path = Column(String(500), nullable=True)  # Path to thumbnail file
@@ -64,7 +62,7 @@ class Document(Base):
     user = relationship("User", back_populates="documents")
     tag_objs = relationship("Tag", secondary=document_tags, back_populates="documents")
     # REMOVED: projects relationship - replaced with polymorphic project_items
-    notes = relationship("Note", secondary=note_documents, back_populates="notes")  # NEW: Notes via note_documents
+    notes = relationship("Note", secondary=note_documents, back_populates="documents")  # NEW: Notes via note_documents
     # Note: No diary_entries relationship - documents don't need to know about diary entries
     
     def __repr__(self):

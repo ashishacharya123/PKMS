@@ -33,9 +33,7 @@ WAL (Write-Ahead Log) Management Strategy:
 from fastapi import APIRouter, Depends, HTTPException, Query, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-from typing import List
 from datetime import datetime, timezone, timedelta
-import json
 import os
 from pathlib import Path
 import shutil
@@ -236,7 +234,7 @@ async def list_database_backups(
                     "modified_at": datetime.fromtimestamp(stat.st_mtime, NEPAL_TZ).isoformat(),
                     "is_recent": (datetime.now(NEPAL_TZ).timestamp() - stat.st_mtime) < (24 * 3600)  # Within 24 hours
                 })
-            except Exception as e:
+            except Exception:
                 # Skip files that can't be read
                 continue
         
@@ -494,7 +492,7 @@ async def get_wal_status(
             page_size_result = await db.execute(text("PRAGMA page_size"))
             page_size = page_size_result.scalar()
             
-        except Exception as e:
+        except Exception:
             wal_info = None
             journal_mode = "unknown"
             page_count = 0

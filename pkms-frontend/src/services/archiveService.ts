@@ -141,8 +141,14 @@ export const archiveService = {
     await apiService.delete(url);
   },
 
-  async getFolderItems(folderUuid: string): Promise<ArchiveItem[]> {
-    const { data } = await apiService.get<ArchiveItem[]>(folderItemsPath(folderUuid));
+  async getFolderItems(folderUuid: string, isDeleted?: boolean): Promise<ArchiveItem[]> {
+    const params = new URLSearchParams();
+    if (isDeleted !== undefined) {
+      params.append('is_deleted', String(isDeleted));
+    }
+    const queryString = params.toString();
+    const url = queryString ? `${folderItemsPath(folderUuid)}?${queryString}` : folderItemsPath(folderUuid);
+    const { data } = await apiService.get<ArchiveItem[]>(url);
     return data;
   },
 

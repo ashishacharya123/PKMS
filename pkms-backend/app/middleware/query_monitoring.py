@@ -8,11 +8,9 @@ Only active in development/staging environments.
 
 import time
 import logging
-from typing import List, Dict, Any
-from fastapi import Request, Response
+from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy import event
-from sqlalchemy.engine import Engine
 from contextvars import ContextVar
 
 logger = logging.getLogger(__name__)

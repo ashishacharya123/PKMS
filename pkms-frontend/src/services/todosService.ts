@@ -55,10 +55,15 @@ class TodosService {
     return response.data;
   }
 
-  async getProjects(archived: boolean = false): Promise<Project[]> {
+  async getProjects(archived: boolean = false, isDeleted?: boolean): Promise<LegacyProject[]> {
     // URL query parameter - remains snake_case
-    const url = `${this.baseUrl}/projects?archived=${archived}`;
-    const response = await apiService.get<Project[]>(url);
+    const queryParams = new URLSearchParams();
+    queryParams.append('archived', String(archived));
+    if (isDeleted !== undefined) {
+      queryParams.append('is_deleted', String(isDeleted));
+    }
+    const url = `${this.baseUrl}/projects?${queryParams.toString()}`;
+    const response = await apiService.get<LegacyProject[]>(url);
     return response.data;
   }
 
@@ -82,7 +87,7 @@ class TodosService {
     return response.data;
   }
 
-  async getTodos(params: TodoListParams = {}): Promise<TodoSummary[]> {
+  async getTodos(params: TodoListParams = {}, isDeleted?: boolean): Promise<TodoSummary[]> {
     // URL parameters must use snake_case (not converted by CamelCaseModel)
     const queryParams = new URLSearchParams();
     
@@ -98,6 +103,7 @@ class TodosService {
     if (params.search !== undefined) queryParams.append('search', params.search);
     if (params.sortBy !== undefined) queryParams.append('sort_by', params.sortBy);
     if (params.sortOrder !== undefined) queryParams.append('sort_order', params.sortOrder);
+    if (isDeleted !== undefined) queryParams.append('is_deleted', String(isDeleted));
     if (params.page !== undefined) queryParams.append('page', params.page.toString());
     if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
     

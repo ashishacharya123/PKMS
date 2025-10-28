@@ -22,13 +22,10 @@ Usage (Future):
 Note: Service is ready for integration when needed.
 """
 
-import asyncio
 import time
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text, select
-from sqlalchemy.orm import selectinload, joinedload
 import logging
 
 logger = logging.getLogger(__name__)

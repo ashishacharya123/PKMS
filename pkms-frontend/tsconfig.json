@@ -2,12 +2,15 @@
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "lib": ["ES2020", "DOM", "DOM.Iterable", "ES2015", "ES2015.Core", "ES2015.Collection", "ES2015.Iterable", "ES2015.Symbol", "ES2017", "ES2018", "ES2019"],
     "module": "ESNext",
     "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
 
     /* Bundler mode */
-    "moduleResolution": "bundler",
+    "moduleResolution": "node",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -27,5 +30,6 @@
     }
   },
   "include": ["src"],
+  "exclude": ["node_modules", "dist", "**/*.d.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

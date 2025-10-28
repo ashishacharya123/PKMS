@@ -32,6 +32,10 @@ interface DiaryState {
     hasMedia?: boolean;
   };
   
+  // Session management - track when user leaves diary page
+  isOnDiaryPage: boolean;
+  leavePageTimer: ReturnType<typeof setTimeout> | null;
+  
   
   init: () => Promise<void>;
   setupEncryption: (password: string, hint?: string) => Promise<boolean>;
@@ -59,13 +63,19 @@ interface DiaryState {
   setDayOfWeek: (dayOfWeek: number | null) => void;
   setHasMedia: (hasMedia: boolean | null) => void;
   setDailyMetadata: (snapshot: DiaryDailyMetadata) => void;
+  
+  // Page tracking methods
+  setOnDiaryPage: (onPage: boolean) => void;
+  startLeavePageTimer: () => void;
+  stopLeavePageTimer: () => void;
 }
 
 export const useDiaryStore = create<DiaryState>((set, get) => {
   // Set up logout listener
   window.addEventListener('auth:logout', () => {
-    // Stop monitoring unlock status
+    // Stop monitoring unlock status and leave page timer
     get().stopUnlockStatusMonitoring();
+    get().stopLeavePageTimer();
     // Clear diary state on logout
     set({
       entries: [],
@@ -80,7 +90,9 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
       error: null,
       dailyMetadataCache: {},
       unlockStatusInterval: null,
-      filters: {}
+      filters: {},
+      isOnDiaryPage: false,
+      leavePageTimer: null
     });
   });
 
@@ -103,6 +115,8 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
     dailyMetadataCache: {},
     unlockStatusInterval: null,
     filters: {},
+    isOnDiaryPage: false,
+    leavePageTimer: null,
 
     init: async () => {
       try {
@@ -182,8 +196,9 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
     },
 
     lockSession: () => {
-      // Stop monitoring unlock status
+      // Stop monitoring unlock status and leave page timer
       get().stopUnlockStatusMonitoring();
+      get().stopLeavePageTimer();
       
       // Clear all diary-related cache and sensitive data
       set({ 
@@ -197,7 +212,9 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         searchQuery: '',
         currentDayOfWeek: null,
         currentHasMedia: null,
-        error: null
+        error: null,
+        isOnDiaryPage: false,
+        leavePageTimer: null
       });
       
       // Clear any cached Nepali dates
@@ -446,6 +463,46 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
       set((state) => ({
         dailyMetadataCache: { ...state.dailyMetadataCache, [dateKey]: snapshot },
       }));
+    },
+
+    // Page tracking methods
+    setOnDiaryPage: (onPage: boolean) => {
+      const state = get();
+      set({ isOnDiaryPage: onPage });
+      
+      if (onPage) {
+        // User is on diary page - stop any leave timer and keep session active
+        state.stopLeavePageTimer();
+        logger.info('[DIARY STORE] User on diary page - session kept active');
+      } else {
+        // User left diary page - start 5-minute timer to lock session
+        state.startLeavePageTimer();
+        logger.info('[DIARY STORE] User left diary page - starting 5-minute lock timer');
+      }
+    },
+
+    startLeavePageTimer: () => {
+      const state = get();
+      // Clear any existing timer
+      state.stopLeavePageTimer();
+      
+      // Start 5-minute timer
+      const timer = setTimeout(() => {
+        if (state.isUnlocked && !state.isOnDiaryPage) {
+          logger.info('[DIARY STORE] 5 minutes elapsed since leaving diary page - locking session');
+          state.lockSession();
+        }
+      }, 5 * 60 * 1000); // 5 minutes
+      
+      set({ leavePageTimer: timer });
+    },
+
+    stopLeavePageTimer: () => {
+      const state = get();
+      if (state.leavePageTimer) {
+        clearTimeout(state.leavePageTimer);
+        set({ leavePageTimer: null });
+      }
     },
   };
 });

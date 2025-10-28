@@ -3,7 +3,7 @@ Service for handling tag-related business logic.
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func, Table
-from typing import List, Type, Optional
+from typing import List, Optional
 
 from app.models.tag import Tag
 from app.models.base import Base

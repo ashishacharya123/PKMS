@@ -6,10 +6,10 @@ workflow automation, due date management, and completion tracking.
 """
 
 import logging
-from typing import List, Optional, Dict, Any, Set
-from datetime import datetime, date, timedelta
+from typing import List, Dict, Any
+from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func
+from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
@@ -17,7 +17,6 @@ from app.config import NEPAL_TZ
 from app.models.todo import Todo
 from app.models.enums import TodoStatus, TaskPriority
 from app.schemas.todo import TodoResponse
-from app.schemas.project import ProjectBadge
 from app.services.shared_utilities_service import shared_utilities_service
 
 logger = logging.getLogger(__name__)

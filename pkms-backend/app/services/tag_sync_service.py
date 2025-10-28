@@ -4,9 +4,8 @@ Automatically keeps tags_text columns in sync with tag relationships for FTS5 se
 """
 
 import logging
-from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text, select, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 
 from ..models.note import Note
@@ -15,7 +14,6 @@ from ..models.todo import Todo
 from ..models.project import Project
 from ..models.archive import ArchiveItem, ArchiveFolder
 from ..models.diary import DiaryEntry
-from ..models.tag import Tag
 
 logger = logging.getLogger(__name__)
 

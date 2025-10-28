@@ -4,7 +4,7 @@ Security utility functions for input sanitization and validation
 
 import bleach
 import re
-from typing import Optional, List, Dict, Any
+from typing import List, Dict, Any
 from fastapi import HTTPException, status
 import html
 

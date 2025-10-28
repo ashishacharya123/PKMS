@@ -3,17 +3,16 @@ Note Model for Knowledge Management
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Index
-from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 
-from app.models.base import Base
+from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
 from app.models.tag_associations import note_tags
 from app.models.associations import note_documents
 
 
-class Note(Base):
+class Note(Base, SoftDeleteMixin):
     """Note model for knowledge management"""
     
     __tablename__ = "notes"
@@ -27,6 +26,8 @@ class Note(Base):
     size_bytes = Column(BigInteger, default=0, nullable=False)  # Calculated on the fly and stored for analytics
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
+    is_template = Column(Boolean, default=False, index=True)  # Template flag for reusable notes
+    from_template_id = Column(String(36), nullable=True, index=True)  # Source template UUID/ID
     # REMOVED: is_project_exclusive - exclusivity now handled in project_items association table
     # Ownership
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
@@ -42,8 +43,7 @@ class Note(Base):
     content_diff = Column(Text, nullable=True)  # Stores diff from previous version
     last_version_uuid = Column(String(36), ForeignKey('notes.uuid'), nullable=True, index=True)  # Points to previous version
     
-    # Soft Delete
-    is_deleted = Column(Boolean, default=False, index=True)
+    # is_deleted now provided by SoftDeleteMixin
     # Derived counts - updated via service methods when files are added/removed
     file_count = Column(Integer, default=0, nullable=False)
     
@@ -52,6 +52,7 @@ class Note(Base):
         Index('ix_note_user_archived', 'created_by', 'is_archived'),
         Index('ix_note_user_created_desc', 'created_by', 'created_at'),
         Index('ix_note_user_favorite', 'created_by', 'is_favorite'),
+        Index('ix_note_user_template', 'created_by', 'is_template'),
         Index('ix_note_user_deleted', 'created_by', 'is_deleted'),
     )
     thumbnail_path = Column(String(500), nullable=True)  # Path to note thumbnail (if applicable)

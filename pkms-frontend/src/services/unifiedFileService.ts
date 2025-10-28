@@ -350,15 +350,25 @@ class UnifiedFileService {
    * Reorder files (ONLY for projects using project_items.sort_order)
    */
   async reorderFiles(
-    module: 'projects',
+    module: string,
     entityId: string,
     fileUuids: string[]
   ): Promise<void> {
-    if (module !== 'projects') {
-      throw new Error(`Reordering only supported for projects, got: ${module}`);
+    // Map modules to their reorder endpoints
+    const reorderEndpoints: Record<string, string> = {
+      'projects': `/projects/${entityId}/items/documents/reorder`,
+      'diary': `/diary/entries/${entityId}/documents/reorder`,
+      'notes': `/notes/${entityId}/documents/reorder`,
+      'documents': `/documents/${entityId}/reorder`,
+      'archive': `/archive/${entityId}/documents/reorder`
+    };
+
+    const endpoint = reorderEndpoints[module];
+    if (!endpoint) {
+      throw new Error(`Reordering not supported for module: ${module}`);
     }
-    
-    await apiService.patch(`/projects/${entityId}/items/documents/reorder`, {
+
+    await apiService.patch(endpoint, {
       documentUuids: fileUuids
     });
   }

@@ -6,10 +6,10 @@ Provides CRUD operations for note-file relationships with exclusivity support.
 """
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, insert, delete, update, and_, func
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 
 from app.models.note import Note
 from app.models.document import Document

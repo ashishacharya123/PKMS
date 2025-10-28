@@ -19,6 +19,7 @@ import { ProjectDashboardPage } from './pages/ProjectDashboardPage';
 import { DiaryPage } from './pages/DiaryPage';
 import DiaryViewPage from './pages/DiaryViewPage';
 import ArchivePage from './pages/ArchivePage';
+import { RecycleBinPage } from './pages/RecycleBinPage';
 // Search pages
 // Legacy pages removed: SearchResultsPage, AdvancedFuzzySearchPage, FTS5SearchPage
 import UnifiedSearchPage from './pages/UnifiedSearchPage';
@@ -233,7 +234,16 @@ function App() {
               <AuthGuard>
                 <ArchivePage />
               </AuthGuard>
-            } 
+            }
+          />
+          
+          <Route 
+            path="/recyclebin" 
+            element={
+              <AuthGuard>
+                <RecycleBinPage />
+              </AuthGuard>
+            }
           />
           
           {/* Search routes */}

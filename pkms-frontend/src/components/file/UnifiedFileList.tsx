@@ -16,7 +16,9 @@ import {
   IconMicrophone, 
   IconVideo, 
   IconUnlink, 
-  IconGripVertical 
+  IconGripVertical,
+  IconEye,
+  IconChecklist
 } from '@tabler/icons-react';
 import { 
   Group, 
@@ -26,14 +28,14 @@ import {
   Card, 
   Stack, 
   Image, 
-  Progress,
-  Tooltip,
-  Button
+  Tooltip
 } from '@mantine/core';
 import { unifiedFileService, UnifiedFileItem } from '../../services/unifiedFileService';
 import { fileService } from '../../services/fileCacheService';
 import { reorderArray, getDragPreviewStyles, getDropZoneStyles } from '../../utils/dragAndDrop';
 import { ImageViewer } from '../common/ImageViewer';
+import { TodoCard } from '../todos/TodoCard';
+import { Todo } from '../../types/todo';
 
 interface UnifiedFileListProps {
   files: UnifiedFileItem[];
@@ -61,6 +63,10 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   // Image viewing state
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<UnifiedFileItem | null>(null);
+  
+  // TODO viewing state
+  const [todoViewerOpen, setTodoViewerOpen] = useState(false);
+  const [selectedTodo, setSelectedTodo] = useState<Todo | null>(null);
   
   // Drag and drop state
   const [draggedFile, setDraggedFile] = useState<UnifiedFileItem | null>(null);
@@ -95,12 +101,12 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   const isImageFile = (mimeType: string, mediaType?: string) =>
     mimeType.startsWith('image/') || mediaType === 'image';
 
-  const getFileIcon = (mimeType: string, mediaType?: string) => {
-    if (isImageFile(mimeType, mediaType)) return IconPhoto;
-    if (isVideoFile(mimeType, mediaType)) return IconVideo;
-    if (isAudioFile(mimeType, mediaType)) return IconMicrophone;
-    return IconFileText;
-  };
+  const isPdfFile = (mimeType: string, mediaType?: string) =>
+    mimeType === 'application/pdf' || mediaType === 'pdf';
+
+  const isTodoFile = (mimeType: string, mediaType?: string) =>
+    mimeType === 'application/json' && mediaType === 'todo';
+
 
   const handleDownload = async (file: UnifiedFileItem) => {
     try {
@@ -145,6 +151,30 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
     setImageViewerOpen(true);
   };
 
+  const handleViewDocument = (file: UnifiedFileItem) => {
+    // Get the proper download URL for the file
+    const downloadUrl = unifiedFileService.getDownloadUrl(file);
+    // Open document in new tab using the download URL
+    window.open(downloadUrl, '_blank');
+  };
+
+  const handleViewTodo = async (file: UnifiedFileItem) => {
+    try {
+      // Download and parse the TODO file
+      const downloadUrl = unifiedFileService.getDownloadUrl(file);
+      const response = await fetch(downloadUrl);
+      const todoData = await response.json();
+      
+      // Set the TODO data and open viewer
+      setSelectedTodo(todoData as Todo);
+      setTodoViewerOpen(true);
+    } catch (error) {
+      console.error('Failed to load TODO file:', error);
+      // Fallback to opening as document
+      handleViewDocument(file);
+    }
+  };
+
   const handleDelete = async (fileId: string) => {
     if (window.confirm('Are you sure you want to delete this file?')) {
       try {
@@ -175,9 +205,9 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
     }
   };
 
-  // Drag and drop handlers (only for projects)
+  // Drag and drop handlers (universal)
   const handleDragStart = (e: React.DragEvent, file: UnifiedFileItem) => {
-    if (!enableDragDrop || file.module !== 'projects') return;
+    if (!enableDragDrop) return;
     setDraggedFile(file);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', file.uuid);
@@ -220,10 +250,11 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
     <>
     <Stack gap="sm" className={className}>
       {files.map((file, index) => {
-        const FileIcon = getFileIcon(file.mimeType, file.mediaType);
         const isAudio = isAudioFile(file.mimeType, file.mediaType);
         const isVideo = isVideoFile(file.mimeType, file.mediaType);
         const isImage = isImageFile(file.mimeType, file.mediaType);
+        const isPdf = isPdfFile(file.mimeType, file.mediaType);
+        const isTodo = isTodoFile(file.mimeType, file.mediaType);
         
         return (
           <Card
@@ -232,7 +263,7 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
             padding="md"
             radius="md"
             withBorder
-            draggable={enableDragDrop && file.module === 'projects'}
+            draggable={enableDragDrop}
             onDragStart={(e) => handleDragStart(e, file)}
             onDragOver={(e) => handleDragOver(e, index)}
             onDragLeave={handleDragLeave}
@@ -271,6 +302,7 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
               </Group>
               
               <Group gap="xs">
+                {/* Audio controls */}
                 {isAudio && (
                   <Tooltip label={playingAudio === file.uuid ? 'Pause' : 'Play'}>
                     <ActionIcon
@@ -286,6 +318,46 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
                   </Tooltip>
                 )}
                 
+                {/* Image viewer */}
+                {isImage && (
+                  <Tooltip label="View Image">
+                    <ActionIcon
+                      variant="light"
+                      size="sm"
+                      onClick={() => handleViewImage(file)}
+                    >
+                      <IconEye size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+                
+                {/* TODO viewer */}
+                {isTodo && (
+                  <Tooltip label="View TODO">
+                    <ActionIcon
+                      variant="light"
+                      size="sm"
+                      onClick={() => handleViewTodo(file)}
+                    >
+                      <IconChecklist size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+                
+                {/* Document viewer */}
+                {!isImage && !isAudio && !isVideo && !isTodo && (
+                  <Tooltip label={isPdf ? "View PDF" : "View Document"}>
+                    <ActionIcon
+                      variant="light"
+                      size="sm"
+                      onClick={() => handleViewDocument(file)}
+                    >
+                      <IconEye size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+                
+                {/* Download button */}
                 <Tooltip label="Download">
                   <ActionIcon
                     variant="light"
@@ -333,21 +405,47 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
     </Stack>
     
     {/* Image Viewer Modal */}
-    {selectedImage && (
-      <ImageViewer
-        opened={imageViewerOpen}
-        onClose={() => {
-          setImageViewerOpen(false);
-          setSelectedImage(null);
-        }}
-        imageUrl={selectedImage.originalName} // This would need to be the actual image URL
-        imageName={selectedImage.originalName}
-        onDownload={() => handleDownload(selectedImage)}
-        size="lg"
-      />
-    )}
-  </>
+      {selectedImage && (
+        <ImageViewer
+          opened={imageViewerOpen}
+          onClose={() => {
+            setImageViewerOpen(false);
+            setSelectedImage(null);
+          }}
+          imageUrl={selectedImage.originalName}
+          imageName={selectedImage.originalName}
+          onDownload={() => handleDownload(selectedImage)}
+          size="lg"
+        />
+      )}
+
+      {/* TODO Viewer Modal */}
+      {selectedTodo && todoViewerOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '8px', maxWidth: '80%', maxHeight: '80%', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3>TODO Viewer</h3>
+              <button onClick={() => {
+                setTodoViewerOpen(false);
+                setSelectedTodo(null);
+              }}>Close</button>
+            </div>
+            <TodoCard
+              todo={selectedTodo}
+              onEdit={() => {}}
+              onDelete={() => {}}
+              onArchive={() => {}}
+              onUnarchive={() => {}}
+              onComplete={() => {}}
+              onAddSubtask={() => {}}
+              showArchived={false}
+            />
+          </div>
+        </div>
+      )}
+    </>
   );
+};
 
 // Thumbnail renderer component with caching
 const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
@@ -411,6 +509,12 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
     if (mimeType.startsWith('video/')) {
       return <IconVideo size={20} className="text-purple-500" />;
     }
+    if (mimeType === 'application/pdf' || mediaType === 'pdf') {
+      return <IconFileText size={20} className="text-red-500" />;
+    }
+    if (mimeType === 'application/json' && mediaType === 'todo') {
+      return <IconChecklist size={20} className="text-orange-500" />;
+    }
     return <IconFileText size={20} className="text-gray-500" />;
   };
 
@@ -451,11 +555,6 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
         height={40}
         radius="sm"
         fit="cover"
-        fallback={
-          <div className="w-10 h-10 rounded bg-gray-100 border border-gray-200 flex items-center justify-center">
-            <IconPhoto size={16} className="text-gray-400" />
-          </div>
-        }
         onError={() => {
           // Fallback to icon on error
           setThumbUrl(null);
@@ -465,8 +564,4 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
   }
 
   return getFileIcon(file.mimeType, file.mediaType);
-};
-
-// Add ImageViewer at the end of the component
-export { ImageViewer };
 };

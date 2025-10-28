@@ -1,10 +1,9 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from typing import List, Dict, Any, Optional
-from datetime import datetime
-from rapidfuzz import process, fuzz
+from typing import List, Dict, Any
+from rapidfuzz import fuzz
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
@@ -13,8 +12,7 @@ from app.models.project import Project
 from app.models.note import Note
 from app.models.document import Document
 from app.models.diary import DiaryEntry
-from app.models.archive import ArchiveItem, ArchiveFolder
-from app.models.tag import Tag
+from app.models.archive import ArchiveItem
 import json
 
 router = APIRouter(tags=["advanced-fuzzy-search"])

@@ -9,10 +9,12 @@ Refactored to follow "thin router, thick service" architecture pattern.
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional, Dict, Any
+from sqlalchemy import select
+from typing import List, Optional
 import logging
 
 from app.database import get_db
+from app.models.associations import project_items
 from app.models.user import User
 from app.auth.dependencies import get_current_user
 from app.schemas.project import (
@@ -68,6 +70,24 @@ async def list_projects(
         )
 
 
+@router.get("/deleted", response_model=List[ProjectResponse])
+async def list_deleted_projects(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """List all soft-deleted projects for the current user."""
+    try:
+        return await project_service.list_deleted_projects(db, current_user.uuid)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error listing deleted projects for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list deleted projects: {str(e)}"
+        )
+
+
 @router.get("/{project_uuid}", response_model=ProjectResponse)
 async def get_project(
     project_uuid: str,
@@ -113,9 +133,9 @@ async def delete_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete a project (soft delete)."""
+    """Soft delete project (move to Recycle Bin)."""
     try:
-        await project_service.delete_project(db, current_user.uuid, project_uuid)
+        await project_service.soft_delete_project(db, current_user.uuid, project_uuid)
     except HTTPException:
         raise
     except Exception as e:
@@ -124,6 +144,46 @@ async def delete_project(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete project: {str(e)}"
         )
+
+
+@router.post("/{project_uuid}/restore")
+async def restore_project(
+    project_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Restore a soft-deleted project from Recycle Bin."""
+    try:
+        await project_service.restore_project(db, current_user.uuid, project_uuid)
+        return {"message": "Project restored successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Error restoring project {project_uuid} for user {current_user.uuid}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to restore project: {str(e)}"
+        )
+
+
+@router.delete("/{project_uuid}/permanent")
+async def permanent_delete_project(
+    project_uuid: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Permanently delete project (hard delete) - WARNING: Cannot be undone!"""
+    try:
+        await project_service.permanent_delete_project(db, current_user.uuid, project_uuid)
+        return {"message": "Project permanently deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error permanently deleting project %s for user %s", project_uuid, current_user.uuid)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to permanently delete project"
+        ) from e
 
 
 @router.post("/{project_uuid}/duplicate", response_model=ProjectDuplicateResponse)

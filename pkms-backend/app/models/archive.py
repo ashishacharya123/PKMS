@@ -3,16 +3,15 @@ Archive Models for File Organization
 """
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger
-from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 
-from app.models.base import Base
+from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
 from app.models.tag_associations import archive_folder_tags, archive_item_tags
 
 
-class ArchiveFolder(Base):
+class ArchiveFolder(Base, SoftDeleteMixin):
     """Archive folder for organizing files"""
     
     __tablename__ = "archive_folders"
@@ -22,8 +21,7 @@ class ArchiveFolder(Base):
     description = Column(Text, nullable=True)
     parent_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
-    # Soft Delete
-    is_deleted = Column(Boolean, default=False, index=True)
+    # is_deleted now provided by SoftDeleteMixin
     # Derived counts and metadata - updated via service methods when items are added/removed
     depth = Column(Integer, default=0, nullable=False)
     item_count = Column(Integer, default=0, nullable=False)
@@ -43,7 +41,7 @@ class ArchiveFolder(Base):
         return f"<ArchiveFolder(uuid={self.uuid}, name='{self.name}', parent_uuid='{self.parent_uuid}')>"
 
 
-class ArchiveItem(Base):
+class ArchiveItem(Base, SoftDeleteMixin):
     """Archive item (file) stored in folders"""
     
     __tablename__ = "archive_items"
@@ -59,8 +57,7 @@ class ArchiveItem(Base):
     # upload_status removed - only needed during upload process, handled by upload services
     folder_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
-    # Soft Delete
-    is_deleted = Column(Boolean, default=False, index=True)
+    # is_deleted now provided by SoftDeleteMixin
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)

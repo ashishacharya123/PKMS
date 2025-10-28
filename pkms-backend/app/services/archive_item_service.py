@@ -9,21 +9,22 @@ import os
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, update, delete
+from sqlalchemy import select, and_, or_, update
+from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status, UploadFile
 from fastapi.responses import FileResponse
 import logging
-import aiofiles
 from datetime import datetime
 
+from app.config import NEPAL_TZ
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.schemas.archive import ItemUpdate, ItemResponse, ItemSummary, CommitUploadRequest
 from app.services.archive_folder_service import archive_folder_service
 from app.services.archive_path_service import archive_path_service
 from app.services.document_hash_service import document_hash_service
 from app.services.thumbnail_service import thumbnail_service
-from app.services.chunk_service import chunk_manager
 from app.services.unified_upload_service import unified_upload_service
+from app.services.search_service import search_service
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +56,8 @@ class ArchiveItemService:
                 select(ArchiveFolder).where(
                     and_(
                         ArchiveFolder.uuid == folder_uuid,
-                        ArchiveFolder.created_by == user_uuid,
-                        ArchiveFolder.is_deleted.is_(False)
+                        ArchiveFolder.active_only(),  # Auto-excludes soft-deleted
+                        ArchiveFolder.created_by == user_uuid
                     )
                 )
             )
@@ -77,9 +78,9 @@ class ArchiveItemService:
                 existing_items = await db.execute(
                     select(ArchiveItem).where(
                         and_(
+                            ArchiveItem.active_only(),
                             ArchiveItem.file_hash == file_hash,
-                            ArchiveItem.created_by == user_uuid,
-                            ArchiveItem.is_deleted == False
+                            ArchiveItem.created_by == user_uuid
                         )
                     )
                 )
@@ -161,8 +162,8 @@ class ArchiveItemService:
     ) -> List[ItemResponse]:
         """List items in folder with filters and pagination"""
         cond = and_(
-            ArchiveItem.created_by == user_uuid,
-            ArchiveItem.is_deleted.is_(False)
+            ArchiveItem.active_only(),  # Auto-excludes soft-deleted
+            ArchiveItem.created_by == user_uuid
         )
         
         if folder_uuid is not None:
@@ -188,6 +189,36 @@ class ArchiveItemService:
         
         return [ItemResponse.model_validate(item) for item in items]
     
+    async def list_deleted_items(
+        self,
+        db: AsyncSession,
+        user_uuid: str,
+    ) -> List[ItemResponse]:
+        """List soft-deleted archive items for Recycle Bin."""
+        try:
+            query = select(ArchiveItem).where(
+                and_(
+                    ArchiveItem.deleted_only(),
+                    ArchiveItem.created_by == user_uuid
+                )
+            )
+            query = query.options(selectinload(ArchiveItem.tag_objs))
+            result = await db.execute(query.order_by(ArchiveItem.updated_at.desc()))
+            items = result.scalars().all()
+            
+            responses = []
+            for item in items:
+                responses.append(ItemResponse.model_validate(item))
+            
+            return responses
+            
+        except Exception as e:
+            logger.exception(f"Error listing deleted archive items for user {user_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to list deleted archive items: {str(e)}"
+            )
+    
     async def get_item(
         self, 
         db: AsyncSession, 
@@ -200,8 +231,8 @@ class ArchiveItemService:
             .where(
                 and_(
                     ArchiveItem.uuid == item_uuid,
-                    ArchiveItem.created_by == user_uuid,
-                        ArchiveItem.is_deleted.is_(False)
+                    ArchiveItem.active_only(),  # Auto-excludes soft-deleted
+                    ArchiveItem.created_by == user_uuid
                 )
             )
         )
@@ -228,8 +259,8 @@ class ArchiveItemService:
             select(ArchiveItem).where(
                 and_(
                     ArchiveItem.uuid == item_uuid,
-                    ArchiveItem.created_by == user_uuid,
-                        ArchiveItem.is_deleted.is_(False)
+                    ArchiveItem.active_only(),  # Auto-excludes soft-deleted
+                    ArchiveItem.created_by == user_uuid
                 )
             )
         )
@@ -260,8 +291,8 @@ class ArchiveItemService:
                     select(ArchiveFolder).where(
                         and_(
                             ArchiveFolder.uuid == update_data.folder_uuid,
-                            ArchiveFolder.created_by == user_uuid,
-                            ArchiveFolder.is_deleted.is_(False)
+                            ArchiveFolder.active_only(),  # Auto-excludes soft-deleted
+                            ArchiveFolder.created_by == user_uuid
                         )
                     )
                 )
@@ -299,8 +330,8 @@ class ArchiveItemService:
             select(ArchiveItem).where(
                 and_(
                     ArchiveItem.uuid == item_uuid,
-                    ArchiveItem.created_by == user_uuid,
-                        ArchiveItem.is_deleted.is_(False)
+                    ArchiveItem.active_only(),  # Auto-excludes soft-deleted
+                    ArchiveItem.created_by == user_uuid
                 )
             )
         )
@@ -339,6 +370,104 @@ class ArchiveItemService:
             await archive_folder_service.update_folder_stats(db, user_uuid, folder_uuid)
             # NOTE: No commit - router will commit once
     
+    async def restore_item(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        item_uuid: str
+    ) -> None:
+        """Restore a soft-deleted archive item. SIMPLE operation."""
+        # 1. Get soft-deleted item
+        result = await db.execute(
+            select(ArchiveItem).where(
+                and_(
+                    ArchiveItem.deleted_only(),  # Only soft-deleted
+                    ArchiveItem.uuid == item_uuid,
+                    ArchiveItem.created_by == user_uuid
+                )
+            )
+        )
+        item = result.scalar_one_or_none()
+        
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Deleted item not found"
+            )
+        
+        # 2. Flip flag
+        item.is_deleted = False
+        item.updated_at = datetime.now(NEPAL_TZ)
+        db.add(item)
+        
+        # 3. Re-index in search
+        await search_service.index_item(db, item, 'archive')
+        
+        # 4. Commit once
+        await db.commit()
+        logger.info(f"Archive item restored: {item.name}")
+
+    async def hard_delete_archive_item(
+        self, 
+        db: AsyncSession, 
+        user_uuid: str, 
+        item_uuid: str
+    ) -> None:
+        """Permanently delete archive item (hard delete) - WARNING: Cannot be undone!"""
+        try:
+            # Get item
+            result = await db.execute(
+                select(ArchiveItem).where(
+                    and_(
+                        ArchiveItem.uuid == item_uuid,
+                        ArchiveItem.created_by == user_uuid,
+                        ArchiveItem.is_deleted.is_(True)
+                    )
+                )
+            )
+            item = result.scalar_one_or_none()
+            
+            if not item:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Deleted archive item not found"
+                )
+            
+            # Delete physical file
+            if item.file_path:
+                file_path = Path(item.file_path)
+                if file_path.exists():
+                    try:
+                        file_path.unlink()
+                        logger.info(f"Deleted archive file: {file_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not delete archive file {file_path}: {e}")
+            
+            # Delete thumbnail if exists
+            if item.thumbnail_path:
+                thumbnail_path = Path(item.thumbnail_path)
+                if thumbnail_path.exists():
+                    try:
+                        thumbnail_path.unlink()
+                        logger.info(f"Deleted archive thumbnail: {thumbnail_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not delete archive thumbnail {thumbnail_path}: {e}")
+            
+            # Hard delete item record
+            await db.delete(item)
+            
+            logger.info(f"Archive item permanently deleted: {item_uuid}")
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.exception(f"Error hard deleting archive item {item_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to hard delete archive item: {str(e)}"
+            )
+    
     async def search_items(
         self, 
         db: AsyncSession, 
@@ -351,8 +480,8 @@ class ArchiveItemService:
     ) -> List[ItemSummary]:
         """Search items across archive"""
         cond = and_(
+            ArchiveItem.active_only(),  # Auto-excludes soft-deleted
             ArchiveItem.created_by == user_uuid,
-                        ArchiveItem.is_deleted.is_(False),
             or_(
                 ArchiveItem.name.ilike(f"%{query}%"),
                 ArchiveItem.description.ilike(f"%{query}%"),
@@ -492,8 +621,8 @@ class ArchiveItemService:
             select(ArchiveItem).where(
                 and_(
                     ArchiveItem.uuid == item_uuid,
-                    ArchiveItem.created_by == user_uuid,
-                        ArchiveItem.is_deleted.is_(False)
+                    ArchiveItem.active_only(),  # Auto-excludes soft-deleted
+                    ArchiveItem.created_by == user_uuid
                 )
             )
         )

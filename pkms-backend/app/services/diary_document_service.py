@@ -16,7 +16,6 @@ from app.config import NEPAL_TZ
 from app.models.document import Document
 from app.models.diary import DiaryEntry
 from app.models.associations import document_diary
-from app.services.dashboard_service import dashboard_service
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +127,6 @@ class DiaryDocumentService:
             
             # Commit first, then invalidate cache
             await db.commit()
-            dashboard_service.invalidate_user_cache(user_uuid, "diary_documents_linked")
         
         except HTTPException:
             # Re-raise HTTP exceptions without rollback (they're expected)
@@ -191,7 +189,6 @@ class DiaryDocumentService:
         
         # Commit first, then invalidate cache
         await db.commit()
-        dashboard_service.invalidate_user_cache(user_uuid, "diary_document_unlinked")
 
     async def reorder_diary_documents(
         self, db: AsyncSession, user_uuid: str, diary_entry_uuid: str, document_uuids: List[str]
@@ -245,7 +242,7 @@ class DiaryDocumentService:
 
             # ✅ Creative Solution 2: Bulk UPDATE with VALUES clause (eliminate N+1 updates)
             if document_uuids:
-                from sqlalchemy import text, case, literal_column
+                from sqlalchemy import case
 
                 # Build CASE WHEN statement for bulk update - ONE query for ALL documents!
                 when_clauses = []
@@ -272,7 +269,6 @@ class DiaryDocumentService:
 
         # Only invalidate cache after successful commit
             await db.commit()
-            dashboard_service.invalidate_user_cache(user_uuid, "diary_documents_reordered")
 
         except Exception as e:
             # Rollback on any error and re-raise

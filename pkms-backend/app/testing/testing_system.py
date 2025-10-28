@@ -7,15 +7,12 @@ resource usage tracking, and data integrity validation.
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text, func, select
-from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
-import json
+from sqlalchemy import text
+from datetime import datetime
 import psutil
 import logging
 import time
 import random
-import uuid
 import shutil
 
 # Set up logger
@@ -24,7 +21,7 @@ logger = logging.getLogger(__name__)
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.testing import DetailedHealthResponse, ConsoleCommandsResponse
+from app.schemas.testing import DetailedHealthResponse
 
 from app.config import NEPAL_TZ, get_data_dir
 

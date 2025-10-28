@@ -12,8 +12,7 @@ a unified interface for habit analytics.
 
 import logging
 import math
-from typing import List, Optional, Dict, Any, Tuple
-from datetime import datetime, timedelta
+from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -412,21 +411,21 @@ class HabitTrendAnalysisService:
             if direction == "bullish_crossover" and strength > 1:
                 insights.append({
                     "type": "positive",
-                    "message": f"🚀 Excellent momentum! Your wellness score is trending upward and crossed above the moving average.",
+                    "message": "🚀 Excellent momentum! Your wellness score is trending upward and crossed above the moving average.",
                     "metric": "trend_momentum",
                     "strength": strength
                 })
             elif direction == "bearish_crossover" and strength > 1:
                 insights.append({
                     "type": "neutral",
-                    "message": f"📉 Your wellness score recently dipped below the moving average. Time to refocus on key habits!",
+                    "message": "📉 Your wellness score recently dipped below the moving average. Time to refocus on key habits!",
                     "metric": "trend_warning",
                     "strength": strength
                 })
             elif direction == "bullish" and momentum > 5:
                 insights.append({
                     "type": "positive",
-                    "message": f"💪 Strong upward momentum! Keep up the great work with your wellness routine.",
+                    "message": "💪 Strong upward momentum! Keep up the great work with your wellness routine.",
                     "metric": "positive_momentum",
                     "strength": momentum
                 })

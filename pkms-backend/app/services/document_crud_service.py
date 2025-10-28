@@ -6,12 +6,10 @@ file management, project associations, and search indexing.
 """
 
 import logging
-import asyncio
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 from datetime import datetime
-from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, delete
+from sqlalchemy import select, and_, delete
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 from fastapi.responses import FileResponse
@@ -19,7 +17,7 @@ from fastapi.responses import FileResponse
 from app.config import NEPAL_TZ, get_file_storage_dir
 from app.models.document import Document
 from app.models.project import Project
-from app.models.associations import project_items
+from app.models.associations import project_items, note_documents, document_diary
 from app.models.enums import ModuleType
 from app.schemas.document import (
     DocumentResponse,
@@ -32,7 +30,6 @@ from app.services.tag_service import tag_service
 from app.services.project_service import project_service
 from app.services.unified_upload_service import unified_upload_service
 from app.services.search_service import search_service
-from app.services.dashboard_service import dashboard_service
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +83,6 @@ class DocumentCRUDService:
             project_badges = project_badges_map.get(document_with_tags.uuid, [])
 
             # Invalidate dashboard cache
-            dashboard_service.invalidate_user_cache(user_uuid, "document_uploaded")
 
             logger.info(f"Document committed successfully: {document_with_tags.filename}")
             return self._convert_doc_to_response(document_with_tags, project_badges)
@@ -155,9 +151,9 @@ class DocumentCRUDService:
                 # Fetch documents by UUIDs with eager loading for tags
                 query = select(Document).options(selectinload(Document.tag_objs)).where(
                     and_(
+                        Document.active_only(),  # Auto-excludes soft-deleted
                         Document.created_by == user_uuid,
                         Document.is_archived == archived,
-                        Document.is_deleted.is_(False),  # Exclude deleted items
                         Document.uuid.in_(doc_uuids),
                         # REMOVED: is_project_exclusive and is_diary_exclusive - exclusivity now handled in association tables
                     )
@@ -196,9 +192,9 @@ class DocumentCRUDService:
                 logger.info(f"Using regular query for archived={archived}")
                 query = select(Document).options(selectinload(Document.tag_objs)).where(
                     and_(
+                        Document.active_only(),  # Auto-excludes soft-deleted
                         Document.created_by == user_uuid,
-                        Document.is_archived == archived,
-                        Document.is_deleted.is_(False)  # Exclude deleted items
+                        Document.is_archived == archived
                         # REMOVED: is_project_exclusive and is_diary_exclusive - exclusivity now handled in association tables
                     )
                 )
@@ -251,6 +247,36 @@ class DocumentCRUDService:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to list documents: {str(e)}"
+            )
+
+    async def list_deleted_documents(
+        self,
+        db: AsyncSession,
+        user_uuid: str,
+    ) -> List[DocumentResponse]:
+        """List soft-deleted documents for Recycle Bin."""
+        try:
+            query = select(Document).where(
+                and_(
+                    Document.deleted_only(),
+                    Document.created_by == user_uuid
+                )
+            )
+            query = query.options(selectinload(Document.tag_objs))
+            result = await db.execute(query.order_by(Document.updated_at.desc()))
+            documents = result.scalars().all()
+            
+            responses = []
+            for doc in documents:
+                responses.append(self._convert_doc_to_response(doc, []))
+            
+            return responses
+            
+        except Exception as e:
+            logger.exception(f"Error listing deleted documents for user {user_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to list deleted documents: {str(e)}"
             )
 
     async def get_document(
@@ -337,7 +363,6 @@ class DocumentCRUDService:
         project_badges = project_badges_map.get(doc.uuid, [])
 
         # Invalidate dashboard cache
-        dashboard_service.invalidate_user_cache(user_uuid, "document_updated")
         
         return self._convert_doc_to_response(doc, project_badges)
 
@@ -356,6 +381,14 @@ class DocumentCRUDService:
         if not doc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
         
+        # PRE-CHECK: Use exclusivity service
+        from app.services.document_exclusivity_service import document_exclusivity_service
+        if await document_exclusivity_service.has_exclusive_associations(db, document_uuid):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="Cannot delete. Document is exclusively owned by project/note."
+            )
+        
         # Log archive status for clarity
         if doc.is_archived:
             logger.info(f"Soft-deleting archived document {document_uuid}")
@@ -370,13 +403,92 @@ class DocumentCRUDService:
         
         # Soft delete: set is_deleted flag instead of hard delete
         doc.is_deleted = True
-        await db.add(doc)
+        db.add(doc)
         await db.commit()
 
         # Invalidate dashboard cache
-        dashboard_service.invalidate_user_cache(user_uuid, "document_deleted")
 
         logger.info(f"Document {document_uuid} soft-deleted successfully")
+
+    async def restore_document(self, db: AsyncSession, user_uuid: str, document_uuid: str):
+        """
+        Restores a soft-deleted document. SIMPLE operation.
+        All associations are still intact, just flip the flag.
+        """
+        # 1. Get soft-deleted document
+        result = await db.execute(
+            select(Document).options(selectinload(Document.tag_objs)).where(
+                and_(
+                    Document.deleted_only(),  # Only soft-deleted
+                    Document.uuid == document_uuid,
+                    Document.created_by == user_uuid
+                )
+            )
+        )
+        doc = result.scalar_one_or_none()
+        if not doc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deleted document not found")
+        
+        # 2. Flip flag
+        doc.is_deleted = False
+        doc.updated_at = datetime.now(NEPAL_TZ)
+        db.add(doc)
+        
+        # 3. Commit
+        await db.commit()
+        
+        # 4. Re-index in search
+        await search_service.index_item(db, doc, 'document')
+        await db.commit()
+        logger.info(f"Document restored: {doc.title}")
+
+    async def permanent_delete_document(self, db: AsyncSession, user_uuid: str, document_uuid: str):
+        """Permanently delete document and its file from disk."""
+        from app.services.association_counter_service import association_counter_service
+        from app.utils.safe_file_ops import safe_delete_with_db
+        
+        # Get document
+        result = await db.execute(
+            select(Document).options(selectinload(Document.tag_objs)).where(
+                and_(Document.uuid == document_uuid, Document.created_by == user_uuid)
+            )
+        )
+        doc = result.scalar_one_or_none()
+        if not doc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+        
+        # PRE-CHECK 1: Exclusivity
+        from app.services.document_exclusivity_service import document_exclusivity_service
+        if await document_exclusivity_service.has_exclusive_associations(db, document_uuid):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail="Still exclusively owned. Remove associations first."
+            )
+        
+        # PRE-CHECK 2: Association count
+        link_count = await association_counter_service.get_document_link_count(db, document_uuid)
+        if link_count > 0:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, 
+                detail=f"Still linked to {link_count} items. Remove associations first."
+            )
+        
+        # All checks passed - purge
+        file_path = get_file_storage_dir() / doc.file_path
+        
+        # Clean up tags/search if not already soft-deleted
+        if not doc.is_deleted:
+            await tag_service.decrement_tags_on_delete(db, doc)
+            await search_service.remove_item(db, document_uuid)
+        
+        # Clean up junction tables (should be 0, but final cleanup)
+        await db.execute(delete(project_items).where(project_items.c.item_uuid == document_uuid))
+        await db.execute(delete(note_documents).where(note_documents.c.document_uuid == document_uuid))
+        await db.execute(delete(document_diary).where(document_diary.c.document_uuid == document_uuid))
+        
+        # Atomic file + DB delete (DB first, then file)
+        await safe_delete_with_db(file_path, doc, db)
+        
 
     async def download_document(
         self, db: AsyncSession, user_uuid: str, document_uuid: str
@@ -422,7 +534,7 @@ class DocumentCRUDService:
             # REMOVED: is_project_exclusive and is_diary_exclusive - exclusivity now handled in association tables
             is_deleted=doc.is_deleted,
             created_at=doc.created_at,
-            updated_at=doc.updated_at
+            updated_at=doc.updated_at,
             tags=[t.name for t in doc.tag_objs] if doc.tag_objs else [],
             projects=project_badges or []
         )

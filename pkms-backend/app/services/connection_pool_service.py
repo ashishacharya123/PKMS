@@ -8,7 +8,7 @@ import time
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncEngine
-from sqlalchemy.pool import QueuePool, StaticPool
+from sqlalchemy.pool import QueuePool
 from sqlalchemy import event
 import logging
 

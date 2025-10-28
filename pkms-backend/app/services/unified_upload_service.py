@@ -4,11 +4,10 @@ UnifiedUploadService - Ensures atomic file operations and database consistency
 
 import asyncio
 import shutil
-import hashlib
 import uuid as uuid_lib
 import errno
 from pathlib import Path
-from typing import Optional, Dict, Any, Type, Callable
+from typing import Optional, Dict, Any, Callable
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 import logging
@@ -20,7 +19,7 @@ from app.config import get_data_dir, get_file_storage_dir
 from app.utils.security import sanitize_filename
 from sqlalchemy import select, and_, func
 
-from app.models.enums import UploadStatus, ModuleType
+from app.models.enums import UploadStatus
 
 logger = logging.getLogger(__name__)
 file_detector = FileTypeDetectionService()
@@ -145,7 +144,7 @@ class UnifiedUploadService:
             
             return record
             
-        except Exception as e:
+        except Exception:
             await self._cleanup_on_error(db, temp_path, assembled_path)
             raise
     

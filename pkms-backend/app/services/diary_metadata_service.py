@@ -19,7 +19,7 @@ providing a clean separation of concerns.
 
 import logging
 import json
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Any
 from datetime import datetime, date
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func

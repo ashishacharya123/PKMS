@@ -5,15 +5,12 @@ Serves thumbnails for files
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import FileResponse
-from pathlib import Path
-from typing import Optional
 import logging
 
 from app.auth.dependencies import get_current_user
 from app.models.user import User
 from app.config import get_file_storage_dir
 from app.services.thumbnail_service import thumbnail_service
-from app.services.unified_download_service import unified_download_service
 
 logger = logging.getLogger(__name__)
 

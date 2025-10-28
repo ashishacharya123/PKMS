@@ -308,6 +308,9 @@ Object.defineProperty(navigator, 'mediaDevices', {
   }
 });
 
+// Import Jest DOM matchers
+import '@testing-library/jest-dom';
+
 // Export everything
 export * from '@testing-library/react';
 export { renderWithProviders as render };

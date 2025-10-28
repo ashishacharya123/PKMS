@@ -1,6 +1,6 @@
 """Association tables between Tag and content models (Note, Document, Todo, Project, ArchiveItem, ArchiveFolder, DiaryEntry)"""
 
-from sqlalchemy import Table, Column, Integer, String, ForeignKey
+from sqlalchemy import Table, Column, String, ForeignKey
 from app.models.base import Base
 
 # Many-to-many linking tables

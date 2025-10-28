@@ -7,18 +7,18 @@ financial data, and wellness analytics. Supports Nepali calendar integration.
 """
 
 from uuid import uuid4
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, SmallInteger, UniqueConstraint, Index, func
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, SmallInteger, UniqueConstraint, Index, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
-from app.models.base import Base
+from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
 from app.models.tag_associations import diary_entry_tags
 from app.models.associations import document_diary
 
 
-class DiaryEntry(Base):
+class DiaryEntry(Base, SoftDeleteMixin):
     """
     Diary entry model for personal journaling with mood tracking and metadata.
     Stores journal content, mood ratings, and relationships to tags/documents.
@@ -34,10 +34,9 @@ class DiaryEntry(Base):
     location = Column(String(100), nullable=True)
     file_count = Column(Integer, nullable=False, default=0)  # Count of associated files (documents)
     content_length = Column(Integer, nullable=False, default=0)
-    content_file_path = Column(String(500), nullable=True)
-    file_hash = Column(String(128), nullable=True)
-    encryption_tag = Column(String(255), nullable=True)
-    encryption_iv = Column(String(255), nullable=True)
+    # content_file_path, file_hash removed - now stored via Document service
+    encryption_tag = Column(String(255), nullable=True)  # For main content document
+    encryption_iv = Column(String(255), nullable=True)   # For main content document
     is_favorite = Column(Boolean, default=False, index=True)
     is_template = Column(Boolean, default=False, index=True)  # Template flag for reusable entries
     from_template_id = Column(String(36), nullable=True, index=True)  # Source template UUID/ID
@@ -45,7 +44,7 @@ class DiaryEntry(Base):
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     
-    is_deleted = Column(Boolean, default=False, index=True)
+    # is_deleted now provided by SoftDeleteMixin
     
     # Composite indexes for common query patterns
     __table_args__ = (

@@ -5,15 +5,12 @@ Provides comprehensive CRUD testing across all modules with safe test data
 and unique identifiers to avoid conflicts with user data.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Form
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, text
-from sqlalchemy.orm import selectinload
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any
 from datetime import datetime, timedelta
-import json
 import time
-import uuid
 import random
 import string
 import logging
@@ -27,8 +24,6 @@ from app.models.user import User
 from app.models.note import Note
 from app.models.document import Document
 from app.models.todo import Todo, TodoStatus
-from app.models.project import Project
-from app.models.diary import DiaryEntry
 from app.models.archive import ArchiveFolder, ArchiveItem
 
 from app.config import NEPAL_TZ, get_data_dir

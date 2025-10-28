@@ -4,11 +4,12 @@
  * Now uses modular components where appropriate while preserving all existing functionality
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
+import { useDiaryStore } from '../stores/diaryStore';
 import {
   Container,
-  Title,
   Stack,
   Group,
   Button,
@@ -18,13 +19,12 @@ import {
   SimpleGrid,
 } from '@mantine/core';
 import {
-  IconBook,
   IconChartLine,
   IconBrain,
   IconTarget,
   IconSearch,
   IconBolt,
-  IconRefresh,
+  IconEye,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 
@@ -47,11 +47,23 @@ interface SearchStats {
 }
 
 export const DiaryPage = React.memo(function DiaryPage() {
+  const navigate = useNavigate();
+  const { setOnDiaryPage } = useDiaryStore();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(false);
   const [wellnessScore, setWellnessScore] = useState<number | null>(null);
   const [habitStreaks, setHabitStreaks] = useState<Record<string, number>>({});
   const [searchStats, setSearchStats] = useState<SearchStats | null>(null);
+
+  // Track when user is on diary page for session management
+  useEffect(() => {
+    setOnDiaryPage(true);
+    
+    // Cleanup when component unmounts (user leaves diary page)
+    return () => {
+      setOnDiaryPage(false);
+    };
+  }, [setOnDiaryPage]);
 
   useAuthenticatedEffect(() => {
     loadDashboardData();
@@ -94,6 +106,10 @@ export const DiaryPage = React.memo(function DiaryPage() {
     return '💪';
   };
 
+  const handleViewAll = () => {
+    navigate('/recyclebin?showAll=true');
+  };
+
   return (
     <Container size="xl" py="md">
       <Stack gap="lg">
@@ -107,9 +123,19 @@ export const DiaryPage = React.memo(function DiaryPage() {
           showRefresh={true}
           isLoading={loading}
           customActions={
-            <Text c="dimmed" size="sm">
-              Unlock the full power of your wellness data
-            </Text>
+            <Group gap="md">
+              <Text c="dimmed" size="sm">
+                Unlock the full power of your wellness data
+              </Text>
+              <Button
+                variant="light"
+                leftSection={<IconEye size={16} />}
+                onClick={handleViewAll}
+                size="sm"
+              >
+                View All Module Items
+              </Button>
+            </Group>
           }
         />
 

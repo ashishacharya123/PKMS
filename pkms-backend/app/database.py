@@ -6,31 +6,17 @@ SQLAlchemy async setup with session management
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.engine import make_url
-from sqlalchemy import event, text, inspect
+from sqlalchemy import event, text
 from contextlib import asynccontextmanager
 import logging
-import os
-from pathlib import Path
 
 from app.config import get_database_url, settings, get_data_dir
 
 # Import Base and all models to register them with Base.metadata
 # This ensures all tables are created by Base.metadata.create_all()
 from app.models.base import Base
-from app.models.user import User, Session, RecoveryKey
-from app.models.note import Note
 # NoteFile model removed - notes now use Document + note_documents association
-from app.models.document import Document
-from app.models.todo import Todo
-from app.models.project import Project
-from app.models.diary import DiaryEntry
-from app.models.archive import ArchiveFolder, ArchiveItem
-from app.models.tag import Tag
 # Import all tag association tables
-from app.models.tag_associations import (
-    note_tags, document_tags, todo_tags,
-    diary_entry_tags, archive_item_tags, archive_folder_tags
-)
 
 # Configure logging
 logger = logging.getLogger(__name__)

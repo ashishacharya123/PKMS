@@ -10,8 +10,8 @@ interface SessionTimeoutWarningProps {
 }
 
 export function SessionTimeoutWarning({ 
-  sessionTimeoutSeconds = 900, // 15 minutes
-  warningThresholdSeconds = 120 // 2 minutes
+  sessionTimeoutSeconds = 300, // 5 minutes
+  warningThresholdSeconds = 60 // 1 minute warning
 }: SessionTimeoutWarningProps) {
   const [timeLeft, setTimeLeft] = useState(sessionTimeoutSeconds);
   const [showWarning, setShowWarning] = useState(false);

@@ -6,7 +6,7 @@ All modules should use this service instead of duplicating queries.
 """
 
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, and_
 
@@ -95,7 +95,7 @@ class DashboardStatsService:
         }
     
     @staticmethod
-    async def get_notes_stats(db: AsyncSession, created_by: str, recent_days: int = 7) -> Dict[str, int]:
+    async def get_notes_stats(db: AsyncSession, created_by: str, recent_days: int = 3) -> Dict[str, int]:
         """Get notes statistics"""
         recent_cutoff = datetime.now(NEPAL_TZ) - timedelta(days=recent_days)
         
@@ -126,7 +126,7 @@ class DashboardStatsService:
         }
     
     @staticmethod
-    async def get_documents_stats(db: AsyncSession, created_by: str, recent_days: int = 7) -> Dict[str, int]:
+    async def get_documents_stats(db: AsyncSession, created_by: str, recent_days: int = 3) -> Dict[str, int]:
         """Get documents statistics"""
         recent_cutoff = datetime.now(NEPAL_TZ) - timedelta(days=recent_days)
         
@@ -221,13 +221,12 @@ class DashboardStatsService:
         }
     
     @staticmethod
-    async def get_recent_activity_stats(db: AsyncSession, created_by: str, days: int = 7) -> Dict[str, int]:
+    async def get_recent_activity_stats(db: AsyncSession, created_by: str, days: int = 3) -> Dict[str, int]:
         """
         Get recent activity statistics across all modules using optimized queries.
         
-        PERFORMANCE OPTIMIZATION: Uses separate optimized queries for each module
-        instead of 5 separate queries. This is more efficient than a complex UNION
-        query across different tables with different schemas.
+        PERFORMANCE NOTE: Uses separate optimized queries per module.
+        This avoids a single complex UNION across heterogeneous tables/schemas.
         """
         cutoff = datetime.now(NEPAL_TZ) - timedelta(days=days)
         

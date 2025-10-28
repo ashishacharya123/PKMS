@@ -11,7 +11,6 @@ from pydantic_settings import BaseSettings
 from pydantic import Field
 import warnings
 from datetime import timezone, timedelta
-from sqlalchemy import text
 from sqlalchemy.sql import expression
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.types import DateTime
@@ -69,7 +68,7 @@ class Settings(BaseSettings):
     secret_key: Optional[str] = None  # Will be generated if not provided
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
-    refresh_token_lifetime_days: int = 7
+    refresh_token_lifetime_days: int = 0  # No automatic refresh - manual extension only
     password_min_length: int = 8
     session_cleanup_interval_hours: int = 24  # Clean expired sessions every 24 hours
     

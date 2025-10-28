@@ -8,10 +8,7 @@ table statistics, data integrity validation, and migration tools.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, func, select
-from typing import Dict, List, Any, Optional
 from datetime import datetime
-import json
-import time
 import logging
 
 # Set up logger
@@ -20,7 +17,7 @@ logger = logging.getLogger(__name__)
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.testing import DatabaseStatsResponse, TableSchemaResponse, SampleRowsResponse, FtsTablesDataResponse
+from app.schemas.testing import DatabaseStatsResponse
 from app.models.note import Note
 from app.models.document import Document
 from app.models.todo import Todo
