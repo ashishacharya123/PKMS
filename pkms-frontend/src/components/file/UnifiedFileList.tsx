@@ -19,7 +19,8 @@ import {
   IconGripVertical,
   IconEye,
   IconChecklist,
-  IconRefresh
+  IconRefresh,
+  IconEdit
 } from '@tabler/icons-react';
 import { 
   Group, 
@@ -37,6 +38,7 @@ import { reorderArray, getDragPreviewStyles, getDropZoneStyles } from '../../uti
 import { ImageViewer } from '../common/ImageViewer';
 import { TodoCard } from '../todos/TodoCard';
 import { Todo } from '../../types/todo';
+import { UnifiedContentModal } from './UnifiedContentModal';
 
 // Utility function for getting cache module
 const getCacheModule = (module: string): 'documents' | 'archive' | 'diary' => {
@@ -94,6 +96,11 @@ interface UnifiedFileListProps {
   showUnlink?: boolean; // Show unlink action instead of delete
   enableDragDrop?: boolean; // Enable drag-and-drop reordering
   encryptionKey?: CryptoKey; // For diary encryption
+  // Content editing props
+  module: 'notes' | 'diary' | 'documents' | 'archive' | 'projects';
+  entityId: string; // Parent entity UUID
+  onContentSave?: (data: any) => Promise<void>; // For content saving
+  onContentDelete?: () => Promise<void>; // For content deletion
 }
 
 export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
@@ -105,11 +112,20 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   className = '',
   showUnlink = false,
   enableDragDrop = false,
-  encryptionKey
+  encryptionKey,
+  module,
+  entityId,
+  onContentSave,
+  onContentDelete
 }) => {
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
+  
+  // Content modal state
+  const [contentModalOpen, setContentModalOpen] = useState(false);
+  const [contentModalMode, setContentModalMode] = useState<'view' | 'edit' | 'create'>('view');
+  const [contentModalFile, setContentModalFile] = useState<UnifiedFileItem | null>(null);
   
   // Image viewing state
   const [imageViewerOpen, setImageViewerOpen] = useState(false);
@@ -226,8 +242,8 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   const handleViewDocument = (file: UnifiedFileItem) => {
     // Get the proper download URL for the file
     const downloadUrl = unifiedFileService.getDownloadUrl(file);
-    // Open document in new tab using the download URL
-    window.open(downloadUrl, '_blank');
+    // Open document in new tab using the download URL with security flags
+    window.open(downloadUrl, '_blank', 'noopener,noreferrer');
   };
 
   const handleViewTodo = async (file: UnifiedFileItem) => {
@@ -288,6 +304,40 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
       }
     };
     input.click();
+  };
+
+  // Content modal handlers
+  const openContentModal = (mode: 'view' | 'edit' | 'create', file: UnifiedFileItem) => {
+    setContentModalFile(file);
+    setContentModalMode(mode);
+    setContentModalOpen(true);
+  };
+
+  const closeContentModal = () => {
+    setContentModalOpen(false);
+    setContentModalFile(null);
+  };
+
+  const handleContentSave = async (data: any) => {
+    if (onContentSave) {
+      await onContentSave(data);
+    }
+    closeContentModal();
+  };
+
+  const handleContentDelete = async () => {
+    if (onContentDelete) {
+      await onContentDelete();
+    }
+    closeContentModal();
+  };
+
+  // Check if file is content-type (text/markdown)
+  const isContentFile = (file: UnifiedFileItem): boolean => {
+    return file.mimeType === 'text/markdown' || 
+           file.mimeType === 'text/plain' ||
+           file.originalName.endsWith('.md') ||
+           file.originalName.endsWith('.txt');
   };
 
   // Drag and drop handlers (universal)
@@ -453,6 +503,30 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
                   </ActionIcon>
                 </Tooltip>
 
+                {/* View/Edit Content buttons for text files */}
+                {isContentFile(file) && (
+                  <>
+                    <Tooltip label="View Content">
+                      <ActionIcon
+                        variant="light"
+                        size="sm"
+                        onClick={() => openContentModal('view', file)}
+                      >
+                        <IconEye size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label="Edit Content">
+                      <ActionIcon
+                        variant="light"
+                        size="sm"
+                        onClick={() => openContentModal('edit', file)}
+                      >
+                        <IconEdit size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </>
+                )}
+
                 {/* Replace button */}
                 <Tooltip label="Replace">
                   <ActionIcon
@@ -508,7 +582,7 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
             setImageViewerOpen(false);
             setSelectedImage(null);
           }}
-          imageUrl={imageUrl || selectedImage.originalName}
+          imageUrl={imageUrl || unifiedFileService.getDownloadUrl(selectedImage)}
           imageName={selectedImage.originalName}
           onDownload={() => handleDownload(selectedImage)}
           size="lg"
@@ -539,6 +613,30 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
           </div>
         </div>
       )}
+
+      {/* Unified Content Modal */}
+      {contentModalFile && (
+        <UnifiedContentModal
+          opened={contentModalOpen}
+          onClose={closeContentModal}
+          mode={contentModalMode}
+          module={module}
+          entityId={entityId}
+          initialData={{
+            title: contentModalFile.originalName,
+            content: '', // Will be loaded from file content
+            createdAt: contentModalFile.createdAt,
+          }}
+          files={[contentModalFile]}
+          onFilesUpdate={() => {}} // File updates handled by parent
+          encryptionKey={encryptionKey}
+          onSave={handleContentSave}
+          onDelete={handleContentDelete}
+          showProjects={module === 'notes' || module === 'projects'}
+          showDiaryFields={module === 'diary'}
+          enableDragDrop={false}
+        />
+      )}
     </>
   );
 };
@@ -547,24 +645,6 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
 const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-
-  const getCacheModule = (module: string): 'documents' | 'archive' | 'diary' => {
-    switch (module) {
-      case 'documents':
-        return 'documents';
-      case 'archive':
-        return 'archive';
-      case 'diary':
-        return 'diary';
-      case 'notes':
-        return 'documents'; // Notes use documents cache
-      case 'projects':
-        return 'documents'; // Projects use documents cache
-      default:
-        return 'documents';
-    }
-  };
 
   const getFileIcon = (mimeType: string, mediaType?: string) => {
     if (mediaType === 'voice' || mimeType.startsWith('audio/')) {

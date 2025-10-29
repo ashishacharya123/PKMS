@@ -1,3 +1,23 @@
+import React from 'react';
+import { Center, Loader, Stack, Text } from '@mantine/core';
+
+export interface LoadingStateProps {
+  height?: number | string;
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  message?: string;
+}
+
+export function LoadingState({ height = 400, size = 'lg', message }: LoadingStateProps) {
+  return (
+    <Center style={{ height }}>
+      <Stack align="center" gap="sm">
+        <Loader size={size} />
+        {message && <Text size="sm" c="dimmed">{message}</Text>}
+      </Stack>
+    </Center>
+  );
+}
+
 /**
  * LoadingState - Reusable loading state component
  * Shows loading skeleton or spinner with customizable content

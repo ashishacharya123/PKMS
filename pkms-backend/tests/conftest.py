@@ -141,7 +141,7 @@ async def test_user_first_login(db_session: AsyncSession) -> User:
 @pytest.fixture
 def test_access_token(test_user: User) -> str:
     """Create a valid access token for testing."""
-    return create_access_token(data={"sub": str(test_user.id)})
+    return create_access_token(data={"sub": str(test_user.uuid)})
 
 @pytest.fixture
 def auth_headers(test_access_token: str) -> dict:

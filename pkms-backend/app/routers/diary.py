@@ -45,6 +45,7 @@ from app.services.diary_crud_service import diary_crud_service
 from app.services.diary_document_service import diary_document_service
 # Daily insights functionality has been moved to unified_habit_analytics_service
 from app.services.unified_habit_analytics_service import unified_habit_analytics_service
+from app.decorators.error_handler import handle_api_errors
 
 logger = logging.getLogger(__name__)
 
@@ -248,31 +249,22 @@ async def get_encryption_hint(
 # --- CRUD Endpoints ---
 
 @router.post("/entries", response_model=DiaryEntryResponse)
+@handle_api_errors("create diary entry")
 async def create_diary_entry(
     entry_data: DiaryEntryCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new diary entry with file-based encrypted storage."""
-    try:
-        return await diary_crud_service.create_entry(
-            db=db,
-            user_uuid=current_user.uuid,
-            entry_data=entry_data
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error creating diary entry for user {current_user.uuid}: {type(e).__name__}")
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create diary entry"
-        )
+    return await diary_crud_service.create_entry(
+        db=db,
+        user_uuid=current_user.uuid,
+        entry_data=entry_data
+    )
 
 
 @router.get("/entries", response_model=List[DiaryEntrySummary])
+@handle_api_errors("list diary entries")
 async def list_diary_entries(
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None),
@@ -287,32 +279,23 @@ async def list_diary_entries(
     db: AsyncSession = Depends(get_db)
 ):
     """List diary entries with filtering. Uses FTS5 for text search if search_title is provided."""
-    try:
-        return await diary_crud_service.list_entries(
-            db=db,
-            user_uuid=current_user.uuid,
-            year=year,
-            month=month,
-            mood=mood,
-            template_uuid=template_uuid,
-            is_template=is_template,
-            search_title=search_title,
-            day_of_week=day_of_week,
-            limit=limit,
-            offset=offset
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error listing diary entries for user {current_user.uuid}: {type(e).__name__}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list diary entries"
-        )
+    return await diary_crud_service.list_entries(
+        db=db,
+        user_uuid=current_user.uuid,
+        year=year,
+        month=month,
+        mood=mood,
+        template_uuid=template_uuid,
+        is_template=is_template,
+        search_title=search_title,
+        day_of_week=day_of_week,
+        limit=limit,
+        offset=offset
+    )
 
 
 @router.get("/entries/deleted", response_model=List[DiaryEntrySummary])
+@handle_api_errors("list deleted diary entries")
 async def list_deleted_diary_entries(
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None),
@@ -325,27 +308,17 @@ async def list_deleted_diary_entries(
     db: AsyncSession = Depends(get_db)
 ):
     """List deleted diary entries for Recycle Bin. Uses FTS5 for text search if search_title is provided."""
-    try:
-        return await diary_crud_service.list_deleted_entries(
-            db=db,
-            user_uuid=current_user.uuid,
-            year=year,
-            month=month,
-            mood=mood,
-            search_title=search_title,
-            day_of_week=day_of_week,
-            limit=limit,
-            offset=offset
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error listing deleted diary entries for user {current_user.uuid}: {type(e).__name__}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list deleted diary entries"
-        )
+    return await diary_crud_service.list_deleted_entries(
+        db=db,
+        user_uuid=current_user.uuid,
+        year=year,
+        month=month,
+        mood=mood,
+        search_title=search_title,
+        day_of_week=day_of_week,
+        limit=limit,
+        offset=offset
+    )
 
 
 # NOTE: For viewing ALL diary entries (active + deleted), use RecycleBinPage with showAll=true
@@ -353,54 +326,37 @@ async def list_deleted_diary_entries(
 
 
 @router.get("/entries/date/{entry_date}", response_model=List[DiaryEntryResponse])
+@handle_api_errors("get diary entries for date")
 async def get_diary_entries_by_date(
     entry_date: date,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get all diary entries for a specific date."""
-    try:
-        return await diary_crud_service.get_entries_by_date(
-            db=db,
-            user_uuid=current_user.uuid,
-            entry_date=entry_date
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting diary entries by date for user {current_user.uuid}: {type(e).__name__}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get diary entries"
-        )
+    return await diary_crud_service.get_entries_by_date(
+        db=db,
+        user_uuid=current_user.uuid,
+        entry_date=entry_date
+    )
 
 
 @router.get("/entries/{entry_ref}", response_model=DiaryEntryResponse)
+@handle_api_errors("get diary entry")
 async def get_diary_entry_by_id(
     entry_ref: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get a single diary entry by UUID or date."""
-    try:
-        return await diary_crud_service.get_entry_by_ref(
-            db=db,
-            user_uuid=current_user.uuid,
-            entry_ref=entry_ref
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting diary entry for user {current_user.uuid}: {type(e).__name__}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get diary entry"
-        )
+    return await diary_crud_service.get_entry_by_ref(
+        db=db,
+        user_uuid=current_user.uuid,
+        entry_ref=entry_ref
+    )
 
 
 @router.put("/entries/{entry_ref}", response_model=DiaryEntryResponse)
+@handle_api_errors("update diary entry")
 async def update_diary_entry(
     entry_ref: str,
     updates: DiaryEntryUpdate,
@@ -408,51 +364,31 @@ async def update_diary_entry(
     db: AsyncSession = Depends(get_db)
 ):
     """Update a diary entry."""
-    try:
-        return await diary_crud_service.update_entry(
-            db=db,
-            user_uuid=current_user.uuid,
-            entry_ref=entry_ref,
-            updates=updates
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating diary entry for user {current_user.uuid}: {type(e).__name__}")
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update diary entry"
-        )
+    return await diary_crud_service.update_entry(
+        db=db,
+        user_uuid=current_user.uuid,
+        entry_ref=entry_ref,
+        updates=updates
+    )
 
 
 @router.delete("/entries/{entry_ref}", status_code=status.HTTP_204_NO_CONTENT)
+@handle_api_errors("delete diary entry")
 async def delete_diary_entry(
     entry_ref: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a diary entry (soft delete)."""
-    try:
-        await diary_crud_service.delete_entry(
-            db=db,
-            user_uuid=current_user.uuid,
-            entry_ref=entry_ref
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting diary entry for user {current_user.uuid}: {type(e).__name__}")
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete diary entry"
-        )
+    await diary_crud_service.delete_entry(
+        db=db,
+        user_uuid=current_user.uuid,
+        entry_ref=entry_ref
+    )
 
 
 @router.post("/entries/{entry_ref}/restore")
+@handle_api_errors("restore diary entry")
 async def restore_diary_entry(
     entry_ref: str,
     current_user: User = Depends(get_current_user),
@@ -463,47 +399,28 @@ async def restore_diary_entry(
     NOTE: This endpoint does NOT require diary unlock session check
     since restore operations should work even when diary is locked.
     """
-    try:
-        await diary_crud_service.restore_entry(
-            db=db,
-            user_uuid=current_user.uuid,
-            entry_ref=entry_ref
-        )
-        return {"message": "Diary entry restored successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error restoring diary entry for user {current_user.uuid}: {type(e).__name__}")
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to restore diary entry"
-        )
+    await diary_crud_service.restore_entry(
+        db=db,
+        user_uuid=current_user.uuid,
+        entry_ref=entry_ref
+    )
+    return {"message": "Diary entry restored successfully"}
 
 
 @router.delete("/entries/{entry_ref}/permanent")
+@handle_api_errors("hard delete diary entry")
 async def permanent_delete_diary_entry(
     entry_ref: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Permanently delete diary entry (hard delete) - WARNING: Cannot be undone!"""
-    try:
-        await diary_crud_service.hard_delete_diary_entry(
-            db=db,
-            user_uuid=current_user.uuid,
-            entry_uuid=entry_ref
-        )
-        return {"message": "Diary entry permanently deleted"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error permanently deleting diary entry for user {current_user.uuid}: {type(e).__name__}")
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to permanently delete diary entry"
-        )
+    await diary_crud_service.hard_delete_diary_entry(
+        db=db,
+        user_uuid=current_user.uuid,
+        entry_uuid=entry_ref
+    )
+    return {"message": "Diary entry permanently deleted"}
 
 
 # --- File Operations ---

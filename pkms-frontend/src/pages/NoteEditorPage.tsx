@@ -1,70 +1,49 @@
-import { useEffect, useState } from 'react';
+/**
+ * NoteEditorPage - Simplified note editing using UnifiedContentModal
+ * 
+ * PURPOSE:
+ * ========
+ * Provides note editing functionality using the unified content modal architecture.
+ * Handles both creating new notes and editing existing ones with optimistic UUID.
+ * 
+ * ARCHITECTURE:
+ * =============
+ * - Uses UnifiedContentModal for all editing operations
+ * - Integrates with entityReserveService for optimistic UUID
+ * - Handles auto-discard of empty notes on cancel
+ * - Uses isEmptyNote helper for validation
+ * 
+ * @author AI Agent: Claude Sonnet 4.5
+ * @date 2025-10-29
+ */
+
+import { useState } from 'react';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { useNavigate, useParams } from 'react-router-dom';
-import {
-  Container,
-  Grid,
-  TextInput,
-  Button,
-  Group,
-  Stack,
-  Card,
-  Title,
-  TagsInput,
-  Alert,
-  Skeleton,
-  Badge,
-  Paper,
-  Text,
-  FileInput,
-  Modal,
-  Image
-} from '@mantine/core';
-import {
-  IconDeviceFloppy,
-  IconX,
-  IconEye,
-  IconEdit,
-  IconMarkdown,
-  IconFolder
-} from '@tabler/icons-react';
-import MDEditor from '@uiw/react-md-editor';
+import { Container, Skeleton, Alert } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { notesService, Note, type NoteFile } from '../services/notesService';
-import { searchService } from '../services/searchService';
-import { MultiProjectSelector } from '../components/common/MultiProjectSelector';
-import { UnifiedFileSection } from '../components/file/UnifiedFileSection';
+import { notesService, Note } from '../services/notesService';
 import { entityReserveService } from '../services/entityReserveService';
+import { isEmptyNote } from '../utils/save_discard_verification';
+import { UnifiedContentModal } from '../components/file/UnifiedContentModal';
+import { UnifiedFileItem } from '../services/unifiedFileService';
+import { transformNoteFiles } from '../utils/fileTransformers';
 
 export function NoteEditorPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isEditing = Boolean(id && id !== 'new');
-
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
-  const [tags, setTags] = useState<string[]>([]);
-  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
-  const [projectIds, setProjectIds] = useState<string[]>([]);
-  const [isExclusive, setIsExclusive] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-
-  // Attachments state (images for preview)
-  const [noteFiles, setNoteFiles] = useState<NoteFile[]>([]);
-  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
-  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
-  const [imagePreview, setImagePreview] = useState<{ url: string; name: string } | null>(null);
-
   const queryClient = useQueryClient();
 
+  // State
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [reservedUuid, setReservedUuid] = useState<string | null>(null);
+  const [noteFiles, setNoteFiles] = useState<UnifiedFileItem[]>([]);
 
-  // Load note for editing using consistent pattern
+  // Load note for editing
   useAuthenticatedEffect(() => {
     if (!isEditing || !id) return;
     
@@ -74,8 +53,12 @@ export function NoteEditorPage() {
         setError(null);
         const noteData = await notesService.getNote(id);
         setCurrentNote(noteData);
+        
+        // Load note files
+        const files = await notesService.getNoteFiles(id);
+        setNoteFiles(transformNoteFiles(files, id));
       } catch (err) {
-        setError(err as Error);
+        setError(err instanceof Error ? err.message : 'Failed to load note');
         setCurrentNote(null);
       } finally {
         setIsLoading(false);
@@ -99,6 +82,7 @@ export function NoteEditorPage() {
           name: '',
           title: '',
           content: '',
+          description: '',
           fileCount: 0,
           isFavorite: false,
           isArchived: false,
@@ -109,494 +93,183 @@ export function NoteEditorPage() {
           projects: []
         });
       } catch (err) {
-        console.error('Failed to reserve UUID:', err);
-        setError(err as Error);
+        console.error('Failed to reserve UUID for note:', err);
+        setError(err instanceof Error ? err.message : 'Failed to reserve UUID');
       }
     };
 
     reserveUuid();
   }, [isEditing, reservedUuid]);
 
-  const createNoteMutation = useMutation({
-    mutationFn: notesService.createNote,
-    onSuccess: (newNote) => {
-      queryClient.invalidateQueries({ queryKey: ['notes'] });
-      notifications.show({
-        title: 'Note Created',
-        message: 'Your note has been created successfully',
-        color: 'green'
-      });
-      // After creating a new note, return to the notes listing and highlight the new item
-      navigate('/notes', { state: { highlightNoteId: newNote.uuid } });
-    },
-    onError: () => {
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to create note. Please try again.',
-        color: 'red'
-      });
-    }
-  });
-
-  const updateNoteMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Parameters<typeof notesService.updateNote>[1] }) => notesService.updateNote(id, data),
-    onSuccess: (updatedNote) => {
-      queryClient.invalidateQueries({ queryKey: ['note', id] });
-      queryClient.invalidateQueries({ queryKey: ['notes'] });
-      notifications.show({
-        title: isEditing ? 'Note Updated' : 'Note Created',
-        message: isEditing ? 'Your note has been saved successfully' : 'Your note has been created successfully',
-        color: 'green'
-      });
-      setHasUnsavedChanges(false);
+  // Save mutation
+  const saveMutation = useMutation({
+    mutationFn: async (data: {
+      title: string;
+      content: string;
+      tags: string[];
+      projectIds: string[];
+      isExclusive: boolean;
+    }) => {
+      if (!currentNote) throw new Error('No note to save');
       
-      // For new notes with reserved UUID, navigate to notes list
-      if (!isEditing && reservedUuid) {
-        navigate('/notes', { state: { highlightNoteId: updatedNote.uuid } });
+      const noteData = {
+        name: data.title,
+        title: data.title,
+        content: data.content,
+        tags: data.tags,
+        projects: data.projectIds.map(id => ({ uuid: id, name: '', color: '' })), // Convert to ProjectBadge format
+        isProjectExclusive: data.isExclusive
+      };
+
+      if (isEditing && id) {
+        return await notesService.updateNote(id, noteData);
+      } else {
+        return await notesService.createNote(noteData);
       }
     },
-    onError: () => {
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notes'] });
+      queryClient.invalidateQueries({ queryKey: ['search'] });
+      notifications.show({
+        title: 'Success',
+        message: isEditing ? 'Note updated successfully' : 'Note created successfully',
+        color: 'green'
+      });
+      navigate('/notes');
+    },
+    onError: (error: Error) => {
       notifications.show({
         title: 'Error',
-        message: 'Failed to save note. Please try again.',
+        message: `Failed to save note: ${error}`,
         color: 'red'
       });
     }
   });
 
-  useAuthenticatedEffect(() => {
-    if (isEditing && currentNote) {
-      setTitle(currentNote.title);
-      setContent(currentNote.content);
-      setTags(currentNote.tags);
-      setProjectIds(
-        currentNote.projects
-          ?.filter(p => !p.isDeleted)
-          .map(p => p as any)
-          .map(p => p.uuid)
-          .filter((uuid: string | null | undefined): uuid is string => Boolean(uuid)) || []
-      );
-      setIsExclusive(currentNote.isExclusiveMode || false);
-      setHasUnsavedChanges(false);
-      // Files are loaded by <UnifiedFileSection>; it will call onFilesUpdate(setNoteFiles)
-    } else if (!isEditing) {
-      setTitle('');
-      setContent('');
-      setTags([]);
-      setHasUnsavedChanges(false); // Reset for new note
-      setNoteFiles([]);
-      setAttachmentFile(null);
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      if (!id) throw new Error('No note ID to delete');
+      return await notesService.deleteNote(id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notes'] });
+      queryClient.invalidateQueries({ queryKey: ['search'] });
+      notifications.show({
+        title: 'Success',
+        message: 'Note deleted successfully',
+        color: 'green'
+      });
+      navigate('/notes');
+    },
+    onError: (error: Error) => {
+      notifications.show({
+        title: 'Error',
+        message: `Failed to delete note: ${error}`,
+        color: 'red'
+      });
     }
-  }, [currentNote, isEditing]);
+  });
 
-  useEffect(() => {
-    // Track unsaved changes
-    if (isEditing && currentNote) {
-      const hasChanges = 
-        title !== currentNote.title ||
-        content !== currentNote.content ||
-        JSON.stringify(tags.sort()) !== JSON.stringify(currentNote.tags.sort());
-      setHasUnsavedChanges(hasChanges);
-    } else if (!isEditing) {
-      const hasChanges = title.trim() !== '' || content.trim() !== '';
-      setHasUnsavedChanges(hasChanges);
-    }
-  }, [title, content, tags, currentNote, isEditing]);
+  // Handle save
+  const handleSave = async (data: any) => {
+    await saveMutation.mutateAsync(data);
+  };
 
-  const handleTagSearch = async (query: string) => {
-    if (query.length < 1) {
-      setTagSuggestions([]);
-      return;
-    }
-    
-    try {
-      const tags = await searchService.getTagAutocomplete(query, 'note');
-      setTagSuggestions(tags.map(tag => tag.name));
-    } catch (error) {
-      console.error('Failed to fetch tag suggestions:', error);
-      setTagSuggestions([]);
+  // Handle delete
+  const handleDelete = async () => {
+    if (isEditing && id) {
+      await deleteMutation.mutateAsync();
     }
   };
 
-  const handleSave = async () => {
-    if (!title.trim()) {
-      notifications.show({
-        title: 'Validation Error',
-        message: 'Please enter a title for your note',
-        color: 'red'
-      });
-      return;
-    }
-
-    setIsSaving(true);
-
-    const noteData = {
-      title: title.trim(),
-      content: content.trim(),
-      tags,
-      projectIds: projectIds.length > 0 ? projectIds : undefined,
-      isExclusiveMode: projectIds.length > 0 ? isExclusive : undefined
-    };
-
-    try {
-      if (isEditing) {
-        await updateNoteMutation.mutateAsync({ id: id!, data: noteData });
-      } else {
-        // For new notes with reserved UUID, use update with the reserved UUID
-        if (reservedUuid && currentNote) {
-          await updateNoteMutation.mutateAsync({ id: reservedUuid, data: noteData });
-        } else {
-          await createNoteMutation.mutateAsync(noteData);
+  // Handle cancel with auto-discard
+  const handleCancel = async () => {
+    if (!isEditing && reservedUuid) {
+      // Check if note is empty enough to auto-discard
+      const noteForCheck = {
+        title: currentNote?.title || '',
+        content: currentNote?.content || '',
+        files: noteFiles
+      };
+      
+      if (isEmptyNote(noteForCheck)) {
+        try {
+          await entityReserveService.discard('notes', reservedUuid);
+        } catch (err) {
+          console.error('Failed to discard empty note:', err);
         }
       }
-    } finally {
-      setIsSaving(false);
     }
+    navigate('/notes');
   };
 
-  const handleCancel = () => {
-    const hasAnyFiles = (noteFiles?.length || 0) > 0;
-    const isEmptyReserved = !isEditing && reservedUuid && !title.trim() && !content.trim() && !hasAnyFiles;
-
-    if (isEmptyReserved) {
-      // Auto-discard empty reserved note
-      entityReserveService.discard('notes', reservedUuid!).finally(() => {
-        navigate('/notes');
-      });
-      return;
-    }
-
-    if (hasUnsavedChanges) {
-      if (window.confirm('You have unsaved changes. Are you sure you want to leave?')) {
-        navigate('/notes');
-      }
-    } else {
-      navigate('/notes');
-    }
+  // Handle files update
+  const handleFilesUpdate = (files: UnifiedFileItem[]) => {
+    setNoteFiles(files);
   };
 
-  const handleUploadImage = async () => {
-    if (!isEditing || !currentNote || !attachmentFile) return;
-    try {
-      setIsUploadingAttachment(true);
-      await notesService.uploadFile(attachmentFile, currentNote.uuid);
-      const files = await notesService.getNoteFiles(currentNote.uuid);
-      setNoteFiles(files);
-      setAttachmentFile(null);
-      notifications.show({ title: 'Uploaded', message: 'Image attached to note', color: 'green' });
-    } catch (e) {
-      notifications.show({ title: 'Upload failed', message: 'Could not upload image', color: 'red' });
-    } finally {
-      setIsUploadingAttachment(false);
-    }
-  };
-
-  const handlePreviewImage = async (file: NoteFile) => {
-    try {
-      const blob = await notesService.downloadFile(file.uuid);
-      const url = URL.createObjectURL(blob);
-      setImagePreview({ url, name: file.originalName || 'image' });
-    } catch (e) {
-      notifications.show({ title: 'Preview failed', message: 'Could not load image', color: 'red' });
-    }
-  };
-
-  const handleInsertImageIntoContent = (file: NoteFile) => {
-    // Insert markdown image referencing authenticated download endpoint
-    const url = notesService.getFileDownloadUrl(file.uuid);
-    const toInsert = `\n\n![${file.originalName || 'image'}](${url})\n`;
-    setContent((prev) => (prev || '') + toInsert);
-    notifications.show({ title: 'Inserted', message: 'Image reference added to content', color: 'green' });
-  };
-
-  // Ctrl+S to save
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault();
-        handleSave();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [title, content, tags, isEditing, id]);
-
-  // Autosave for edit mode
-  useEffect(() => {
-    if (!isEditing || !currentNote) return;
-    if (!hasUnsavedChanges) return;
-
-    const timer = setTimeout(() => {
-      const noteData = {
-        title: title.trim(),
-        content: content.trim(),
-        tags
-      };
-      // Do not autosave empty titles
-      if (!noteData.title) return;
-      // Silent autosave without user-facing notification
-      notesService
-        .updateNote(id!, noteData)
-        .then(() => {
-          queryClient.invalidateQueries({ queryKey: ['note', id] });
-          queryClient.invalidateQueries({ queryKey: ['notes'] });
-          setHasUnsavedChanges(false);
-        })
-        .catch(() => {
-          // Optional: surface a subtle warning; keeping silent per UX minimalism
-        });
-    }, 2000);
-
-    return () => clearTimeout(timer);
-  }, [title, content, tags, hasUnsavedChanges, isEditing, currentNote, id]);
-
-  const previewName = imagePreview?.name ?? 'Image';
-  const previewUrl = imagePreview?.url;
-
-  if (isLoading && isEditing) {
+  // Loading state
+  if (isLoading) {
     return (
-      <Container size="xl">
-        <Stack gap="lg">
-          <Skeleton height={60} radius="md" />
-          <Grid>
-            <Grid.Col span={{ base: 12, md: 8 }}>
-              <Skeleton height={400} radius="md" />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 4 }}>
-              <Skeleton height={400} radius="md" />
-            </Grid.Col>
-          </Grid>
-        </Stack>
+      <Container size="md" py="xl">
+        <Skeleton height={400} />
       </Container>
     );
   }
 
+  // Error state
   if (error) {
     return (
-      <Container size="xl">
-        <Alert
-          icon={<IconEdit size={16} />}
-          title="Error loading note"
-          color="red"
-          variant="light"
-        >
-          <Group justify="space-between" align="center">
-            <Text>{error.message}</Text>
-            <Button size="xs" variant="light" onClick={() => { navigate('/notes'); }}>
-              Back to Notes
-            </Button>
-          </Group>
+      <Container size="md" py="xl">
+        <Alert color="red" title="Error">
+          {error}
+        </Alert>
+      </Container>
+    );
+  }
+
+  // No note loaded yet
+  if (!currentNote) {
+    return (
+      <Container size="md" py="xl">
+        <Alert color="yellow" title="Loading">
+          Preparing note editor...
         </Alert>
       </Container>
     );
   }
 
   return (
-    <>
-    <Container size="xl">
-      <Stack gap="lg">
-        {/* Header */}
-        <Group justify="space-between">
-          <div>
-            <Title order={1}>
-              {isEditing ? 'Edit Note' : 'Create Note'}
-            </Title>
-            <Text c="dimmed">
-              {isEditing ? `Editing: ${currentNote?.title}` : 'Write your thoughts in markdown'}
-            </Text>
-          </div>
-          <Group gap="sm">
-            <Button
-              variant="subtle"
-              leftSection={<IconX size={16} />}
-              onClick={handleCancel}
-            >
-              Cancel
-            </Button>
-            <Button
-              leftSection={<IconDeviceFloppy size={16} />}
-              onClick={handleSave}
-              loading={isSaving}
-              disabled={!title.trim()}
-            >
-              {isEditing ? 'Update' : 'Create'} Note
-            </Button>
-          </Group>
-        </Group>
-
-        {hasUnsavedChanges && (
-          <Alert color="yellow" variant="light">
-            You have unsaved changes
-          </Alert>
-        )}
-
-        <Grid>
-          {/* Main Editor */}
-          <Grid.Col span={{ base: 12, md: 8 }}>
-            <Stack gap="md">
-              {/* Title */}
-              <TextInput
-                label="Title"
-                placeholder="Enter note title..."
-                value={title}
-                onChange={(e) => setTitle(e.currentTarget.value)}
-                size="md"
-                required
-              />
-
-              {/* Content Editor */}
-              <div>
-                <Text fw={500} size="sm" mb="xs">Content</Text>
-                <Paper>
-                  <MDEditor
-                    value={content}
-                    onChange={(val) => setContent(val || '')}
-                    preview="edit"
-                    height={500}
-                    data-color-mode={undefined}
-                    visibleDragbar={false}
-                  />
-                </Paper>
-              </div>
-            </Stack>
-          </Grid.Col>
-
-          {/* Sidebar */}
-          <Grid.Col span={{ base: 12, md: 4 }}>
-            <Stack gap="md">
-              {/* Metadata */}
-              <Card shadow="sm" padding="md" radius="md" withBorder>
-                <Title order={4} mb="md">
-                  <Group gap="xs">
-                    <IconFolder size={18} />
-                    Metadata
-                  </Group>
-                </Title>
-                <Stack gap="sm">
-                  <TagsInput
-                    label="Tags"
-                    placeholder="Type to search and add tags"
-                    value={tags}
-                    onChange={setTags}
-                    data={tagSuggestions}
-                    clearable
-                    onSearchChange={handleTagSearch}
-                    splitChars={[',', ' ']}
-                    description="Add multiple tags separated by comma or space. Start typing to see suggestions."
-                  />
-                  
-                  <MultiProjectSelector
-                    value={projectIds}
-                    onChange={setProjectIds}
-                    isExclusive={isExclusive}
-                    onExclusiveChange={setIsExclusive}
-                    description="Link this note to one or more projects"
-                  />
-                </Stack>
-              </Card>
-
-              {/* Attachments */}
-              <UnifiedFileSection
-                module="notes"
-                entityId={currentNote?.uuid || ''}
-                files={noteFiles as any}
-                onFilesUpdate={setNoteFiles as any}
-                showUpload={Boolean(currentNote?.uuid)}
-                showAudioRecorder={Boolean(currentNote?.uuid)}
-                enableDragDrop={Boolean(currentNote?.uuid)}
-              />
-
-              {/* Preview */}
-              <Card shadow="sm" padding="md" radius="md" withBorder>
-                <Title order={4} mb="md">
-                  <Group gap="xs">
-                    <IconEye size={18} />
-                    Preview
-                  </Group>
-                </Title>
-                
-                <Stack gap="xs">
-                  {title && (
-                    <div>
-                      <Text size="sm" c="dimmed" mb="xs">Title</Text>
-                      <Text fw={600}>{title}</Text>
-                    </div>
-                  )}
-                  
-                  {tags.length > 0 && (
-                    <div>
-                      <Text size="sm" c="dimmed" mb="xs">Tags</Text>
-                      <Group gap="xs">
-                        {tags.map(tag => (
-                          <Badge key={tag} variant="outline" size="sm">
-                            {tag}
-                          </Badge>
-                        ))}
-                      </Group>
-                    </div>
-                  )}
-                  
-                  {content && (
-                    <div>
-                      <Text size="sm" c="dimmed" mb="xs">Content Preview</Text>
-                      <Text size="sm" lineClamp={3}>
-                        {content.replace(/[#*`]/g, '').substring(0, 100)}...
-                      </Text>
-                    </div>
-                  )}
-                </Stack>
-              </Card>
-
-              {/* Help */}
-              <Card shadow="sm" padding="md" radius="md" withBorder>
-                <Title order={4} mb="md">
-                  <Group gap="xs">
-                    <IconMarkdown size={18} />
-                    Markdown Tips
-                  </Group>
-                </Title>
-                
-                <Stack gap="xs">
-                  <Text size="xs" c="dimmed">
-                    <strong># Header</strong> - Creates a heading
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    <strong>**bold**</strong> - Makes text bold
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    <strong>*italic*</strong> - Makes text italic
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    <strong>[[Note Title]]</strong> - Links to other notes
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    <strong>- item</strong> - Creates a bullet list
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    <strong>`code`</strong> - Inline code formatting
-                  </Text>
-                </Stack>
-              </Card>
-            </Stack>
-          </Grid.Col>
-        </Grid>
-      </Stack>
+    <Container size="md" py="xl">
+      <UnifiedContentModal
+        opened={true}
+        onClose={handleCancel}
+        mode={isEditing ? 'edit' : 'create'}
+        module="notes"
+        entityId={reservedUuid || id || ''}
+        initialData={{
+          title: currentNote.title || '',
+          content: currentNote.content || '',
+          tags: currentNote.tags || [],
+          projectIds: currentNote.projects?.map(p => p.uuid).filter((uuid): uuid is string => Boolean(uuid)) || [],
+          isExclusive: currentNote.isProjectExclusive || false,
+          createdAt: currentNote.createdAt,
+          updatedAt: currentNote.updatedAt,
+          isArchived: currentNote.isArchived || false
+        }}
+        files={noteFiles}
+        onFilesUpdate={handleFilesUpdate}
+        onSave={handleSave}
+        onDelete={isEditing ? handleDelete : undefined}
+        isSaving={saveMutation.isPending || deleteMutation.isPending}
+        isLoading={isLoading}
+        error={error}
+        showProjects={true}
+        showDiaryFields={false}
+        showTemplateSelection={false}
+        enableDragDrop={true}
+      />
     </Container>
-
-    {/* Image Preview Modal for attachments */}
-    <Modal
-      opened={!!imagePreview}
-      onClose={() => setImagePreview(null)}
-      title={previewName}
-      size="auto"
-      centered
-    >
-      {previewUrl && (
-        <div style={{ maxWidth: '90vw', maxHeight: '80vh' }}>
-          <Image src={previewUrl} alt={previewName} fit="contain" h={400} radius="md" />
-        </div>
-      )}
-    </Modal>
-    </>
   );
-} 
+}

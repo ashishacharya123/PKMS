@@ -224,12 +224,12 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                     </Group>
                   </Grid.Col>
                 )}
-                {weatherCode !== undefined && weatherCode > 0 && (
+                {weatherCode !== undefined && weatherCode >= 0 && (
                   <Grid.Col span={4}>
                     <Group gap="xs">
                       <IconCloudRain size={16} />
                       <Text size="sm" fw={500}>Weather:</Text>
-                      <Text size="sm">{weatherLabels[weatherCode]}</Text>
+                      <Text size="sm">{weatherLabels[Math.min(weatherLabels.length - 1, Math.max(0, weatherCode))]}</Text>
                     </Group>
                   </Grid.Col>
                 )}
@@ -304,7 +304,10 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
         <Card withBorder p="md">
           <Title order={5} mb="md">Content</Title>
           <Paper p="md" withBorder>
-            <MDEditor.Markdown source={content} />
+            <MDEditor.Markdown 
+              source={content} 
+              data-color-mode="light"
+            />
           </Paper>
         </Card>
 

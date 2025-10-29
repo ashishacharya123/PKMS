@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useAuthenticatedEffectAlways } from '../hooks/useAuthenticatedEffect';
 import { useNavigate } from 'react-router-dom';
+import { LoadingState } from '../components/common/LoadingState';
+import { ErrorState } from '../components/common/ErrorState';
 import {
   Container,
-  Title,
   Text,
   Group,
   Stack,
@@ -14,43 +15,40 @@ import {
   Grid,
   Modal,
   Textarea,
-  ColorInput,
   Alert,
   LoadingOverlay
 } from '@mantine/core';
 import {
-  IconPlus,
   IconSearch,
-  IconArchive,
-  IconArchiveOff,
   IconFolder,
-  IconFolders,
   IconCircleCheck,
   IconAlertCircle
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { todosService, Project } from '../services/todosService';
 import { ActionMenu } from '../components/common/ActionMenu';
-import { ModuleLayout } from '../components/common/ModuleLayout';
 import { ModuleHeader } from '../components/common/ModuleHeader';
 import { ModuleFilters, getModuleFilterConfig } from '../components/common/ModuleFilters';
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import { DuplicationModal } from '../components/common/DuplicationModal';
 import { duplicationService, ProjectDuplicateRequest } from '../services/duplicationService';
 import { EmptyState } from '../components/common/EmptyState';
+import { entityReserveService } from '../services/entityReserveService';
+import { isEmptyProject } from '../utils/save_discard_verification';
 
 export function ProjectsPage() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showArchived, setShowArchived] = useState(false);
+  const [showArchived] = useState(false);
   
   // Modular components state
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [filters, setFilters] = useState({
-    sortBy: 'name',
-    sortOrder: 'asc',
+    sortBy: 'name' as const,
+    sortOrder: 'asc' as const,
     favorites: false,
     showArchived: false
   });
@@ -64,11 +62,14 @@ export function ProjectsPage() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [duplicating, setDuplicating] = useState(false);
   
+  // Optimistic UUID state
+  const [reservedProjectUuid, setReservedProjectUuid] = useState<string | null>(null);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  
   // Form states
   const [formData, setFormData] = useState({
     name: '',
-    description: '',
-    color: '#228be6'
+    description: ''
   });
 
   useAuthenticatedEffectAlways(() => {
@@ -82,14 +83,70 @@ export function ProjectsPage() {
       setProjects(data);
     } catch (error) {
       console.error('Failed to load projects:', error);
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to load projects',
-        color: 'red'
-      });
+      setLoadError('Failed to load projects');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Reserve UUID for new project
+  if (loading && projects.length === 0) {
+    return <LoadingState message="Loading projects..." />;
+  }
+
+  if (loadError) {
+    return <ErrorState message={loadError} onRetry={loadProjects} />;
+  }
+  const reserveProjectUuid = async () => {
+    try {
+      const { uuid } = await entityReserveService.reserve('projects');
+      setReservedProjectUuid(uuid);
+      return uuid;
+    } catch (error) {
+      console.error('Failed to reserve UUID for project:', error);
+      throw error;
+    }
+  };
+
+  // Handle modal open with UUID reservation
+  const handleModalOpen = async () => {
+    try {
+      setIsCreatingProject(true);
+      await reserveProjectUuid();
+      setCreateModalOpen(true);
+    } catch (error) {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to prepare project creation',
+        color: 'red'
+      });
+    } finally {
+      setIsCreatingProject(false);
+    }
+  };
+
+  // Handle modal close with auto-discard
+  const handleModalClose = async () => {
+    if (reservedProjectUuid) {
+      // Check if project is empty enough to auto-discard
+      const projectForCheck = {
+        name: formData.name,
+        description: formData.description || '',
+        files: [] // Projects don't have files in this context
+      };
+      
+      if (isEmptyProject(projectForCheck)) {
+        try {
+          await entityReserveService.discard('projects', reservedProjectUuid);
+        } catch (err) {
+          console.error('Failed to discard empty project:', err);
+        }
+      }
+    }
+    
+    setCreateModalOpen(false);
+    setReservedProjectUuid(null);
+    setFormData({ name: '', description: '' });
   };
 
   const handleCreate = async () => {
@@ -105,8 +162,7 @@ export function ProjectsPage() {
     try {
       await todosService.createProject({
         name: formData.name.trim(),
-        description: formData.description.trim(),
-        color: formData.color
+        description: formData.description.trim()
       });
       
       notifications.show({
@@ -116,7 +172,8 @@ export function ProjectsPage() {
       });
       
       setCreateModalOpen(false);
-      setFormData({ name: '', description: '', color: '#228be6' });
+      setReservedProjectUuid(null);
+      setFormData({ name: '', description: '' });
       loadProjects();
     } catch (error) {
       notifications.show({
@@ -133,8 +190,7 @@ export function ProjectsPage() {
     try {
       await todosService.updateProject(selectedProject.uuid!, {
         name: formData.name.trim(),
-        description: formData.description.trim(),
-        color: formData.color
+        description: formData.description.trim()
       });
       
       notifications.show({
@@ -145,7 +201,7 @@ export function ProjectsPage() {
       
       setEditModalOpen(false);
       setSelectedProject(null);
-      setFormData({ name: '', description: '', color: '#228be6' });
+      setFormData({ name: '', description: '' });
       loadProjects();
     } catch (error) {
       notifications.show({
@@ -203,16 +259,11 @@ export function ProjectsPage() {
     setSelectedProject(project);
     setFormData({
       name: project.name,
-      description: project.description || '',
-      color: project.color
+      description: project.description || ''
     });
     setEditModalOpen(true);
   };
 
-  const handleDuplicate = (project: Project) => {
-    setSelectedProject(project);
-    setDuplicateModalOpen(true);
-  };
 
   const handleDuplicateConfirm = async (data: any) => {
     if (!selectedProject) return;
@@ -259,8 +310,8 @@ export function ProjectsPage() {
   );
 
   const getCompletionPercentage = (project: Project) => {
-    if (project.todo_count === 0) return 0;
-    return Math.round((project.completed_count / project.todo_count) * 100);
+    if (project.todoCount === 0) return 0;
+    return Math.round((project.completedCount / project.todoCount) * 100);
   };
 
   return (
@@ -271,7 +322,7 @@ export function ProjectsPage() {
           title="📁 Projects"
           itemCount={filteredProjects.length}
           onRefresh={loadProjects}
-          onCreate={() => setCreateModalOpen(true)}
+          onCreate={handleModalOpen}
           showFilters={true}
           showCreate={true}
           showRefresh={true}
@@ -314,7 +365,7 @@ export function ProjectsPage() {
               title={searchQuery ? 'No projects found' : showArchived ? 'No archived projects' : 'No projects yet'}
               description={searchQuery ? 'Try a different search term' : 'Create your first project to get started'}
               actionLabel={!searchQuery && !showArchived ? 'Create Project' : undefined}
-              onAction={!searchQuery && !showArchived ? () => setCreateModalOpen(true) : undefined}
+              onAction={!searchQuery && !showArchived ? handleModalOpen : undefined}
             />
           ) : (
             <Grid>
@@ -328,7 +379,6 @@ export function ProjectsPage() {
                       withBorder
                       style={{ 
                         cursor: 'pointer',
-                        borderLeft: `4px solid ${project.color}`,
                         transition: 'transform 0.2s, box-shadow 0.2s',
                         ':hover': {
                           transform: 'translateY(-2px)',
@@ -346,7 +396,7 @@ export function ProjectsPage() {
                                 width: 12,
                                 height: 12,
                                 borderRadius: '50%',
-                                backgroundColor: project.color,
+                                backgroundColor: '#228be6',
                                 flexShrink: 0
                               }}
                             />
@@ -356,7 +406,6 @@ export function ProjectsPage() {
                           </Group>
                           <ActionMenu
                             onEdit={() => openEditModal(project)}
-                            onDuplicate={() => handleDuplicate(project)}
                             onArchive={project.isArchived ? undefined : () => handleArchiveToggle(project)}
                             onUnarchive={project.isArchived ? () => handleArchiveToggle(project) : undefined}
                             onDelete={() => handleDelete(project)}
@@ -376,18 +425,18 @@ export function ProjectsPage() {
 
                         {/* Stats */}
                         <Group gap="xs">
-                          <Badge size="sm" variant="light" color={project.color}>
-                            {project.todo_count} tasks
+                          <Badge size="sm" variant="light" color="blue">
+                            {project.todoCount} tasks
                           </Badge>
-                          {project.completed_count > 0 && (
+                          {project.completedCount > 0 && (
                             <Badge size="sm" variant="light" color="green" leftSection={<IconCircleCheck size={12} />}>
-                              {project.completed_count} done
+                              {project.completedCount} done
                             </Badge>
                           )}
                         </Group>
 
                         {/* Progress */}
-                        {project.todo_count > 0 && (
+                        {project.todoCount > 0 && (
                           <Stack gap={4}>
                             <Group justify="space-between">
                               <Text size="xs" c="dimmed">Progress</Text>
@@ -402,7 +451,7 @@ export function ProjectsPage() {
                               <div style={{ 
                                 height: '100%', 
                                 width: `${completionPct}%`,
-                                background: project.color,
+                                background: '#228be6',
                                 transition: 'width 0.3s'
                               }} />
                             </div>
@@ -431,10 +480,7 @@ export function ProjectsPage() {
       {/* Create Project Modal */}
       <Modal
         opened={createModalOpen}
-        onClose={() => {
-          setCreateModalOpen(false);
-          setFormData({ name: '', description: '', color: '#228be6' });
-        }}
+        onClose={handleModalClose}
         title="Create New Project"
         size="md"
       >
@@ -453,18 +499,11 @@ export function ProjectsPage() {
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             minRows={3}
           />
-          <ColorInput
-            label="Project Color"
-            value={formData.color}
-            onChange={(color) => setFormData({ ...formData, color })}
-            format="hex"
-            swatches={['#228be6', '#fa5252', '#40c057', '#fab005', '#be4bdb', '#fd7e14', '#15aabf']}
-          />
           <Group justify="flex-end" mt="md">
-            <Button variant="subtle" onClick={() => setCreateModalOpen(false)}>
+            <Button variant="subtle" onClick={handleModalClose}>
               Cancel
             </Button>
-            <Button onClick={handleCreate}>
+            <Button onClick={handleCreate} loading={isCreatingProject}>
               Create Project
             </Button>
           </Group>
@@ -477,7 +516,7 @@ export function ProjectsPage() {
         onClose={() => {
           setEditModalOpen(false);
           setSelectedProject(null);
-          setFormData({ name: '', description: '', color: '#228be6' });
+          setFormData({ name: '', description: '' });
         }}
         title="Edit Project"
         size="md"
@@ -496,13 +535,6 @@ export function ProjectsPage() {
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             minRows={3}
-          />
-          <ColorInput
-            label="Project Color"
-            value={formData.color}
-            onChange={(color) => setFormData({ ...formData, color })}
-            format="hex"
-            swatches={['#228be6', '#fa5252', '#40c057', '#fab005', '#be4bdb', '#fd7e14', '#15aabf']}
           />
           <Group justify="flex-end" mt="md">
             <Button variant="subtle" onClick={() => setEditModalOpen(false)}>
@@ -523,11 +555,11 @@ export function ProjectsPage() {
         size="lg"
       >
         <ModuleFilters
-          filters={filters}
-          onFiltersChange={setFilters}
-          activeFiltersCount={Object.values(filters).filter(v => Array.isArray(v) ? v.length > 0 : v !== false && v !== 'all' && v !== 'name' && v !== 'asc').length}
+          filters={filters as any}
+          onFiltersChange={(newFilters) => setFilters(newFilters as any)}
+          activeFiltersCount={Object.values(filters).filter(v => Array.isArray(v) ? v.length > 0 : v !== false && v !== 'asc').length}
           showFavorites={filterConfig.showFavorites}
-          showMimeTypes={filterConfig.showMimeTypes}
+          showMimeTypes={false}
           showDateRange={filterConfig.showDateRange}
           showArchived={filterConfig.showArchived}
           showSorting={filterConfig.showSorting}

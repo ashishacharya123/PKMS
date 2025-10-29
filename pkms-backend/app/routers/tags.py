@@ -14,6 +14,7 @@ from app.database import get_db
 from app.models.tag import Tag
 from app.auth.dependencies import get_current_user
 from app.schemas.tag import TagResponse
+from app.decorators.error_handler import handle_api_errors
 from app.models.user import User
 
 router = APIRouter(tags=["Tags"])
@@ -24,6 +25,7 @@ _CACHE_TTL_S = 5  # seconds
 
 
 @router.get("/autocomplete", response_model=List[TagResponse])
+@handle_api_errors("autocomplete tags")
 async def autocomplete_tags(
     q: str = Query("", description="Tag search query"),
     module_type: Optional[str] = Query(None, description="Filter by module type"),

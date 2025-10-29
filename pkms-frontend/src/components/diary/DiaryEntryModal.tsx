@@ -1,83 +1,30 @@
-import { useState, useEffect } from 'react';
-
 /**
- * DiaryEntryModal - Comprehensive diary entry creation modal with optimistic UUID pattern
- *
+ * DiaryEntryModal - Simplified diary entry creation using ContentEditor
+ * 
  * PURPOSE:
  * ========
- * Provides a complete interface for creating diary entries with immediate file upload capabilities.
- * Uses optimistic UUID reservation to enable file operations before the entry is saved.
- * Integrates mood tracking, weather logging, and multi-media support for rich journaling.
- *
- * KEY FEATURES:
- * ============
- * - Optimistic UUID: Reserves UUID on modal open, enables immediate file uploads
- * - Date Selection: Full date picker with calendar integration
- * - Mood Tracking: 5-point mood scale with visual indicators
- * - Weather Logging: Weather condition selection for mood correlation
- * - File Uploads: Immediate file upload, paste-to-upload, and audio recording
- * - Auto-Discard: Automatically removes empty entries on modal close
- * - Encryption Support: Integrates with diary encryption system
- *
- * FUNCTIONS:
- * ==========
- * - reserveUuid(): Reserves UUID for optimistic creation
- * - handleSubmit(): Validates and saves the diary entry
- * - handleCancel(): Handles modal close with auto-discard logic
- * - isEmptyEntry(): Determines if entry is empty enough to discard
- * - getWeatherCode(): Converts weather selection to numeric code
- *
- * INTEGRATION:
- * ============
- * - Uses entityReserveService for UUID reservation and discard operations
- * - Integrates with useDiaryStore for diary operations and encryption
- * - Uses UnifiedFileSection for consistent file handling across modules
- * - Supports toast notifications via save_discard_verification helpers
- *
- * UX PATTERNS:
- * ============
- * - Success notification on UUID reservation ("Ready for files")
- * - Discard notification on empty entry removal ("Draft discarded")
- * - Error handling with user-friendly messages
- * - Form validation with clear feedback
- * - Auto-focus on first input field
- *
- * @example
- * ```tsx
- * <DiaryEntryModal
- *   opened={isModalOpen}
- *   onClose={handleClose}
- *   initialDate={new Date()}
- * />
- * ```
+ * Provides diary entry creation functionality using the unified content editor architecture.
+ * Handles optimistic UUID reservation and auto-discard of empty entries.
+ * 
+ * ARCHITECTURE:
+ * =============
+ * - Uses ContentEditor for all editing operations
+ * - Integrates with entityReserveService for optimistic UUID
+ * - Handles auto-discard of empty entries on cancel
+ * - Uses isEmptyDiaryEntry helper for validation
+ * 
+ * @author AI Agent: Claude Sonnet 4.5
+ * @date 2025-10-29
  */
-import {
-  Modal,
-  TextInput,
-  Textarea,
-  Button,
-  Group,
-  Stack,
-  Select,
-  NumberInput,
-  Alert,
-  Text,
-} from '@mantine/core';
-import {
-  IconDeviceFloppy,
-  IconX,
-  IconCloudRain,
-  IconSun,
-  IconCloud,
-  IconMoodSad,
-  IconMoodHappy,
-} from '@tabler/icons-react';
-import { DatePickerInput } from '@mantine/dates';
+
+import { useState, useEffect } from 'react';
+import { Modal, Alert } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useDiaryStore } from '../../stores/diaryStore';
 import { entityReserveService } from '../../services/entityReserveService';
-import { isEmptyDiaryEntry, DiaryEntryEntity } from '../../utils/save_discard_verification';
-import { UnifiedFileSection } from '../file/UnifiedFileSection';
+import { isEmptyDiaryEntry } from '../../utils/save_discard_verification';
+import { ContentEditor } from '../common/ContentEditor';
+import { UnifiedFileItem } from '../../services/unifiedFileService';
 
 interface DiaryEntryModalProps {
   opened: boolean;
@@ -85,275 +32,204 @@ interface DiaryEntryModalProps {
   initialDate?: Date;
 }
 
-// Mood options with icons
-const moodOptions = [
-  { value: 1, label: 'Very Bad', icon: IconMoodSad, color: 'red' },
-  { value: 2, label: 'Bad', icon: IconMoodSad, color: 'orange' },
-  { value: 3, label: 'Neutral', icon: IconCloud, color: 'gray' },
-  { value: 4, label: 'Good', icon: IconMoodHappy, color: 'blue' },
-  { value: 5, label: 'Very Good', icon: IconSun, color: 'green' },
-];
-
 export function DiaryEntryModal({ opened, onClose, initialDate }: DiaryEntryModalProps) {
   const { createEntry, encryptionKey } = useDiaryStore();
 
-  // Form state
+  // State
+  const [reservedUuid, setReservedUuid] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [entryFiles, setEntryFiles] = useState<UnifiedFileItem[]>([]);
+  
+  // Entry form state
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [selectedDate, setSelectedDate] = useState<Date | null>(initialDate || new Date());
-  const [mood, setMood] = useState<number | null>(null);
-  const [weather, setWeather] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [tags, setTags] = useState<string[]>([]);
+  const [mood, setMood] = useState<number | undefined>(undefined);
+  const [weatherCode, setWeatherCode] = useState<number | undefined>(undefined);
+  const [location, setLocation] = useState('');
+  const [entryDate, setEntryDate] = useState<Date>(initialDate || new Date());
 
-  // Optimistic UUID state
-  const [reservedUuid, setReservedUuid] = useState<string | null>(null);
-  const [entryFiles, setEntryFiles] = useState<any[]>([]);
-  const [isCreating, setIsCreating] = useState(false);
-
-  // Weather options
-  const weatherOptions = [
-    { value: 'sunny', label: '☀️ Sunny' },
-    { value: 'cloudy', label: '☁️ Cloudy' },
-    { value: 'rainy', label: '🌧️ Rainy' },
-    { value: 'snowy', label: '❄️ Snowy' },
-    { value: 'stormy', label: '⛈️ Stormy' },
-  ];
-
-  // Reset form when modal opens/closes
+  // Reserve UUID on modal open
   useEffect(() => {
-    if (opened) {
-      resetForm();
-      // Reserve UUID immediately when modal opens
-      reserveUuid();
-    } else {
-      // Cleanup on close
-      if (reservedUuid && isCreating && isEmptyEntry()) {
-        entityReserveService.discard('diary', reservedUuid);
+    if (!opened || reservedUuid) return;
+
+    const reserveUuid = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const date = initialDate || new Date();
+        const dateStr = date.toISOString().split('T')[0];
+        const { uuid } = await entityReserveService.reserve('diary', { date: dateStr });
+        setReservedUuid(uuid);
+      } catch (err) {
+        console.error('Failed to reserve UUID for diary entry:', err);
+        setError(err instanceof Error ? err.message : 'Failed to reserve UUID');
+      } finally {
+        setIsLoading(false);
       }
+    };
+
+    reserveUuid();
+  }, [opened, reservedUuid, initialDate]);
+
+  // Reset state when modal closes
+  useEffect(() => {
+    if (!opened) {
       setReservedUuid(null);
-      setIsCreating(false);
+      setError(null);
+      setEntryFiles([]);
     }
   }, [opened]);
 
-  const resetForm = () => {
-    setTitle('');
-    setContent('');
-    setSelectedDate(initialDate || new Date());
-    setMood(null);
-    setWeather(null);
-    setEntryFiles([]);
-    setIsCreating(false);
-  };
-
-  const isEmptyEntry = (): boolean => {
-    const entryForCheck: Partial<DiaryEntryEntity> = {
-      title,
-      content,
-      files: entryFiles,
-      mood: mood || undefined,
-    };
-    return isEmptyDiaryEntry(entryForCheck);
-  };
-
-  const reserveUuid = async () => {
-    if (!selectedDate) return;
-
-    try {
-      setIsCreating(true);
-      const dateStr = selectedDate.toISOString().split('T')[0]; // YYYY-MM-DD
-      const { uuid } = await entityReserveService.reserve('diary', { date: dateStr });
-      setReservedUuid(uuid);
-    } catch (error) {
-      console.error('Failed to reserve diary entry:', error);
-      notifications.show({
-        title: 'Failed to prepare entry',
-        message: 'Could not enable file uploads',
-        color: 'red',
-      });
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (!selectedDate) {
-      notifications.show({
-        title: 'Date required',
-        message: 'Please select a date for your diary entry',
-        color: 'orange',
-      });
-      return;
-    }
-
-    if (!title.trim() && !content.trim() && !mood && !entryFiles.length) {
-      notifications.show({
-        title: 'Empty entry',
-        message: 'Please add some content to your diary entry',
-        color: 'orange',
-      });
-      return;
+  // Handle save
+  const handleSave = async (data: {
+    title: string;
+    content: string;
+    tags: string[];
+    mood?: number;
+    weatherCode?: number;
+    location?: string;
+  }) => {
+    if (!reservedUuid) {
+      throw new Error('No reserved UUID available');
     }
 
     try {
-      setIsSubmitting(true);
-
-      const dateStr = selectedDate.toISOString().split('T')[0];
       const entryData = {
-        title: title.trim() || undefined,
-        content: content.trim() || undefined,
-        date: dateStr,
-        mood: mood || undefined,
-        weather_code: weather ? getWeatherCode(weather) : undefined,
+        title: data.title,
+        content: data.content,
+        tags: data.tags,
+        mood: data.mood,
+        weatherCode: data.weatherCode,
+        location: data.location,
+        date: entryDate
       };
 
-      const success = await createEntry(entryData);
-
-      if (success) {
-        notifications.show({
-          title: 'Entry saved',
-          message: 'Your diary entry has been saved successfully',
-          color: 'green',
-        });
-        onClose();
-      } else {
-        notifications.show({
-          title: 'Save failed',
-          message: 'Could not save diary entry',
-          color: 'red',
-        });
-      }
-    } catch (error) {
-      console.error('Failed to save diary entry:', error);
+      await createEntry(entryData);
+      
       notifications.show({
-        title: 'Save failed',
-        message: 'An error occurred while saving',
-        color: 'red',
+        title: 'Success',
+        message: 'Diary entry created successfully',
+        color: 'green'
       });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleCancel = () => {
-    // Auto-discard empty reserved entry
-    if (reservedUuid && isCreating && isEmptyEntry()) {
-      entityReserveService.discard('diary', reservedUuid).finally(() => {
-        onClose();
-      });
-    } else {
+      
       onClose();
+    } catch (err) {
+      console.error('Failed to create diary entry:', err);
+      throw err;
     }
   };
 
-  const getWeatherCode = (weather: string): number => {
-    const weatherMap: Record<string, number> = {
-      sunny: 1,
-      cloudy: 2,
-      rainy: 3,
-      snowy: 4,
-      stormy: 5,
-    };
-    return weatherMap[weather] || 0;
+  // Handle cancel with auto-discard
+  const handleCancel = async () => {
+    if (reservedUuid) {
+      // Check if entry is empty enough to auto-discard
+      const entryForCheck = {
+        title,
+        content,
+        tags,
+        mood,
+        weatherCode,
+        location,
+        files: entryFiles
+      };
+      
+      if (isEmptyDiaryEntry(entryForCheck)) {
+        try {
+          await entityReserveService.discard('diary', reservedUuid);
+        } catch (err) {
+          console.error('Failed to discard empty diary entry:', err);
+        }
+      }
+    }
+    
+    // Reset form state
+    setTitle('');
+    setContent('');
+    setTags([]);
+    setMood(undefined);
+    setWeatherCode(undefined);
+    setLocation('');
+    setEntryDate(initialDate || new Date());
+    setEntryFiles([]);
+    
+    setReservedUuid(null);
+    setIsLoading(false);
+    setError(null);
+    onClose();
   };
+
+  // Handle files update
+  const handleFilesUpdate = (files: UnifiedFileItem[]) => {
+    setEntryFiles(files);
+  };
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <Modal opened={opened} onClose={onClose} title="Creating Entry" size="lg">
+        <Alert color="blue" title="Preparing">
+          Setting up your diary entry...
+        </Alert>
+      </Modal>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <Modal opened={opened} onClose={onClose} title="Error" size="lg">
+        <Alert color="red" title="Error">
+          {error}
+        </Alert>
+      </Modal>
+    );
+  }
+
+  // No UUID reserved yet
+  if (!reservedUuid) {
+    return (
+      <Modal opened={opened} onClose={onClose} title="Creating Entry" size="lg">
+        <Alert color="yellow" title="Loading">
+          Preparing diary entry...
+        </Alert>
+      </Modal>
+    );
+  }
 
   return (
-    <Modal
-      opened={opened}
-      onClose={handleCancel}
-      title="New Diary Entry"
-      size="lg"
-      overlayProps={{ blur: 4 }}
-    >
-      <Stack gap="md">
-        {/* Date Selection */}
-        <DatePickerInput
-          label="Entry Date"
-          placeholder="Select date"
-          value={selectedDate}
-          onChange={setSelectedDate}
-          required
-          maxDate={new Date()}
-          clearable={false}
-        />
-
-        {/* Title */}
-        <TextInput
-          label="Title (optional)"
-          placeholder="Give your entry a title..."
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-
-        {/* Content */}
-        <Textarea
-          label="Your Thoughts"
-          placeholder="Write about your day, your feelings, whatever comes to mind..."
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          minRows={4}
-          autosize
-        />
-
-        {/* Mood and Weather */}
-        <Group grow>
-          <Select
-            label="Mood"
-            placeholder="How are you feeling?"
-            data={moodOptions.map(option => ({
-              value: option.value.toString(),
-              label: option.label,
-            }))}
-            value={mood?.toString()}
-            onChange={(value) => setMood(value ? parseInt(value) : null)}
-            clearable
-          />
-
-          <Select
-            label="Weather"
-            placeholder="What's the weather like?"
-            data={weatherOptions}
-            value={weather}
-            onChange={setWeather}
-            clearable
-          />
-        </Group>
-
-        {/* File Upload Section */}
-        {reservedUuid && (
-          <div>
-            <Text size="sm" fw={500} mb="xs">
-              Attachments
-            </Text>
-            <UnifiedFileSection
-              module="diary"
-              entityId={reservedUuid}
-              files={entryFiles}
-              onFilesUpdate={setEntryFiles}
-              showUpload={true}
-              showAudioRecorder={true}
-              enableDragDrop={true}
-              encryptionKey={encryptionKey}
-            />
-          </div>
-        )}
-
-        {/* Action Buttons */}
-        <Group justify="flex-end" gap="sm">
-          <Button
-            variant="light"
-            onClick={handleCancel}
-            leftSection={<IconX size={16} />}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            loading={isSubmitting}
-            disabled={!selectedDate}
-            leftSection={<IconDeviceFloppy size={16} />}
-          >
-            Save Entry
-          </Button>
-        </Group>
-      </Stack>
+    <Modal opened={opened} onClose={handleCancel} title="New Diary Entry" size="xl">
+      <ContentEditor
+        title={title}
+        content={content}
+        tags={tags}
+        mood={mood}
+        weatherCode={weatherCode}
+        location={location}
+        date={entryDate}
+        files={entryFiles}
+        module="diary"
+        entityId={reservedUuid || ''}
+        onTitleChange={setTitle}
+        onContentChange={setContent}
+        onTagsChange={setTags}
+        onMoodChange={setMood}
+        onWeatherCodeChange={setWeatherCode}
+        onLocationChange={setLocation}
+        onDateChange={setEntryDate}
+        onSave={handleSave}
+        onCancel={handleCancel}
+        isSaving={isLoading}
+        isLoading={isLoading}
+        error={error}
+        showDiaryFields={true}
+        showProjects={false}
+        showTemplateSelection={false}
+        enableDragDrop={true}
+        onFilesUpdate={handleFilesUpdate}
+        encryptionKey={encryptionKey}
+      />
     </Modal>
   );
 }

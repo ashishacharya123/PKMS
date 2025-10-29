@@ -22,31 +22,25 @@ from app.schemas.todo import TodoCreate, TodoUpdate, TodoResponse
 from app.services.todo_crud_service import todo_crud_service
 from app.services.todo_workflow_service import todo_workflow_service
 from app.services.todo_dependency_service import todo_dependency_service
+from app.decorators.error_handler import handle_api_errors
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.post("/", response_model=TodoResponse)
+@handle_api_errors("create todo")
 async def create_todo(
     todo_data: TodoCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new todo"""
-    try:
-        return await todo_crud_service.create_todo(db, current_user.uuid, todo_data)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Error creating todo for user %s", current_user.uuid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create todo"
-        ) from e
+    return await todo_crud_service.create_todo(db, current_user.uuid, todo_data)
 
 
 @router.get("/", response_model=List[TodoResponse])
+@handle_api_errors("list todos")
 async def list_todos(
     todo_status: Optional[str] = Query(None, description="Filter by status"),
     priority: Optional[str] = Query(None, description="Filter by priority"),
@@ -62,60 +56,36 @@ async def list_todos(
     db: AsyncSession = Depends(get_db)
 ):
     """List todos with filters and pagination"""
-    try:
-        return await todo_crud_service.list_todos(
-            db, current_user.uuid, todo_status, priority, project_uuid,
-            is_favorite, is_archived, due_date_from, due_date_to,
-            search, limit, offset
-        )
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error listing todos for user %s", current_user.uuid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list todos"
-        )
+    return await todo_crud_service.list_todos(
+        db, current_user.uuid, todo_status, priority, project_uuid,
+        is_favorite, is_archived, due_date_from, due_date_to,
+        search, limit, offset
+    )
 
 
 @router.get("/deleted", response_model=List[TodoResponse])
+@handle_api_errors("list deleted todos")
 async def list_deleted_todos(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """List deleted todos for Recycle Bin."""
-    try:
-        return await todo_crud_service.list_deleted_todos(db, current_user.uuid)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error listing deleted todos")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list deleted todos"
-        )
+    return await todo_crud_service.list_deleted_todos(db, current_user.uuid)
 
 
 @router.get("/{todo_uuid}", response_model=TodoResponse)
+@handle_api_errors("get todo")
 async def get_todo(
     todo_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get single todo with all related data"""
-    try:
-        return await todo_crud_service.get_todo(db, current_user.uuid, todo_uuid)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error getting todo %s", todo_uuid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get todo"
-        )
+    return await todo_crud_service.get_todo(db, current_user.uuid, todo_uuid)
 
 
 @router.put("/{todo_uuid}", response_model=TodoResponse)
+@handle_api_errors("update todo")
 async def update_todo(
     todo_uuid: str,
     update_data: TodoUpdate,
@@ -123,77 +93,45 @@ async def update_todo(
     db: AsyncSession = Depends(get_db)
 ):
     """Update todo with validation and status management"""
-    try:
-        return await todo_crud_service.update_todo(db, current_user.uuid, todo_uuid, update_data)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error updating todo %s", todo_uuid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update todo"
-        )
+    return await todo_crud_service.update_todo(db, current_user.uuid, todo_uuid, update_data)
 
 
 @router.delete("/{todo_uuid}")
+@handle_api_errors("delete todo")
 async def delete_todo(
     todo_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete todo and all associated data"""
-    try:
-        await todo_crud_service.delete_todo(db, current_user.uuid, todo_uuid)
-        return {"message": "Todo deleted successfully"}
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error deleting todo %s", todo_uuid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete todo"
-        )
+    await todo_crud_service.delete_todo(db, current_user.uuid, todo_uuid)
+    return {"message": "Todo deleted successfully"}
 
 @router.post("/{todo_uuid}/restore")
+@handle_api_errors("restore todo")
 async def restore_todo(
     todo_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Restore a soft-deleted todo from Recycle Bin."""
-    try:
-        await todo_crud_service.restore_todo(db, current_user.uuid, todo_uuid)
-        return {"message": "Todo restored successfully"}
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error restoring todo %s", todo_uuid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to restore todo"
-        )
+    await todo_crud_service.restore_todo(db, current_user.uuid, todo_uuid)
+    return {"message": "Todo restored successfully"}
 
 @router.delete("/{todo_uuid}/permanent")
+@handle_api_errors("hard delete todo")
 async def hard_delete_todo(
     todo_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Permanently delete todo (hard delete) - WARNING: Cannot be undone!"""
-    try:
-        await todo_crud_service.hard_delete_todo(db, current_user.uuid, todo_uuid)
-        return {"message": "Todo permanently deleted"}
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error permanently deleting todo %s", todo_uuid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to permanently delete todo"
-        )
+    await todo_crud_service.hard_delete_todo(db, current_user.uuid, todo_uuid)
+    return {"message": "Todo permanently deleted"}
 
 
 @router.patch("/{todo_uuid}/status", response_model=TodoResponse)
+@handle_api_errors("update todo status")
 async def update_todo_status(
     todo_uuid: str,
     status_value: str = Body(..., embed=True, description="New status value"),
@@ -201,35 +139,18 @@ async def update_todo_status(
     db: AsyncSession = Depends(get_db)
 ):
     """Update todo status with proper validation"""
-    try:
-        return await todo_crud_service.update_todo_status(db, current_user.uuid, todo_uuid, status_value)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error updating todo status %s", todo_uuid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update todo status"
-        )
+    return await todo_crud_service.update_todo_status(db, current_user.uuid, todo_uuid, status_value)
 
 
 @router.post("/{todo_uuid}/complete", response_model=TodoResponse)
+@handle_api_errors("complete todo")
 async def complete_todo(
     todo_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Mark todo as completed"""
-    try:
-        return await todo_crud_service.complete_todo(db, current_user.uuid, todo_uuid)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error completing todo %s", todo_uuid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to complete todo"
-        )
+    return await todo_crud_service.complete_todo(db, current_user.uuid, todo_uuid)
 
 
 # Workflow endpoints
