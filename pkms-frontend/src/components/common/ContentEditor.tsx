@@ -34,7 +34,7 @@ import {
   IconEdit,
   IconMarkdown,
   IconFolder,
-  IconMood,
+  IconMoodHappy,
   IconCloudRain,
   IconMapPin
 } from '@tabler/icons-react';
@@ -212,7 +212,7 @@ export const ContentEditor: React.FC<ContentEditorProps> = ({
                 data={moodOptions}
                 value={mood?.toString()}
                 onChange={(value) => onMoodChange?.(value ? parseInt(value) : 0)}
-                leftSection={<IconMood size={16} />}
+                leftSection={<IconMoodHappy size={16} />}
               />
             </Grid.Col>
             <Grid.Col span={3}>

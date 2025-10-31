@@ -362,7 +362,7 @@ class DashboardService {
       return {
         habits,
         wellness,
-        wellnessScore: wellness.overall_wellness_score || 0,
+        wellnessScore: wellness.overallWellnessScore || 0,
         habitStreaks: habits.streaks || {}
       };
     } catch (error) {

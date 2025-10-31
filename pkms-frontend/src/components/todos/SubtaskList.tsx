@@ -140,9 +140,9 @@ export function SubtaskList({
                 </Badge>
               )}
 
-              {subtask.due_date && (
+              {subtask.dueDate && (
                 <Text size="xs" c="dimmed">
-                  {formatDate(subtask.due_date)}
+                  {formatDate(subtask.dueDate)}
                 </Text>
               )}
 

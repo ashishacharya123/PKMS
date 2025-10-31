@@ -1,13 +1,58 @@
 import React from 'react';
-import { Center, Loader, Stack, Text } from '@mantine/core';
+import { Center, Loader, Stack, Text, Paper, Skeleton, LoadingOverlay } from '@mantine/core';
 
 export interface LoadingStateProps {
+  type?: 'skeleton' | 'overlay' | 'inline' | 'spinner';
+  count?: number;
   height?: number | string;
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   message?: string;
+  showMessage?: boolean;
 }
 
-export function LoadingState({ height = 400, size = 'lg', message }: LoadingStateProps) {
+export function LoadingState({
+  type = 'spinner',
+  count = 3,
+  height = 400,
+  size = 'lg',
+  message,
+  showMessage = false
+}: LoadingStateProps) {
+  // Overlay type - shows loading overlay
+  if (type === 'overlay') {
+    return (
+      <div style={{ position: 'relative', minHeight: typeof height === 'number' ? height : 200 }}>
+        <LoadingOverlay visible={true} />
+      </div>
+    );
+  }
+
+  // Inline type - shows message in a paper
+  if (type === 'inline') {
+    return (
+      <Paper p="md" withBorder>
+        <Stack align="center" gap="sm">
+          <Text size="sm" c="dimmed">{message || 'Loading...'}</Text>
+        </Stack>
+      </Paper>
+    );
+  }
+
+  // Skeleton type - shows skeleton loaders
+  if (type === 'skeleton') {
+    return (
+      <Stack gap="md">
+        {showMessage && message && (
+          <Text size="sm" c="dimmed" ta="center">{message}</Text>
+        )}
+        {Array.from({ length: count }).map((_, index) => (
+          <Skeleton key={index} height={typeof height === 'number' ? height : 60} radius="md" />
+        ))}
+      </Stack>
+    );
+  }
+
+  // Default spinner type - centered loader with message
   return (
     <Center style={{ height }}>
       <Stack align="center" gap="sm">
@@ -15,59 +60,5 @@ export function LoadingState({ height = 400, size = 'lg', message }: LoadingStat
         {message && <Text size="sm" c="dimmed">{message}</Text>}
       </Stack>
     </Center>
-  );
-}
-
-/**
- * LoadingState - Reusable loading state component
- * Shows loading skeleton or spinner with customizable content
- */
-
-import React from 'react';
-import { Paper, Stack, Skeleton, Text, Group } from '@mantine/core';
-import { LoadingOverlay } from '@mantine/core';
-
-interface LoadingStateProps {
-  type?: 'skeleton' | 'overlay' | 'inline';
-  count?: number;
-  height?: number;
-  message?: string;
-  showMessage?: boolean;
-}
-
-export function LoadingState({ 
-  type = 'skeleton', 
-  count = 3, 
-  height = 60,
-  message = 'Loading...',
-  showMessage = false
-}: LoadingStateProps) {
-  if (type === 'overlay') {
-    return (
-      <div style={{ position: 'relative', minHeight: 200 }}>
-        <LoadingOverlay visible={true} />
-      </div>
-    );
-  }
-
-  if (type === 'inline') {
-    return (
-      <Paper p="md" withBorder>
-        <Stack align="center" gap="sm">
-          <Text size="sm" c="dimmed">{message}</Text>
-        </Stack>
-      </Paper>
-    );
-  }
-
-  return (
-    <Stack gap="md">
-      {showMessage && (
-        <Text size="sm" c="dimmed" ta="center">{message}</Text>
-      )}
-      {Array.from({ length: count }).map((_, index) => (
-        <Skeleton key={index} height={height} radius="md" />
-      ))}
-    </Stack>
   );
 }

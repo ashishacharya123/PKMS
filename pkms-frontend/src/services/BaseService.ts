@@ -1,12 +1,12 @@
 import { apiService } from './api';
-import logger from '../utils/logger';
+import { logger } from '../utils/logger';
 
 export interface CacheConfig {
   ttl?: number;
   tags?: string[];
 }
 
-export abstract class BaseService {
+export abstract class CacheAwareBaseService {
   protected cache: any;
   protected defaultCacheTtl = 300000; // 5 minutes
 
@@ -75,8 +75,6 @@ export abstract class BaseService {
  * Industry standard service layer abstraction
  * Extends for all module services (Notes, Todos, Documents, Projects)
  */
-
-import { apiService } from './api';
 
 export abstract class BaseService<T, TCreate, TUpdate> {
   constructor(protected baseUrl: string) {}

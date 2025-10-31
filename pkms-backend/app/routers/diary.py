@@ -690,7 +690,6 @@ async def clear_analytics_cache(
 ):
     """Clear analytics cache for current user"""
     try:
-        from app.services.unified_analytics_service import unified_analytics_service
 
         # Note: unified_analytics_service.invalidate_user_cache() method doesn't exist
         # If cache invalidation is needed, implement the method properly

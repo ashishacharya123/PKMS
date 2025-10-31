@@ -39,6 +39,7 @@ import { ImageViewer } from '../common/ImageViewer';
 import { TodoCard } from '../todos/TodoCard';
 import { Todo } from '../../types/todo';
 import { UnifiedContentModal } from './UnifiedContentModal';
+import { useModal } from '../../hooks/useModal';
 
 // Utility function for getting cache module
 const getCacheModule = (module: string): 'documents' | 'archive' | 'diary' => {
@@ -122,19 +123,10 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   
-  // Content modal state
-  const [contentModalOpen, setContentModalOpen] = useState(false);
-  const [contentModalMode, setContentModalMode] = useState<'view' | 'edit' | 'create'>('view');
-  const [contentModalFile, setContentModalFile] = useState<UnifiedFileItem | null>(null);
-  
-  // Image viewing state
-  const [imageViewerOpen, setImageViewerOpen] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<UnifiedFileItem | null>(null);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  
-  // TODO viewing state
-  const [todoViewerOpen, setTodoViewerOpen] = useState(false);
-  const [selectedTodo, setSelectedTodo] = useState<Todo | null>(null);
+  // Modal management with useModal hooks
+  const contentModal = useModal<{ file: UnifiedFileItem; mode: 'view' | 'edit' | 'create' }>();
+  const imageModal = useModal<{ url: string; name: string }>();
+  const todoModal = useModal<Todo>();
   
   // Drag and drop state
   const [draggedFile, setDraggedFile] = useState<UnifiedFileItem | null>(null);
@@ -227,15 +219,11 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
         imageUrl = await getThumbnailUrl(file, 'large') || file.filePath || '';
       }
 
-      setImageUrl(imageUrl);
-      setSelectedImage(file);
-      setImageViewerOpen(true);
+      imageModal.openModal({ url: imageUrl, name: file.originalName || 'Image' });
     } catch (error) {
       console.error('Failed to load image:', error);
-      // Show user-friendly error message
-      setImageUrl(file.filePath || '');
-      setSelectedImage(file);
-      setImageViewerOpen(true);
+      // Show user-friendly error message with fallback
+      imageModal.openModal({ url: file.filePath || '', name: file.originalName || 'Image' });
     }
   };
 
@@ -252,10 +240,9 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
       const downloadUrl = unifiedFileService.getDownloadUrl(file);
       const response = await fetch(downloadUrl);
       const todoData = await response.json();
-      
+
       // Set the TODO data and open viewer
-      setSelectedTodo(todoData as Todo);
-      setTodoViewerOpen(true);
+      todoModal.openModal(todoData as Todo);
     } catch (error) {
       console.error('Failed to load TODO file:', error);
       // Fallback to opening as document
@@ -308,28 +295,21 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
 
   // Content modal handlers
   const openContentModal = (mode: 'view' | 'edit' | 'create', file: UnifiedFileItem) => {
-    setContentModalFile(file);
-    setContentModalMode(mode);
-    setContentModalOpen(true);
-  };
-
-  const closeContentModal = () => {
-    setContentModalOpen(false);
-    setContentModalFile(null);
+    contentModal.openModal({ file, mode });
   };
 
   const handleContentSave = async (data: any) => {
     if (onContentSave) {
       await onContentSave(data);
     }
-    closeContentModal();
+    contentModal.closeModal();
   };
 
   const handleContentDelete = async () => {
     if (onContentDelete) {
       await onContentDelete();
     }
-    closeContentModal();
+    contentModal.closeModal();
   };
 
   // Check if file is content-type (text/markdown)
@@ -575,33 +555,33 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
     </Stack>
     
     {/* Image Viewer Modal */}
-      {selectedImage && (
-        <ImageViewer
-          opened={imageViewerOpen}
-          onClose={() => {
-            setImageViewerOpen(false);
-            setSelectedImage(null);
-          }}
-          imageUrl={imageUrl || unifiedFileService.getDownloadUrl(selectedImage)}
-          imageName={selectedImage.originalName}
-          onDownload={() => handleDownload(selectedImage)}
-          size="lg"
-        />
-      )}
+      <ImageViewer
+        opened={imageModal.isOpen}
+        onClose={imageModal.closeModal}
+        imageUrl={imageModal.selectedItem?.url || ''}
+        imageName={imageModal.selectedItem?.name || ''}
+        onDownload={() => {
+          if (imageModal.selectedItem) {
+            // Find the original file by name
+            const originalFile = files.find(f => f.originalName === imageModal.selectedItem?.name);
+            if (originalFile) {
+              handleDownload(originalFile);
+            }
+          }
+        }}
+        size="lg"
+      />
 
       {/* TODO Viewer Modal */}
-      {selectedTodo && todoViewerOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '8px', maxWidth: '80%', maxHeight: '80%', overflow: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3>TODO Viewer</h3>
-              <button onClick={() => {
-                setTodoViewerOpen(false);
-                setSelectedTodo(null);
-              }}>Close</button>
-            </div>
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', visibility: todoModal.isOpen ? 'visible' : 'hidden' }}>
+        <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '8px', maxWidth: '80%', maxHeight: '80%', overflow: 'auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h3>TODO Viewer</h3>
+            <button onClick={todoModal.closeModal}>Close</button>
+          </div>
+          {todoModal.selectedItem && (
             <TodoCard
-              todo={selectedTodo}
+              todo={todoModal.selectedItem}
               onEdit={() => {}}
               onDelete={() => {}}
               onArchive={() => {}}
@@ -609,26 +589,26 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
               onComplete={() => {}}
               onAddSubtask={() => {}}
               showArchived={false}
+              onClose={todoModal.closeModal}
             />
-          </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Unified Content Modal */}
-      {contentModalFile && (
-        <UnifiedContentModal
-          opened={contentModalOpen}
-          onClose={closeContentModal}
-          mode={contentModalMode}
-          module={module}
-          entityId={entityId}
-          initialData={{
-            title: contentModalFile.originalName,
-            content: '', // Will be loaded from file content
-            createdAt: contentModalFile.createdAt,
-          }}
-          files={[contentModalFile]}
-          onFilesUpdate={() => {}} // File updates handled by parent
+      <UnifiedContentModal
+        opened={contentModal.isOpen}
+        onClose={contentModal.closeModal}
+        mode={contentModal.selectedItem?.mode || 'view'}
+        module={module}
+        entityId={entityId}
+        initialData={{
+          title: contentModal.selectedItem?.file.originalName,
+          content: '', // Will be loaded from file content
+          createdAt: contentModal.selectedItem?.file.createdAt,
+        }}
+        files={[contentModal.selectedItem?.file].filter(Boolean)}
+        onFilesUpdate={() => {}} // File updates handled by parent
           encryptionKey={encryptionKey}
           onSave={handleContentSave}
           onDelete={handleContentDelete}
@@ -636,7 +616,7 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
           showDiaryFields={module === 'diary'}
           enableDragDrop={false}
         />
-      )}
+      )
     </>
   );
 };

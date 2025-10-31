@@ -11,9 +11,9 @@ import { projectsCache } from './unifiedCacheService';
 import { apiService } from './api';
 import { documentsService } from './documentsService';
 import { notifications } from '@mantine/notifications';
-import type { DeletionImpactResponse } from '../types/project';
+import type { DeletionImpact } from './deletionImpactService';
 import deletionImpactService from './deletionImpactService';
-import logger from '../utils/logger';
+import { logger } from '../utils/logger';
 
 // Project interfaces following architectural rules
 export interface Project {
@@ -70,7 +70,7 @@ export interface ProjectStatistics {
  * ProjectsService - Professional project management
  * Provides excellent UX with confirmations, progress tracking, and error handling
  */
-export class ProjectsService extends BaseService {
+export class ProjectsService extends CacheAwareBaseService {
   private readonly baseUrl = '/projects';
 
   constructor() {
@@ -190,64 +190,21 @@ export class ProjectsService extends BaseService {
       // Deletion impact analysis to understand impact
       const impact = await this.getDeletionImpact('project', projectUuid, 'hard');
 
-      if (!force && (impact.orphanItems.length > 0 || impact.warnings.length > 0)) {
-        // Show warning with detailed impact analysis
-        const confirmed = await new Promise<boolean>((resolve) => {
-          const { modals } = require('@mantine/modals');
-          modals.openConfirmModal({
-            title: 'Delete Project - Impact Analysis',
-            children: (
-              <div>
-                <p>⚠️ This project deletion has the following impact:</p>
+      if (!force) {
+        // Check for blockers that prevent deletion
+        if (impact.blockers.length > 0) {
+          throw new Error(`Cannot delete project: ${impact.blockers.join('; ')}`);
+        }
 
-                {impact.blockers.length > 0 && (
-                  <div style={{ color: '#d32f2f', marginBottom: '10px' }}>
-                    <strong>Blockers:</strong>
-                    <ul>{impact.blockers.map((blocker, i) => <li key={i}>{blocker}</li>)}</ul>
-                  </div>
-                )}
+        // Check for impact that requires confirmation
+        if (impact.orphanItems.length > 0 || impact.warnings.length > 0) {
+          const summary = [
+            impact.orphanItems.length > 0 && `Will delete ${impact.orphanItems.length} items`,
+            impact.warnings.length > 0 && `${impact.warnings.length} warnings`,
+            impact.impactSummary
+          ].filter(Boolean).join('. ');
 
-                {impact.orphanItems.length > 0 && (
-                  <div style={{ color: '#f57c00', marginBottom: '10px' }}>
-                    <strong>Will delete {impact.orphanItems.length} items:</strong>
-                    <ul>{impact.orphanItems.map((item, i) => <li key={i}>{item.type}: {item.uuid}</li>)}</ul>
-                  </div>
-                )}
-
-                {impact.preservedItems.length > 0 && (
-                  <div style={{ color: '#388e3c', marginBottom: '10px' }}>
-                    <strong>Will preserve {impact.preservedItems.length} shared items:</strong>
-                    <ul>{impact.preservedItems.map((item, i) => <li key={i}>{item.type}: {item.uuid}</li>)}</ul>
-                  </div>
-                )}
-
-                {impact.warnings.length > 0 && (
-                  <div style={{ color: '#666', marginBottom: '10px' }}>
-                    <strong>Warnings:</strong>
-                    <ul>{impact.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul>
-                  </div>
-                )}
-
-                <p><strong>Impact Summary:</strong> {impact.impactSummary}</p>
-
-                {impact.unlinkOnlyAllowed && (
-                  <p style={{ color: '#666' }}>
-                    💡 You can also unlink this project instead of deleting it.
-                  </p>
-                )}
-
-                <p>Are you sure you want to continue?</p>
-              </div>
-            ),
-            labels: { confirm: 'Delete Project', cancel: 'Cancel' },
-            confirmProps: { color: 'red', disabled: impact.blockers.length > 0 },
-            onConfirm: () => resolve(true),
-            onCancel: () => resolve(false),
-          });
-        });
-
-        if (!confirmed) {
-          throw new Error('Project deletion cancelled by user');
+          throw new Error(`Project deletion requires confirmation: ${summary}. Use force=true to proceed.`);
         }
       }
 
@@ -315,55 +272,21 @@ export class ProjectsService extends BaseService {
     areItemsExclusive: boolean = false
   ): Promise<void> {
     try {
-      // Deletion impact analysis for exclusivity conflicts
+      // Impact analysis for exclusivity conflicts
       if (areItemsExclusive) {
         for (const documentUuid of documentUuids) {
           const impact = await this.getDeletionImpact('document', documentUuid, 'hard');
-          if (impact.orphanItems.length > 0 || impact.blockers.length > 0) {
-            const confirmed = await new Promise<boolean>((resolve) => {
-              const { modals } = require('@mantine/modals');
-              modals.openConfirmModal({
-                title: 'Document Exclusivity Warning',
-                children: (
-                  <div>
-                    <p>⚠️ Making this document exclusive to the project will have the following impact:</p>
+          if (impact.blockers.length > 0) {
+            throw new Error(`Cannot make document exclusive: ${impact.blockers.join('; ')}`);
+          }
+          if (impact.orphanItems.length > 0 || impact.warnings.length > 0) {
+            const summary = [
+              impact.orphanItems.length > 0 && `Will break ${impact.orphanItems.length} associations`,
+              impact.warnings.length > 0 && `${impact.warnings.length} warnings`,
+              impact.impactSummary
+            ].filter(Boolean).join('. ');
 
-                    {impact.blockers.length > 0 && (
-                      <div style={{ color: '#d32f2f', marginBottom: '10px' }}>
-                        <strong>Cannot make exclusive:</strong>
-                        <ul>{impact.blockers.map((blocker, i) => <li key={i}>{blocker}</li>)}</ul>
-                      </div>
-                    )}
-
-                    {impact.orphanItems.length > 0 && (
-                      <div style={{ color: '#f57c00', marginBottom: '10px' }}>
-                        <strong>Will break {impact.orphanItems.length} associations:</strong>
-                        <ul>{impact.orphanItems.map((item, i) => <li key={i}>{item.type}: {item.uuid}</li>)}</ul>
-                      </div>
-                    )}
-
-                    {impact.warnings.length > 0 && (
-                      <div style={{ color: '#666', marginBottom: '10px' }}>
-                        <strong>Warnings:</strong>
-                        <ul>{impact.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul>
-                      </div>
-                    )}
-
-                    <p><strong>Impact Summary:</strong> {impact.impactSummary}</p>
-                    <p>Making it exclusive to this project will hide it from other views.</p>
-                    <p>Continue?</p>
-                  </div>
-                ),
-                labels: { confirm: 'Make Exclusive', cancel: 'Cancel' },
-                confirmProps: { color: 'orange', disabled: impact.blockers.length > 0 },
-                onConfirm: () => resolve(true),
-                onCancel: () => resolve(false),
-              });
-            });
-
-            if (!confirmed) {
-              throw new Error('Document linking cancelled due to exclusivity conflict');
-            }
+            throw new Error(`Document exclusivity requires confirmation: ${summary}. This must be confirmed in UI before proceeding.`);
           }
         }
       }
@@ -450,7 +373,7 @@ export class ProjectsService extends BaseService {
    * Get deletion impact analysis
    * Provides comprehensive analysis of what will happen when deleting an item
    */
-  async getDeletionImpact(itemType: 'project' | 'document', itemUuid: string, mode: 'soft' | 'hard' = 'soft'): Promise<DeletionImpactResponse> {
+  async getDeletionImpact(itemType: 'project' | 'document', itemUuid: string, mode: 'soft' | 'hard' = 'soft'): Promise<DeletionImpact> {
     return deletionImpactService.analyzeDeletionImpact(itemType, itemUuid, mode);
   }
 

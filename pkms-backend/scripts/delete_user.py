@@ -11,7 +11,6 @@ If no username provided, it will delete the only user in single-user systems.
 
 import asyncio
 import sys
-import os
 from pathlib import Path
 
 # Add parent directory to path to import app modules
@@ -29,7 +28,6 @@ from app.models.diary import DiaryEntry
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import Tag
 from app.config import get_data_dir
-import shutil
 
 
 class UserDeletionService:
@@ -241,13 +239,13 @@ async def main():
         user_info = result["user_deleted"]
         print(f"Successfully deleted user: {user_info['username']} (UUID: {user_info['uuid']})")
         
-        print(f"\nDatabase records deleted:")
+        print("\nDatabase records deleted:")
         for table, count in result["database_records_deleted"].items():
             print(f"   * {table}: {count} records")
         
         print(f"\nFiles deleted: {len(result['files_deleted'])} files")
         
-        print(f"\nSystem is now clean and ready for new user registration!")
+        print("\nSystem is now clean and ready for new user registration!")
     else:
         print("Deletion failed:")
         for error in result["errors"]:

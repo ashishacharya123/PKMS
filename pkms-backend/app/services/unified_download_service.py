@@ -7,7 +7,6 @@ while supporting module-specific requirements like file path resolution.
 
 from pathlib import Path
 from typing import Optional, Union, Type
-import os
 import logging
 import hashlib
 

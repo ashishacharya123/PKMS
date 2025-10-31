@@ -57,7 +57,6 @@ import {
   Drawer,
   useMantineTheme,
   useMantineColorScheme,
-  useMediaQuery,
 } from '@mantine/core';
 import { Calendar } from '@mantine/dates';
 import {
@@ -79,13 +78,12 @@ import {
   IconCheck,
   IconRefresh,
 } from '@tabler/icons-react';
-import { useDebouncedValue } from '@mantine/hooks';
+import { useDebouncedValue, useMediaQuery } from '@mantine/hooks';
 import { format, parseISO, isToday, isYesterday, startOfWeek, endOfWeek, subDays } from 'date-fns';
 import { notifications } from '@mantine/notifications';
 
 // Import components
 import EncryptionStatus from './EncryptionStatus';
-import { DailyMetricsPanel } from './DailyMetricsPanel';
 import { HistoricalEntries } from './HistoricalEntries';
 import { DiaryEntryModal } from './DiaryEntryModal';
 
@@ -490,9 +488,7 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
               />
             </Card>
 
-            {/* Daily Metrics */}
-            <DailyMetricsPanel selectedDate={selectedDate} />
-
+  
             {/* Historical Shortcuts */}
             <Card withBorder p="md">
               <Text fw={600} size="lg" mb="md">
@@ -540,9 +536,7 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
                   />
                 </Card>
 
-                {/* Daily Metrics */}
-                <DailyMetricsPanel selectedDate={selectedDate} />
-
+  
                 {/* Historical Shortcuts */}
                 <Card withBorder p="md">
                   <Text fw={600} size="lg" mb="md">

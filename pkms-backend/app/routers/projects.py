@@ -7,7 +7,7 @@ Handles only HTTP concerns: request/response mapping, authentication, error hand
 Refactored to follow "thin router, thick service" architecture pattern.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional

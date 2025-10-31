@@ -34,7 +34,7 @@ async def reserve_note(
         return {"uuid": new_uuid}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error reserving note for user {current_user.uuid}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

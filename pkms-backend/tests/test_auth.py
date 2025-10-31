@@ -7,12 +7,12 @@ session management, and race condition scenarios.
 
 import pytest
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 
 from app.auth.security import verify_token, create_access_token
-from app.models.user import User, Session
+from app.models.user import User
 from .conftest import assert_token_valid, assert_response_success, assert_response_error
 
 

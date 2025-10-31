@@ -12,7 +12,7 @@ import { apiService } from './api';
 import { coreUploadService, UploadProgress } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
 import { notifications } from '@mantine/notifications';
-import logger from '../utils/logger';
+import { logger } from '../utils/logger';
 
 // Document interfaces following architectural rules
 export interface Document {
@@ -50,13 +50,14 @@ export interface DocumentSearchRequest {
   mimeType?: string;
   limit?: number;
   offset?: number;
+  projectId?: string;
 }
 
 /**
  * DocumentsService - Pure document operations
  * Extends BaseService with caching for optimal performance
  */
-export class DocumentsService extends BaseService {
+export class DocumentsService extends CacheAwareBaseService {
   private readonly baseUrl = '/documents';
 
   constructor() {

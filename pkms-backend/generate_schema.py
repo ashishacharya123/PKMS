@@ -1,6 +1,6 @@
 
 
-from sqlalchemy import create_engine, MetaData
+from sqlalchemy import create_engine
 from app.models.base import Base
 from app.models import *
 

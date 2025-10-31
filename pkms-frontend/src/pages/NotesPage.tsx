@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -13,6 +13,7 @@ import {
   Alert,
   Pagination,
   Paper,
+  Modal,
   // ThemeIcon,
   Tooltip
 } from '@mantine/core';
@@ -36,7 +37,6 @@ import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { useNotesStore } from '../stores/notesStore';
-import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { UnifiedSearchEmbedded } from '../components/search/UnifiedSearchEmbedded';
 import { ActionMenu } from '../components/common/ActionMenu';
 import { notesService } from '../services/notesService';
@@ -44,6 +44,8 @@ import { PopularTagsWidget } from '../components/common/PopularTagsWidget';
 import { ModuleLayout } from '../components/common/ModuleLayout';
 import { ModuleHeader } from '../components/common/ModuleHeader';
 import { ModuleFilters, getModuleFilterConfig } from '../components/common/ModuleFilters';
+import { useDataLoader } from '../hooks/useDataLoader';
+import { useModal } from '../hooks/useModal';
 
 type SortField = 'title' | 'createdAt' | 'updatedAt';
 type SortOrder = 'asc' | 'desc';
@@ -70,13 +72,13 @@ const truncateText = (text: string, maxLength: number): string => {
 export function NotesPage() {
   const navigate = useNavigate();
   const location = useLocation() as { state?: { highlightNoteId?: number } };
-  
+
   // Local state
   const [searchQuery] = useState('');
   const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
   const [sortField, setSortField] = useState<SortField>('updatedAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  
+
   // Modular filter state
   const [filters, setFilters] = useState({
     sortBy: 'updatedAt',
@@ -84,7 +86,6 @@ export function NotesPage() {
     favorites: false,
     showArchived: false
   });
-  const [filtersOpened, setFiltersOpened] = useState(false);
   const filterConfig = getModuleFilterConfig('notes');
   const [currentPage, setCurrentPage] = useState(1);
   const { getPreference, updatePreference } = useViewPreferences();
@@ -100,43 +101,41 @@ export function NotesPage() {
     setShowArchived
   } = useNotesStore();
 
-  // State for notes data
-  const [notes, setNotes] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  // Modal management with useModal hook
+  const filterModal = useModal();
 
-  // Load notes function
-  const loadNotes = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const notesData = await notesService.listNotes({
+  // Data loading with useDataLoader hook
+  const {
+    data: notes = [],
+    loading,
+    error,
+    refetch
+  } = useDataLoader(
+    async () => {
+      return await notesService.listNotes({
         tag: currentTag || undefined,
         search: debouncedSearch || undefined,
         archived: showArchived,
         limit: itemsPerPage,
         offset: (currentPage - 1) * itemsPerPage,
       });
-      setNotes(Array.isArray(notesData) ? notesData : []);
-    } catch (err) {
-      setError(err as Error);
-      setNotes([]);
-    } finally {
-      setIsLoading(false);
+    },
+    {
+      dependencies: [currentTag, debouncedSearch, showArchived, currentPage, itemsPerPage],
+      onError: (error) => {
+        console.error('Failed to load notes:', error);
+      }
     }
-  };
+  );
 
-  // Load notes using consistent auth-aware pattern
-  useAuthenticatedEffect(() => {
-    loadNotes();
-  }, [currentTag, debouncedSearch, showArchived, currentPage, itemsPerPage]);
-  // notes is already guaranteed to be an array from loadNotes function
-
+  
   // Sorted and paginated notes using modular filters
   const sortedNotes = useMemo(() => {
+    if (!Array.isArray(notes)) return [];
+
     const sorted = [...notes].sort((a, b) => {
-      let aValue: string | number = a[filters.sortBy as keyof typeof a];
-      let bValue: string | number = b[filters.sortBy as keyof typeof b];
+      let aValue: any = a[filters.sortBy as keyof typeof a];
+      let bValue: any = b[filters.sortBy as keyof typeof b];
       if (filters.sortBy === 'createdAt' || filters.sortBy === 'updatedAt') {
         aValue = new Date(aValue as string).getTime();
         bValue = new Date(bValue as string).getTime();
@@ -162,6 +161,11 @@ export function NotesPage() {
   // TODO: Get total pages from backend metadata or implement proper pagination
   const totalPages = 1; // Backend pagination means we only have current page
 
+  // Filter modal handler
+  const handleOpenFilterModal = useCallback(() => {
+    filterModal.openModal();
+  }, [filterModal]);
+
   // Keyboard shortcuts: search focus, toggle archived/favorites (sidebar controls), refresh
   useKeyboardShortcuts({
     shortcuts: [
@@ -169,7 +173,7 @@ export function NotesPage() {
           const input = document.querySelector('input[placeholder*="Search"]') as HTMLInputElement | null;
           input?.focus();
         }, description: 'Focus search', category: 'Navigation' },
-      { key: 'r', action: () => loadNotes(), description: 'Refresh notes', category: 'General' },
+      { key: 'r', action: () => refetch(), description: 'Refresh notes', category: 'General' },
     ],
     enabled: true,
     showNotifications: false,
@@ -188,7 +192,7 @@ export function NotesPage() {
     highlightedIdRef.current = null;
   }, [paginatedNotes]);
 
-  const handleDeleteNote = (uuid: string, title: string) => {
+  const handleDeleteNote = useCallback((uuid: string, title: string) => {
     modals.openConfirmModal({
       title: 'Delete Note',
       children: (
@@ -199,7 +203,7 @@ export function NotesPage() {
       onConfirm: async () => {
         const success = await deleteNote(uuid);
         if (success) {
-          loadNotes(); // Reload notes after deletion
+          refetch(); // Reload notes after deletion
           notifications.show({
             title: 'Note Deleted',
             message: 'The note was deleted successfully',
@@ -214,7 +218,7 @@ export function NotesPage() {
         }
       }
     });
-  };
+  }, [deleteNote, refetch]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -302,14 +306,14 @@ export function NotesPage() {
                     setViewMode(mode);
                     updatePreference('notes', mode);
                   }}
-                  disabled={isLoading}
+                  disabled={loading}
                 />
                 
                 <Button
                   variant="light"
                   size="sm"
                   leftSection={<IconFilter size={16} />}
-                  onClick={() => setFiltersOpened(true)}
+                  onClick={handleOpenFilterModal}
                 >
                   Filters
                 </Button>
@@ -331,7 +335,6 @@ export function NotesPage() {
                 color="red"
                 variant="light"
                 withCloseButton
-                onClose={() => setError(null)}
               >
                 {error instanceof Error ? error.message : String(error)}
               </Alert>
@@ -341,7 +344,7 @@ export function NotesPage() {
             <ViewModeLayouts
               items={paginatedNotes}
               viewMode={viewMode}
-              isLoading={isLoading}
+              isLoading={loading}
               emptyMessage={
                 searchQuery || currentTag 
                   ? 'No notes found. Try adjusting your search or filters.'
@@ -374,7 +377,7 @@ export function NotesPage() {
                       onArchive={note.isArchived ? undefined : async () => {
                         try {
                           await notesService.updateNote(note.uuid, { isArchived: true });
-                          loadNotes();
+                          refetch();
                           notifications.show({ title: 'Note Archived', message: '', color: 'green' });
                         } catch {
                           notifications.show({ title: 'Action Failed', message: 'Could not archive', color: 'red' });
@@ -383,7 +386,7 @@ export function NotesPage() {
                       onUnarchive={note.isArchived ? async () => {
                         try {
                           await notesService.updateNote(note.uuid, { isArchived: false });
-                          loadNotes();
+                          refetch();
                           notifications.show({ title: 'Note Unarchived', message: '', color: 'green' });
                         } catch {
                           notifications.show({ title: 'Action Failed', message: 'Could not unarchive', color: 'red' });
@@ -518,7 +521,7 @@ export function NotesPage() {
                     onArchive={note.isArchived ? undefined : async () => {
                       try {
                         await notesService.updateNote(note.uuid, { isArchived: true });
-                        loadNotes();
+                        refetch();
                         notifications.show({
                           title: 'Note Archived',
                           message: `"${note.title}" has been archived`,
@@ -531,7 +534,7 @@ export function NotesPage() {
                     onUnarchive={note.isArchived ? async () => {
                       try {
                         await notesService.updateNote(note.uuid, { isArchived: false });
-                        loadNotes();
+                        refetch();
                         notifications.show({
                           title: 'Note Unarchived',
                           message: `"${note.title}" has been unarchived`,
@@ -624,20 +627,20 @@ export function NotesPage() {
                   onToggleFavorite={async () => {
                     try {
                       await useNotesStore.getState().updateNote(note.uuid, { isFavorite: !note.isFavorite });
-                      loadNotes();
+                      refetch();
                       notifications.show({ title: note.isFavorite ? 'Removed from Favorites' : 'Added to Favorites', message: '', color: 'pink' });
                     } catch {}
                   }}
                   onArchive={note.isArchived ? undefined : async () => {
                     try {
                       await notesService.updateNote(note.uuid, { isArchived: true });
-                      loadNotes();
+                      refetch();
                     } catch {}
                   }}
                   onUnarchive={note.isArchived ? async () => {
                     try {
                       await notesService.updateNote(note.uuid, { isArchived: false });
-                      loadNotes();
+                      refetch();
                     } catch {}
                   } : undefined}
                   onEdit={() => navigate(`/notes/${note.uuid}`)}
@@ -662,7 +665,7 @@ export function NotesPage() {
             />
 
             {/* Pagination */}
-            {!isLoading && paginatedNotes.length > 0 && totalPages > 1 && (
+            {!loading && paginatedNotes.length > 0 && totalPages > 1 && (
               <Group justify="center">
                 <Pagination
                   value={currentPage}
@@ -674,7 +677,7 @@ export function NotesPage() {
             )}
 
             {/* Empty State Actions */}
-            {!isLoading && paginatedNotes.length === 0 && (
+            {!loading && paginatedNotes.length === 0 && (
               <Group justify="center" mt="md">
                 <Button
                   leftSection={<IconPlus size={16} />}
@@ -689,10 +692,10 @@ export function NotesPage() {
       </Grid>
 
       {/* Modular Filter Modal */}
-      <Modal 
-        opened={filtersOpened} 
-        onClose={() => setFiltersOpened(false)} 
-        title="Note Filters & Sorting" 
+      <Modal
+        opened={filterModal.isOpen}
+        onClose={filterModal.closeModal}
+        title="Note Filters & Sorting"
         size="lg"
       >
         <ModuleFilters

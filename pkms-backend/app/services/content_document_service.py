@@ -10,7 +10,6 @@ import base64
 import hashlib
 import uuid as uuid_lib
 import aiofiles
-from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pathlib import Path

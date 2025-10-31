@@ -193,7 +193,7 @@ export const todosCacheAware = {
     return cacheAwareService.get(
       'todos_list',
       todosCache,
-      () => import('./todoService').then(s => s.todoService.getTodos()),
+      () => import('./todosService').then(s => s.todosService.getTodos()),
       { tags: ['todos'], enableRevalidation: true }
     );
   },
@@ -202,7 +202,7 @@ export const todosCacheAware = {
     return cacheAwareService.get(
       'todos_stats',
       todosCache,
-      () => import('./todoService').then(s => s.todoService.getStats()),
+      () => import('./todosService').then(s => s.todosService.getTodoStats()),
       { tags: ['todos', 'stats'], enableRevalidation: true }
     );
   },
@@ -220,7 +220,7 @@ export const notesCacheAware = {
     return cacheAwareService.get(
       'notes_list',
       notesCache,
-      () => import('./noteService').then(s => s.noteService.getNotes()),
+      () => import('./notesService').then(s => s.notesService.listNotes({})),
       { tags: ['notes'], enableRevalidation: true }
     );
   },

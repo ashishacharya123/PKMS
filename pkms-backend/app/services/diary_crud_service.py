@@ -8,13 +8,11 @@ Includes entry creation, reading, updating, deletion, and file operations.
 import logging
 import json
 import uuid as uuid_lib
-import asyncio
 import base64
 import hashlib
 import aiofiles
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
-from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, delete
 from sqlalchemy.orm import aliased
@@ -59,7 +57,6 @@ class DiaryCRUDService:
         from app.models.document import Document
         from app.models.associations import document_diary
         from app.services.unified_upload_service import get_user_storage_path
-        from app.services.file_detection import FileTypeDetectionService
         
         # Generate content document UUID
         content_doc_uuid = str(uuid_lib.uuid4())

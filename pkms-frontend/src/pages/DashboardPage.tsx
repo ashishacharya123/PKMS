@@ -190,8 +190,8 @@ const ProjectCardsSection = () => {
   return (
     <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
       {projects.slice(0, 6).map((project) => {
-        const completionPercentage = project.todo_count > 0 
-          ? Math.round((project.completed_count / project.todo_count) * 100) 
+        const completionPercentage = project.todoCount > 0
+          ? Math.round((project.completedCount / project.todoCount) * 100)
           : 0;
         
         return (
@@ -211,7 +211,7 @@ const ProjectCardsSection = () => {
                       width: 12,
                       height: 12,
                       borderRadius: '50%',
-                      backgroundColor: project.color || '#2196F3',
+                      backgroundColor: '#2196F3',
                       flexShrink: 0
                     }}
                   />
@@ -248,11 +248,11 @@ const ProjectCardsSection = () => {
               <Group gap="md" justify="space-between">
                 <Badge size="sm" variant="light" color="gray">
                   <IconFolder size={12} style={{ marginRight: 4 }} />
-                  {project.todo_count} tasks
+                  {project.todoCount} tasks
                 </Badge>
-                {project.completed_count > 0 && (
+                {project.completedCount > 0 && (
                   <Badge size="sm" variant="light" color="green">
-                    {project.completed_count} done
+                    {project.completedCount} done
                   </Badge>
                 )}
               </Group>
