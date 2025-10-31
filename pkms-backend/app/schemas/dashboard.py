@@ -1,7 +1,7 @@
 from pydantic import Field
 from typing import Dict, List, Optional, Any
 from datetime import datetime
-from app.models.enums import ModuleStatsKey
+from app.models.enums import ModuleStatsKey, ProjectStatsKey
 from .base import CamelCaseModel
 
 class DashboardStats(CamelCaseModel):
@@ -11,7 +11,8 @@ class DashboardStats(CamelCaseModel):
     todos: Dict[str, int]  # Mixed: status enums + computed string keys
     diary: Dict[ModuleStatsKey, int]
     archive: Dict[ModuleStatsKey, int]
-    projects: Dict[ModuleStatsKey, int] = Field(default_factory=dict)  # Added: active projects count
+    # Projects expose total and active; keep enum for stability
+    projects: Dict[ProjectStatsKey, int] = Field(default_factory=dict)
     last_updated: datetime
 
 class ModuleActivity(CamelCaseModel):

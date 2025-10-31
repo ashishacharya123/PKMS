@@ -42,6 +42,30 @@ class NoteCRUDService:
     
     def __init__(self):
         pass
+    async def reserve_note(self, db: AsyncSession, user_uuid: str) -> str:
+        """Reserve a minimal note row and return its UUID (owner-scoped)."""
+        try:
+            new_uuid = str(uuid_lib.uuid4())
+            note = Note(
+                uuid=new_uuid,
+                title="",
+                content=None,
+                is_template=False,
+                is_archived=False,
+                created_by=user_uuid,
+                size_bytes=0
+            )
+            db.add(note)
+            await db.commit()
+            return new_uuid
+        except Exception as e:
+            await db.rollback()
+            logger.exception(f"Error reserving note for user {user_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to reserve note: {str(e)}"
+            )
+
     
     def _get_note_content_path(self, user_uuid: str, note_uuid: str) -> Path:
         """Returns the standardized path for a large note's content file."""
@@ -226,9 +250,12 @@ class NoteCRUDService:
                 note_summaries.append(NoteSummary(
                     uuid=note.uuid,
                     title=note.title,
-                    preview=self.extract_preview(note.content),
+                    preview=self.extract_preview(note.content or ""),
                     file_count=note.file_count,
                     is_favorite=note.is_favorite,
+                    is_archived=note.is_archived,
+                    is_template=note.is_template,
+                    from_template_id=note.from_template_id,
                     # REMOVED: is_project_exclusive - exclusivity now handled in project_items association
                     tags=[tag.name for tag in note.tag_objs],
                     projects=project_badges,
@@ -272,9 +299,12 @@ class NoteCRUDService:
                 note_summaries.append(NoteSummary(
                     uuid=note.uuid,
                     title=note.title,
-                    preview=self.extract_preview(note.content) if note.content else "",
+                    preview=self.extract_preview(note.content or ""),
                     file_count=note.file_count,
                     is_favorite=note.is_favorite,
+                    is_archived=note.is_archived,
+                    is_template=note.is_template,
+                    from_template_id=note.from_template_id,
                     tags=[tag.name for tag in note.tag_objs],
                     projects=[],  # No project associations for deleted notes
                     created_at=note.created_at,
@@ -521,12 +551,9 @@ class NoteCRUDService:
         note.updated_at = datetime.now(NEPAL_TZ)
         db.add(note)
         
-        # 3. Commit
+        # 3. Commit (manual search reindex via UI, no auto indexing)
         await db.commit()
-        
-        # 4. Re-index in search
-        await search_service.index_item(db, note, 'note')
-        logger.info(f"Note restored: {note.title}")
+        logger.info(f"Note restored: {note.title}. Reindex via user menu if needed.")
 
     async def archive_note(
         self, 
@@ -630,6 +657,9 @@ class NoteCRUDService:
             file_count=note.file_count,
             thumbnail_path=note.thumbnail_path,
             is_favorite=note.is_favorite,
+            is_archived=note.is_archived,
+            is_template=note.is_template,
+            from_template_id=note.from_template_id,
             # REMOVED: is_project_exclusive - exclusivity now handled in project_items association
             tags=[tag.name for tag in note.tag_objs],
             projects=badges,
@@ -696,6 +726,7 @@ class NoteCRUDService:
             # Get all documents linked to this note
             result = await db.execute(
                 select(Document, note_documents.c.is_exclusive, note_documents.c.sort_order)
+                .options(selectinload(Document.tag_objs))
                 .join(note_documents, Document.uuid == note_documents.c.document_uuid)
                 .where(
                     and_(
@@ -719,7 +750,7 @@ class NoteCRUDService:
                     mime_type=doc.mime_type,
                     is_favorite=doc.is_favorite,
                     is_archived=doc.is_archived,
-                    is_encrypted=doc.is_encrypted,
+                    is_encrypted=False,
                     is_deleted=doc.is_deleted,
                     thumbnail_path=doc.thumbnail_path,
                     created_at=doc.created_at,

@@ -265,10 +265,10 @@ async def get_session_status(
     """Get current session status and token expiry information."""
     try:
         # Get current user's active session
+        now = datetime.now(NEPAL_TZ)
         session_result = await db.execute(
             select(Session)
             .where(Session.created_by == current_user.uuid)
-            .where(Session.expires_at > datetime.now(NEPAL_TZ))
             .order_by(Session.expires_at.desc())
             .limit(1)
         )
@@ -283,8 +283,30 @@ async def get_session_status(
                 "is_critically_expiring": False
             }
 
-        now = datetime.now(NEPAL_TZ)
-        time_until_expiry = session.expires_at - now
+        # Normalize timezone for expires_at
+        expires_at = session.expires_at
+        if expires_at is None:
+            return {
+                "status": "no_active_session",
+                "message": "No active session found",
+                "expires_in_seconds": 0,
+                "is_expiring_soon": False,
+                "is_critically_expiring": False
+            }
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=NEPAL_TZ)
+
+        # Return no active session if already expired
+        if expires_at <= now:
+            return {
+                "status": "no_active_session",
+                "message": "No active session found",
+                "expires_in_seconds": 0,
+                "is_expiring_soon": False,
+                "is_critically_expiring": False
+            }
+
+        time_until_expiry = expires_at - now
         expires_in_seconds = int(time_until_expiry.total_seconds())
         
         # Check if expiring soon (within 5 minutes)
@@ -293,13 +315,18 @@ async def get_session_status(
         # Check if critically expiring (within 1 minute)
         is_critically_expiring = expires_in_seconds <= 60  # 1 minute
 
+        # Normalize last_activity for serialization
+        last_activity = session.last_activity
+        if last_activity and last_activity.tzinfo is None:
+            last_activity = last_activity.replace(tzinfo=NEPAL_TZ)
+
         return {
             "status": "active",
             "expires_in_seconds": max(0, expires_in_seconds),
             "is_expiring_soon": is_expiring_soon,
             "is_critically_expiring": is_critically_expiring,
-            "expires_at": session.expires_at.isoformat(),
-            "last_activity": session.last_activity.isoformat() if session.last_activity else None
+            "expires_at": expires_at.isoformat(),
+            "last_activity": last_activity.isoformat() if last_activity else None
         }
 
     except Exception:

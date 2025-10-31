@@ -26,6 +26,7 @@ from app.schemas.archive import (
 from app.services.archive_folder_service import archive_folder_service
 from app.services.archive_item_service import archive_item_service
 from app.services.file_validation import file_validation_service
+from app.decorators.error_handler import handle_api_errors
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -33,6 +34,7 @@ router = APIRouter()
 
 # Folder endpoints
 @router.post("/folders", response_model=FolderResponse)
+@handle_api_errors("create folder")
 async def create_folder(
     folder_data: FolderCreate,
     current_user: User = Depends(get_current_user),
@@ -55,6 +57,7 @@ async def create_folder(
 
 
 @router.get("/folders", response_model=List[FolderResponse])
+@handle_api_errors("list folders")
 async def list_folders(
     parent_uuid: Optional[str] = Query(None, description="Parent folder UUID"),
     search: Optional[str] = Query(None, description="Search term for folder names"),
@@ -80,6 +83,7 @@ async def list_folders(
 
 
 @router.get("/folders/tree", response_model=List[FolderTree])
+@handle_api_errors("get folder tree")
 async def get_folder_tree(
     parent_uuid: Optional[str] = Query(None, description="Root folder UUID for tree"),
     max_depth: Optional[int] = Query(None, ge=1, le=10, description="Maximum tree depth"),
@@ -103,6 +107,7 @@ async def get_folder_tree(
 
 
 @router.get("/folders/{folder_uuid}/breadcrumb", response_model=List[Dict[str, str]])
+@handle_api_errors("get folder breadcrumb")
 async def get_folder_breadcrumb(
     folder_uuid: str,
     current_user: User = Depends(get_current_user),
@@ -122,6 +127,7 @@ async def get_folder_breadcrumb(
 
 
 @router.get("/folders/{folder_uuid}", response_model=FolderResponse)
+@handle_api_errors("get folder")
 async def get_folder(
     folder_uuid: str,
     current_user: User = Depends(get_current_user),
@@ -141,6 +147,7 @@ async def get_folder(
 
 
 @router.put("/folders/{folder_uuid}", response_model=FolderResponse)
+@handle_api_errors("update folder")
 async def update_folder(
     folder_uuid: str,
     update_data: FolderUpdate,
@@ -166,6 +173,7 @@ async def update_folder(
 
 
 @router.delete("/folders/{folder_uuid}")
+@handle_api_errors("delete folder")
 async def delete_folder(
     folder_uuid: str,
     force: bool = Query(False, description="Force delete non-empty folder"),  # NEW
@@ -189,6 +197,7 @@ async def delete_folder(
 
 
 @router.post("/bulk/move")
+@handle_api_errors("bulk move items")
 async def bulk_move_items(
     move_request: BulkMoveRequest,
     current_user: User = Depends(get_current_user),
@@ -214,6 +223,7 @@ async def bulk_move_items(
 
 # Item endpoints
 @router.post("/folders/{folder_uuid}/items", response_model=ItemResponse)
+@handle_api_errors("create items in folder")
 async def create_item_in_folder(
     folder_uuid: str,
     name: str = Form(...),
@@ -256,6 +266,7 @@ async def create_item_in_folder(
 
 
 @router.get("/folders/{folder_uuid}/items", response_model=List[ItemResponse])
+@handle_api_errors("list items in folder")
 async def list_folder_items(
     folder_uuid: str,
     search: Optional[str] = Query(None, description="Search term for item names"),
@@ -283,6 +294,7 @@ async def list_folder_items(
 
 
 @router.get("/items/deleted", response_model=List[ItemResponse])
+@handle_api_errors("list deleted archive items")
 async def list_deleted_items(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -301,6 +313,7 @@ async def list_deleted_items(
 
 
 @router.get("/items/{item_uuid}", response_model=ItemResponse)
+@handle_api_errors("get archive item")
 async def get_item(
     item_uuid: str,
     current_user: User = Depends(get_current_user),
@@ -320,6 +333,7 @@ async def get_item(
 
 
 @router.put("/items/{item_uuid}", response_model=ItemResponse)
+@handle_api_errors("update archive item")
 async def update_item(
     item_uuid: str,
     update_data: ItemUpdate,
@@ -345,6 +359,7 @@ async def update_item(
 
 
 @router.delete("/items/{item_uuid}")
+@handle_api_errors("delete archive item")
 async def delete_item(
     item_uuid: str,
     current_user: User = Depends(get_current_user),
@@ -367,6 +382,7 @@ async def delete_item(
 
 
 @router.post("/items/{item_uuid}/restore")
+@handle_api_errors("restore archive item")
 async def restore_item(
     item_uuid: str,
     current_user: User = Depends(get_current_user),
@@ -388,6 +404,7 @@ async def restore_item(
 
 
 @router.delete("/items/{item_uuid}/permanent")
+@handle_api_errors("hard delete archive item")
 async def permanent_delete_item(
     item_uuid: str,
     current_user: User = Depends(get_current_user),
@@ -410,6 +427,7 @@ async def permanent_delete_item(
 
 
 @router.get("/search", response_model=List[ItemSummary])
+@handle_api_errors("search archive items")
 async def search_items(
     q: str = Query(..., description="Search query"),
     folder_uuid: Optional[str] = Query(None, description="Limit search to specific folder"),
@@ -436,6 +454,7 @@ async def search_items(
 
 # Upload endpoints
 @router.post("/upload")
+@handle_api_errors("upload archive files")
 async def upload_files(
     folder_uuid: Optional[str] = Form(None),
     files: List[UploadFile] = File(...),
@@ -465,6 +484,7 @@ async def upload_files(
 
 
 @router.post("/upload/commit", response_model=ItemResponse)
+@handle_api_errors("commit upload")
 async def commit_upload(
     commit_request: CommitUploadRequest,
     current_user: User = Depends(get_current_user),
@@ -490,6 +510,7 @@ async def commit_upload(
 
 # Download endpoints
 @router.get("/items/{item_uuid}/download")
+@handle_api_errors("download archive item")
 async def download_item(
     item_uuid: str,
     current_user: User = Depends(get_current_user),
@@ -509,6 +530,7 @@ async def download_item(
 
 
 @router.get("/folders/{folder_uuid}/download")
+@handle_api_errors("download archive folder")
 async def download_folder(
     folder_uuid: str,
     current_user: User = Depends(get_current_user),

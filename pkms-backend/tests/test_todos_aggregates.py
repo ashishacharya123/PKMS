@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from httpx import AsyncClient
 from app.models.todo import Todo
 from app.models.project import Project
-from app.models.enums import TodoStatus, TaskPriority
+from app.models.enums import TodoStatus
 
 
 @pytest.mark.asyncio

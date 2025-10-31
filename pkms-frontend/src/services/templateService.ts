@@ -5,7 +5,7 @@
  * No caching needed - local database/file access is fast.
  */
 
-import { apiService } from './apiService';
+import { apiService } from './api';
 
 export interface TemplateItem {
   uuid: string;
@@ -43,11 +43,12 @@ class TemplateService {
       }
       
       const response = await apiService.get(endpoint, { params });
+      const items = response.data as any[];
       
-      return response.map((item: any) => ({
+      return items.map((item: any) => ({
         uuid: item.uuid,
         title: item.title,
-        date: item.date || item.createdAt,
+        date: item.date || item.createdAt || item.created_at,
         isTemplate: item.isTemplate || item.is_template || false,
         fromTemplateId: item.fromTemplateId || item.from_template_id
       }));
@@ -78,11 +79,12 @@ class TemplateService {
       }
       
       const response = await apiService.get(endpoint, { params });
+      const items = response.data as any[];
       
-      return response.map((item: any) => ({
+      return items.map((item: any) => ({
         uuid: item.uuid,
         title: item.title,
-        date: item.date || item.createdAt,
+        date: item.date || item.createdAt || item.created_at,
         isTemplate: item.isTemplate || item.is_template || false,
         fromTemplateId: item.fromTemplateId || item.from_template_id
       }));

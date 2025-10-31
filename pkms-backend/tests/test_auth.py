@@ -7,12 +7,12 @@ session management, and race condition scenarios.
 
 import pytest
 import time
-from datetime import datetime, timedelta
+from datetime import timedelta
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 
 from app.auth.security import verify_token, create_access_token
-from app.models.user import User, Session
+from app.models.user import User
 from .conftest import assert_token_valid, assert_response_success, assert_response_error
 
 
@@ -108,7 +108,7 @@ class TestUserAuthentication:
         
         data = response.json()
         assert data["username"] == test_user.username
-        assert data["created_by"] == test_user.id
+        assert data["created_by"] == test_user.uuid
         assert_token_valid(data["access_token"])
     
     def test_login_invalid_credentials(self, test_client: TestClient, test_user: User):

@@ -19,7 +19,7 @@ import asyncio
 import argparse
 import sys
 import time
-from typing import Dict, List, Any
+from typing import Dict, Any
 from pathlib import Path
 
 # Add parent directory to path for imports
@@ -31,7 +31,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 
 from app.config import settings
-from app.database import Base
 from app.auth.security import create_access_token, verify_token
 
 

@@ -10,17 +10,14 @@ Tests the centralized tag management functionality including:
 """
 
 import pytest
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, Select, Delete, Insert
-from typing import List
+from sqlalchemy import Select, Delete, Insert
 
 from app.services.tag_service import tag_service
 from app.models.tag import Tag
 from app.models.tag_associations import (
-    note_tags, document_tags, todo_tags,
-    archive_item_tags, archive_folder_tags, diary_entry_tags
+    note_tags, document_tags
 )
 
 

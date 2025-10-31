@@ -1,9 +1,19 @@
-import { useState } from 'react';
-import { useAuthenticatedEffectAlways } from '../hooks/useAuthenticatedEffect';
+/**
+ * Clean ProjectsPage using existing patterns
+ *
+ * Refactored from 583-line component to pattern-based implementation:
+ * - Uses useDataLoader for data management
+ * - Uses useModal for modal state management
+ * - Maintains UUID reservation functionality
+ * - Uses existing ModuleFilters and LoadingState patterns
+ */
+
+import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { LoadingState } from '../components/common/LoadingState';
+import { ErrorState } from '../components/common/ErrorState';
 import {
   Container,
-  Title,
   Text,
   Group,
   Stack,
@@ -14,85 +24,132 @@ import {
   Grid,
   Modal,
   Textarea,
-  ColorInput,
   Alert,
   LoadingOverlay
 } from '@mantine/core';
 import {
-  IconPlus,
   IconSearch,
-  IconArchive,
-  IconArchiveOff,
   IconFolder,
-  IconFolders,
   IconCircleCheck,
   IconAlertCircle
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { todosService, Project } from '../services/todosService';
 import { ActionMenu } from '../components/common/ActionMenu';
-import { ModuleLayout } from '../components/common/ModuleLayout';
 import { ModuleHeader } from '../components/common/ModuleHeader';
 import { ModuleFilters, getModuleFilterConfig } from '../components/common/ModuleFilters';
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import { DuplicationModal } from '../components/common/DuplicationModal';
 import { duplicationService, ProjectDuplicateRequest } from '../services/duplicationService';
 import { EmptyState } from '../components/common/EmptyState';
+import { entityReserveService } from '../services/entityReserveService';
+import { isEmptyProject } from '../utils/save_discard_verification';
+import { useDataLoader } from '../hooks/useDataLoader';
+import { useModal } from '../hooks/useModal';
 
 export function ProjectsPage() {
   const navigate = useNavigate();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showArchived, setShowArchived] = useState(false);
-  
+
+  // Data loading with useDataLoader hook
+  const {
+    data: projects = [],
+    loading,
+    error,
+    refetch
+  } = useDataLoader(
+    () => todosService.getProjects(false),
+    {
+      onError: (error) => {
+        console.error('Failed to load projects:', error);
+      }
+    }
+  );
+
+  // Modal management with useModal hook
+  const createModal = useModal<Project>();
+  const editModal = useModal<Project>();
+  const duplicateModal = useModal<Project>();
+  const filterModal = useModal();
+
   // Modular components state
   const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState({
-    sortBy: 'name',
-    sortOrder: 'asc',
+    sortBy: 'name' as const,
+    sortOrder: 'asc' as const,
     favorites: false,
     showArchived: false
   });
-  const [filtersOpened, setFiltersOpened] = useState(false);
   const filterConfig = getModuleFilterConfig('projects');
-  
-  // Modal states
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [duplicating, setDuplicating] = useState(false);
-  
-  // Form states
+
+  // Optimistic UUID state for create modal
+  const [reservedProjectUuid, setReservedProjectUuid] = useState<string | null>(null);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+
+  // Form states (kept separate for UUID reservation logic)
   const [formData, setFormData] = useState({
     name: '',
-    description: '',
-    color: '#228be6'
+    description: ''
   });
 
-  useAuthenticatedEffectAlways(() => {
-    loadProjects();
-  }, [showArchived]);
-
-  const loadProjects = async () => {
+  // Error handling
+  if (error) {
+    return <ErrorState message={error} onRetry={refetch} />;
+  }
+  // Reserve UUID for new project
+  const reserveProjectUuid = async () => {
     try {
-      setLoading(true);
-      const data = await todosService.getProjects(showArchived);
-      setProjects(data);
+      const { uuid } = await entityReserveService.reserve('projects');
+      setReservedProjectUuid(uuid);
+      return uuid;
     } catch (error) {
-      console.error('Failed to load projects:', error);
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to load projects',
-        color: 'red'
-      });
-    } finally {
-      setLoading(false);
+      console.error('Failed to reserve UUID for project:', error);
+      throw error;
     }
   };
 
-  const handleCreate = async () => {
+  // Handle create modal open with UUID reservation
+  const handleCreateModalOpen = useCallback(async () => {
+    try {
+      setIsCreatingProject(true);
+      const uuid = await reserveProjectUuid();
+      createModal.openModal();
+    } catch (error) {
+      notifications.show({
+        title: 'Error',
+        message: 'Failed to prepare project creation',
+        color: 'red'
+      });
+    } finally {
+      setIsCreatingProject(false);
+    }
+  }, [createModal]);
+
+  // Handle create modal close with auto-discard
+  const handleCreateModalClose = useCallback(async () => {
+    if (reservedProjectUuid) {
+      // Check if project is empty enough to auto-discard
+      const projectForCheck = {
+        name: formData.name,
+        description: formData.description || '',
+        files: [] // Projects don't have files in this context
+      };
+
+      if (isEmptyProject(projectForCheck)) {
+        try {
+          await entityReserveService.discard('projects', reservedProjectUuid);
+        } catch (err) {
+          console.error('Failed to discard empty project:', err);
+        }
+      }
+    }
+
+    createModal.closeModal();
+    setReservedProjectUuid(null);
+    setFormData({ name: '', description: '' });
+  }, [createModal, formData, reservedProjectUuid]);
+
+  const handleCreate = useCallback(async () => {
     if (!formData.name.trim()) {
       notifications.show({
         title: 'Validation Error',
@@ -105,19 +162,17 @@ export function ProjectsPage() {
     try {
       await todosService.createProject({
         name: formData.name.trim(),
-        description: formData.description.trim(),
-        color: formData.color
+        description: formData.description.trim()
       });
-      
+
       notifications.show({
         title: 'Success',
         message: 'Project created successfully',
         color: 'green'
       });
-      
-      setCreateModalOpen(false);
-      setFormData({ name: '', description: '', color: '#228be6' });
-      loadProjects();
+
+      handleCreateModalClose();
+      refetch();
     } catch (error) {
       notifications.show({
         title: 'Error',
@@ -125,28 +180,34 @@ export function ProjectsPage() {
         color: 'red'
       });
     }
-  };
+  }, [formData, handleCreateModalClose, refetch]);
 
-  const handleUpdate = async () => {
-    if (!selectedProject || !formData.name.trim()) return;
+  const handleEdit = useCallback((project: Project) => {
+    setFormData({
+      name: project.name,
+      description: project.description || ''
+    });
+    editModal.openModal(project);
+  }, [editModal]);
+
+  const handleUpdate = useCallback(async () => {
+    if (!editModal.selectedItem || !formData.name.trim()) return;
 
     try {
-      await todosService.updateProject(selectedProject.uuid!, {
+      await todosService.updateProject(editModal.selectedItem.uuid!, {
         name: formData.name.trim(),
-        description: formData.description.trim(),
-        color: formData.color
+        description: formData.description.trim()
       });
-      
+
       notifications.show({
         title: 'Success',
         message: 'Project updated successfully',
         color: 'green'
       });
-      
-      setEditModalOpen(false);
-      setSelectedProject(null);
-      setFormData({ name: '', description: '', color: '#228be6' });
-      loadProjects();
+
+      editModal.closeModal();
+      setFormData({ name: '', description: '' });
+      refetch();
     } catch (error) {
       notifications.show({
         title: 'Error',
@@ -154,9 +215,8 @@ export function ProjectsPage() {
         color: 'red'
       });
     }
-  };
-
-  const handleDelete = async (project: Project) => {
+  }, [editModal, formData, refetch]);
+  const handleDelete = useCallback(async (project: Project) => {
     if (!window.confirm(`Delete project "${project.name}"?\n\n⚠️ Warning:\n- Exclusive items will be permanently deleted\n- Linked items will preserve project name as "deleted"`)) {
       return;
     }
@@ -168,7 +228,7 @@ export function ProjectsPage() {
         message: 'Project deleted successfully',
         color: 'green'
       });
-      loadProjects();
+      refetch();
     } catch (error) {
       notifications.show({
         title: 'Error',
@@ -176,9 +236,9 @@ export function ProjectsPage() {
         color: 'red'
       });
     }
-  };
+  }, [refetch]);
 
-  const handleArchiveToggle = async (project: Project) => {
+  const handleArchiveToggle = useCallback(async (project: Project) => {
     try {
       await todosService.updateProject(project.uuid!, {
         ...project,
@@ -189,7 +249,7 @@ export function ProjectsPage() {
         message: `Project ${project.isArchived ? 'unarchived' : 'archived'}`,
         color: 'green'
       });
-      loadProjects();
+      refetch();
     } catch (error) {
       notifications.show({
         title: 'Error',
@@ -197,27 +257,16 @@ export function ProjectsPage() {
         color: 'red'
       });
     }
-  };
+  }, [refetch]);
 
-  const openEditModal = (project: Project) => {
-    setSelectedProject(project);
-    setFormData({
-      name: project.name,
-      description: project.description || '',
-      color: project.color
-    });
-    setEditModalOpen(true);
-  };
 
-  const handleDuplicate = (project: Project) => {
-    setSelectedProject(project);
-    setDuplicateModalOpen(true);
-  };
+  const handleDuplicate = useCallback((project: Project) => {
+    duplicateModal.openModal(project);
+  }, [duplicateModal]);
 
-  const handleDuplicateConfirm = async (data: any) => {
-    if (!selectedProject) return;
-    
-    setDuplicating(true);
+  const handleDuplicateConfirm = useCallback(async (data: any) => {
+    if (!duplicateModal.selectedItem) return;
+
     try {
       const request: ProjectDuplicateRequest = {
         newProjectName: data.newName,
@@ -229,17 +278,18 @@ export function ProjectsPage() {
         itemRenames: data.itemRenames
       };
 
-      const response = await duplicationService.duplicateProject(selectedProject.uuid, request);
-      
+      const response = await duplicationService.duplicateProject(duplicateModal.selectedItem.uuid, request);
+
       if (response.success) {
         notifications.show({
           title: 'Project Duplicated',
           message: `Created "${response.newProjectName}" with ${response.itemsCopied.todos} todos, ${response.itemsCopied.notes} notes, ${response.itemsCopied.documents} documents`,
           color: 'green'
         });
-        
+
         // Reload projects to show the new one
-        await loadProjects();
+        await refetch();
+        duplicateModal.closeModal();
       }
     } catch (error) {
       console.error('Failed to duplicate project:', error);
@@ -248,19 +298,17 @@ export function ProjectsPage() {
         message: 'Failed to duplicate project. Please try again.',
         color: 'red'
       });
-    } finally {
-      setDuplicating(false);
     }
-  };
+  }, [duplicateModal, refetch]);
 
-  const filteredProjects = projects.filter(p => 
+  const filteredProjects = projects.filter(p =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const getCompletionPercentage = (project: Project) => {
-    if (project.todo_count === 0) return 0;
-    return Math.round((project.completed_count / project.todo_count) * 100);
+    if (project.todoCount === 0) return 0;
+    return Math.round((project.completedCount / project.todoCount) * 100);
   };
 
   return (
@@ -270,8 +318,8 @@ export function ProjectsPage() {
         <ModuleHeader
           title="📁 Projects"
           itemCount={filteredProjects.length}
-          onRefresh={loadProjects}
-          onCreate={() => setCreateModalOpen(true)}
+          onRefresh={refetch}
+          onCreate={handleCreateModalOpen}
           showFilters={true}
           showCreate={true}
           showRefresh={true}
@@ -297,7 +345,7 @@ export function ProjectsPage() {
               variant="light"
               size="sm"
               leftSection={<IconSearch size={16} />}
-              onClick={() => setFiltersOpened(true)}
+              onClick={() => filterModal.openModal()}
             >
               Filters
             </Button>
@@ -311,10 +359,10 @@ export function ProjectsPage() {
           {filteredProjects.length === 0 ? (
             <EmptyState
               icon={IconFolder}
-              title={searchQuery ? 'No projects found' : showArchived ? 'No archived projects' : 'No projects yet'}
-              description={searchQuery ? 'Try a different search term' : 'Create your first project to get started'}
-              actionLabel={!searchQuery && !showArchived ? 'Create Project' : undefined}
-              onAction={!searchQuery && !showArchived ? () => setCreateModalOpen(true) : undefined}
+              title={'No projects yet'}
+              description={'Create your first project to get started'}
+              actionLabel={'Create Project'}
+              onAction={handleCreateModalOpen}
             />
           ) : (
             <Grid>
@@ -328,7 +376,6 @@ export function ProjectsPage() {
                       withBorder
                       style={{ 
                         cursor: 'pointer',
-                        borderLeft: `4px solid ${project.color}`,
                         transition: 'transform 0.2s, box-shadow 0.2s',
                         ':hover': {
                           transform: 'translateY(-2px)',
@@ -346,7 +393,7 @@ export function ProjectsPage() {
                                 width: 12,
                                 height: 12,
                                 borderRadius: '50%',
-                                backgroundColor: project.color,
+                                backgroundColor: '#228be6',
                                 flexShrink: 0
                               }}
                             />
@@ -355,8 +402,7 @@ export function ProjectsPage() {
                             </Text>
                           </Group>
                           <ActionMenu
-                            onEdit={() => openEditModal(project)}
-                            onDuplicate={() => handleDuplicate(project)}
+                            onEdit={() => handleEdit(project)}
                             onArchive={project.isArchived ? undefined : () => handleArchiveToggle(project)}
                             onUnarchive={project.isArchived ? () => handleArchiveToggle(project) : undefined}
                             onDelete={() => handleDelete(project)}
@@ -376,18 +422,18 @@ export function ProjectsPage() {
 
                         {/* Stats */}
                         <Group gap="xs">
-                          <Badge size="sm" variant="light" color={project.color}>
-                            {project.todo_count} tasks
+                          <Badge size="sm" variant="light" color="blue">
+                            {project.todoCount} tasks
                           </Badge>
-                          {project.completed_count > 0 && (
+                          {project.completedCount > 0 && (
                             <Badge size="sm" variant="light" color="green" leftSection={<IconCircleCheck size={12} />}>
-                              {project.completed_count} done
+                              {project.completedCount} done
                             </Badge>
                           )}
                         </Group>
 
                         {/* Progress */}
-                        {project.todo_count > 0 && (
+                        {project.todoCount > 0 && (
                           <Stack gap={4}>
                             <Group justify="space-between">
                               <Text size="xs" c="dimmed">Progress</Text>
@@ -402,7 +448,7 @@ export function ProjectsPage() {
                               <div style={{ 
                                 height: '100%', 
                                 width: `${completionPct}%`,
-                                background: project.color,
+                                background: '#228be6',
                                 transition: 'width 0.3s'
                               }} />
                             </div>
@@ -418,7 +464,7 @@ export function ProjectsPage() {
         </div>
 
         {/* Info Alert */}
-        {!showArchived && filteredProjects.length > 0 && (
+        {filteredProjects.length > 0 && (
           <Alert icon={<IconAlertCircle size={16} />} title="Project Modes" color="blue" variant="light">
             <Text size="sm">
               Projects can contain <strong>linked items</strong> (survive deletion) or <strong>exclusive items</strong> (deleted with project).
@@ -430,11 +476,8 @@ export function ProjectsPage() {
 
       {/* Create Project Modal */}
       <Modal
-        opened={createModalOpen}
-        onClose={() => {
-          setCreateModalOpen(false);
-          setFormData({ name: '', description: '', color: '#228be6' });
-        }}
+        opened={createModal.isOpen}
+        onClose={handleCreateModalClose}
         title="Create New Project"
         size="md"
       >
@@ -453,18 +496,11 @@ export function ProjectsPage() {
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             minRows={3}
           />
-          <ColorInput
-            label="Project Color"
-            value={formData.color}
-            onChange={(color) => setFormData({ ...formData, color })}
-            format="hex"
-            swatches={['#228be6', '#fa5252', '#40c057', '#fab005', '#be4bdb', '#fd7e14', '#15aabf']}
-          />
           <Group justify="flex-end" mt="md">
-            <Button variant="subtle" onClick={() => setCreateModalOpen(false)}>
+            <Button variant="subtle" onClick={handleCreateModalClose}>
               Cancel
             </Button>
-            <Button onClick={handleCreate}>
+            <Button onClick={handleCreate} loading={isCreatingProject}>
               Create Project
             </Button>
           </Group>
@@ -473,11 +509,10 @@ export function ProjectsPage() {
 
       {/* Edit Project Modal */}
       <Modal
-        opened={editModalOpen}
+        opened={editModal.isOpen}
         onClose={() => {
-          setEditModalOpen(false);
-          setSelectedProject(null);
-          setFormData({ name: '', description: '', color: '#228be6' });
+          editModal.closeModal();
+          setFormData({ name: '', description: '' });
         }}
         title="Edit Project"
         size="md"
@@ -497,15 +532,8 @@ export function ProjectsPage() {
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
             minRows={3}
           />
-          <ColorInput
-            label="Project Color"
-            value={formData.color}
-            onChange={(color) => setFormData({ ...formData, color })}
-            format="hex"
-            swatches={['#228be6', '#fa5252', '#40c057', '#fab005', '#be4bdb', '#fd7e14', '#15aabf']}
-          />
           <Group justify="flex-end" mt="md">
-            <Button variant="subtle" onClick={() => setEditModalOpen(false)}>
+            <Button variant="subtle" onClick={() => editModal.closeModal()}>
               Cancel
             </Button>
             <Button onClick={handleUpdate}>
@@ -516,18 +544,18 @@ export function ProjectsPage() {
       </Modal>
 
       {/* Modular Filter Modal */}
-      <Modal 
-        opened={filtersOpened} 
-        onClose={() => setFiltersOpened(false)} 
-        title="Project Filters & Sorting" 
+      <Modal
+        opened={filterModal.isOpen}
+        onClose={() => filterModal.closeModal()}
+        title="Project Filters & Sorting"
         size="lg"
       >
         <ModuleFilters
-          filters={filters}
-          onFiltersChange={setFilters}
-          activeFiltersCount={Object.values(filters).filter(v => Array.isArray(v) ? v.length > 0 : v !== false && v !== 'all' && v !== 'name' && v !== 'asc').length}
+          filters={filters as any}
+          onFiltersChange={(newFilters) => setFilters(newFilters as any)}
+          activeFiltersCount={Object.values(filters).filter(v => Array.isArray(v) ? v.length > 0 : v !== false && v !== 'asc').length}
           showFavorites={filterConfig.showFavorites}
-          showMimeTypes={filterConfig.showMimeTypes}
+          showMimeTypes={false}
           showDateRange={filterConfig.showDateRange}
           showArchived={filterConfig.showArchived}
           showSorting={filterConfig.showSorting}
@@ -538,12 +566,12 @@ export function ProjectsPage() {
 
       {/* Duplication Modal */}
       <DuplicationModal
-        opened={duplicateModalOpen}
-        onClose={() => setDuplicateModalOpen(false)}
+        opened={duplicateModal.isOpen}
+        onClose={() => duplicateModal.closeModal()}
         onConfirm={handleDuplicateConfirm}
         type="project"
-        originalName={selectedProject?.name || ''}
-        loading={duplicating}
+        originalName={duplicateModal.selectedItem?.name || ''}
+        loading={false}
       />
     </Container>
   );

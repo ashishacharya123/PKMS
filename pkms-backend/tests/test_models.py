@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 
-from app.models.user import User, Session, RecoveryKey
+from app.models.user import User
 from app.models.note import Note
 from app.models.document import Document
 from app.models.todo import Todo
@@ -26,7 +26,6 @@ from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import Tag
 # Link model removed; skip Link-related tests for now
 from app.auth.security import hash_password
-from .conftest import assert_response_success
 
 
 class TestUserModel:

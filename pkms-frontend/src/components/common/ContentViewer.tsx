@@ -30,7 +30,7 @@ import {
   IconArchiveOff,
   IconTrash,
   IconAlertTriangle,
-  IconMood,
+  IconMoodHappy,
   IconCloudRain,
   IconMapPin,
   IconCalendar,
@@ -218,18 +218,18 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 {mood && mood > 0 && (
                   <Grid.Col span={4}>
                     <Group gap="xs">
-                      <IconMood size={16} />
+                      <IconMoodHappy size={16} />
                       <Text size="sm" fw={500}>Mood:</Text>
                       <Text size="sm">{moodEmojis[mood - 1]} {moodLabels[mood - 1]}</Text>
                     </Group>
                   </Grid.Col>
                 )}
-                {weatherCode !== undefined && weatherCode > 0 && (
+                {weatherCode !== undefined && weatherCode >= 0 && (
                   <Grid.Col span={4}>
                     <Group gap="xs">
                       <IconCloudRain size={16} />
                       <Text size="sm" fw={500}>Weather:</Text>
-                      <Text size="sm">{weatherLabels[weatherCode]}</Text>
+                      <Text size="sm">{weatherLabels[Math.min(weatherLabels.length - 1, Math.max(0, weatherCode))]}</Text>
                     </Group>
                   </Grid.Col>
                 )}
@@ -304,7 +304,10 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
         <Card withBorder p="md">
           <Title order={5} mb="md">Content</Title>
           <Paper p="md" withBorder>
-            <MDEditor.Markdown source={content} />
+            <MDEditor.Markdown 
+              source={content} 
+              data-color-mode="light"
+            />
           </Paper>
         </Card>
 

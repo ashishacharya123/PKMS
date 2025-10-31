@@ -3,7 +3,7 @@ PKMS Backend - Main FastAPI Application
 Personal Knowledge Management System
 """
 
-from fastapi import FastAPI, HTTPException, Request, Response, status, Cookie
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -11,8 +11,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
 import asyncio
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -55,7 +54,7 @@ from app.middleware.query_monitoring import QueryMonitoringMiddleware
 
 # Import database initialization
 from app.database import init_db, close_db, get_db_session
-from app.config import settings, get_data_dir, NEPAL_TZ
+from app.config import settings, NEPAL_TZ
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -151,7 +150,7 @@ async def lifespan(app: FastAPI):
 
         yield
         
-    except Exception as e:
+    except Exception:
         logger.exception("Critical error during startup")
         raise
     finally:

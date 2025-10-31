@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -34,7 +34,7 @@ import {
   IconGripVertical
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { todosService, Project, Todo } from '../services/todosService';
+import { todosService, Project, TodoSummary } from '../services/todosService';
 import { notesService, NoteSummary } from '../services/notesService';
 import { unifiedFileService, UnifiedFileItem } from '../services/unifiedFileService';
 import { projectApi } from '../services/projectApi';
@@ -43,32 +43,113 @@ import { TodosLayout } from '../components/todos/TodosLayout';
 import { ModuleLayout } from '../components/common/ModuleLayout';
 import { ModuleHeader } from '../components/common/ModuleHeader';
 import { ModuleFilters } from '../components/common/ModuleFilters';
+import { useDataLoader } from '../hooks/useDataLoader';
+import { useModal } from '../hooks/useModal';
+
+// Type guards for discriminated unions
+type ExclusiveItem = { isExclusiveMode: boolean };
+type TaggedItem = { tags: string[] };
+
+function isExclusive(item: any): item is ExclusiveItem {
+  return item && typeof item.isExclusiveMode === 'boolean';
+}
+
+function hasTags(item: any): item is TaggedItem {
+  return item && Array.isArray(item.tags);
+}
+
+function getItemTitle(item: NoteSummary | UnifiedFileItem | TodoSummary): string {
+  return (item as any).title || (item as any).originalName || 'Untitled';
+}
 
 export function ProjectDashboardPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   
-  const [project, setProject] = useState<Project | null>(null);
-  const [loading, setLoading] = useState(true);
-  
-  // Drag and drop state
-  const [draggedDocument, setDraggedDocument] = useState<DocumentSummary | null>(null);
+  // Modal management
+  const deleteModal = useModal();
+
+  // Drag and drop state (keeping as is - complex functionality)
+  const [draggedDocument, setDraggedDocument] = useState<UnifiedFileItem | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // Project data loading with useDataLoader
+  const {
+    data: project,
+    loading,
+    error,
+    refetch: refetchProject
+  } = useDataLoader(
+    () => todosService.getProject(projectId!),
+    {
+      dependencies: [projectId],
+      onError: (error) => {
+        console.error('Failed to load project:', error);
+        notifications.show({
+          title: 'Error',
+          message: 'Failed to load project data',
+          color: 'red'
+        });
+      }
+    }
+  );
+
+  // Items data loading with useDataLoader
+  const {
+    data: itemsData = { notes: [], documents: [], todos: [] },
+    loading: itemsLoading,
+    error: itemsError,
+    refetch: refetchItems
+  } = useDataLoader(
+    async () => {
+      if (!project) return { notes: [], documents: [], todos: [] };
+
+      // Load items filtered by project using server-side filtering
+      const [notesData, docsData, todosData] = await Promise.all([
+        notesService.listNotes({ projectId: project.uuid }),
+        unifiedFileService.listDocuments({ projectId: project.uuid }),
+        todosService.getTodos({ projectId: project.uuid })
+      ]);
+
+      return {
+        notes: notesData,
+        documents: docsData,
+        todos: todosData as TodoSummary[]
+      };
+    },
+    {
+      dependencies: [project],
+      onError: (error) => {
+        console.error('Failed to load project items:', error);
+        notifications.show({
+          title: 'Error',
+          message: 'Failed to load project items',
+          color: 'red'
+        });
+      }
+    }
+  );
+
+  // Extract items from loaded data
+  const notes = itemsData.notes || [];
+  const documents = itemsData.documents || [];
+  const todos = itemsData.todos || [];
+
+  // Combined loading state
+  const isLoading = loading || itemsLoading;
+
+  // Combined error handling
+  const hasError = error || itemsError;
   
-  // Items state
-  const [notes, setNotes] = useState<NoteSummary[]>([]);
-  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
-  const [todos, setTodos] = useState<Todo[]>([]);
-  
-  // Separate exclusive and linked items
-  const exclusiveNotes = notes.filter(n => n.isExclusiveMode);
-  const linkedNotes = notes.filter(n => !n.isExclusiveMode);
-  
-  const exclusiveDocs = documents.filter(d => d.isExclusiveMode);
-  const linkedDocs = documents.filter(d => !d.isExclusiveMode);
-  
-  const exclusiveTodos = todos.filter(t => t.isExclusiveMode);
-  const linkedTodos = todos.filter(t => !t.isExclusiveMode);
+  // Separate exclusive and linked items (with proper type guards)
+  const exclusiveNotes = notes.filter(n => isExclusive(n));
+  const linkedNotes = notes.filter(n => !isExclusive(n));
+
+  const exclusiveDocs = documents.filter(d => isExclusive(d));
+  const linkedDocs = documents.filter(d => !isExclusive(d));
+
+  const exclusiveTodos = todos.filter(t => isExclusive(t));
+  const linkedTodos = todos.filter(t => !isExclusive(t));
 
   const todoCounts = useMemo(() => {
     const byStatus: any = { done: 0, in_progress: 0, pending: 0, blocked: 0, cancelled: 0 };
@@ -79,71 +160,31 @@ export function ProjectDashboardPage() {
     return {
       ...byStatus,
       total: todos.length,
-      completedPct: project?.todo_count ? (project.completed_count / project.todo_count) * 100 : 0,
+      completedPct: project?.todoCount ? (project.completedCount / project.todoCount) * 100 : 0,
     };
-  }, [todos, project?.todo_count, project?.completed_count]);
+  }, [todos, project?.todoCount, project?.completedCount]);
 
-  useAuthenticatedEffect(() => {
-    if (projectId) {
-      loadProjectData();
-    }
-  }, [projectId]);
-
-  const loadProjectData = async () => {
-    try {
-      setLoading(true);
-      
-      // Load project details
-      const projectData = await todosService.getProject(projectId!);
-      setProject(projectData);
-      
-      // Load all items for this project
-      const [notesData, docsData, todosData] = await Promise.all([
-        notesService.listNotes({}), // TODO: Add project filtering by UUID
-        unifiedFileService.listDocuments({}), // TODO: Add project filtering by UUID
-        todosService.getTodos({}) // TODO: Add project filtering by UUID
-      ]);
-
-      // Filter items by project (temporary solution until services support UUID filtering)
-      const filteredNotes = notesData.filter(note =>
-        note.projects?.some(p => p.uuid === projectData.uuid)
-      );
-      const filteredDocs = docsData.filter(doc =>
-        doc.projects?.some(p => p.uuid === projectData.uuid)
-      );
-      const filteredTodos = todosData.filter(todo =>
-        todo.projects?.some(p => p.uuid === projectData.uuid)
-      );
-
-      setNotes(filteredNotes);
-      setDocuments(filteredDocs);
-      setTodos(filteredTodos as Todo[]);
-    } catch (error) {
-      console.error('Failed to load project data:', error);
-      notifications.show({
-        title: 'Error',
-        message: 'Failed to load project data',
-        color: 'red'
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDelete = async () => {
+  
+  const handleDelete = useCallback(() => {
     if (!project) return;
-    
+
     const exclusiveCount = exclusiveNotes.length + exclusiveDocs.length + exclusiveTodos.length;
     const linkedCount = linkedNotes.length + linkedDocs.length + linkedTodos.length;
-    
+
     const confirmMessage = `Delete project "${project.name}"?\n\n⚠️ Warning:\n` +
       `- ${exclusiveCount} exclusive items will be PERMANENTLY DELETED\n` +
       `- ${linkedCount} linked items will preserve project name as "deleted"\n\n` +
       `This action cannot be undone!`;
-    
+
     if (!window.confirm(confirmMessage)) {
       return;
     }
+
+    deleteModal.openModal();
+  }, [project, exclusiveNotes.length, exclusiveDocs.length, exclusiveTodos.length, linkedNotes.length, linkedDocs.length, linkedTodos.length, deleteModal]);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!project) return;
 
     try {
       await todosService.deleteProject(project.uuid!);
@@ -160,24 +201,24 @@ export function ProjectDashboardPage() {
         color: 'red'
       });
     }
-  };
+  }, [project, navigate]);
 
   // Drag and drop handlers for document reordering
-  const handleDragStart = (e: React.DragEvent, document: DocumentSummary) => {
+  const handleDragStart = useCallback((e: React.DragEvent, document: UnifiedFileItem) => {
     setDraggedDocument(document);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', document.uuid);
-  };
+  }, []);
 
-  const handleDragOver = (e: React.DragEvent, index: number) => {
+  const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     setDragOverIndex(index);
-  };
+  }, []);
 
-  const handleDragLeave = () => {
+  const handleDragLeave = useCallback(() => {
     setDragOverIndex(null);
-  };
+  }, []);
 
   const handleDrop = async (e: React.DragEvent, targetIndex: number) => {
     e.preventDefault();
@@ -192,10 +233,6 @@ export function ProjectDashboardPage() {
     }
 
     try {
-      // Optimistic update
-      const reorderedDocuments = reorderArray(documents, sourceIndex, targetIndex);
-      setDocuments(reorderedDocuments);
-
       // Generate new order for API
       const documentUuids = generateDocumentReorderUpdate(documents, {
         sourceIndex,
@@ -211,10 +248,11 @@ export function ProjectDashboardPage() {
         message: 'Document order updated',
         color: 'green'
       });
+
+      // Refetch items to get updated order
+      refetchItems();
     } catch (error) {
       console.error('Failed to reorder documents:', error);
-      // Revert optimistic update
-      setDocuments(documents);
       notifications.show({
         title: 'Error',
         message: 'Failed to reorder documents',
@@ -226,20 +264,30 @@ export function ProjectDashboardPage() {
     }
   };
 
-  const handleDragEnd = () => {
+  const handleDragEnd = useCallback(() => {
     setDraggedDocument(null);
     setDragOverIndex(null);
-  };
+  }, []);
 
   if (!project) {
     return (
       <Container size="xl" py="xl">
-        <LoadingOverlay visible={loading} />
-        {!loading && (
+        <LoadingOverlay visible={isLoading} />
+        {!isLoading && (
           <Alert color="red" title="Project Not Found">
             The project you're looking for doesn't exist or you don't have permission to view it.
           </Alert>
         )}
+      </Container>
+    );
+  }
+
+  if (hasError) {
+    return (
+      <Container size="xl" py="xl">
+        <Alert color="red" title="Error Loading Project Data">
+          Failed to load project data. Please try refreshing the page.
+        </Alert>
       </Container>
     );
   }
@@ -249,7 +297,7 @@ export function ProjectDashboardPage() {
     type, 
     onNavigate 
   }: { 
-    item: NoteSummary | DocumentSummary | Todo; 
+    item: NoteSummary | UnifiedFileItem | TodoSummary; 
     type: 'note' | 'document' | 'todo';
     onNavigate: () => void;
   }) => (
@@ -265,14 +313,14 @@ export function ProjectDashboardPage() {
           {type === 'document' && <IconFile size={18} />}
           {type === 'todo' && <IconCheckbox size={18} />}
           <Text size="sm" fw={500} truncate style={{ flex: 1 }}>
-            {item.title || (item as any).originalName}
+            {getItemTitle(item)}
           </Text>
         </Group>
         <Group gap="xs">
           {(() => {
-            // Normalize both camelCase and snake_case
-            const isExclusive = (item as any).isExclusiveMode ?? (item as any).is_exclusive_mode ?? false;
-            return isExclusive ? (
+            // Use proper type guard for exclusive mode
+            const isExclusiveItem = isExclusive(item);
+            return isExclusiveItem ? (
               <Tooltip label="Exclusive - Will be deleted with project">
                 <IconLock size={16} color="var(--mantine-color-red-6)" />
               </Tooltip>
@@ -282,7 +330,7 @@ export function ProjectDashboardPage() {
               </Tooltip>
             );
           })()}
-          {item.tags && item.tags.length > 0 && (
+          {hasTags(item) && item.tags.length > 0 && (
             <Badge size="xs" variant="dot">
               {item.tags.length} tags
             </Badge>
@@ -311,7 +359,7 @@ export function ProjectDashboardPage() {
                   width: 20,
                   height: 20,
                   borderRadius: '50%',
-                  backgroundColor: project.color
+                  backgroundColor: '#228be6'
                 }}
               />
               <Title order={2}>{project.name}</Title>
@@ -346,13 +394,13 @@ export function ProjectDashboardPage() {
           <Paper p="md" withBorder>
             <Stack gap={4}>
               <Text size="xs" c="dimmed">Total Tasks</Text>
-              <Text size="xl" fw={700}>{project.todo_count}</Text>
+              <Text size="xl" fw={700}>{project.todoCount}</Text>
             </Stack>
           </Paper>
           <Paper p="md" withBorder>
             <Stack gap={4}>
               <Text size="xs" c="dimmed">Completed</Text>
-              <Text size="xl" fw={700} c="green">{project.completed_count}</Text>
+              <Text size="xl" fw={700} c="green">{project.completedCount}</Text>
             </Stack>
           </Paper>
           <Paper p="md" withBorder>
@@ -391,19 +439,19 @@ export function ProjectDashboardPage() {
               <Stack gap={2} align="center">
                 <Text size="xs" c="dimmed">Completed</Text>
                 <Badge color="green" variant="filled" size="lg">
-                  {project.completed_count}
+                  {project.completedCount}
                 </Badge>
               </Stack>
               <Stack gap={2} align="center">
                 <Text size="xs" c="dimmed">Remaining</Text>
                 <Badge color="gray" variant="filled" size="lg">
-                  {project.todo_count - project.completed_count}
+                  {project.todoCount - project.completedCount}
                 </Badge>
               </Stack>
               <Stack gap={2} align="center">
                 <Text size="xs" c="dimmed">Total</Text>
                 <Badge color="blue" variant="filled" size="lg">
-                  {project.todo_count}
+                  {project.todoCount}
                 </Badge>
               </Stack>
             </Group>
@@ -419,15 +467,15 @@ export function ProjectDashboardPage() {
                 size={200}
                 thickness={24}
                 sections={[
-                  { value: project.todo_count > 0 ? (todoCounts.done / project.todo_count) * 100 : 0, color: 'green', tooltip: `Done: ${todoCounts.done}` },
-                  { value: project.todo_count > 0 ? (todoCounts.in_progress / project.todo_count) * 100 : 0, color: 'blue', tooltip: `In Progress: ${todoCounts.in_progress}` },
-                  { value: project.todo_count > 0 ? (todoCounts.pending / project.todo_count) * 100 : 0, color: 'yellow', tooltip: `Pending: ${todoCounts.pending}` },
-                  { value: project.todo_count > 0 ? (todoCounts.blocked / project.todo_count) * 100 : 0, color: 'red', tooltip: `Blocked: ${todoCounts.blocked}` },
-                  { value: project.todo_count > 0 ? (todoCounts.cancelled / project.todo_count) * 100 : 0, color: 'gray', tooltip: `Cancelled: ${todoCounts.cancelled}` },
+                  { value: project.todoCount > 0 ? (todoCounts.done / project.todoCount) * 100 : 0, color: 'green', tooltip: `Done: ${todoCounts.done}` },
+                  { value: project.todoCount > 0 ? (todoCounts.in_progress / project.todoCount) * 100 : 0, color: 'blue', tooltip: `In Progress: ${todoCounts.in_progress}` },
+                  { value: project.todoCount > 0 ? (todoCounts.pending / project.todoCount) * 100 : 0, color: 'yellow', tooltip: `Pending: ${todoCounts.pending}` },
+                  { value: project.todoCount > 0 ? (todoCounts.blocked / project.todoCount) * 100 : 0, color: 'red', tooltip: `Blocked: ${todoCounts.blocked}` },
+                  { value: project.todoCount > 0 ? (todoCounts.cancelled / project.todoCount) * 100 : 0, color: 'gray', tooltip: `Cancelled: ${todoCounts.cancelled}` },
                 ]}
                 label={
                   <div style={{ textAlign: 'center' }}>
-                    <Text size="xl" fw={700}>{project.todo_count}</Text>
+                    <Text size="xl" fw={700}>{project.todoCount}</Text>
                     <Text size="xs" c="dimmed">Total Tasks</Text>
                   </div>
                 }
@@ -871,7 +919,7 @@ export function ProjectDashboardPage() {
                 createdAt: todo.createdAt,
                 updatedAt: todo.updatedAt
               }))}
-              isLoading={loading}
+              isLoading={isLoading}
               activeTab="ongoing"
               onCreateTodo={() => {
                 // Navigate to create todo with project pre-selected
@@ -931,7 +979,7 @@ export function ProjectDashboardPage() {
                 createdAt: note.createdAt,
                 updatedAt: note.updatedAt
               }))}
-              isLoading={loading}
+              isLoading={isLoading}
               viewMode="list"
               onItemClick={(item) => navigate(`/notes/${item.uuid}`)}
               onToggleFavorite={(item) => {
@@ -966,7 +1014,7 @@ export function ProjectDashboardPage() {
                 createdAt: doc.createdAt,
                 updatedAt: doc.updatedAt
               }))}
-              isLoading={loading}
+              isLoading={isLoading}
               viewMode="list"
               onItemClick={(item) => navigate(`/documents/${item.uuid}`)}
               onToggleFavorite={(item) => {

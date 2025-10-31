@@ -2,6 +2,7 @@ from pydantic import Field, field_validator, model_validator, EmailStr
 from typing import Optional, List
 from datetime import datetime
 import re
+import uuid
 from .base import CamelCaseModel
 
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{3,50}$')
@@ -134,6 +135,15 @@ class UserResponse(CamelCaseModel):
     created_at: datetime
     updated_at: datetime
     last_login: Optional[datetime]
+    
+    @field_validator('uuid')
+    @classmethod
+    def validate_uuid_format(cls, v):
+        try:
+            uuid.UUID(v)
+        except ValueError:
+            raise ValueError('uuid must be a valid UUID')
+        return v
 
 class RefreshTokenRequest(CamelCaseModel):
     pass

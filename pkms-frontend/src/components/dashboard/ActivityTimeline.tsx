@@ -202,9 +202,9 @@ export const ActivityTimeline: React.FC<ActivityTimelineProps> = ({
                         </Badge>
                       )}
                       
-                      {item.metadata?.weather_code && (
+                      {item.metadata?.weatherCode && (
                         <Badge size="xs" variant="light" color="cyan">
-                          Weather: {item.metadata.weather_code}
+                          Weather: {item.metadata.weatherCode}
                         </Badge>
                       )}
                     </Group>

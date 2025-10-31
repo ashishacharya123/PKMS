@@ -1,5 +1,5 @@
 import { format, parseISO } from 'date-fns';
-import NepaliDate from 'nepali-date-converter';
+import { nepaliDateCache } from './nepaliDateCache';
 
 export const getMoodLabel = (mood: number): string => {
   const labels = {
@@ -37,11 +37,11 @@ export const getMoodColor = (mood: number): string => {
 export const convertToNepaliDate = (englishDate: Date | string): string => {
   try {
     const date = typeof englishDate === 'string' ? new Date(englishDate) : englishDate;
-    const nepaliDate = new NepaliDate(date);
-    return nepaliDate.format('YYYY/MM/DD');
+    const info = nepaliDateCache.convert(date);
+    return info.nepaliDate;
   } catch (error) {
     console.error('Failed to convert to Nepali date:', error);
-    return '';
+    return 'N/A';
   }
 };
 

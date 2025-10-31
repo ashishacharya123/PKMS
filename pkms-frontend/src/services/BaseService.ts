@@ -1,10 +1,80 @@
+import { apiService } from './api';
+import { logger } from '../utils/logger';
+
+export interface CacheConfig {
+  ttl?: number;
+  tags?: string[];
+}
+
+export abstract class CacheAwareBaseService {
+  protected cache: any;
+  protected defaultCacheTtl = 300000; // 5 minutes
+
+  constructor(cache: any) {
+    this.cache = cache;
+  }
+
+  protected async getCachedData<T>(
+    cacheKey: string,
+    apiCall: () => Promise<T>,
+    defaultData: T,
+    config: CacheConfig = {}
+  ): Promise<T> {
+    const { ttl = this.defaultCacheTtl, tags = [] } = config;
+
+    const cached = await this.cache.get(cacheKey);
+    if (cached) {
+      logger.debug?.(`Cache hit: ${cacheKey}`);
+      return cached as T;
+    }
+
+    logger.debug?.(`Cache miss: ${cacheKey}`);
+
+    try {
+      const data = await apiCall();
+      await this.cache.set(cacheKey, data, ttl, tags);
+      logger.debug?.(`Cache set: ${cacheKey}`);
+      return data;
+    } catch (error: any) {
+      logger.error?.(`API error for ${cacheKey}: ${error?.message || error}`);
+      return defaultData;
+    }
+  }
+
+  protected async invalidateCache(keyOrTags: string | string[]) {
+    if (Array.isArray(keyOrTags)) {
+      await this.cache.invalidateByTags(keyOrTags);
+    } else {
+      await this.cache.delete(keyOrTags);
+    }
+  }
+
+  protected async apiGet<T>(endpoint: string, params?: any): Promise<T> {
+    const { data } = await apiService.get<T>(endpoint, { params });
+    return data;
+  }
+
+  protected async apiPost<T>(endpoint: string, body: any): Promise<T> {
+    const { data } = await apiService.post<T>(endpoint, body);
+    return data;
+  }
+
+  protected async apiPut<T>(endpoint: string, body: any): Promise<T> {
+    const { data } = await apiService.put<T>(endpoint, body);
+    return data;
+  }
+
+  protected async apiDelete<T>(endpoint: string): Promise<T> {
+    const { data } = await apiService.delete<T>(endpoint);
+    return data;
+  }
+}
+
 /**
  * Base Service Class for CRUD operations
  * Industry standard service layer abstraction
  * Extends for all module services (Notes, Todos, Documents, Projects)
  */
-
-import { apiService } from './api';
 
 export abstract class BaseService<T, TCreate, TUpdate> {
   constructor(protected baseUrl: string) {}

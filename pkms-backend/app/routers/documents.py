@@ -7,7 +7,7 @@ Handles only HTTP concerns: request/response mapping, authentication, error hand
 Refactored to follow "thin router, thick service" architecture pattern.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from pydantic.types import UUID4
@@ -22,31 +22,25 @@ from app.schemas.document import (
     DocumentUpdate,
 )
 from app.services.document_crud_service import document_crud_service
+from app.decorators.error_handler import handle_api_errors
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["documents"])
 
 
 @router.post("/upload/commit", response_model=DocumentResponse)
+@handle_api_errors("commit document upload")
 async def commit_document_upload(
     payload: CommitDocumentUploadRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Finalize a previously chunk-uploaded document file and create DB record."""
-    try:
-        return await document_crud_service.commit_document_upload(db, current_user.uuid, payload)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception(f"Error committing document upload for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to commit document upload"
-        )
+    return await document_crud_service.commit_document_upload(db, current_user.uuid, payload)
 
 
 @router.get("/", response_model=List[DocumentResponse])
+@handle_api_errors("list documents")
 async def list_documents(
     search: Optional[str] = Query(None),
     tag: Optional[str] = Query(None),
@@ -61,59 +55,35 @@ async def list_documents(
     db: AsyncSession = Depends(get_db)
 ):
     """List documents with filtering and pagination. Uses FTS5 for text search."""
-    try:
-        return await document_crud_service.list_documents(
-            db, current_user.uuid, search, tag, mime_type, archived, 
-            is_favorite, project_only, unassigned_only, limit, offset
-        )
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception(f"Error listing documents for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list documents"
-        )
+    return await document_crud_service.list_documents(
+        db, current_user.uuid, search, tag, mime_type, archived, 
+        is_favorite, project_only, unassigned_only, limit, offset
+    )
 
 
 @router.get("/deleted", response_model=List[DocumentResponse])
+@handle_api_errors("list deleted documents")
 async def list_deleted_documents(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """List deleted documents for Recycle Bin."""
-    try:
-        return await document_crud_service.list_deleted_documents(db, current_user.uuid)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("Error listing deleted documents")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list deleted documents"
-        )
+    return await document_crud_service.list_deleted_documents(db, current_user.uuid)
 
 
 @router.get("/{document_uuid}", response_model=DocumentResponse)
+@handle_api_errors("get document")
 async def get_document(
     document_uuid: UUID4,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get a specific document by UUID."""
-    try:
-        return await document_crud_service.get_document(db, current_user.uuid, document_uuid)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception(f"Error getting document {document_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve document"
-        )
+    return await document_crud_service.get_document(db, current_user.uuid, document_uuid)
 
 
 @router.put("/{document_uuid}", response_model=DocumentResponse)
+@handle_api_errors("update document")
 async def update_document(
     document_uuid: UUID4,
     document_data: DocumentUpdate,
@@ -121,93 +91,52 @@ async def update_document(
     db: AsyncSession = Depends(get_db)
 ):
     """Update document metadata and tags."""
-    try:
-        return await document_crud_service.update_document(
-            db, current_user.uuid, document_uuid, document_data
-        )
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception(f"Error updating document {document_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update document"
-        )
+    return await document_crud_service.update_document(
+        db, current_user.uuid, document_uuid, document_data
+    )
 
 
 @router.delete("/{document_uuid}", status_code=status.HTTP_204_NO_CONTENT)
+@handle_api_errors("delete document")
 async def delete_document(
     document_uuid: UUID4,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a document and its associated file."""
-    try:
-        await document_crud_service.delete_document(db, current_user.uuid, document_uuid)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception(f"Error deleting document {document_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete document"
-        )
+    await document_crud_service.delete_document(db, current_user.uuid, document_uuid)
 
 
 @router.post("/{document_uuid}/restore")
+@handle_api_errors("restore document")
 async def restore_document(
     document_uuid: UUID4,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Restore a soft-deleted document from Recycle Bin."""
-    try:
-        await document_crud_service.restore_document(db, current_user.uuid, document_uuid)
-        return {"message": "Document restored successfully"}
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception(f"Error restoring document {document_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to restore document"
-        )
+    await document_crud_service.restore_document(db, current_user.uuid, document_uuid)
+    return {"message": "Document restored successfully"}
 
 
 @router.delete("/{document_uuid}/permanent")
+@handle_api_errors("hard delete document")
 async def permanent_delete_document(
     document_uuid: UUID4,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Permanently delete document (hard delete) - WARNING: Cannot be undone!"""
-    try:
-        await document_crud_service.permanent_delete_document(db, current_user.uuid, document_uuid)
-        return {"message": "Document permanently deleted"}
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception(f"Error permanently deleting document {document_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to permanently delete document"
-        )
+    await document_crud_service.permanent_delete_document(db, current_user.uuid, document_uuid)
+    return {"message": "Document permanently deleted"}
 
 
 @router.get("/{document_uuid}/download")
+@handle_api_errors("download document")
 async def download_document(
     document_uuid: UUID4,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Download a document file."""
-    try:
-        return await document_crud_service.download_document(db, current_user.uuid, document_uuid)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception(f"Error downloading document {document_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to download document"
-        )
+    return await document_crud_service.download_document(db, current_user.uuid, document_uuid)

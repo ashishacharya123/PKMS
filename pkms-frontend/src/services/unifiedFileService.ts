@@ -451,6 +451,8 @@ class UnifiedFileService {
     if (params.isFavorite !== undefined) queryParams.append('is_favorite', String(params.isFavorite));
     if (params.tag !== undefined) queryParams.append('tag', params.tag);
     if (params.projectUuid !== undefined) queryParams.append('project_uuid', params.projectUuid);
+    // Support projectId (UUID) alias for consistency with other services
+    if (params.projectId !== undefined) queryParams.append('project_id', params.projectId);
     if (params.project_only !== undefined) queryParams.append('project_only', String(params.project_only));
     if (params.unassigned_only !== undefined) queryParams.append('unassigned_only', String(params.unassigned_only));
     if (params.search !== undefined) queryParams.append('search', params.search);
