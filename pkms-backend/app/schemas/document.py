@@ -60,6 +60,7 @@ class DocumentResponse(CamelCaseModel):
     updated_at: datetime
     tags: list[str]
     projects: list[ProjectBadge] = Field(default_factory=list, description="Projects this document belongs to")
+    created_by: str  # ✅ ADDED - User who created the document
 
 class CommitDocumentUploadRequest(CamelCaseModel):
     file_id: str

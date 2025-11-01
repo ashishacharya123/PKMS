@@ -34,6 +34,7 @@ import {
   IconGripVertical
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
+import { modals } from '@mantine/modals';
 import { todosService, Project, TodoSummary } from '../services/todosService';
 import { notesService, NoteSummary } from '../services/notesService';
 import { unifiedFileService, UnifiedFileItem } from '../services/unifiedFileService';
@@ -66,9 +67,7 @@ export function ProjectDashboardPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   
-  // Modal management
-  const deleteModal = useModal();
-
+  
   // Drag and drop state (keeping as is - complex functionality)
   const [draggedDocument, setDraggedDocument] = useState<UnifiedFileItem | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -171,17 +170,26 @@ export function ProjectDashboardPage() {
     const exclusiveCount = exclusiveNotes.length + exclusiveDocs.length + exclusiveTodos.length;
     const linkedCount = linkedNotes.length + linkedDocs.length + linkedTodos.length;
 
-    const confirmMessage = `Delete project "${project.name}"?\n\n⚠️ Warning:\n` +
-      `- ${exclusiveCount} exclusive items will be PERMANENTLY DELETED\n` +
-      `- ${linkedCount} linked items will preserve project name as "deleted"\n\n` +
-      `This action cannot be undone!`;
-
-    if (!window.confirm(confirmMessage)) {
-      return;
-    }
-
-    deleteModal.openModal();
-  }, [project, exclusiveNotes.length, exclusiveDocs.length, exclusiveTodos.length, linkedNotes.length, linkedDocs.length, linkedTodos.length, deleteModal]);
+    modals.openConfirmModal({
+      title: 'Delete Project',
+      children: (
+        <div>
+          <p>Are you sure you want to delete project "{project.name}"?</p>
+          <p style={{ color: 'red', marginTop: 10 }}>
+            <strong>⚠️ Warning:</strong>
+          </p>
+          <ul style={{ margin: '10px 0', paddingLeft: 20 }}>
+            <li>{exclusiveCount} exclusive items will be <strong>PERMANENTLY DELETED</strong></li>
+            <li>{linkedCount} linked items will preserve project name as "deleted"</li>
+          </ul>
+          <p><strong>This action cannot be undone!</strong></p>
+        </div>
+      ),
+      labels: { confirm: 'Delete Project', cancel: 'Cancel' },
+      confirmProps: { color: 'red' },
+      onConfirm: handleDeleteConfirm,
+    });
+  }, [project, exclusiveNotes.length, exclusiveDocs.length, exclusiveTodos.length, linkedNotes.length, linkedDocs.length, linkedTodos.length]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!project) return;
@@ -926,8 +934,9 @@ export function ProjectDashboardPage() {
                 navigate(`/todos/new?project=${projectId}`);
               }}
               onRefresh={() => {
-                // Refresh todos for this project
-                loadProjectData();
+                // Refresh project data and items for this project
+                void refetchProject();
+                void refetchItems();
               }}
               onTabChange={() => {}}
               viewMode="kanban"

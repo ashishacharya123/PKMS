@@ -124,6 +124,7 @@ class FolderResponse(CamelCaseModel):
     total_size: int
     # ADD THIS: Discriminator field for type-safe unions
     item_type: str = Field("folder", alias="itemType")
+    created_by: str  # ✅ ADDED - User who created the folder
 
 class ItemResponse(CamelCaseModel):
     uuid: str
@@ -144,6 +145,7 @@ class ItemResponse(CamelCaseModel):
     tags: List[str]
     # ADD THIS: Discriminator field for type-safe unions
     item_type: str = Field("file", alias="itemType")
+    created_by: str  # ✅ ADDED - User who created the item
 
 class ItemSummary(CamelCaseModel):
     uuid: str

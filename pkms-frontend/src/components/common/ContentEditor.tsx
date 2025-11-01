@@ -5,7 +5,7 @@
  * Supports markdown editing, file attachments, and various metadata fields.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Container,
   Grid,
@@ -18,28 +18,21 @@ import {
   TagsInput,
   Alert,
   Skeleton,
-  Badge,
   Paper,
-  Text,
   Select,
-  NumberInput,
-  Switch,
-  Textarea
+  Switch
 } from '@mantine/core';
 import { DatePicker } from '@mantine/dates';
 import {
   IconDeviceFloppy,
   IconX,
   IconEye,
-  IconEdit,
   IconMarkdown,
-  IconFolder,
   IconMoodHappy,
   IconCloudRain,
   IconMapPin
 } from '@tabler/icons-react';
 import MDEditor from '@uiw/react-md-editor';
-import { notifications } from '@mantine/notifications';
 import { UnifiedFileSection } from '../file/UnifiedFileSection';
 import { UnifiedFileItem } from '../../services/unifiedFileService';
 
@@ -121,6 +114,8 @@ export const ContentEditor: React.FC<ContentEditorProps> = ({
   onWeatherCodeChange,
   location,
   onLocationChange,
+  date,  // ✅ Add missing date prop
+  onDateChange,  // ✅ Add missing onDateChange prop
   availableTemplates,
   selectedTemplateId,
   onTemplateSelect,

@@ -11,6 +11,7 @@ import ModuleHeader from '../common/ModuleHeader';
 import ModuleLayout from '../common/ModuleLayout';
 import { UnifiedFileSection } from '../file/UnifiedFileSection';
 import { ArchiveItem, ArchiveFolder } from '../../types/archive';
+import { BaseItem } from '../../types/common';
 
 interface ArchiveLayoutProps {
   // Current state
@@ -173,7 +174,7 @@ export function ArchiveLayout({
             customActions={
               <ViewMenu 
                 currentView={viewMode}
-            onChange={(mode: any) => {
+            onChange={() => {
               // This will be handled by parent
             }}
                 disabled={isLoadingItems}
@@ -193,8 +194,68 @@ export function ArchiveLayout({
             <UnifiedFileSection
               module="archive"
               entityId={currentFolder.uuid}
-              files={archiveFiles}
-              onFilesUpdate={setArchiveFiles}
+              files={archiveFiles.map(item => ({
+                uuid: item.uuid,
+                name: item.name,                    // ✅ ADDED: Required field
+                filename: item.storedFilename,     // ArchiveItem.storedFilename → UnifiedFileItem.filename
+                originalName: item.originalFilename, // ArchiveItem.originalFilename → UnifiedFileItem.originalName
+                mimeType: item.mimeType,
+                fileSize: item.fileSize,
+                description: item.description,
+                isFavorite: item.isFavorite,        // ✅ ADDED: Required field
+                createdAt: item.createdAt,
+                updatedAt: item.updatedAt,          // ✅ ADDED: Missing field
+                filePath: item.filePath,
+                thumbnailPath: item.thumbnailPath,
+                createdBy: item.createdBy,          // ✅ ADDED: Missing field
+                isArchived: item.isArchived,        // ✅ ADDED: Missing field
+                module: 'archive' as const,
+                entityId: currentFolder.uuid,
+              }))}
+              onFilesUpdate={(unifiedFiles) => {
+                const convertedFiles: ArchiveItem[] = unifiedFiles.map(file => {
+                  // Find original item to preserve createdBy from backend
+                  const originalItem = archiveFiles.find(item => item.uuid === file.uuid);
+
+                  // If item exists, preserve createdBy from backend response
+                  if (originalItem) {
+                    return {
+                      ...originalItem, // ✅ Preserves all BaseItem fields including createdBy
+                      // Update only changed fields
+                      name: file.originalName,
+                      description: file.description ?? originalItem.description,
+                      isFavorite: file.isFavorite ?? originalItem.isFavorite, // Use file's favorite status, fallback to original
+                      tags: file.description ? [file.description] : originalItem.tags, // Basic tag handling
+                      filePath: file.filePath ?? originalItem.filePath,
+                      thumbnailPath: file.thumbnailPath ?? originalItem.thumbnailPath,
+                    };
+                  }
+
+                  // New item - createdBy will be in backend response after creation
+                  return {
+                    itemType: 'file' as const,
+                    uuid: file.uuid,
+                    name: file.originalName,
+                    description: file.description,
+                    folderUuid: currentFolder.uuid,
+                    originalFilename: file.originalName,
+                    storedFilename: file.filename,
+                    mimeType: file.mimeType,
+                    fileSize: file.fileSize,
+                    metadata: {},
+                    thumbnailPath: file.thumbnailPath,
+                    isFavorite: false,
+                    isArchived: false,                 // ✅ ADDED: Required field
+                    createdAt: file.createdAt,
+                    updatedAt: file.createdAt,
+                    tags: [],
+                    filePath: file.filePath || '',
+                    fileHash: undefined,
+                    createdBy: '', // Temporary: Backend response will have it after item creation
+                  };
+                });
+                setArchiveFiles(convertedFiles);
+              }}
               className="archive-file-section"
             />
           </Paper>
@@ -228,24 +289,14 @@ export function ArchiveLayout({
                 </Center>
               ) : (
                 <ModuleLayout
-                  items={folders.map(folder => ({
-                    ...folder,
-                    id: folder.uuid,
-                    itemType: 'folder' as const,
-                    mimeType: 'folder',
-                    name: folder.name,
-                    createdAt: folder.createdAt,
-                    updatedAt: folder.updatedAt,
-                    fileSize: 0,
-                    tags: []
-                  })) as ArchiveItem[]}
+                  items={folders as BaseItem[]}
                   viewMode={viewMode}
                   onItemClick={(folder: any) => {
                     if (folder.itemType === 'folder') {
                       setCurrentFolder(folder);
                     }
                   }}
-                  renderIcon={(folder: any) => (
+                  renderIcon={(_folder: any) => (
                     <Center style={{ width: 60, height: 60, backgroundColor: 'var(--mantine-color-dark-5)', borderRadius: 8 }}>
                       <IconFiles size={24} color="var(--mantine-color-blue-4)" />
                     </Center>
@@ -268,7 +319,7 @@ export function ArchiveLayout({
             // Show items when folder selected
             <Box p="md">
               <ModuleLayout
-                items={items}
+                items={items as BaseItem[]}
                 viewMode={viewMode}
                 onItemClick={onItemClick}
                 onToggleFavorite={onToggleFavorite}

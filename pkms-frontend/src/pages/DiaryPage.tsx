@@ -51,9 +51,9 @@ import { dashboardService } from '../services/dashboardService';
 import { nepaliDateCache } from '../utils/nepaliDateCache';
 
 export const DiaryPage = React.memo(function DiaryPage() {
-  const { setOnDiaryPage, entries, error, encryptionKey } = useDiaryStore();
+  const { setOnDiaryPage, entries, error, isEncryptionSetup, isUnlocked } = useDiaryStore();
   const [searchParams, setSearchParams] = useSearchParams();
-  
+
   // State
   const [activeTab, setActiveTab] = useState(() => {
     const tab = searchParams.get('tab');
@@ -61,8 +61,8 @@ export const DiaryPage = React.memo(function DiaryPage() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [entryCount, setEntryCount] = useState(0);
-  const [hasEncryption, setHasEncryption] = useState(false);
-  const isLockedComputed = hasEncryption && !encryptionKey;
+  const hasEncryption = isEncryptionSetup;
+  const isLockedComputed = hasEncryption && !isUnlocked;
 
   // Track when user is on diary page for session management
   useEffect(() => {
@@ -91,10 +91,8 @@ export const DiaryPage = React.memo(function DiaryPage() {
     setEntryCount(entries.length);
   }, [entries]);
 
-  // Update encryption status
-  useEffect(() => {
-    setHasEncryption(!!encryptionKey);
-  }, [encryptionKey]);
+  // Encryption status is now derived from store flags (line 64)
+  // const hasEncryption = isEncryptionSetup; - no useEffect needed
 
   const loadDiaryData = async () => {
     setIsLoading(true);

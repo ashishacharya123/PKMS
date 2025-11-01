@@ -3,9 +3,8 @@
  * Provides consistent confirmation dialogs across the app
  */
 
-import React from 'react';
 import { Modal, Stack, Text, Group, Button } from '@mantine/core';
-import { IconAlertTriangle, IconCheck, IconX } from '@tabler/icons-react';
+import { IconAlertTriangle, IconCheck } from '@tabler/icons-react';
 
 interface ConfirmDialogProps {
   opened: boolean;

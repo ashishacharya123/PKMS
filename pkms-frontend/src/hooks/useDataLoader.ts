@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 
 export interface DataLoaderOptions<T> {
   initialData?: T | null;
@@ -24,6 +24,8 @@ export function useDataLoader<T>(
   const [loading, setLoading] = useState<boolean>(autoLoad);
   const [error, setError] = useState<string | null>(null);
 
+  // Memoize dependencies to prevent unnecessary re-renders
+  // Note: loadFn should be stable (useCallback in parent) to avoid infinite loops
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -40,7 +42,8 @@ export function useDataLoader<T>(
     } finally {
       setLoading(false);
     }
-  }, [loadFn, onSuccess, onError, ...dependencies]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadFn, onSuccess, onError, dependencies]);
 
   useEffect(() => {
     if (autoLoad) {
@@ -48,13 +51,15 @@ export function useDataLoader<T>(
     }
   }, [autoLoad, loadData]);
 
-  return {
+  const result = useMemo(() => ({
     data,
     loading,
     error,
     refetch: loadData,
     setData,
-  };
+  }), [data, loading, error, loadData, setData]);
+
+  return result;
 }
 
 

@@ -31,6 +31,39 @@ import { ContentViewer } from '../components/common/ContentViewer';
 import { UnifiedFileItem } from '../services/unifiedFileService';
 import { transformDiaryFiles } from '../utils/fileTransformers';
 
+/**
+ * Robust validation helpers with edge case handling
+ */
+const isValidBase64 = (str: string): boolean => {
+  if (!str || typeof str !== 'string') return false;
+
+  // Remove whitespace (base64 can have spaces/newlines)
+  const cleaned = str.trim().replace(/\s/g, '');
+  if (!cleaned.length) return false;
+
+  // Base64 regex: A-Z, a-z, 0-9, +, /, and = for padding (0-2 characters)
+  const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+  if (!base64Regex.test(cleaned)) return false;
+
+  try {
+    atob(cleaned);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const isValidHex = (str: string): boolean => {
+  if (!str || typeof str !== 'string') return false;
+
+  // Remove whitespace and 0x prefix if present
+  const cleaned = str.trim().replace(/^0x/i, '').replace(/\s/g, '');
+  if (!cleaned.length) return false;
+
+  const hexRegex = /^[0-9a-fA-F]+$/;
+  return hexRegex.test(cleaned);
+};
+
 export default function DiaryViewPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();

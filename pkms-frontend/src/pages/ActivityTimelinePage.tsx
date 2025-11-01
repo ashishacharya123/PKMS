@@ -1,29 +1,29 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Container, Stack, Group, Title, Select, NumberInput, Button, Skeleton, Card } from '@mantine/core';
+import { useState, useCallback } from 'react';
+import { Container, Stack, Group, Title, Select, NumberInput, Button, Skeleton, Card, Alert } from '@mantine/core';
 import { ActivityTimeline } from '../components/dashboard/ActivityTimeline';
 import { dashboardService, type RecentActivityTimeline } from '../services/dashboardService';
+import { useDataLoader } from '../hooks/useDataLoader';
 
 export default function ActivityTimelinePage() {
   const [days, setDays] = useState<string | null>('7');
   const [limit, setLimit] = useState<number | ''>(50);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [timeline, setTimeline] = useState<RecentActivityTimeline>({ items: [], totalCount: 0, cutoffDays: 7 });
 
+  // Memoize the load function to prevent unnecessary re-renders
   const loadTimeline = useCallback(async () => {
-    setLoading(true);
-    try {
-      const d = Number(days || '7');
-      const l = typeof limit === 'number' && limit > 0 ? limit : 50;
-      const data = await dashboardService.getRecentActivityTimeline(d, l);
-      setTimeline(data);
-    } finally {
-      setLoading(false);
-    }
+    const d = Number(days || '7');
+    const l = typeof limit === 'number' && limit > 0 ? limit : 50;
+    return await dashboardService.getRecentActivityTimeline(d, l);
   }, [days, limit]);
 
-  useEffect(() => {
-    loadTimeline();
-  }, [loadTimeline]);
+  // Use the established useDataLoader pattern instead of manual state management
+  const { data: timeline, loading, error, refetch } = useDataLoader(
+    loadTimeline,
+    {
+      initialData: { items: [], totalCount: 0, cutoffDays: 7 },
+      dependencies: [days, limit],
+      autoLoad: true
+    }
+  );
 
   return (
     <Container size="xl" pt="md" pb="xl">
@@ -54,9 +54,15 @@ export default function ActivityTimelinePage() {
               max={200}
               step={10}
             />
-            <Button variant="light" onClick={loadTimeline}>Refresh</Button>
+            <Button variant="light" onClick={refetch}>Refresh</Button>
           </Group>
         </Group>
+
+        {error && (
+          <Alert color="red" title="Error">
+            {error}
+          </Alert>
+        )}
 
         {loading ? (
           <Card withBorder>

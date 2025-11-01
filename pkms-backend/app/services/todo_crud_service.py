@@ -761,7 +761,6 @@ class TodoCRUDService:
             priority=todo.priority,
             is_archived=todo.is_archived,
             is_favorite=todo.is_favorite,
-            # REMOVED: is_project_exclusive and is_todo_exclusive - now handled via project_items
             start_date=todo.start_date,
             due_date=todo.due_date,
             created_at=todo.created_at,
@@ -772,7 +771,8 @@ class TodoCRUDService:
             # NEW: Dependency info
             blocking_todos=blocking_list if blocking_list else None,
             blocked_by_todos=blocked_list if blocked_list else None,
-            blocker_count=len([b for b in blocked_list if not b.get('is_completed', False)])
+            blocker_count=len([b for b in blocked_list if not b.get('is_completed', False)]),
+            created_by=todo.created_by  # ✅ ADDED - User who created the todo
         )
 
 

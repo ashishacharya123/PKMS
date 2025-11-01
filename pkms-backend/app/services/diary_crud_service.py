@@ -500,7 +500,11 @@ class DiaryCRUDService:
                 entry_query = entry_query.where(DiaryEntry.is_template.is_(True))
             elif is_template is False:
                 entry_query = entry_query.where(DiaryEntry.is_template.is_(False))
-                
+
+            # ✅ Add missing template filter in search branch
+            if template_uuid:
+                entry_query = entry_query.where(DiaryEntry.from_template_id == template_uuid)
+
             entry_result = await db.execute(entry_query)
             entry_rows = entry_result.fetchall()
             

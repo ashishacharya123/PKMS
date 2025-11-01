@@ -22,16 +22,17 @@ import {
   IconRefresh,
   IconEdit
 } from '@tabler/icons-react';
-import { 
-  Group, 
-  Text, 
-  ActionIcon, 
-  Badge, 
-  Card, 
-  Stack, 
-  Image, 
+import {
+  Group,
+  Text,
+  ActionIcon,
+  Badge,
+  Card,
+  Stack,
+  Image,
   Tooltip
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { unifiedFileService, UnifiedFileItem } from '../../services/unifiedFileService';
 import { fileService } from '../../services/fileCacheService';
 import { reorderArray, getDragPreviewStyles, getDropZoneStyles } from '../../utils/dragAndDrop';
@@ -131,6 +132,10 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   // Drag and drop state
   const [draggedFile, setDraggedFile] = useState<UnifiedFileItem | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // Content loading state
+  const [isContentLoading, setIsContentLoading] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -294,8 +299,37 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   };
 
   // Content modal handlers
-  const openContentModal = (mode: 'view' | 'edit' | 'create', file: UnifiedFileItem) => {
-    contentModal.openModal({ file, mode });
+  const openContentModal = async (mode: 'view' | 'edit' | 'create', file: UnifiedFileItem) => {
+    // Only load content for existing files (not create mode)
+    if (mode !== 'create' && isContentFile(file)) {
+      try {
+        setIsContentLoading(true);
+        setContentError(null);
+
+        // Load actual file content
+        const blob = await unifiedFileService.downloadFile(file, encryptionKey);
+        const contentText = await blob.text();
+
+        // Use corrected useModal hook pattern
+        contentModal.openModal(
+          { file, mode },  // First param: selectedItem
+          { content: contentText }  // Second param: modalData
+        );
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to load file content';
+        setContentError(errorMessage);
+        notifications.show({
+          title: 'Error',
+          message: errorMessage,
+          color: 'red'
+        });
+      } finally {
+        setIsContentLoading(false);
+      }
+    } else {
+      // Create mode or non-content file - open modal without content
+      contentModal.openModal({ file, mode }, { content: '' });
+    }
   };
 
   const handleContentSave = async (data: any) => {
@@ -604,7 +638,7 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
         entityId={entityId}
         initialData={{
           title: contentModal.selectedItem?.file.originalName,
-          content: '', // Will be loaded from file content
+          content: contentModal.modalData?.content ?? '', // ✅ Use loaded content
           createdAt: contentModal.selectedItem?.file.createdAt,
         }}
         files={[contentModal.selectedItem?.file].filter(Boolean)}

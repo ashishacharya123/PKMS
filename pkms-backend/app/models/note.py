@@ -28,7 +28,6 @@ class Note(Base, SoftDeleteMixin):
     is_archived = Column(Boolean, default=False, index=True)
     is_template = Column(Boolean, default=False, index=True)  # Template flag for reusable notes
     from_template_id = Column(String(36), nullable=True, index=True)  # Source template UUID/ID
-    # REMOVED: is_project_exclusive - exclusivity now handled in project_items association table
     # Ownership
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
 
@@ -63,8 +62,7 @@ class Note(Base, SoftDeleteMixin):
     # Relationships
     user = relationship("User", back_populates="notes", foreign_keys=[created_by])
     tag_objs = relationship("Tag", secondary=note_tags, back_populates="notes")
-    documents = relationship("Document", secondary=note_documents, back_populates="notes")  # NEW: Documents via note_documents
-    # REMOVED: projects relationship - notes now linked to projects via polymorphic project_items
+    documents = relationship("Document", secondary=note_documents, back_populates="notes")
     
     def get_size_bytes(self):
         """Calculate content size in bytes on the fly"""
@@ -72,6 +70,3 @@ class Note(Base, SoftDeleteMixin):
 
     def __repr__(self):
         return f"<Note(uuid={self.uuid}, title='{self.title}')>"
-
-
-# NoteFile class removed - replaced with note_documents junction table 

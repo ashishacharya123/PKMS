@@ -92,10 +92,6 @@ export function ProjectsPage() {
     description: ''
   });
 
-  // Error handling
-  if (error) {
-    return <ErrorState message={error} onRetry={refetch} />;
-  }
   // Reserve UUID for new project
   const reserveProjectUuid = async () => {
     try {
@@ -171,6 +167,16 @@ export function ProjectsPage() {
         color: 'green'
       });
 
+      // Clean up reserved UUID after successful creation
+      if (reservedProjectUuid) {
+        try {
+          await entityReserveService.discard('projects', reservedProjectUuid);
+          setReservedProjectUuid(null);
+        } catch (err) {
+          console.error('Failed to discard reserved project UUID:', err);
+        }
+      }
+
       handleCreateModalClose();
       refetch();
     } catch (error) {
@@ -180,7 +186,7 @@ export function ProjectsPage() {
         color: 'red'
       });
     }
-  }, [formData, handleCreateModalClose, refetch]);
+  }, [formData, handleCreateModalClose, refetch, reservedProjectUuid]);
 
   const handleEdit = useCallback((project: Project) => {
     setFormData({
@@ -300,6 +306,11 @@ export function ProjectsPage() {
       });
     }
   }, [duplicateModal, refetch]);
+
+  // Error handling - moved after ALL hooks
+  if (error) {
+    return <ErrorState message={error} onRetry={refetch} />;
+  }
 
   const filteredProjects = projects.filter(p =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||

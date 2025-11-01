@@ -76,11 +76,19 @@ export function DiaryEntryModal({ opened, onClose, initialDate }: DiaryEntryModa
   // Reset state when modal closes
   useEffect(() => {
     if (!opened) {
+      // Complete reset to prevent data leakage between sessions
       setReservedUuid(null);
       setError(null);
       setEntryFiles([]);
+      setTitle('');           // ✅ Add
+      setContent('');         // ✅ Add
+      setTags([]);           // ✅ Add
+      setMood(undefined);    // ✅ Add
+      setWeatherCode(undefined); // ✅ Add
+      setLocation('');       // ✅ Add
+      setEntryDate(initialDate || new Date()); // ✅ Add
     }
-  }, [opened]);
+  }, [opened, initialDate]); // ✅ Add initialDate dependency
 
   // Handle save
   const handleSave = async (data: {

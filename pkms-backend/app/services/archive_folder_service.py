@@ -165,7 +165,8 @@ class ArchiveFolderService:
                     item_count=stats["item_count"],
                     total_size=stats["total_size"],
                     created_at=folder.created_at,
-                    updated_at=folder.updated_at
+                    updated_at=folder.updated_at,
+                    created_by=folder.created_by  # ✅ ADDED - User who created the folder
                 )
                 responses.append(response)
             return responses
@@ -353,7 +354,8 @@ class ArchiveFolderService:
             item_count=stats["item_count"],
             total_size=stats["total_size"],
             created_at=folder.created_at,
-            updated_at=folder.updated_at
+            updated_at=folder.updated_at,
+            created_by=folder.created_by  # ✅ ADDED - User who created the folder
         )
     
     async def update_folder(

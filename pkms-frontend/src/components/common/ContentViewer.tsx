@@ -55,7 +55,7 @@ export interface ContentViewerProps {
   isArchived?: boolean;
   
   // Project fields (for notes)
-  projectBadges?: Array<{ id: string; name: string; color: string }>;
+  projectBadges?: Array<{ id: string; name: string; color?: string }>;
   
   // Diary-specific fields
   mood?: number;
@@ -276,7 +276,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 <Text size="sm" fw={500}>Projects:</Text>
                 <Group gap="xs">
                   {projectBadges.map((project) => (
-                    <Badge key={project.id} color={project.color} size="sm">
+                    <Badge key={project.id} color={project.color || 'blue'} size="sm">
                       {project.name}
                     </Badge>
                   ))}

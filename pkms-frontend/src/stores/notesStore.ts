@@ -110,7 +110,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         isArchived: note.isArchived,
         isFavorite: note.isFavorite || false, // BaseItem requires 'isFavorite'
         isProjectExclusive: note.isProjectExclusive ?? false,
-        createdBy: note.createdBy || 'system', // BaseItem requires 'createdBy'
+        createdBy: note.createdBy, // ✅ Real data from API
         projects: note.projects || [],
         createdAt: note.createdAt,
         updatedAt: note.updatedAt,
@@ -164,7 +164,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         isArchived: note.isArchived,
         isFavorite: note.isFavorite || false, // BaseItem requires 'isFavorite'
         isProjectExclusive: note.isProjectExclusive ?? false,
-        createdBy: note.createdBy || 'system', // BaseItem requires 'createdBy'
+        createdBy: note.createdBy, // ✅ Real data from API
         createdAt: note.createdAt,
         updatedAt: note.updatedAt,
         tags: note.tags || [],
@@ -213,7 +213,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         isArchived: updatedNote.isArchived,
         isFavorite: updatedNote.isFavorite || false, // BaseItem requires 'isFavorite'
         isProjectExclusive: updatedNote.isProjectExclusive ?? false,
-        createdBy: updatedNote.createdBy || 'system', // BaseItem requires 'createdBy'
+        createdBy: updatedNote.createdBy, // ✅ Real data from API
         createdAt: updatedNote.createdAt,
         updatedAt: updatedNote.updatedAt,
         tags: updatedNote.tags || [],

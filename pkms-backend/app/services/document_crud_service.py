@@ -59,7 +59,6 @@ class DocumentCRUDService:
                     "tags": payload.tags,
                     "project_uuids": payload.project_uuids,
                     "are_projects_exclusive": payload.are_projects_exclusive,
-                    # REMOVED: is_diary_exclusive - diary association handled via diary_entry_uuid
                 }
             )
 
@@ -155,7 +154,6 @@ class DocumentCRUDService:
                         Document.created_by == user_uuid,
                         Document.is_archived == archived,
                         Document.uuid.in_(doc_uuids),
-                        # REMOVED: is_project_exclusive and is_diary_exclusive - exclusivity now handled in association tables
                     )
                 )
                 # Apply filters
@@ -195,7 +193,6 @@ class DocumentCRUDService:
                         Document.active_only(),  # Auto-excludes soft-deleted
                         Document.created_by == user_uuid,
                         Document.is_archived == archived
-                        # REMOVED: is_project_exclusive and is_diary_exclusive - exclusivity now handled in association tables
                     )
                 )
                 # Apply filters
@@ -531,12 +528,14 @@ class DocumentCRUDService:
             description=doc.description,
             is_favorite=doc.is_favorite,
             is_archived=doc.is_archived,
-            # REMOVED: is_project_exclusive and is_diary_exclusive - exclusivity now handled in association tables
             is_deleted=doc.is_deleted,
+            is_encrypted=doc.is_encrypted,  # ✅ ADDED - Missing field
+            thumbnail_path=doc.thumbnail_path,  # ✅ ADDED - Missing field
             created_at=doc.created_at,
             updated_at=doc.updated_at,
             tags=[t.name for t in doc.tag_objs] if doc.tag_objs else [],
-            projects=project_badges or []
+            projects=project_badges or [],
+            created_by=doc.created_by  # ✅ ADDED - User who created the document
         )
 
     # Helper: batch-load project badges for items to avoid N+1

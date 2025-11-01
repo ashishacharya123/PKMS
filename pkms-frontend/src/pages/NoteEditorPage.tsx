@@ -117,17 +117,37 @@ export function NoteEditorPage() {
         title: data.title,
         content: data.content,
         tags: data.tags,
-        projects: data.projectIds.map(id => ({ uuid: id, name: '', color: '' })), // Convert to ProjectBadge format
+        projects: data.projectIds.map(id => ({ uuid: id, name: '', isDeleted: false })), // Convert to ProjectBadge format
         isProjectExclusive: data.isExclusive
       };
 
       if (isEditing && id) {
         return await notesService.updateNote(id, noteData);
-      } else {
-        return await notesService.createNote(noteData);
       }
+      if (reservedUuid) {
+        const updated = await notesService.updateNote(reservedUuid, noteData);
+        // Cleanup reserved UUID
+        try {
+          await entityReserveService.discard('notes', reservedUuid);
+          setReservedUuid(null);
+        } catch (err) {
+          console.error('Failed to discard reserved UUID:', err);
+        }
+        return updated;
+      }
+      return await notesService.createNote(noteData);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      // Ensure cleanup happens even if navigation fails
+      if (reservedUuid) {
+        try {
+          await entityReserveService.discard('notes', reservedUuid);
+          setReservedUuid(null);
+        } catch (err) {
+          console.error('Failed to discard reserved UUID:', err);
+        }
+      }
+
       queryClient.invalidateQueries({ queryKey: ['notes'] });
       queryClient.invalidateQueries({ queryKey: ['search'] });
       notifications.show({
@@ -140,7 +160,7 @@ export function NoteEditorPage() {
     onError: (error: Error) => {
       notifications.show({
         title: 'Error',
-        message: `Failed to save note: ${error}`,
+        message: `Failed to save note: ${error.message || String(error)}`,
         color: 'red'
       });
     }

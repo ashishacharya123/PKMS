@@ -64,7 +64,7 @@ export const ProjectBadges: React.FC<ProjectBadgesProps> = ({
             withArrow
           >
             <Badge
-              color={project.isDeleted ? 'gray' : project.color}
+              color={project.isDeleted ? 'gray' : (project.color || 'blue')}
               variant={project.isDeleted ? 'outline' : 'light'}
               size={size}
               style={{

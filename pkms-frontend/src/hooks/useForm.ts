@@ -7,7 +7,7 @@ export interface FormOptions<T> {
   validate?: (data: T) => Record<string, string> | null;
 }
 
-export function useForm<T extends Record<string, any>>(
+export function useForm<T extends Record<string, unknown>>(
   initialData: T,
   submitFn: (data: T) => Promise<void>,
   options: FormOptions<T> = {}
@@ -25,14 +25,15 @@ export function useForm<T extends Record<string, any>>(
 
   const updateField = useCallback(<K extends keyof T>(field: K, value: T[K]) => {
     setFormData(prev => ({ ...prev, [field]: value }));
-    if (errors[field]) {
-      setErrors(prev => {
+    setErrors(prev => {
+      if (prev && prev[field]) {
         const clone = { ...prev };
         delete clone[field];
-        return clone;
-      });
-    }
-  }, [errors]);
+        return Object.keys(clone).length > 0 ? clone : null;
+      }
+      return prev;
+    });
+  }, []);
 
   const handleSubmit = useCallback(async (e?: React.FormEvent) => {
     e?.preventDefault();

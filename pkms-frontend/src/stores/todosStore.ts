@@ -189,7 +189,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
         tags: todo.tags,
         isArchived: todo.isArchived,
         isFavorite: todo.isFavorite,
-        createdBy: todo.createdBy || 'system', // BaseItem requires 'createdBy'
+        createdBy: todo.createdBy, // ✅ Real data from API
         projects: todo.projects || [],
         subtasks: todo.subtasks || [],
         blockingTodos: todo.blockingTodos || [],
@@ -289,7 +289,7 @@ export const useTodosStore = create<TodosState>((set, get) => ({
         tags: completedTodo.tags,
         isArchived: completedTodo.isArchived,
         isFavorite: completedTodo.isFavorite,
-        createdBy: completedTodo.createdBy || 'system', // BaseItem requires 'createdBy'
+        createdBy: completedTodo.createdBy, // ✅ Real data from API
         projects: completedTodo.projects || [],
         subtasks: completedTodo.subtasks || [],
         blockingTodos: completedTodo.blockingTodos || [],

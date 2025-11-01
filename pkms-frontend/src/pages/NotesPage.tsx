@@ -129,11 +129,24 @@ export function NotesPage() {
   );
 
   
-  // Sorted and paginated notes using modular filters
-  const sortedNotes = useMemo(() => {
+  // Separate filtering and sorting logic for better performance and clarity
+  const filteredNotes = useMemo(() => {
     if (!Array.isArray(notes)) return [];
 
-    const sorted = [...notes].sort((a, b) => {
+    return notes.filter((note) => {
+      if (filters.favorites && !note.isFavorite) {
+        return false;
+      }
+      if (!filters.showArchived && note.isArchived) {
+        return false;
+      }
+      return true;
+    });
+  }, [notes, filters.favorites, filters.showArchived]);
+
+  // Then sort the filtered notes
+  const sortedNotes = useMemo(() => {
+    return [...filteredNotes].sort((a, b) => {
       let aValue: any = a[filters.sortBy as keyof typeof a];
       let bValue: any = b[filters.sortBy as keyof typeof b];
       if (filters.sortBy === 'createdAt' || filters.sortBy === 'updatedAt') {
@@ -150,8 +163,7 @@ export function NotesPage() {
         return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
       }
     });
-    return sorted;
-  }, [notes, filters.sortBy, filters.sortOrder]);
+  }, [filteredNotes, filters.sortBy, filters.sortOrder]);
 
   // Backend already handles pagination, so no client-side slicing needed
   const paginatedNotes = useMemo(() => {

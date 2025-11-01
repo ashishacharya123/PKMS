@@ -11,17 +11,28 @@ import { fileService } from './fileCacheService';
 
 // Unified FileItem interface used across all modules
 export interface UnifiedFileItem {
+  // BaseItem properties for consistency
   uuid: string;
+  name: string; // Use filename as name
+  title?: string; // Use originalName as title
+  description?: string;
+  isFavorite: boolean;
+  isArchived: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  tags?: string[];
+
+  // File-specific properties
   filename: string;
   originalName: string;
   mimeType: string;
   fileSize: number;
-  description?: string;
-  createdAt: string;
   mediaType?: string;
   isEncrypted?: boolean;
   filePath?: string;
   thumbnailPath?: string;
+
   // Module-specific metadata
   module: 'notes' | 'diary' | 'documents' | 'archive' | 'projects';
   entityId: string; // The parent entity (note, diary entry, project, etc.)
@@ -165,17 +176,29 @@ class UnifiedFileService {
    */
   private normalizeFileItem(file: any, module: string, entityId: string): UnifiedFileItem {
     return {
+      // BaseItem properties
       uuid: file.uuid,
+      name: file.filename,
+      title: file.originalName || file.original_name,
+      description: file.description,
+      isFavorite: file.isFavorite || file.is_favorite || false,
+      isArchived: file.isArchived || file.is_archived || false,
+      createdBy: file.createdBy || file.created_by,
+      createdAt: file.createdAt || file.created_at,
+      updatedAt: file.updatedAt || file.updated_at || file.createdAt || file.created_at,
+      tags: file.tags || [],
+
+      // File-specific properties
       filename: file.filename,
       originalName: file.originalName || file.original_name,
       mimeType: file.mimeType || file.mime_type,
       fileSize: file.fileSize || file.file_size,
-      description: file.description,
-      createdAt: file.createdAt || file.created_at,
       mediaType: file.mediaType || file.media_type,
       isEncrypted: file.isEncrypted || file.is_encrypted,
       filePath: file.filePath || file.file_path,
       thumbnailPath: file.thumbnailPath || file.thumbnail_path,
+
+      // Module-specific metadata
       module: module as any,
       entityId
     };

@@ -17,15 +17,12 @@ from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 from app.config import get_file_storage_dir, NEPAL_TZ
 from app.models.note import Note
-# NoteFile model removed - notes now use Document + note_documents association
 from app.models.document import Document
 from app.models.associations import note_documents, project_items
 from app.models.tag_associations import note_tags
-# REMOVED: note_projects import - now using polymorphic project_items
 from app.models.enums import ModuleType
 from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary
 from app.schemas.document import DocumentResponse
-# NoteFile schemas removed - notes now use Document + note_documents association
 from app.schemas.project import ProjectBadge
 from app.utils.security import sanitize_text_input, sanitize_tags
 from app.services.tag_service import tag_service
@@ -110,7 +107,14 @@ class NoteCRUDService:
             sanitized_title = sanitize_text_input(note_data.title)
             sanitized_content = sanitize_text_input(note_data.content)
             sanitized_tags = sanitize_tags(note_data.tags) if note_data.tags else []
-            
+
+            # ✅ ADD VALIDATION: Ensure note has either content or forced file storage
+            if (not sanitized_content or not sanitized_content.strip()) and not note_data.force_file_storage:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Note must have either content or force file storage enabled"
+                )
+
             # Create note with large content handling
             MAX_DB_CONTENT_SIZE = 5120  # 5KB threshold - keep it short and sweet
             content_size_bytes = len(sanitized_content.encode('utf-8'))
@@ -256,7 +260,6 @@ class NoteCRUDService:
                     is_archived=note.is_archived,
                     is_template=note.is_template,
                     from_template_id=note.from_template_id,
-                    # REMOVED: is_project_exclusive - exclusivity now handled in project_items association
                     tags=[tag.name for tag in note.tag_objs],
                     projects=project_badges,
                     created_at=note.created_at,
@@ -409,8 +412,6 @@ class NoteCRUDService:
             
             if update_data.is_favorite is not None:
                 note.is_favorite = update_data.is_favorite
-            
-            # REMOVED: is_project_exclusive field - exclusivity now handled in project_items association
             
             # Handle tags
             if update_data.tags is not None:
@@ -637,11 +638,6 @@ class NoteCRUDService:
                 detail=f"Failed to get note documents: {str(e)}"
             )
     
-    # NoteFile methods removed - file handling now done via Document + note_documents association
-    # Use unified upload service and document_crud_service for file operations
-    
-    # delete_note_file method removed - use document_crud_service.delete_document() instead
-    
     
     def _convert_note_to_response(
         self, 
@@ -653,18 +649,19 @@ class NoteCRUDService:
         return NoteResponse(
             uuid=note.uuid,
             title=note.title,
-            content=note.content,
+            content=note.content or "",  # ✅ Safe fallback for null content
+            contentFilePath=note.content_file_path,  # ✅ Expose file path (camelCase for consistency)
             file_count=note.file_count,
             thumbnail_path=note.thumbnail_path,
             is_favorite=note.is_favorite,
             is_archived=note.is_archived,
             is_template=note.is_template,
             from_template_id=note.from_template_id,
-            # REMOVED: is_project_exclusive - exclusivity now handled in project_items association
             tags=[tag.name for tag in note.tag_objs],
             projects=badges,
             created_at=note.created_at,
-            updated_at=note.updated_at
+            updated_at=note.updated_at,
+            created_by=note.created_by  # ✅ ADDED - User who created the note
         )
     
 

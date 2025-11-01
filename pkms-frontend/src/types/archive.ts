@@ -1,25 +1,21 @@
-export interface ArchiveFolder {
+import { BaseItem, BaseSummary } from './common';
+
+export interface ArchiveFolder extends BaseItem {
   itemType: 'folder';  // Discriminator field for type-safe unions
-  uuid: string;
-  name: string;
-  description?: string;
+  // Remove inherited fields: uuid, name, description, isFavorite, createdBy, createdAt, updatedAt, tags, tagObjs
+  // ArchiveFolder-specific fields:
   parentUuid?: string;
   path: string;
-  createdAt: string;
-  updatedAt: string;
   itemCount: number;
   subfolderCount: number;
   totalSize: number;
-  // Missing fields from database
-  isFavorite: boolean;
   depth: number;
 }
 
-export interface ArchiveItem {
+export interface ArchiveItem extends BaseItem {
   itemType: 'file';  // Discriminator field for type-safe unions
-  uuid: string;
-  name: string;
-  description?: string;
+  // Remove inherited fields: uuid, name, description, isFavorite, createdBy, createdAt, updatedAt, tags, tagObjs
+  // ArchiveItem-specific fields:
   folderUuid: string;
   originalFilename: string;
   storedFilename: string;
@@ -28,28 +24,18 @@ export interface ArchiveItem {
   extractedText?: string;
   metadata: Record<string, any>;
   thumbnailPath?: string;
-  isFavorite: boolean;
-  createdAt: string;
-  updatedAt: string;
-  tags: string[];
-  // Missing fields from database
   filePath: string;
   fileHash?: string;
 }
 
-export interface ArchiveItemSummary {
-  uuid: string;
-  name: string;
+export interface ArchiveItemSummary extends BaseSummary {
+  // Remove inherited fields: uuid, name, description, isFavorite, isArchived, isDeleted, createdBy, createdAt, updatedAt, tags, tagObjs
+  // ArchiveItemSummary-specific fields:
   folderUuid: string;
   originalFilename: string;
   mimeType: string;
   fileSize: number;
-  isFavorite: boolean;
-  createdAt: string;
-  updatedAt: string;
-  tags: string[];
   preview: string;
-  // Missing fields from database
   fileHash?: string;
   thumbnailPath?: string;
 }

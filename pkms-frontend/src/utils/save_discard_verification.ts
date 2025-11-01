@@ -48,7 +48,7 @@ interface ProjectEntity extends BaseEntity {
 export const isEmptyNote = (note: Partial<NoteEntity>): boolean => {
   const hasTitle = note.title?.trim().length > 0;
   const hasContent = note.content?.trim().length > 0;
-  const hasFiles = note.files && note.files.length > 0;
+  const hasFiles = Array.isArray(note.files) && note.files.length > 0;
 
   return !hasTitle && !hasContent && !hasFiles;
 };
@@ -61,8 +61,8 @@ export const isEmptyNote = (note: Partial<NoteEntity>): boolean => {
 export const isEmptyDiaryEntry = (entry: Partial<DiaryEntryEntity>): boolean => {
   const hasTitle = entry.title?.trim().length > 0;
   const hasContent = entry.content?.trim().length > 0;
-  const hasFiles = entry.files && entry.files.length > 0;
-  const hasMood = entry.mood !== undefined && entry.mood !== null;
+  const hasFiles = Array.isArray(entry.files) && entry.files.length > 0;
+  const hasMood = entry.mood !== undefined && entry.mood !== null && !isNaN(entry.mood);
 
   return !hasTitle && !hasContent && !hasFiles && !hasMood;
 };
@@ -75,7 +75,7 @@ export const isEmptyDiaryEntry = (entry: Partial<DiaryEntryEntity>): boolean => 
 export const isEmptyProject = (project: Partial<ProjectEntity>): boolean => {
   const hasTitle = project.title?.trim().length > 0;
   const hasDescription = project.description?.trim().length > 0;
-  const hasFiles = project.files && project.files.length > 0;
+  const hasFiles = Array.isArray(project.files) && project.files.length > 0;
 
   return !hasTitle && !hasDescription && !hasFiles;
 };

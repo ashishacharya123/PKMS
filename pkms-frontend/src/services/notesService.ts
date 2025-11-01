@@ -13,7 +13,7 @@ import { coreDownloadService, DownloadProgress } from './shared/coreDownloadServ
 export interface ProjectBadge {
   uuid: string | null;  // null if project is deleted (snapshot)
   name: string;
-  color: string;
+  color?: string;      // Make optional - backend doesn't use it anymore
   isProjectExclusive: boolean;
   isDeleted: boolean;  // True if project was deleted (using snapshot name)
 }

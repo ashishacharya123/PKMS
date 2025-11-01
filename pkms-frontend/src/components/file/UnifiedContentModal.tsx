@@ -255,6 +255,7 @@ export const UnifiedContentModal: React.FC<UnifiedContentModalProps> = ({
           onDelete={onDelete}
           isLoading={isLoading}
           error={error}
+          showProjects={showProjects}  // ✅ Add missing prop for project badges in view mode
           showDiaryFields={showDiaryFields}
           showFiles={true}
           enableDragDrop={enableDragDrop}

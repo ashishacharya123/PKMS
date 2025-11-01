@@ -10,6 +10,7 @@ If no username provided, it will delete the only user in single-user systems.
 """
 
 import asyncio
+import logging
 import sys
 from pathlib import Path
 
@@ -28,6 +29,9 @@ from app.models.diary import DiaryEntry
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import Tag
 from app.config import get_data_dir
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 
 class UserDeletionService:
@@ -104,9 +108,6 @@ class UserDeletionService:
         # Delete diary media files (now via document_diary association)
         # Note: Diary files are now Documents with is_diary_exclusive=True
         # This is handled by the document deletion above
-        for (file_path,) in media_result.fetchall():
-            if file_path:
-                self._delete_file_safely(Path(file_path))
         
         # Delete document files
         doc_result = await db.execute(
@@ -116,13 +117,8 @@ class UserDeletionService:
             if file_path:
                 self._delete_file_safely(Path(file_path))
         
-        # Delete note files
-        note_file_result = await db.execute(
-            select(NoteFile.file_path).where(NoteFile.created_by == created_by)
-        )
-        for (file_path,) in note_file_result.fetchall():
-            if file_path:
-                self._delete_file_safely(Path(file_path))
+        # Note files are now handled via the documents relationship through note_documents junction table
+        # This is handled by the document deletion above
         
         # Delete archive item files
         archive_result = await db.execute(
@@ -155,7 +151,7 @@ class UserDeletionService:
         deletion_order = [
             ("sessions", Session, Session.created_by),
             ("recovery_keys", RecoveryKey, RecoveryKey.created_by),
-            ("note_files", NoteFile, NoteFile.created_by),
+            # Note files are now handled via the documents relationship through note_documents junction table
             ("notes", Note, Note.created_by),
             ("documents", Document, Document.created_by),
             ("todos", Todo, Todo.created_by),

@@ -141,8 +141,8 @@ class UserResponse(CamelCaseModel):
     def validate_uuid_format(cls, v):
         try:
             uuid.UUID(v)
-        except ValueError:
-            raise ValueError('uuid must be a valid UUID')
+        except ValueError as e:
+            raise ValueError('uuid must be a valid UUID') from e
         return v
 
 class RefreshTokenRequest(CamelCaseModel):

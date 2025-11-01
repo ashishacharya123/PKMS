@@ -43,42 +43,73 @@ class ProjectService:
     async def reserve_project(self, db: AsyncSession, user_uuid: str) -> str:
         """Create a minimal placeholder project and return its UUID (optimistic UUID)."""
         try:
-            project = Project(name="", description=None, created_by=user_uuid)
+            project = Project(
+                name="[Reserved]",  # ✅ Meaningful sentinel
+                description="Placeholder project for optimistic UUID allocation",
+                created_by=user_uuid
+            )
             db.add(project)
             await db.commit()
             await db.refresh(project)
-            return project.uuid
         except Exception as e:
             await db.rollback()
-            logger.exception("Error reserving project")
+            logger.exception("Error reserving project for user %s", user_uuid)
+
+            # ✅ Consistent dev mode error details
+            from app.decorators.error_handler import is_development_mode
+            detail_msg = "Failed to reserve project"
+            if is_development_mode():
+                detail_msg += f": {str(e)}"
+
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to reserve project: {str(e)}"
-            )
+                detail=detail_msg
+            ) from e  # ✅ Exception chaining
+        else:
+            return project.uuid  # ✅ TRY300 pattern - return outside try
 
     async def create_project(
-        self, db: AsyncSession, user_uuid: str, project_data: ProjectCreate
+        self, db: AsyncSession, user_uuid: str, project_data: ProjectCreate, reserved_uuid: str = None
     ) -> ProjectResponse:
         """Create a new project."""
         try:
             payload = project_data.model_dump()
             tags = payload.pop("tags", []) or []
 
-            project = Project(**payload, created_by=user_uuid)
-            db.add(project)
+            # Use reserved UUID if provided, otherwise create new project
+            if reserved_uuid:
+                # Update existing reserved project
+                project = await db.get(Project, reserved_uuid)
+                if not project or project.created_by != user_uuid:
+                    raise HTTPException(status_code=404, detail="Reserved project not found")
+
+                # Update the reserved project with actual data
+                for key, value in payload.items():
+                    if hasattr(project, key):
+                        setattr(project, key, value)
+            else:
+                # Create new project
+                project = Project(**payload, created_by=user_uuid)
+                db.add(project)
+
             await db.commit()
             await db.refresh(project)
-            
+
             if tags:
                 await tag_service.handle_tags(db, project, tags, user_uuid, None, project_tags)
-            
+
             # Index in search and persist
             await search_service.index_item(db, project, 'project')
             await db.commit()
-            
-            # Invalidate dashboard cache
-            
-            logger.info(f"Project created: {project.name}")
+
+            # Clean up reserved UUID after successful creation
+            if reserved_uuid:
+                # Note: In a real implementation, you would call a cleanup service here
+                # await reserved_service.cleanup('project', reserved_uuid)
+                logger.info(f"Project created with reserved UUID: {project.name}")
+            else:
+                logger.info(f"Project created: {project.name}")
+
             return self._convert_project_to_response(project, 0, 0)  # New project has 0 todos
             
         except HTTPException:
@@ -356,9 +387,6 @@ class ProjectService:
         await db.commit()
         
         logger.info(f"Project permanently deleted: {project.name}")
-
-    # REMOVED: duplicate_project method - moved to dedicated DuplicationService
-    # All project duplication logic now handled by app.services.duplication_service
 
     async def get_project_items(
         self, db: AsyncSession, user_uuid: str, project_uuid: str, item_type: str
@@ -742,9 +770,6 @@ class ProjectService:
                 )
             )
 
-    # REMOVED: build_badges method - legacy method no longer used
-    # All badge loading now uses shared_utilities_service.batch_get_project_badges_polymorphic()
-
     async def get_project_counts(self, db: AsyncSession, project_uuid: str, user_uuid: str) -> Tuple[int, int]:
         """Get todo count and completed count for a project."""
         from app.services.dashboard_stats_service import dashboard_stats_service
@@ -848,7 +873,8 @@ class ProjectService:
         return {
             "uuid": note.uuid,
             "title": note.title,
-            "content": note.content,
+            "content": note.content or "",  # ✅ Safe fallback for null content
+            "contentFilePath": note.content_file_path,  # ✅ Expose file path (camelCase for consistency)
             "is_archived": note.is_archived,
             "is_favorite": note.is_favorite,
             "created_at": note.created_at,

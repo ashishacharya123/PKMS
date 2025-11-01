@@ -57,6 +57,7 @@ import {
   Drawer,
   useMantineTheme,
   useMantineColorScheme,
+  TextInput,  // ✅ Add missing TextInput import
 } from '@mantine/core';
 import { Calendar } from '@mantine/dates';
 import {
@@ -130,12 +131,12 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
   const isMobile = useMediaQuery('(max-width: 768px)');
   const {
     entries,
-    loading,
+    isLoading,        // ✅ Was: loading
     error,
     encryptionKey,
-    isLocked,
-    lockDiary,
-    unlockDiary,
+    isUnlocked,       // ✅ Was: isLocked
+    lockSession,      // ✅ Was: lockDiary
+    unlockSession,    // ✅ Was: unlockDiary
     loadEntries,
     createEntry,
     deleteEntry,
@@ -254,7 +255,7 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
     const isTodayDate = isToday(date);
     const mood = entry.mood || 3;
     const hasMedia = entry.mediaCount && entry.mediaCount > 0;
-    const isLocked = !encryptionKey;
+    const isLocked = !encryptionKey;  // Local variable, keep as is
 
     return (
       <div style={{ 
@@ -284,7 +285,7 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
             📎
           </div>
         )}
-        {isLocked && (
+        {!isUnlocked && (  // ✅ Use store property: was isLocked
           <div style={{ 
             position: 'absolute', 
             bottom: 2, 
@@ -312,7 +313,7 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
 
     setIsUnlocking(true);
     try {
-      await unlockDiary(password);
+      await unlockSession(password);  // ✅ Use store function: was unlockDiary
       setShowPasswordModal(false);
       setPassword('');
       notifications.show({
@@ -334,7 +335,7 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
   // Handle lock
   const handleLock = async () => {
     try {
-      await lockDiary();
+      await lockSession();  // ✅ Use store function: was lockDiary
       notifications.show({
         title: 'Success',
         message: 'Diary locked successfully',
@@ -392,7 +393,7 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
     setShowAllEntries(false); // Switch to date-specific view
   };
 
-  if (loading) {
+  if (isLoading) {  // ✅ Use store property: was loading
     return (
       <Container size="xl" py="md">
         <Center py="xl">
@@ -430,18 +431,22 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
             <Text size="xl" fw={700} c="blue">
               📖 My Diary
             </Text>
-            <EncryptionStatus />
+            <EncryptionStatus
+              isUnlocked={isUnlocked}
+              onLock={handleLock}
+              onUnlock={() => setShowPasswordModal(true)}
+            />
           </Group>
           <Group gap="sm">
             <Button
               leftSection={<IconPlus size={16} />}
               onClick={handleNewEntry}
-              disabled={isLocked}
+              disabled={!isUnlocked}  // ✅ Use store property: was isLocked
               size={isMobile ? "sm" : "md"}
             >
               {isMobile ? "New" : "New Entry"}
             </Button>
-            {isLocked ? (
+            {!isUnlocked ? (  // ✅ Use store property: was isLocked
               <Button
                 variant="light"
                 leftSection={<IconLock size={16} />}
@@ -645,7 +650,7 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
                         <Button
                           leftSection={<IconPlus size={16} />}
                           onClick={handleNewEntry}
-                          disabled={isLocked}
+                          disabled={!isUnlocked}  // ✅ Use store property: was isLocked
                         >
                           {showAllEntries ? 'Create your first entry' : `Create entry for ${format(selectedDate, 'MMM dd, yyyy')}`}
                         </Button>

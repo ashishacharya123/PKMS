@@ -425,8 +425,6 @@ async def permanent_delete_diary_entry(
 
 # --- File Operations ---
 
-# Old diary file endpoints removed - using Document + document_diary association instead
-
 
 # --- Metadata & Analytics Endpoints ---
 

@@ -13,8 +13,8 @@ export function useModal<T = any>(options: ModalOptions = {}) {
   const [modalData, setModalData] = useState<any>(null);
 
   const openModal = useCallback((item?: T, data?: any) => {
-    setSelectedItem(item || null);
-    setModalData(data || null);
+    setSelectedItem(item ?? null);
+    setModalData(data ?? null);
     setIsOpen(true);
     onOpen?.();
   }, [onOpen]);

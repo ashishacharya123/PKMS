@@ -8,6 +8,7 @@ from pathlib import Path
 import logging
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
 
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ class UnifiedDeleteService:
         try:
             await db.delete(db_object)
             await db.commit()
-        except Exception as e:
+        except SQLAlchemyError as e:
             await db.rollback()
             raise HTTPException(status_code=500, detail="Database operation failed") from e
 
@@ -27,8 +28,8 @@ class UnifiedDeleteService:
         try:
             if file_path.exists():
                 file_path.unlink()
-        except Exception as e:
-            logger.warning(f"File cleanup failed after DB commit: {e}")
+        except OSError as e:
+            logger.warning("File cleanup failed after DB commit", exc_info=True)
 
 
 unified_delete_service = UnifiedDeleteService()
