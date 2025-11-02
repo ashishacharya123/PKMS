@@ -11,6 +11,8 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 import logging
 import json
+import os
+import base64
 
 from app.database import get_db
 from app.models.user import User
@@ -71,14 +73,20 @@ async def reserve_diary_entry(
       except ValueError:
           raise HTTPException(status_code=400, detail="Invalid date format; expected YYYY-MM-DD")
 
-      # Create minimal entry via service
+      # Create minimal entry via service with unique placeholders to avoid hash collisions
+      import os
+      import base64
+
+      placeholder_cipher = base64.b64encode(os.urandom(32)).decode("ascii")
+      placeholder_iv = base64.b64encode(os.urandom(12)).decode("ascii")
+
       from app.schemas.diary import DiaryEntryCreate
       create_payload = DiaryEntryCreate(
           date=entry_date,
           title="",
-          encrypted_blob=b"",  # no content yet
-          encryption_iv="",
-          content_length=0,
+          encrypted_blob=placeholder_cipher,  # unique placeholder to satisfy uq_user_file_hash
+          encryption_iv=placeholder_iv,
+          content_length=len(placeholder_cipher),
           nepali_date=None,
           mood=None,
           weather_code=None,

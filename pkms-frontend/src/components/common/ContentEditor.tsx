@@ -15,6 +15,7 @@ import {
   Stack,
   Card,
   Title,
+  Text,
   TagsInput,
   Alert,
   Skeleton,
@@ -27,7 +28,6 @@ import {
   IconDeviceFloppy,
   IconX,
   IconEye,
-  IconMarkdown,
   IconMoodHappy,
   IconCloudRain,
   IconMapPin
@@ -192,8 +192,8 @@ export const ContentEditor: React.FC<ContentEditorProps> = ({
         {showDiaryFields && (
           <Grid>
             <Grid.Col span={3}>
+              <Text size="sm" fw={500} mb={5}>Date</Text>
               <DatePicker
-                label="Date"
                 placeholder="Select date"
                 value={date}
                 onChange={(value) => onDateChange?.(value || new Date())}

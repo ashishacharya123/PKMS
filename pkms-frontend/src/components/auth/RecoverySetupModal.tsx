@@ -104,7 +104,7 @@ const RecoverySetupModal: React.FC<RecoverySetupModalProps> = ({
         return;
       }
 
-      await authService.setupRecovery({ questions, answers });
+      await authService.setupRecovery({ recoveryQuestions: questions, recoveryAnswers: answers });
 
       // Complete the first-time setup to transition user out of first-login mode
       try {

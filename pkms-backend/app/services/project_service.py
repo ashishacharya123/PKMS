@@ -33,6 +33,10 @@ from app.services.shared_utilities_service import shared_utilities_service
 
 logger = logging.getLogger(__name__)
 
+def _validate_reserved_project(project: Project | None, user_uuid: str, reserved_uuid: str) -> None:
+    """Validate reserved project ownership. Raises HTTPException if invalid."""
+    if not project or project.created_by != user_uuid:
+        raise HTTPException(status_code=404, detail="Reserved project not found")
 
 class ProjectService:
     """
@@ -59,7 +63,7 @@ class ProjectService:
             from app.decorators.error_handler import is_development_mode
             detail_msg = "Failed to reserve project"
             if is_development_mode():
-                detail_msg += f": {str(e)}"
+                detail_msg += f": {e!s}"
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -69,7 +73,7 @@ class ProjectService:
             return project.uuid  # ✅ TRY300 pattern - return outside try
 
     async def create_project(
-        self, db: AsyncSession, user_uuid: str, project_data: ProjectCreate, reserved_uuid: str = None
+        self, db: AsyncSession, user_uuid: str, project_data: ProjectCreate, reserved_uuid: str | None = None
     ) -> ProjectResponse:
         """Create a new project."""
         try:
@@ -80,8 +84,7 @@ class ProjectService:
             if reserved_uuid:
                 # Update existing reserved project
                 project = await db.get(Project, reserved_uuid)
-                if not project or project.created_by != user_uuid:
-                    raise HTTPException(status_code=404, detail="Reserved project not found")
+                _validate_reserved_project(project, user_uuid, reserved_uuid)
 
                 # Update the reserved project with actual data
                 for key, value in payload.items():

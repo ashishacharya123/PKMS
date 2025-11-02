@@ -2,27 +2,48 @@
  * Note TypeScript interfaces matching backend schemas exactly
  */
 
-import { BaseEntity, BaseCreateRequest, BaseUpdateRequest, BaseSummary } from './common';
+import { BaseEntity, BaseCreateRequest, BaseUpdateRequest, BaseItem } from './common';
 import { ProjectBadge } from './project';
 
 export interface Note extends BaseEntity {
   title: string;
   content: string;
+  contentFilePath?: string;
+  thumbnailPath?: string;
+  isTemplate?: boolean;
+  fromTemplateId?: string;
   description?: string; // NEW - for FTS5
   fileCount: number;
+  isFavorite: boolean;
   isArchived: boolean;
-  isProjectExclusive: boolean;
+  isExclusiveMode?: boolean;
+  isProjectExclusive?: boolean;
   projects: ProjectBadge[];
+  createdBy: string;
+  tags: string[];
   version?: number;
 }
 
-export interface NoteSummary extends BaseSummary {
-  content: string;
+export interface NoteSummary extends BaseItem {
+  uuid: string;
+  name: string; // BaseItem requires 'name'
+  title: string;
+  preview: string;
+  content?: string; // Optional full content
   description?: string;
   fileCount: number;
+  isFavorite: boolean;
   isArchived: boolean;
-  isProjectExclusive: boolean;
+  isExclusiveMode?: boolean;
+  isProjectExclusive?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  tags: string[];
+  isTemplate?: boolean;
+  fromTemplateId?: string;
   projects: ProjectBadge[];
+  version?: number;
 }
 
 export interface NoteFile {

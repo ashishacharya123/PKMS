@@ -28,7 +28,7 @@ class UnifiedDeleteService:
         try:
             if file_path.exists():
                 file_path.unlink()
-        except OSError as e:
+        except OSError:
             logger.warning("File cleanup failed after DB commit", exc_info=True)
 
 

@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '../../../test/testUtils';
-import { TodoCard } from '../todos/TodoCard';
+import { TodoCard } from '../../todos/TodoCard';
 import { mockTodo, mockProject } from '../../../test/testUtils';
 import { TodoStatus, TaskPriority } from '../../../types/todo';
 

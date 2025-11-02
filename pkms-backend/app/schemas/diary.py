@@ -110,6 +110,8 @@ class DiaryEntryResponse(CamelCaseModel):
     tags: List[str] = Field(default_factory=list)
     content_length: int
     content_available: bool = Field(default=False, description="Whether encrypted content can be accessed with valid diary session")
+    encrypted_blob: Optional[str] = None
+    encryption_iv: Optional[str] = None
 
     @field_validator("daily_metrics", mode="before")
     @classmethod

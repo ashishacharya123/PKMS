@@ -13,12 +13,17 @@ export function transformFilesToUnifiedItems(
 
   return files.map((file: any) => ({
     uuid: file.uuid,
+    name: file.name || file.originalName,
     filename: file.filename,
     originalName: file.originalName,
     mimeType: file.mimeType,
     fileSize: file.fileSize,
     description: file.description,
+    isFavorite: file.isFavorite || false,
+    isArchived: file.isArchived || false,
+    createdBy: file.createdBy || 'unknown',
     createdAt: file.createdAt,
+    updatedAt: file.updatedAt || file.createdAt,
     mediaType: (file.mediaType || defaultMediaType) as UnifiedFileItem['mediaType'],
     isEncrypted,
     module,

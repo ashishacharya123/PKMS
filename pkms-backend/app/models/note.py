@@ -2,7 +2,7 @@
 Note Model for Knowledge Management
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Index, CheckConstraint
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 
@@ -53,6 +53,7 @@ class Note(Base, SoftDeleteMixin):
         Index('ix_note_user_favorite', 'created_by', 'is_favorite'),
         Index('ix_note_user_template', 'created_by', 'is_template'),
         Index('ix_note_user_deleted', 'created_by', 'is_deleted'),
+        CheckConstraint('(content IS NOT NULL OR content_file_path IS NOT NULL)', name='ck_note_content_or_file')
     )
     thumbnail_path = Column(String(500), nullable=True)  # Path to note thumbnail (if applicable)
     

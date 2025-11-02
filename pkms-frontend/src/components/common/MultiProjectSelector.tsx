@@ -60,9 +60,7 @@ export const MultiProjectSelector: React.FC<MultiProjectSelectorProps> = ({
 
   const selectData = projects.map(p => ({
     value: p.uuid,
-    label: p.name,
-    // Store color in custom prop for potential future use
-    color: p.color
+    label: p.name
   }));
 
   const handleChange = (values: string[]) => {
@@ -85,22 +83,19 @@ export const MultiProjectSelector: React.FC<MultiProjectSelectorProps> = ({
         disabled={disabled || loading}
         error={error}
         leftSection={loading ? <Loader size="xs" /> : undefined}
-        renderOption={({ option }) => {
-          const project = projects.find(p => p.uuid === option.value);
-          return (
-            <Group gap="xs">
-              <div
-                style={{
-                  width: 12,
-                  height: 12,
-                  borderRadius: '50%',
-                  backgroundColor: project?.color || '#868e96'
-                }}
-              />
-              <Text size="sm">{option.label}</Text>
-            </Group>
-          );
-        }}
+        renderOption={({ option }) => (
+          <Group gap="xs">
+            <div
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: '50%',
+                backgroundColor: '#868e96'
+              }}
+            />
+            <Text size="sm">{option.label}</Text>
+          </Group>
+        )}
       />
 
       {/* Exclusive Mode Checkbox - only show if projects are selected */}
@@ -147,19 +142,9 @@ export const MultiProjectSelector: React.FC<MultiProjectSelectorProps> = ({
             {selectedProjects.map(p => (
               <Badge
                 key={p.uuid}
-                color={p.color}
+                color="blue"
                 variant="light"
                 size="sm"
-                leftSection={
-                  <div
-                    style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      backgroundColor: p.color
-                    }}
-                  />
-                }
               >
                 {p.name}
               </Badge>

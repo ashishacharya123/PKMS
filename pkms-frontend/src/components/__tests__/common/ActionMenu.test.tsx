@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '../../../test/testUtils';
-import { ActionMenu } from '../common/ActionMenu';
+import { ActionMenu } from '../../common/ActionMenu';
 
 describe('ActionMenu', () => {
   const mockHandlers = {

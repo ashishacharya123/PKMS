@@ -9,6 +9,8 @@ export interface Document extends BaseEntity {
   title: string;
   originalName: string;
   filename: string;
+  filePath: string;
+  thumbnailPath?: string;
   fileSize: number;
   mimeType: string;
   description?: string;

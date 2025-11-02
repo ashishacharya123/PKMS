@@ -276,7 +276,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 <Text size="sm" fw={500}>Projects:</Text>
                 <Group gap="xs">
                   {projectBadges.map((project) => (
-                    <Badge key={project.id} color={project.color || 'blue'} size="sm">
+                    <Badge key={project.id} color="blue" size="sm">
                       {project.name}
                     </Badge>
                   ))}

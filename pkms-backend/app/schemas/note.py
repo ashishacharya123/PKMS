@@ -92,4 +92,5 @@ class NoteSummary(CamelCaseModel):
     tags: list[str]
     preview: str
     projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this note belongs to")
+    createdBy: str = Field(alias="created_by")
 

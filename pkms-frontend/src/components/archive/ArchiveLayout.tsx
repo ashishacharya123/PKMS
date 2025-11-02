@@ -205,6 +205,7 @@ export function ArchiveLayout({
                 isFavorite: item.isFavorite,        // ✅ ADDED: Required field
                 createdAt: item.createdAt,
                 updatedAt: item.updatedAt,          // ✅ ADDED: Missing field
+                tags: item.tags || [],              // ✅ ADDED: Optional but should be included
                 filePath: item.filePath,
                 thumbnailPath: item.thumbnailPath,
                 createdBy: item.createdBy,          // ✅ ADDED: Missing field
@@ -217,15 +218,15 @@ export function ArchiveLayout({
                   // Find original item to preserve createdBy from backend
                   const originalItem = archiveFiles.find(item => item.uuid === file.uuid);
 
-                  // If item exists, preserve createdBy from backend response
+                  // If item exists, preserve user edits and backend fields
                   if (originalItem) {
                     return {
                       ...originalItem, // ✅ Preserves all BaseItem fields including createdBy
-                      // Update only changed fields
-                      name: file.originalName,
+                      // Update only changed fields from unified file editor
+                      name: file.name ?? originalItem.name,
                       description: file.description ?? originalItem.description,
-                      isFavorite: file.isFavorite ?? originalItem.isFavorite, // Use file's favorite status, fallback to original
-                      tags: file.description ? [file.description] : originalItem.tags, // Basic tag handling
+                      isFavorite: file.isFavorite ?? originalItem.isFavorite,
+                      tags: file.tags ?? originalItem.tags,
                       filePath: file.filePath ?? originalItem.filePath,
                       thumbnailPath: file.thumbnailPath ?? originalItem.thumbnailPath,
                     };
@@ -235,7 +236,7 @@ export function ArchiveLayout({
                   return {
                     itemType: 'file' as const,
                     uuid: file.uuid,
-                    name: file.originalName,
+                    name: file.name ?? file.originalName,
                     description: file.description,
                     folderUuid: currentFolder.uuid,
                     originalFilename: file.originalName,
@@ -248,7 +249,7 @@ export function ArchiveLayout({
                     isArchived: false,                 // ✅ ADDED: Required field
                     createdAt: file.createdAt,
                     updatedAt: file.createdAt,
-                    tags: [],
+                    tags: file.tags ?? [],
                     filePath: file.filePath || '',
                     fileHash: undefined,
                     createdBy: '', // Temporary: Backend response will have it after item creation
@@ -296,11 +297,20 @@ export function ArchiveLayout({
                       setCurrentFolder(folder);
                     }
                   }}
-                  renderIcon={(_folder: any) => (
-                    <Center style={{ width: 60, height: 60, backgroundColor: 'var(--mantine-color-dark-5)', borderRadius: 8 }}>
-                      <IconFiles size={24} color="var(--mantine-color-blue-4)" />
-                    </Center>
-                  )}
+                  renderIcon={(folder: any) => {
+                    // Use folder properties to vary the icon
+                    const getColor = () => {
+                      if (folder.itemCount === 0) return "var(--mantine-color-gray-4)";    // Empty folders
+                      if (folder.depth === 0) return "var(--mantine-color-orange-4)";    // Root level
+                      return "var(--mantine-color-blue-4)";                             // Normal folders
+                    };
+
+                    return (
+                      <Center style={{ width: 60, height: 60, backgroundColor: 'var(--mantine-color-dark-5)', borderRadius: 8 }}>
+                        <IconFiles size={24} color={getColor()} />
+                      </Center>
+                    );
+                  }}
                   renderContent={(folder: any) => (
                     <Stack gap="xs">
                       <Text fw={500} size="sm">{folder.name}</Text>
@@ -318,8 +328,8 @@ export function ArchiveLayout({
           ) : (
             // Show items when folder selected
             <Box p="md">
-              <ModuleLayout
-                items={items as BaseItem[]}
+              <ModuleLayout<ArchiveItem>
+                items={items}
                 viewMode={viewMode}
                 onItemClick={onItemClick}
                 onToggleFavorite={onToggleFavorite}

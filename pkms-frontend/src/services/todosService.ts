@@ -10,7 +10,6 @@ import {
   BlockingTodoSummary
 } from '../types/todo';
 import { ChecklistItem } from '../types/common';
-import { ProjectBadge } from '../types/project';
 import { TodoStatus, TaskPriority, TodoType } from '../types/enums';
 
 // Re-export types from centralized location

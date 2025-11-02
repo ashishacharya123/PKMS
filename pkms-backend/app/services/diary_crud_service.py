@@ -531,6 +531,9 @@ class DiaryCRUDService:
                         tags=tag_map.get(uuid, []),
                         content_length=r.content_length,
                         content_available=r.content_length > 0,
+                        daily_income=r.daily_income,
+                        daily_expense=r.daily_expense,
+                        is_office_day=r.is_office_day,
                     )
                     summaries.append(summary)
             return summaries
@@ -551,6 +554,9 @@ class DiaryCRUDService:
                     func.coalesce(file_count_subquery.c.file_count, 0).label("file_count"),
                     daily_metadata_alias.default_habits_json.label("default_habits_json"),
                     daily_metadata_alias.nepali_date.label("nepali_date"),
+                    daily_metadata_alias.daily_income.label("daily_income"),
+                    daily_metadata_alias.daily_expense.label("daily_expense"),
+                    daily_metadata_alias.is_office_day.label("is_office_day"),
                     DiaryEntry.content_length,
                 )
                 .outerjoin(file_count_subquery, DiaryEntry.uuid == file_count_subquery.c.diary_entry_uuid)
@@ -580,16 +586,12 @@ class DiaryCRUDService:
             # Template filtering
             if is_template is not None:
                 query = query.where(DiaryEntry.is_template.is_(is_template))
-            
-            # Filter by specific template UUID (entries created from this template)
-            if template_uuid:
-                query = query.where(DiaryEntry.from_template_id == template_uuid)
-                
+
             query = query.order_by(DiaryEntry.date.desc()).offset(offset).limit(limit)
             result = await db.execute(query)
             entry_rows = result.all()
             tag_map = await DiaryCRUDService.get_tags_for_entries(db, [row.uuid for row in entry_rows])
-            
+
             for row in entry_rows:
                 summary = DiaryEntrySummary(
                     uuid=row.uuid,
@@ -607,6 +609,9 @@ class DiaryCRUDService:
                     tags=tag_map.get(row.uuid, []),
                     content_length=row.content_length,
                     content_available=row.content_length > 0,
+                    daily_income=row.daily_income,
+                    daily_expense=row.daily_expense,
+                    is_office_day=row.is_office_day,
                 )
                 summaries.append(summary)
             return summaries
@@ -974,6 +979,8 @@ class DiaryCRUDService:
             tags=tags,
             content_length=entry.content_length,
             content_available=entry.content_length > 0,
+            encrypted_blob=entry.encrypted_blob,
+            encryption_iv=entry.encryption_iv,
         )
         return response
     

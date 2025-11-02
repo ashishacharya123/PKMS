@@ -316,10 +316,8 @@ class TestTagService:
             mock_db, mock_item, tag_names, mock_created_by, None, association_table
         )
 
-        # Verify tag was created
+        # Verify tag was created (module_type removed - tags are now universal)
         mock_db.add.assert_called_once()
-        created_tag = mock_db.add.call_args[0][0]
-        # module_type removed - tags are now universal
 
     @pytest.mark.asyncio
     async def test_decrement_tags_on_delete(self, mock_db, mock_item):

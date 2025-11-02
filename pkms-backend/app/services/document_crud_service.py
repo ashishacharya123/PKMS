@@ -529,7 +529,7 @@ class DocumentCRUDService:
             is_favorite=doc.is_favorite,
             is_archived=doc.is_archived,
             is_deleted=doc.is_deleted,
-            is_encrypted=doc.is_encrypted,  # ✅ ADDED - Missing field
+            is_encrypted=getattr(doc, "is_encrypted", False),  # Avoid AttributeError unless model grows this column
             thumbnail_path=doc.thumbnail_path,  # ✅ ADDED - Missing field
             created_at=doc.created_at,
             updated_at=doc.updated_at,

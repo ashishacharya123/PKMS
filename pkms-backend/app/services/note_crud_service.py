@@ -263,7 +263,8 @@ class NoteCRUDService:
                     tags=[tag.name for tag in note.tag_objs],
                     projects=project_badges,
                     created_at=note.created_at,
-                    updated_at=note.updated_at
+                    updated_at=note.updated_at,
+                    createdBy=note.created_by
                 ))
             
             return note_summaries
