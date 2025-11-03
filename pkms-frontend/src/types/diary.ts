@@ -39,8 +39,6 @@ export interface DiaryEntry {
   date: string;
   nepaliDate?: string;
   title?: string;
-  encryptedBlob: string;
-  encryptionIv: string;
   mood?: number;
   weatherCode?: WeatherCode;
   weatherLabel?: string;

@@ -288,8 +288,8 @@ class TestTagService:
         assert "work" in tag_names_lower
 
     @pytest.mark.asyncio
-    async def test_handle_tags_module_isolation(self, mock_db, mock_item, mock_created_by):
-        """Test that tags are isolated by module type"""
+    async def test_handle_tags_universal_tagging(self, mock_db, mock_item, mock_created_by):
+        """Test that tags work universally across all modules"""
         # Mock existing tags query (no existing tags)
         mock_result = AsyncMock()
         mock_result.scalars.return_value.all.return_value = []
@@ -308,7 +308,7 @@ class TestTagService:
 
         # Test data
         tag_names = ["important"]
-        # module_type removed - tags are now universal (was documents)
+        # Tags are now universal - can be used with any association table
         association_table = document_tags
 
         # Execute
@@ -316,7 +316,7 @@ class TestTagService:
             mock_db, mock_item, tag_names, mock_created_by, None, association_table
         )
 
-        # Verify tag was created (module_type removed - tags are now universal)
+        # Verify tag was created (universal tagging works across all modules)
         mock_db.add.assert_called_once()
 
     @pytest.mark.asyncio

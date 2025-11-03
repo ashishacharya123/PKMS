@@ -380,6 +380,16 @@ export function DocumentsPage() {
 
   const totalPages = Math.ceil(sortedDocuments.length / itemsPerPage);
 
+  // Loading state for initial data load
+  if (loading && documents.length === 0) {
+    return <LoadingState message="Loading documents..." />;
+  }
+
+  // Error state
+  if (error) {
+    return <ErrorState message={error instanceof Error ? error.message : String(error)} onRetry={loadDocuments} />;
+  }
+
   return (
     <Container size="xl" py="md">
       <Grid>

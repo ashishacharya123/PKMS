@@ -32,8 +32,6 @@ class EncryptionStatusResponse(CamelCaseModel):
 class DiaryEntryUpdate(CamelCaseModel):
     date: Optional[date] = None
     title: Optional[str] = Field(None, max_length=255)
-    encrypted_blob: Optional[str] = None
-    encryption_iv: Optional[str] = None
     mood: Optional[int] = Field(None, ge=1, le=5)
     weather_code: Optional[int] = Field(None, ge=0, le=6)
     location: Optional[str] = Field(None, max_length=100)
@@ -63,8 +61,6 @@ class DiaryEntryUpdate(CamelCaseModel):
 class DiaryEntryCreate(CamelCaseModel):
     date: date
     title: Optional[str] = Field(None, max_length=255)
-    encrypted_blob: str
-    encryption_iv: str
     mood: Optional[int] = Field(None, ge=1, le=5)
     weather_code: Optional[int] = Field(None, ge=0, le=6)
     location: Optional[str] = Field(None, max_length=100)
@@ -110,8 +106,6 @@ class DiaryEntryResponse(CamelCaseModel):
     tags: List[str] = Field(default_factory=list)
     content_length: int
     content_available: bool = Field(default=False, description="Whether encrypted content can be accessed with valid diary session")
-    encrypted_blob: Optional[str] = None
-    encryption_iv: Optional[str] = None
 
     @field_validator("daily_metrics", mode="before")
     @classmethod

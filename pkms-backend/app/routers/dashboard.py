@@ -8,7 +8,8 @@ Refactored to follow "thin router, thick service" architecture pattern.
 """
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+import time
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -18,9 +19,14 @@ from app.schemas.dashboard import DashboardStats, ModuleActivity, QuickStats, Re
 from app.models.enums import ModuleStatsKey, ProjectStatsKey
 from app.services.dashboard_service import dashboard_service
 from app.services.unified_cache_service import get_all_cache_stats
+from app.services.cleanup_service import cleanup_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Simple in-memory lock to prevent running cleanup on every request
+LAST_CLEANUP_TS = 0
+CLEANUP_INTERVAL_SECONDS = 3600  # 1 hour
 
 
 def invalidate_user_dashboard_cache(user_uuid: str, reason: str = "data_update"):
@@ -46,14 +52,24 @@ def invalidate_user_dashboard_cache(user_uuid: str, reason: str = "data_update")
 
 @router.get("/stats", response_model=DashboardStats)
 async def get_dashboard_stats(
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Get aggregated statistics for all modules in a single request.
-    
+
     Optimized for fast dashboard loading with 120s TTL cache.
     """
+    global LAST_CLEANUP_TS
+    current_time = time.time()
+
+    # Check if enough time has passed since the last cleanup
+    if current_time - LAST_CLEANUP_TS > CLEANUP_INTERVAL_SECONDS:
+        logger.info("Triggering background cleanup of reservations.")
+        background_tasks.add_task(cleanup_service.cleanup_abandoned_reservations, db)
+        LAST_CLEANUP_TS = current_time
+
     try:
         raw = await dashboard_service.get_dashboard_stats(db, current_user.uuid)
         # Translate to enum-stable contract

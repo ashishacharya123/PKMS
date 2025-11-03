@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     refresh_token_lifetime_days: int = 0  # No automatic refresh - manual extension only
     password_min_length: int = 8
     session_cleanup_interval_hours: int = 24  # Clean expired sessions every 24 hours
+
+    # Session Security Settings
+    session_extension_minutes: int = 30  # How long to extend session by on refresh
+    session_max_lifetime_hours: int = 3  # Maximum session lifetime from creation
+    session_invalidate_on_password_change: bool = True  # Invalidate all sessions on password change
+    rate_limit_password_reset: int = 5  # Max password reset attempts per hour
     
     # File Storage
     # data_dir should be supplied via the DATA_DIR env-var or left unset so the
@@ -86,7 +92,11 @@ class Settings(BaseSettings):
 
     # Emergency override to force decryption even if integrity checks fail
     force_decrypt_on_integrity_failure: bool = False
-    
+
+    # Feature Flags
+    enable_archive_cte_optimization: bool = True  # Use SQL CTEs for archive hierarchy traversal
+    enable_runtime_api_validation: bool = True    # Enable runtime type validation for API responses
+
     # CORS
     cors_origins: list = [
         "http://localhost:3000",

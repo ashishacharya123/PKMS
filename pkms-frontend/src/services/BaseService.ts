@@ -1,5 +1,7 @@
 import { apiService } from './api';
 import { logger } from '../utils/logger';
+import { ResponseValidator, RUNTIME_VALIDATION_ENABLED } from '../utils/validation';
+import { z } from 'zod';
 
 export interface CacheConfig {
   ttl?: number;
@@ -84,6 +86,42 @@ export abstract class BaseService<T, TCreate, TUpdate> {
    */
   async getAll(params?: Record<string, any>): Promise<T[]> {
     const response = await apiService.get<T[]>(this.baseUrl, { params });
+
+    // Runtime validation if enabled
+    if (RUNTIME_VALIDATION_ENABLED) {
+      // Try to validate based on URL pattern
+      if (this.baseUrl.includes('/notes')) {
+        const validation = ResponseValidator.safeValidate(z.array(ResponseValidator.NoteSummaryResponseSchema), response.data);
+        if (!validation.success) {
+          logger.error?.(`Response validation failed for notes list: ${validation.error}`);
+          if (process.env.NODE_ENV === 'development') {
+            throw new Error(`API response validation failed: ${validation.error}`);
+          }
+        }
+        return validation.success ? validation.data : response.data;
+      }
+      else if (this.baseUrl.includes('/todos')) {
+        const validation = ResponseValidator.safeValidate(z.array(ResponseValidator.TodoResponseSchema), response.data);
+        if (!validation.success) {
+          logger.error?.(`Response validation failed for todos list: ${validation.error}`);
+          if (process.env.NODE_ENV === 'development') {
+            throw new Error(`API response validation failed: ${validation.error}`);
+          }
+        }
+        return validation.success ? validation.data : response.data;
+      }
+      else if (this.baseUrl.includes('/projects')) {
+        const validation = ResponseValidator.safeValidate(z.array(ResponseValidator.ProjectResponseSchema), response.data);
+        if (!validation.success) {
+          logger.error?.(`Response validation failed for projects list: ${validation.error}`);
+          if (process.env.NODE_ENV === 'development') {
+            throw new Error(`API response validation failed: ${validation.error}`);
+          }
+        }
+        return validation.success ? validation.data : response.data;
+      }
+    }
+
     return response.data;
   }
   
@@ -92,6 +130,43 @@ export abstract class BaseService<T, TCreate, TUpdate> {
    */
   async getById(uuid: string): Promise<T> {
     const response = await apiService.get<T>(`${this.baseUrl}/${uuid}`);
+
+    // Runtime validation if enabled
+    if (RUNTIME_VALIDATION_ENABLED) {
+      // Try to validate based on URL pattern
+      if (this.baseUrl.includes('/notes')) {
+        const validation = ResponseValidator.safeValidate(ResponseValidator.NoteResponseSchema, response.data);
+        if (!validation.success) {
+          logger.error?.(`Response validation failed for note ${uuid}: ${validation.error}`);
+          // Return unvalidated data in production but log the error
+          if (process.env.NODE_ENV === 'development') {
+            throw new Error(`API response validation failed: ${validation.error}`);
+          }
+        }
+        return validation.success ? validation.data : response.data;
+      }
+      else if (this.baseUrl.includes('/todos')) {
+        const validation = ResponseValidator.safeValidate(ResponseValidator.TodoResponseSchema, response.data);
+        if (!validation.success) {
+          logger.error?.(`Response validation failed for todo ${uuid}: ${validation.error}`);
+          if (process.env.NODE_ENV === 'development') {
+            throw new Error(`API response validation failed: ${validation.error}`);
+          }
+        }
+        return validation.success ? validation.data : response.data;
+      }
+      else if (this.baseUrl.includes('/projects')) {
+        const validation = ResponseValidator.safeValidate(ResponseValidator.ProjectResponseSchema, response.data);
+        if (!validation.success) {
+          logger.error?.(`Response validation failed for project ${uuid}: ${validation.error}`);
+          if (process.env.NODE_ENV === 'development') {
+            throw new Error(`API response validation failed: ${validation.error}`);
+          }
+        }
+        return validation.success ? validation.data : response.data;
+      }
+    }
+
     return response.data;
   }
   

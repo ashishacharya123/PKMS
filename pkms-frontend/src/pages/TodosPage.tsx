@@ -324,6 +324,11 @@ export function TodosPage() {
     );
   }, []);
 
+  // Loading state for initial data load
+  if (loading && todos.length === 0) {
+    return <LoadingState message="Loading todos..." />;
+  }
+
   // Error handling
   if (error) {
     return (

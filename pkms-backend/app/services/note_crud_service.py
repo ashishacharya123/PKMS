@@ -18,6 +18,7 @@ from fastapi import HTTPException, status
 from app.config import get_file_storage_dir, NEPAL_TZ
 from app.models.note import Note
 from app.models.document import Document
+from app.utils.transaction_helper import TransactionHelper
 from app.models.associations import note_documents, project_items
 from app.models.tag_associations import note_tags
 from app.models.enums import ModuleType
@@ -41,7 +42,7 @@ class NoteCRUDService:
         pass
     async def reserve_note(self, db: AsyncSession, user_uuid: str) -> str:
         """Reserve a minimal note row and return its UUID (owner-scoped)."""
-        try:
+        async def reserve_operation():
             new_uuid = str(uuid_lib.uuid4())
             note = Note(
                 uuid=new_uuid,
@@ -53,15 +54,13 @@ class NoteCRUDService:
                 size_bytes=0
             )
             db.add(note)
-            await db.commit()
             return new_uuid
-        except Exception as e:
-            await db.rollback()
-            logger.exception(f"Error reserving note for user {user_uuid}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to reserve note: {str(e)}"
-            )
+
+        return await TransactionHelper.execute_with_transaction(
+            db,
+            reserve_operation,
+            error_message=f"Failed to reserve note for user {user_uuid}"
+        )
 
     
     def _get_note_content_path(self, user_uuid: str, note_uuid: str) -> Path:
@@ -96,13 +95,14 @@ class NoteCRUDService:
             return f"[Error reading content: {e}]"
     
     async def create_note(
-        self, 
-        db: AsyncSession, 
-        user_uuid: str, 
+        self,
+        db: AsyncSession,
+        user_uuid: str,
         note_data: NoteCreate
     ) -> NoteResponse:
         """Create a new note with content processing and validation"""
-        try:
+
+        async def create_note_operation():
             # Sanitize inputs
             sanitized_title = sanitize_text_input(note_data.title)
             sanitized_content = sanitize_text_input(note_data.content)
@@ -118,7 +118,7 @@ class NoteCRUDService:
             # Create note with large content handling
             MAX_DB_CONTENT_SIZE = 5120  # 5KB threshold - keep it short and sweet
             content_size_bytes = len(sanitized_content.encode('utf-8'))
-            
+
             note = Note(
                 uuid=str(uuid_lib.uuid4()),
                 title=sanitized_title,
@@ -126,7 +126,7 @@ class NoteCRUDService:
                 created_by=user_uuid,
                 size_bytes=content_size_bytes  # Store the full size
             )
-            
+
             if content_size_bytes > MAX_DB_CONTENT_SIZE or note_data.force_file_storage:
                 # Content is large OR user wants file storage: save to file
                 file_path = self._get_note_content_path(user_uuid, note.uuid)
@@ -137,16 +137,16 @@ class NoteCRUDService:
                 # Content is small: save to DB
                 note.content = sanitized_content
                 note.content_file_path = None
-            
+
             db.add(note)
             await db.flush()  # Get the UUID
-            
+
             # Handle tags
             if sanitized_tags:
                 await tag_service.handle_tags(
                     db, note, sanitized_tags, user_uuid, ModuleType.NOTE, note_tags
                 )
-            
+
             # Handle project associations
             if note_data.project_uuids:
                 await project_service.handle_polymorphic_associations(
@@ -158,27 +158,24 @@ class NoteCRUDService:
                     item_type='Note',
                     is_exclusive=note_data.are_projects_exclusive or False
                 )
-            
+
             # Content processing removed - analysis was unused
-            
+
             # Index in search
             await search_service.index_item(db, note, 'note')
-            
-            await db.commit()
+
             await db.refresh(note)
-            
+
             # Invalidate dashboard cache
-            
+
             # Get note with relations for response
             return await self.get_note_with_relations(db, note.uuid, user_uuid)
-            
-        except Exception as e:
-            await db.rollback()
-            logger.exception(f"Error creating note for user {user_uuid}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to create note: {str(e)}"
-            )
+
+        return await TransactionHelper.execute_with_transaction(
+            db,
+            create_note_operation,
+            error_message=f"Failed to create note for user {user_uuid}"
+        )
     
     async def list_notes(
         self, 
@@ -312,7 +309,8 @@ class NoteCRUDService:
                     tags=[tag.name for tag in note.tag_objs],
                     projects=[],  # No project associations for deleted notes
                     created_at=note.created_at,
-                    updated_at=note.updated_at
+                    updated_at=note.updated_at,
+                    created_by=note.created_by
                 ))
             
             return note_summaries
@@ -553,47 +551,43 @@ class NoteCRUDService:
         note.updated_at = datetime.now(NEPAL_TZ)
         db.add(note)
         
-        # 3. Commit (manual search reindex via UI, no auto indexing)
         await db.commit()
-        logger.info(f"Note restored: {note.title}. Reindex via user menu if needed.")
+        await search_service.index_item(db, note, 'note')
+        await db.commit()
+        logger.info(f"Note restored: {note.title}")
 
     async def archive_note(
-        self, 
-        db: AsyncSession, 
-        user_uuid: str, 
+        self,
+        db: AsyncSession,
+        user_uuid: str,
         note_uuid: str
     ) -> None:
         """Archive note (soft delete)"""
-        try:
+        async def archive_operation():
             result = await db.execute(
                 select(Note).where(
                     and_(Note.uuid == note_uuid, Note.created_by == user_uuid)
                 )
             )
             note = result.scalar_one_or_none()
-            
+
             if not note:
                 raise HTTPException(status_code=404, detail="Note not found")
-            
+
             # Soft delete by setting archived flag
             note.is_archived = True
-            
+
             # Remove from search index
             await search_service.remove_item(db, note_uuid)
-            
-            await db.commit()
-            
+
             # Invalidate dashboard cache
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            await db.rollback()
-            logger.exception(f"Error archiving note {note_uuid}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to archive note: {str(e)}"
-            )
+
+        # Use TransactionHelper for consistent transaction management
+        await TransactionHelper.execute_with_transaction(
+            db,
+            archive_operation,
+            error_message=f"Error archiving note {note_uuid}"
+        )
     
     async def get_note_documents(
         self, 
@@ -754,7 +748,8 @@ class NoteCRUDService:
                     created_at=doc.created_at,
                     updated_at=doc.updated_at,
                     tags=[tag.name for tag in doc.tag_objs],
-                    projects=[]  # No project associations for note files
+                    projects=[],  # No project associations for note files
+                    created_by=doc.created_by
                 )
                 for doc, is_exclusive, sort_order in documents
             ]

@@ -14,7 +14,7 @@ vi.mock('../../../theme/colors', () => ({
 }));
 
 // Mock the ViewModeLayouts
-vi.mock('../common/ViewModeLayouts', () => ({
+vi.mock('../../common/ViewModeLayouts', () => ({
   formatDate: vi.fn((date) => new Date(date).toLocaleDateString())
 }));
 

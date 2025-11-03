@@ -102,41 +102,30 @@ export interface TodoSummary extends BaseSummary {
 export interface CreateTodoRequest extends BaseCreateRequest {
   title: string;
   description?: string;
-  projectIds?: string[]; // Multi-project support (UUIDs)
-  // REMOVED: isProjectExclusive - exclusivity now handled via project_items association table
-  parentId?: number; // For creating subtasks
-  startDate?: string | null;
-  dueDate?: string | null;
-  priority?: TaskPriority;
-  status?: TodoStatus; // Allow setting initial status
-  orderIndex?: number; // Allow setting initial order
-  todoType?: TodoType;
-  checklistItems?: ChecklistItem[];
-  isArchived?: boolean;
-  
-  // NEW: Set dependencies on creation
+  projectUuids?: string[]; // List of project UUIDs to link this todo to (max 10)
+  areProjectsExclusive?: boolean; // Apply exclusive flag to all project associations
   blockedByUuids?: string[]; // UUIDs of todos that must complete before this one
+  startDate?: string; // Date object from backend
+  dueDate?: string; // Date object from backend
+  priority?: TaskPriority;
+  tags?: string[]; // Max 20 items
 }
 
 export interface UpdateTodoRequest extends BaseUpdateRequest {
   title?: string;
   description?: string;
-  projectIds?: string[]; // Multi-project support (UUIDs)
-  // REMOVED: isProjectExclusive - exclusivity now handled via project_items association table
-  parentId?: number; // For moving subtasks
-  startDate?: string | null;
-  dueDate?: string | null;
-  priority?: TaskPriority;
   status?: TodoStatus;
-  orderIndex?: number; // Allow updating order
-  todoType?: TodoType;
-  checklistItems?: ChecklistItem[];
-  isArchived?: boolean;
-  isFavorite?: boolean;
-  
-  // NEW: Modify dependencies
+  orderIndex?: number;
+  projectUuids?: string[]; // List of project UUIDs to link this todo to (max 10)
+  areProjectsExclusive?: boolean; // Apply exclusive flag to all project associations
   addBlockerUuids?: string[]; // UUIDs of todos to add as blockers
   removeBlockerUuids?: string[]; // UUIDs of blocking todos to remove
+  startDate?: string; // Date object from backend
+  dueDate?: string; // Date object from backend
+  priority?: TaskPriority;
+  tags?: string[]; // Max 20 items
+  isArchived?: boolean;
+  isFavorite?: boolean;
 }
 
 export interface TodoStats {

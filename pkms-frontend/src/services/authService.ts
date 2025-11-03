@@ -10,6 +10,7 @@ import {
   User,
   UserSettings
 } from '../types/auth';
+import { ResponseValidator, RUNTIME_VALIDATION_ENABLED } from '../utils/validation';
 
 class AuthService {
   private _deprecationWarned: boolean = false;
@@ -17,6 +18,17 @@ class AuthService {
   // User setup (first-time password creation)
   async setupUser(userData: UserSetup): Promise<AuthResponse> {
     const response = await apiService.post<AuthResponse>('/auth/setup', userData);
+
+    // Runtime validation for critical authentication response
+    if (RUNTIME_VALIDATION_ENABLED) {
+      const validation = ResponseValidator.safeValidate(ResponseValidator.AuthResponseSchema, response.data);
+      if (!validation.success) {
+        console.error(`Auth response validation failed during setup: ${validation.error}`);
+        throw new Error(`Authentication setup failed: Invalid response from server`);
+      }
+      return validation.data;
+    }
+
     return response.data;
   }
 
@@ -26,6 +38,17 @@ class AuthService {
       ...credentials,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone // Send client timezone
     });
+
+    // Runtime validation for critical authentication response
+    if (RUNTIME_VALIDATION_ENABLED) {
+      const validation = ResponseValidator.safeValidate(ResponseValidator.AuthResponseSchema, response.data);
+      if (!validation.success) {
+        console.error(`Auth response validation failed during login: ${validation.error}`);
+        throw new Error(`Authentication failed: Invalid response from server`);
+      }
+      return validation.data;
+    }
+
     return response.data;
   }
 

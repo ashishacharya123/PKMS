@@ -6,7 +6,7 @@ Handles folder CRUD operations, tree structure, and bulk operations
 import uuid
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, update
+from sqlalchemy import select, and_, func, update, text
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 import logging
@@ -17,6 +17,7 @@ from pathlib import Path
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.schemas.archive import FolderCreate, FolderUpdate, FolderResponse, FolderTree, BulkMoveRequest
 from app.services.archive_path_service import archive_path_service
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -936,18 +937,22 @@ class ArchiveFolderService:
         )
     
     async def _get_all_items_recursive(
-        self, 
-        db: AsyncSession, 
-        user_uuid: str, 
+        self,
+        db: AsyncSession,
+        user_uuid: str,
         folder_uuid: str
     ) -> List[ArchiveItem]:
-        """Get all items in folder and subfolders recursively - OPTIMIZED to avoid N+1 queries"""
-        # BATCH LOAD: Get ALL subfolders in the entire tree in a single query
-        all_subfolder_uuids = await self._get_all_subfolder_uuids_recursive(db, user_uuid, [folder_uuid])
-        
+        """Get all items in folder and subfolders recursively - OPTIMIZED with SQL CTEs"""
+        # Use CTE optimization if enabled, otherwise fall back to batch recursive method
+        if settings.enable_archive_cte_optimization:
+            all_subfolder_uuids = await self._get_all_subfolder_uuids_cte(db, user_uuid, folder_uuid)
+        else:
+            # Fall back to the original batch recursive method
+            all_subfolder_uuids = await self._get_all_subfolder_uuids_recursive(db, user_uuid, [folder_uuid])
+
         # BATCH LOAD: Get ALL items for the root folder + all subfolders in a single query
         all_folder_uuids = [folder_uuid] + all_subfolder_uuids
-        
+
         result = await db.execute(
             select(ArchiveItem).where(
                 and_(
@@ -958,9 +963,60 @@ class ArchiveFolderService:
             )
         )
         all_items = result.scalars().all()
-        
+
         return all_items
-    
+
+    async def _get_all_subfolder_uuids_cte(
+        self,
+        db: AsyncSession,
+        user_uuid: str,
+        folder_uuid: str
+    ) -> List[str]:
+        """
+        Get all subfolder UUIDs using a single SQL CTE query.
+        This replaces the recursive Python approach with database-level hierarchy traversal.
+        """
+        if not settings.enable_archive_cte_optimization:
+            # Fall back to the recursive Python method if feature flag is disabled
+            return await self._get_all_subfolder_uuids_recursive(db, user_uuid, [folder_uuid])
+
+        try:
+            # SQL CTE query to get all descendant folders
+            cte_query = text("""
+                WITH RECURSIVE folder_hierarchy AS (
+                    -- Base case: direct children of the root folder
+                    SELECT uuid, parent_uuid, 1 as level
+                    FROM archive_folders
+                    WHERE parent_uuid = :folder_uuid
+                      AND created_by = :user_uuid
+                      AND is_deleted = FALSE
+
+                    UNION ALL
+
+                    -- Recursive case: children of children
+                    SELECT f.uuid, f.parent_uuid, fh.level + 1
+                    FROM archive_folders f
+                    INNER JOIN folder_hierarchy fh ON f.parent_uuid = fh.uuid
+                    WHERE f.created_by = :user_uuid
+                      AND f.is_deleted = FALSE
+                )
+                SELECT uuid FROM folder_hierarchy
+            """)
+
+            result = await db.execute(cte_query, {
+                "folder_uuid": folder_uuid,
+                "user_uuid": user_uuid
+            })
+
+            subfolder_uuids = [row.uuid for row in result.fetchall()]
+            logger.debug(f"CTE query found {len(subfolder_uuids)} subfolders for {folder_uuid}")
+            return subfolder_uuids
+
+        except Exception as e:
+            logger.error(f"CTE query failed for folder {folder_uuid}: {e}")
+            # Fall back to recursive method on error
+            return await self._get_all_subfolder_uuids_recursive(db, user_uuid, [folder_uuid])
+
     async def _get_all_subfolder_uuids_recursive(
         self, 
         db: AsyncSession, 

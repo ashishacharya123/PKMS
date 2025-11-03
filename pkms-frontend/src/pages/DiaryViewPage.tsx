@@ -107,18 +107,9 @@ export default function DiaryViewPage() {
         setIsDecrypting(true);
         setError(null);
         
-        // Validate encrypted fields format before decryption
-        if (!isValidBase64(entry.encryptedBlob)) {
-          throw new Error('Invalid encrypted content format');
-        }
-        if (!isValidHex(entry.encryptionIv)) {
-          throw new Error('Invalid encryption IV format');
-        }
-
-        // Decrypt content
-        const content = await diaryService.decryptContent(
-          entry.encryptedBlob,
-          entry.encryptionIv,
+        // Get and decrypt content from document
+        const content = await diaryService.getEntryContent(
+          entry.uuid,
           store.encryptionKey
         );
         setDecryptedContent(content);

@@ -86,13 +86,19 @@ export const mockProject = {
   description: 'Test project description',
   status: 'is_running' as const,
   priority: 'medium' as const,
+  sortOrder: 0,
   dueDate: null,
   completionDate: null,
   progressPercentage: 0,
   todoCount: 0,
   completedCount: 0,
+  isArchived: false,
+  isFavorite: false,
+  isDeleted: false,
+  createdBy: 'test-user',
   createdAt: '2024-01-01T00:00:00Z',
-  updatedAt: '2024-01-01T00:00:00Z'
+  updatedAt: '2024-01-01T00:00:00Z',
+  tags: []
 };
 
 export const mockDocument = {
@@ -114,6 +120,13 @@ export const mockDiaryEntry = {
   contentAvailable: true,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z'
+};
+
+export const mockProjectBadge = {
+  uuid: 'test-project-uuid',
+  name: 'Test Project',
+  isProjectExclusive: false,
+  isDeleted: false
 };
 
 export const mockTag = {

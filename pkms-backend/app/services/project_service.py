@@ -109,9 +109,9 @@ class ProjectService:
             if reserved_uuid:
                 # Note: In a real implementation, you would call a cleanup service here
                 # await reserved_service.cleanup('project', reserved_uuid)
-                logger.info(f"Project created with reserved UUID: {project.name}")
+                logger.info("Project created with reserved UUID: %s", project.name)
             else:
-                logger.info(f"Project created: {project.name}")
+                logger.info("Project created: %s", project.name)
 
             return self._convert_project_to_response(project, 0, 0)  # New project has 0 todos
             
