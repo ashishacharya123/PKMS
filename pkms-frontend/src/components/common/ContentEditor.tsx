@@ -35,6 +35,7 @@ import {
 import MDEditor from '@uiw/react-md-editor';
 import { UnifiedFileSection } from '../file/UnifiedFileSection';
 import { UnifiedFileItem } from '../../services/unifiedFileService';
+import { MultiProjectSelector } from './MultiProjectSelector';
 
 
 export interface ContentEditorProps {
@@ -194,9 +195,20 @@ export const ContentEditor: React.FC<ContentEditorProps> = ({
             <Grid.Col span={3}>
               <Text size="sm" fw={500} mb={5}>Date</Text>
               <DatePicker
-                placeholder="Select date"
                 value={date}
-                onChange={(value) => onDateChange?.(value || new Date())}
+                onChange={(value) => {
+                  // Handle both Date and string types from DatePicker
+                  if (value && typeof value === 'object' && 'getTime' in value) {
+                    // It's a Date object
+                    onDateChange?.(value);
+                  } else if (value && typeof value === 'string') {
+                    // It's a string date
+                    onDateChange?.(new Date(value));
+                  } else {
+                    // Default fallback
+                    onDateChange?.(new Date());
+                  }
+                }}
                 size="md"
               />
             </Grid.Col>
@@ -282,8 +294,10 @@ export const ContentEditor: React.FC<ContentEditorProps> = ({
             <Stack gap="md">
               <Title order={5}>Project Association</Title>
               <MultiProjectSelector
-                selectedProjectIds={projectIds}
-                onProjectIdsChange={onProjectIdsChange}
+                value={projectIds || []}
+                onChange={onProjectIdsChange || (() => {})}
+                isExclusive={isExclusive}
+                onExclusiveChange={onIsExclusiveChange || (() => {})}
               />
               <Switch
                 label="Exclusive to this project"

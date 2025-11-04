@@ -324,7 +324,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
       setLoading: (loading: boolean) => set({ isLoading: loading }),
 
       startSessionMonitoring: () => {
-        const timer = setInterval(async () => {
+        const timer = window.setInterval(async () => {
           try {
             const isCriticallyExpiring = await apiService.isTokenCriticallyExpiring();
             const isExpiringSoon = await apiService.isTokenExpiringSoon();
@@ -345,7 +345,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
       stopSessionMonitoring: () => {
         const { sessionTimer } = get();
         if (sessionTimer) {
-          clearInterval(sessionTimer);
+          window.clearInterval(sessionTimer);
           set({ sessionTimer: null });
         }
       }

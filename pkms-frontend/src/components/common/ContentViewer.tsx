@@ -5,7 +5,7 @@
  * Supports markdown rendering, file display, and various metadata fields.
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Container,
   Stack,
@@ -18,10 +18,7 @@ import {
   Skeleton,
   Alert,
   Paper,
-  Grid,
-  Divider,
-  ActionIcon,
-  Tooltip
+  Grid
 } from '@mantine/core';
 import {
   IconEdit,
@@ -39,7 +36,6 @@ import {
 } from '@tabler/icons-react';
 import MDEditor from '@uiw/react-md-editor';
 import { modals } from '@mantine/modals';
-import { notifications } from '@mantine/notifications';
 import { UnifiedFileSection } from '../file/UnifiedFileSection';
 import { UnifiedFileItem } from '../../services/unifiedFileService';
 

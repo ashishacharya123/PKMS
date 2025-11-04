@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LoadingState } from './LoadingState';
 import { ErrorState } from './ErrorState';
@@ -75,7 +75,7 @@ export function ContentViewerPage<T>({ id, config }: { id: string; config: Conte
       {...viewerProps}
       onEdit={handleEdit}
       onBack={handleBack}
-      onArchive={config.service.toggleArchive ? handleArchive : undefined}
+      onToggleArchive={config.service.toggleArchive ? handleArchive : undefined}
       onDelete={config.service.deleteItem ? handleDelete : undefined}
     />
   );

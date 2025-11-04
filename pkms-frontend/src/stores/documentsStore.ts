@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import {
   unifiedFileService,
-  type UnifiedFileItem,
+  type UnifiedFileItem
+} from '../services/unifiedFileService';
+import {
   type Document,
   type DocumentSummary,
   type UpdateDocumentRequest,
   type DocumentsListParams
-} from '../services/unifiedFileService';
+} from '../types/document';
 import { documentsCacheAware } from '../services/cacheAwareService';
 
 interface DocumentsState {

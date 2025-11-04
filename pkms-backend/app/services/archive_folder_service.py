@@ -555,7 +555,101 @@ class ArchiveFolderService:
         )
         
         # Remove this line entirely - router will commit
-    
+
+    async def hard_delete_folder(
+        self,
+        db: AsyncSession,
+        user_uuid: str,
+        folder_uuid: str
+    ) -> None:
+        """Permanently delete folder and all contents (hard delete) - WARNING: Cannot be undone!"""
+        try:
+            # Get folder with all descendants
+            result = await db.execute(
+                select(ArchiveFolder).where(
+                    and_(
+                        ArchiveFolder.uuid == folder_uuid,
+                        ArchiveFolder.created_by == user_uuid,
+                        ArchiveFolder.is_deleted.is_(True)
+                    )
+                )
+            )
+            folder = result.scalar_one_or_none()
+
+            if not folder:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Deleted folder not found"
+                )
+
+            # Get all descendant folders
+            descendant_uuids = await self._get_descendant_uuids(db, folder_uuid, user_uuid)
+            all_folder_uuids = [folder_uuid] + descendant_uuids
+
+            # First, get all items to delete their physical files
+            items_result = await db.execute(
+                select(ArchiveItem).where(
+                    and_(
+                        ArchiveItem.folder_uuid.in_(all_folder_uuids),
+                        ArchiveItem.created_by == user_uuid,
+                        ArchiveItem.is_deleted.is_(True)
+                    )
+                )
+            )
+            items = items_result.scalars().all()
+
+            # Delete physical files for all items
+            for item in items:
+                if item.file_path:
+                    file_path = Path(item.file_path)
+                    if file_path.exists():
+                        try:
+                            file_path.unlink()
+                            logger.info(f"Deleted archive file: {file_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not delete archive file {file_path}: {e}")
+
+                # Delete thumbnail if exists
+                if item.thumbnail_path:
+                    thumbnail_path = Path(item.thumbnail_path)
+                    if thumbnail_path.exists():
+                        try:
+                            thumbnail_path.unlink()
+                            logger.info(f"Deleted archive thumbnail: {thumbnail_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not delete archive thumbnail {thumbnail_path}: {e}")
+
+            # Delete database records for items
+            for item in items:
+                await db.delete(item)
+
+            # Delete database records for folders
+            folders_result = await db.execute(
+                select(ArchiveFolder).where(
+                    and_(
+                        ArchiveFolder.uuid.in_(all_folder_uuids),
+                        ArchiveFolder.created_by == user_uuid,
+                        ArchiveFolder.is_deleted.is_(True)
+                    )
+                )
+            )
+            folders = folders_result.scalars().all()
+
+            for folder in folders:
+                await db.delete(folder)
+
+            logger.info(f"Folder and all contents permanently deleted: {folder_uuid}")
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.exception(f"Error hard deleting folder {folder_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to hard delete folder: {str(e)}"
+            )
+
     async def get_breadcrumb(
         self, 
         db: AsyncSession, 

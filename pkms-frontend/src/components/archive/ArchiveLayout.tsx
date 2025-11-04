@@ -292,12 +292,14 @@ export function ArchiveLayout({
                 <ModuleLayout
                   items={folders as BaseItem[]}
                   viewMode={viewMode}
-                  onItemClick={(folder: ArchiveFolder) => {
+                  onItemClick={(item: BaseItem) => {
+                    const folder = item as ArchiveFolder;
                     if (folder.itemType === 'folder') {
                       setCurrentFolder(folder);
                     }
                   }}
-                  renderIcon={(folder: ArchiveFolder) => {
+                  renderIcon={(item: BaseItem) => {
+                    const folder = item as ArchiveFolder;
                     // Use folder properties to vary the icon
                     const getColor = () => {
                       if (folder.itemCount === 0) return "var(--mantine-color-gray-4)";    // Empty folders
