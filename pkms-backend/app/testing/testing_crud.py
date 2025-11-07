@@ -15,9 +15,6 @@ import random
 import string
 import logging
 
-# Set up logger
-logger = logging.getLogger(__name__)
-
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
@@ -25,8 +22,10 @@ from app.models.note import Note
 from app.models.document import Document
 from app.models.todo import Todo, TodoStatus
 from app.models.archive import ArchiveFolder, ArchiveItem
-
 from app.config import NEPAL_TZ, get_data_dir
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/testing/crud", tags=["testing-crud"])
 
@@ -369,7 +368,7 @@ async def test_todos_crud(db: AsyncSession, user: User, test_id: str, test_passw
         operations["create"] = {
             "status": "success",
             "todo_uuid": todo.uuid,
-            "status": todo.status.value,
+            "todo_status": todo.status.value,  # Renamed to avoid duplicate key
             "created_at": todo.created_at.isoformat()
         }
 
@@ -709,7 +708,7 @@ async def test_create_todo(
             "message": "Todo created successfully",
             "todo_uuid": todo.uuid,
             "title": todo.title,
-            "status": todo.status.value,
+            "todo_status": todo.status.value,  # Renamed to avoid duplicate key with "status"
             "priority": todo.priority,
             "due_date": todo.due_date.isoformat() if todo.due_date else None,
             "created_at": todo.created_at.isoformat(),
@@ -740,7 +739,7 @@ async def cleanup_test_item(
         # Temporarily removed UUID-based check as it always blocks valid deletions
 
         deleted = False
-        error_message = None
+        _error_message = None  # Unused - kept for potential future error reporting
 
         if item_type == "note":
             result = await db.execute(

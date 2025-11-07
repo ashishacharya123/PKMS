@@ -8,11 +8,9 @@ table statistics, data integrity validation, and migration tools.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, func, select
+from sqlalchemy.exc import SQLAlchemyError, OperationalError
 from datetime import datetime
 import logging
-
-# Set up logger
-logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.auth.dependencies import get_current_user
@@ -26,8 +24,10 @@ from app.models.diary import DiaryEntry, DiaryDailyMetadata
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.tag import Tag
 from app.models.associations import document_diary
-
 from app.config import NEPAL_TZ, get_data_dir
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/testing/database", tags=["testing-database"])
 
@@ -82,7 +82,8 @@ async def get_database_stats(
                         pragma_result = await db.execute(pragma_query)
                         columns = pragma_result.fetchall()
                         column_size = sum(len(str(col)) for col in columns) * 10  # Estimated
-                    except:
+                    except (SQLAlchemyError, OperationalError) as e:
+                        logger.debug(f"Could not fetch PRAGMA table_info for {table_name}: {e}")
                         column_size = 0
 
                     # Method 3: Estimate row size based on count
@@ -245,7 +246,8 @@ async def get_all_tables(
                 count_query = text(f"SELECT COUNT(*) FROM {table['name']}")
                 count_result = await db.execute(count_query)
                 table["estimated_rows"] = count_result.scalar()
-            except:
+            except (SQLAlchemyError, OperationalError) as e:
+                logger.debug(f"Could not fetch row count for table {table['name']}: {e}")
                 # Table might not exist or be inaccessible
                 pass
 
@@ -336,7 +338,8 @@ async def get_table_schema(
                     "match": row[7]
                 }
                 foreign_keys.append(fk_info)
-        except:
+        except (SQLAlchemyError, OperationalError) as e:
+            logger.debug(f"Could not fetch foreign keys for table {table_name}: {e}")
             foreign_keys = []
 
         # Get indexes
@@ -354,7 +357,8 @@ async def get_table_schema(
                     "partial": bool(row[4])
                 }
                 indexes.append(index_info)
-        except:
+        except (SQLAlchemyError, OperationalError) as e:
+            logger.debug(f"Could not fetch indexes for table {table_name}: {e}")
             indexes = []
 
         # Get table statistics
@@ -363,7 +367,8 @@ async def get_table_schema(
             count_query = text(f"SELECT COUNT(*) FROM {table_name}")
             count_result = await db.execute(count_query)
             stats["row_count"] = count_result.scalar()
-        except:
+        except (SQLAlchemyError, OperationalError) as e:
+            logger.debug(f"Could not fetch row count for table {table_name}: {e}")
             stats["row_count"] = 0
 
         # Get sample data if requested
@@ -531,12 +536,13 @@ async def get_fts_tables_info(
                         "not_null": bool(row[3]),
                         "primary_key": bool(row[5])
                     })
-            except:
+            except (SQLAlchemyError, OperationalError) as e:
+                logger.debug(f"Could not fetch column info for table {table_name}: {e}")
                 columns = []
 
             # Get content table mapping
             content_table = None
-            external_tables = []
+            _external_tables = []  # Unused - kept for potential future use
 
             if create_sql:
                 # Extract content table from CREATE VIRTUAL TABLE statement
@@ -561,7 +567,8 @@ async def get_fts_tables_info(
                 count_query = text(f"SELECT COUNT(*) FROM {table_name}")
                 count_result = await db.execute(count_query)
                 row_count = count_result.scalar()
-            except:
+            except (SQLAlchemyError, OperationalError) as e:
+                logger.debug(f"Could not fetch row count for FTS table {table_name}: {e}")
                 row_count = 0
 
             # Get sample data
@@ -572,7 +579,8 @@ async def get_fts_tables_info(
                     sample_result = await db.execute(sample_query)
                     for row in sample_result:
                         sample_data.append(dict(row._mapping))
-                except:
+                except (SQLAlchemyError, OperationalError) as e:
+                    logger.debug(f"Could not fetch sample data from FTS table {table_name}: {e}")
                     pass
 
             fts_info.append({

@@ -47,7 +47,7 @@ async def autocomplete_tags(
         select(Tag).where(
             and_(
                 Tag.created_by == current_user.uuid,
-                Tag.is_archived == False  # Exclude archived tags
+                Tag.is_archived.is_(False)  # Exclude archived tags
             )
         )
     )
@@ -67,7 +67,7 @@ async def autocomplete_tags(
             .where(
                 and_(
                     Tag.created_by == current_user.uuid,
-                    Tag.is_archived == False
+                    Tag.is_archived.is_(False)
                 )
             )
             .order_by(Tag.usage_count.desc(), Tag.name)

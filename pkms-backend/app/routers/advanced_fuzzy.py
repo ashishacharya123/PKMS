@@ -14,7 +14,7 @@ from app.models.note import Note
 from app.models.document import Document
 # Note: DiaryEntry is excluded from global search - use dedicated diary FTS5 interface
 from app.models.archive import ArchiveItem
-from app.utils.security import sanitize_search_query, validate_sort_parameters
+from app.utils.security import sanitize_search_query
 import json
 
 router = APIRouter(tags=["advanced-fuzzy-search"])
@@ -191,7 +191,7 @@ async def unified_fuzzy_search(
             .options(*relationships)
             .where(
                 model.created_by == user_uuid,
-                model.is_deleted == False
+                model.is_deleted.is_(False)
             )
         )).scalars().all()
 
@@ -219,9 +219,16 @@ async def advanced_fuzzy_search(
     current_user: User = Depends(get_current_user)
 ) -> List[Dict[str, Any]]:
     """
-    Perform a slow, typo-tolerant fuzzy search across selected user content modules.
-    Returns a flat, relevance-ranked list with summary fields.
-    Includes full content in search for comprehensive results.
+    Typo-tolerant fuzzy search using Python-based fuzzy matching (RapidFuzz).
+    
+    This endpoint loads items into memory and performs fuzzy string matching in Python.
+    Best for: Typo-tolerant searches, forgiving queries, smaller datasets.
+    
+    PERFORMANCE WARNING: This search loads all matching items into memory for each module,
+    then performs fuzzy matching in Python. For large datasets, this can be slow and memory-intensive.
+    For fast, exact text search, use /search (FTS5) instead.
+    
+    Note: Diary entries are excluded from fuzzy search - use dedicated diary FTS5 interface.
     """
     # Validate and sanitize search query
     sanitized_query = sanitize_search_query(query)
@@ -266,8 +273,13 @@ async def fuzzy_search_light(
     current_user: User = Depends(get_current_user)
 ) -> List[Dict[str, Any]]:
     """
-    Lighter fuzzy search - searches title, description, tags only (NO full content)
-    Faster than advanced_fuzzy_search
+    Lightweight typo-tolerant fuzzy search (title, description, tags only - NO full content).
+    
+    Similar to /advanced-fuzzy-search but excludes full content from matching, making it faster
+    and less memory-intensive. Best for quick searches when you don't need content matching.
+    
+    PERFORMANCE WARNING: Still loads items into memory for fuzzy matching. For exact text search,
+    use /search (FTS5) instead.
     """
     # Parse modules param
     module_list = None

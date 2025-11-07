@@ -1158,8 +1158,6 @@ class DiaryCRUDService:
             entry.encryption_iv = updates.encryption_iv
             if updates.content_length is not None:
                 entry.content_length = updates.content_length
-            
-            await db.commit()
         
         # Update daily metadata if provided
         if (updates.daily_metrics is not None or 
@@ -1184,12 +1182,13 @@ class DiaryCRUDService:
             await tag_service.handle_tags(db, entry, updates.tags, user_uuid, ModuleType.DIARY, diary_entry_tags)
         
         entry.updated_at = datetime.now(NEPAL_TZ)
-        await db.commit()
-        await db.refresh(entry)
         
         # Re-index in search
         await search_service.index_item(db, entry, 'diary')
+        
+        # Single commit for all updates to ensure transaction atomicity
         await db.commit()
+        await db.refresh(entry)
         
         # Return updated entry (without decrypted content for security)
         return await DiaryCRUDService.get_entry_summary_by_ref(db, user_uuid, entry_ref)

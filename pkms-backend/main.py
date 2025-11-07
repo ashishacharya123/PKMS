@@ -51,6 +51,7 @@ from app.routers.search import router as search_endpoints_router
 from app.routers.thumbnails import router as thumbnails_router
 from app.services.chunk_service import chunk_manager
 from app.middleware.query_monitoring import QueryMonitoringMiddleware
+from app.middleware.sanitization import SanitizationMiddleware
 
 # Import database initialization
 from app.database import init_db, close_db, get_db_session
@@ -59,21 +60,8 @@ from app.config import settings, NEPAL_TZ
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
 
-# TODO: Add security headers middleware for production deployment
-# Security headers to add:
-# - X-Content-Type-Options: nosniff
-# - X-Frame-Options: DENY
-# - X-XSS-Protection: 1; mode=block
-# - Strict-Transport-Security: max-age=31536000; includeSubDomains
-# - Content-Security-Policy: default-src 'self'
-# Example implementation:
-# @app.middleware("http")
-# async def add_security_headers(request: Request, call_next):
-#     response = await call_next(request)
-#     response.headers["X-Content-Type-Options"] = "nosniff"
-#     response.headers["X-Frame-Options"] = "DENY"
-#     response.headers["X-XSS-Protection"] = "1; mode=block"
-#     return response
+# Security headers are implemented in add_security_headers middleware below (line 298)
+# Controlled by settings.enable_security_headers (default: True)
 
 # Session cleanup task
 cleanup_task = None
@@ -189,8 +177,18 @@ app.add_middleware(
     allow_origins=settings.cors_origins,  # Use origins from settings
     allow_credentials=True,  # Enable credentials for proper authentication
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # Specific methods
-    allow_headers=["*"],  # Allow all headers
-    expose_headers=["*"]  # Expose all headers
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "X-Requested-With",
+        "If-Unmodified-Since",  # For optimistic locking in projects
+    ],
+    expose_headers=[
+        "Content-Type",
+        "Content-Length",
+        "Location",  # For redirects
+    ]
 )
 
 # 2. Query monitoring for N+1 detection (development only)
@@ -198,7 +196,6 @@ if settings.environment in ["development", "staging"]:
     app.add_middleware(QueryMonitoringMiddleware, query_threshold=10, enabled=True)
 
 # 3. Query-string sanitisation (defence-in-depth)
-from app.middleware.sanitization import SanitizationMiddleware
 app.add_middleware(SanitizationMiddleware)
 
 # Add routers

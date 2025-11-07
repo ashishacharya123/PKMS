@@ -8,22 +8,23 @@ resource usage tracking, and data integrity validation.
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError, OperationalError
 from datetime import datetime
+import os
 import psutil
 import logging
 import time
 import random
 import shutil
 
-# Set up logger
-logger = logging.getLogger(__name__)
-
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.testing import DetailedHealthResponse
-
 from app.config import NEPAL_TZ, get_data_dir
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/testing/system", tags=["testing-system"])
 
@@ -182,7 +183,8 @@ async def get_detailed_health_check(
                         result = await db.execute(text(f"SELECT COUNT(*) FROM {table}"))
                         count = result.scalar()
                         table_counts[table] = count
-                    except:
+                    except (SQLAlchemyError, OperationalError) as e:
+                        logger.debug(f"Could not fetch count for table {table}: {e}")
                         table_counts[table] = 0
 
                 health_status["checks"]["database_stats"] = {
@@ -249,7 +251,8 @@ async def get_resource_usage(
                 result = await db.execute(text("PRAGMA journal_mode"))
                 journal_mode = result.scalar()
                 db_info["journal_mode"] = journal_mode
-            except:
+            except (SQLAlchemyError, OperationalError) as e:
+                logger.debug(f"Could not fetch journal mode: {e}")
                 pass
 
         except Exception as e:
@@ -361,7 +364,8 @@ async def get_database_performance_metrics(
                     result = await db.execute(text(config_sql))
                     value = result.scalar()
                     db_config[config_name] = value
-                except:
+                except (SQLAlchemyError, OperationalError) as e:
+                    logger.debug(f"Could not fetch database config '{config_name}': {e}")
                     db_config[config_name] = "unknown"
 
             metrics["database_config"] = db_config
@@ -388,13 +392,14 @@ async def get_database_performance_metrics(
 
                     # Estimate table size (rough calculation)
                     try:
-                        # Get page count for this table (approximate)
-                        stats_result = await db.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
+                        # Get row count for this table (approximate)
+                        await db.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
                         table_stats[table_name] = {
                             "row_count": row_count,
                             "estimated_size_kb": row_count * 0.1  # Rough estimate
                         }
-                    except:
+                    except (SQLAlchemyError, OperationalError) as e:
+                        logger.debug(f"Could not estimate size for table {table_name}: {e}")
                         table_stats[table_name] = {
                             "row_count": row_count,
                             "estimated_size_kb": "unknown"
@@ -832,7 +837,8 @@ async def perform_file_sanity_check(
         if temp_dir.exists():
             try:
                 shutil.rmtree(temp_dir)
-            except:
+            except (OSError, PermissionError) as e:
+                logger.debug(f"Could not remove temp directory {temp_dir}: {e}")
                 pass
 
         return results

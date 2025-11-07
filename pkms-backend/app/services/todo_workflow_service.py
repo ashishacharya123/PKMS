@@ -219,7 +219,7 @@ class TodoWorkflowService:
                         Todo.priority == TaskPriority.HIGH.value,
                         Todo.status != TodoStatus.DONE,
                         # Include blocked todos - they can be high priority too!
-                        Todo.is_archived == False
+                        Todo.is_archived.is_(False)
                     )
                 )
                 .order_by(Todo.due_date.asc().nullslast())

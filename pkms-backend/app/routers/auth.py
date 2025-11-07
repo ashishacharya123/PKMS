@@ -6,7 +6,7 @@ Handles user registration, login, logout, and password recovery
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Cookie, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func, and_
-from app.schemas.auth import UserSetup, UserLogin, PasswordChange, RecoveryReset, TokenResponse, UserResponse, UsernameBody, LoginPasswordHintUpdate, PasswordResetRequest, PasswordResetConfirm
+from app.schemas.auth import UserSetup, UserLogin, PasswordChange, RecoveryReset, TokenResponse, UserResponse, UsernameBody, LoginPasswordHintUpdate
 from typing import Optional
 from datetime import datetime, timedelta
 import json
@@ -25,7 +25,7 @@ from app.auth.security import (
 from app.auth.dependencies import get_current_user
 from app.config import settings, NEPAL_TZ
 from app.utils.transaction_helper import TransactionHelper
-import secrets
+from app.decorators.error_handler import handle_api_errors
 
 router = APIRouter()
 
@@ -47,6 +47,7 @@ SAFE_STRING_PATTERN = re.compile(r'^[a-zA-Z0-9\s\-_.,!?\'\"()\[\]{}@#$%^&*+=|\\:
 
 @router.post("/setup", response_model=TokenResponse)
 @limiter.limit("3/minute")
+@handle_api_errors("user setup")
 async def setup_user(
     user_data: UserSetup,
     request: Request,
@@ -162,6 +163,7 @@ async def setup_user(
 
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("5/minute")
+@handle_api_errors("user login")
 async def login(
     user_data: UserLogin,
     request: Request,
@@ -260,6 +262,7 @@ async def login(
 
 
 @router.get("/session-status")
+@handle_api_errors("checking session status")
 async def get_session_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -340,6 +343,7 @@ async def get_session_status(
 
 
 @router.post("/logout")
+@handle_api_errors("user logout")
 async def logout(
     response: Response,
     current_user: User = Depends(get_current_user),
@@ -377,6 +381,7 @@ async def logout(
 
 @router.get("/recovery/questions")
 @limiter.limit("10/minute")
+@handle_api_errors("getting recovery questions")
 async def get_recovery_questions(
     request: Request,
     username: Optional[str] = Query(None, min_length=3, max_length=50),
@@ -395,10 +400,12 @@ async def get_recovery_questions(
             user = user_res.scalar_one_or_none()
         else:
             # Fallback: allow omission only when a single user exists
-            users_res = await db.execute(select(User))
-            users = users_res.scalars().all()
-            if len(users) == 1:
-                user = users[0]
+            # Use count query instead of loading all users into memory
+            user_count = await db.scalar(select(func.count(User.uuid)))
+            if user_count == 1:
+                # Get the single user
+                user_res = await db.execute(select(User).limit(1))
+                user = user_res.scalar_one_or_none()
             else:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -439,6 +446,7 @@ async def get_recovery_questions(
 
 @router.post("/recovery/reset")
 @limiter.limit(f"{settings.rate_limit_password_reset}/minute")
+@handle_api_errors("resetting password")
 async def reset_password(
     request: Request,
     recovery_data: RecoveryReset,
@@ -533,6 +541,7 @@ async def reset_password(
 
 
 @router.get("/me", response_model=UserResponse)
+@handle_api_errors("getting current user info")
 async def get_current_user_info(
     current_user: User = Depends(get_current_user)
 ):
@@ -543,6 +552,7 @@ async def get_current_user_info(
 
 
 @router.put("/password")
+@handle_api_errors("changing password")
 async def change_password(
     password_data: PasswordChange,
     current_user: User = Depends(get_current_user),
@@ -597,6 +607,7 @@ async def change_password(
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@handle_api_errors("refreshing access token")
 async def refresh_access_token(
     response: Response,
     db: AsyncSession = Depends(get_db),
@@ -641,15 +652,18 @@ async def refresh_access_token(
         session.session_token = new_session_token
         session.last_activity = now
 
-        # ENHANCED LOGIC: Use configured session extension settings
-        new_expiry = now + timedelta(minutes=settings.session_extension_minutes)
+        # Calculate new expiry time: extend session by configured minutes from now
+        extension_expiry = now + timedelta(minutes=settings.session_extension_minutes)
 
-        # Don't extend beyond maximum session lifetime from creation
-        created_at = session.created_at.replace(tzinfo=NEPAL_TZ) if session.created_at.tzinfo is None else session.created_at
-        max_expiry = created_at + timedelta(hours=settings.session_max_lifetime_hours)
+        # Calculate maximum allowed expiry: session cannot exceed max lifetime from creation
+        # This prevents sessions from being extended indefinitely
+        session_created_at = session.created_at.replace(tzinfo=NEPAL_TZ) if session.created_at.tzinfo is None else session.created_at
+        max_lifetime_expiry = session_created_at + timedelta(hours=settings.session_max_lifetime_hours)
 
-        # Use the earlier of the two dates
-        session.expires_at = min(new_expiry, max_expiry)
+        # Use the earlier of the two dates to enforce both limits:
+        # 1. Session extension limit (how much to extend from now)
+        # 2. Maximum session lifetime (total time from creation)
+        session.expires_at = min(extension_expiry, max_lifetime_expiry)
         
         await db.commit()
 
@@ -694,6 +708,7 @@ async def refresh_access_token(
 
 # Login Password Hint Endpoints
 @router.put("/login-password-hint")
+@handle_api_errors("setting login password hint")
 async def set_login_password_hint(
     hint_data: LoginPasswordHintUpdate,
     current_user: User = Depends(get_current_user),
@@ -709,6 +724,7 @@ async def set_login_password_hint(
 
 
 @router.post("/login-password-hint")
+@handle_api_errors("getting login password hint")
 async def get_login_password_hint(
     data: UsernameBody,
     db: AsyncSession = Depends(get_db)
@@ -727,6 +743,7 @@ async def get_login_password_hint(
     return {"hint": hint}
 
 @router.get("/login-password-hint")
+@handle_api_errors("getting any login password hint")
 async def get_any_login_password_hint(db: AsyncSession = Depends(get_db)):
     """
     Get any login password hint from the system (for single user systems).

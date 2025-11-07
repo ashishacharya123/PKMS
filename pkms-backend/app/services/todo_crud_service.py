@@ -9,7 +9,7 @@ import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, delete, update
+from sqlalchemy import select, and_, or_, func, update
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 

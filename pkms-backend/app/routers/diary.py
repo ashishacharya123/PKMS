@@ -11,8 +11,6 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 import logging
 import json
-import os
-import base64
 
 from app.database import get_db
 from app.models.user import User

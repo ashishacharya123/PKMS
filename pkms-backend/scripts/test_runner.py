@@ -93,7 +93,7 @@ class HealthChecker:
         try:
             engine = create_async_engine(self.settings.DATABASE_URL)
             async with engine.begin() as conn:
-                result = await conn.execute(text("SELECT 1"))
+                await conn.execute(text("SELECT 1"))  # Test query - result not needed
                 await engine.dispose()
                 return True
         except Exception as e:

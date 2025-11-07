@@ -9,12 +9,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text, func
+from sqlalchemy.exc import SQLAlchemyError, OperationalError
 from typing import Optional
 from datetime import datetime, timedelta
 import logging
-
-# Set up logger
-logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.auth.dependencies import get_current_user
@@ -23,8 +21,10 @@ from app.models.diary import DiaryEntry
 # Note: Encryption is handled in frontend, not backend
 # from app.services.diary_crypto_service import DiaryCryptoService
 from app.models.associations import document_diary
-
 from app.config import NEPAL_TZ, get_data_dir
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/testing/auth", tags=["testing-auth"])
 
@@ -113,44 +113,18 @@ async def test_diary_encryption(
         if not test_content:
             test_content = f"PKMS Encryption Test\nUser: {current_user.username}\nTime: {datetime.now(NEPAL_TZ)}\nSecret Data: TEST_PASSWORD_{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
-        # crypto_service = DiaryCryptoService()  # Encryption handled in frontend
-
-        # Test encryption
-        try:
-            encrypted_result = crypto_service.encrypt_content(test_content)
-
-            return {
-                "status": "success",
-                "message": "Diary encryption test completed successfully",
-                "encryption_test": {
-                    "original_length": len(test_content),
-                    "encrypted_length": len(encrypted_result['encrypted_blob']),
-                    "encryption_method": "AES-256-GCM",
-                    "iv_length": len(encrypted_result['iv']),
-                    "tag_length": len(encrypted_result['tag']),
-                    "encryption_time": encrypted_result.get('encryption_time_ms', 0),
-                    "encrypted_blob_preview": encrypted_result['encrypted_blob'][:50] + "..." if len(encrypted_result['encrypted_blob']) > 50 else encrypted_result['encrypted_blob']
-                },
-                "user_info": {
-                    "user_uuid": current_user.uuid,
-                    "username": current_user.username
-                },
-                "timestamp": datetime.now(NEPAL_TZ).isoformat(),
-                "note": "This test only shows encryption capabilities. Actual diary entries use client-side encryption."
-            }
-
-        except Exception as e:
-            logger.error(f"Diary encryption test failed: {type(e).__name__}")
-            return {
-                "status": "encryption_failed",
-                "message": "Diary encryption test failed",
-                "error": str(e),
-                "user_info": {
-                    "user_uuid": current_user.uuid,
-                    "username": current_user.username
-                },
-                "timestamp": datetime.now(NEPAL_TZ).isoformat()
-            }
+        # Note: Encryption is now handled in frontend, not backend
+        # crypto_service was removed - DiaryCryptoService no longer exists
+        return {
+            "status": "skipped",
+            "message": "Encryption is handled in frontend - backend encryption testing disabled",
+            "user_info": {
+                "user_uuid": current_user.uuid,
+                "username": current_user.username
+            },
+            "timestamp": datetime.now(NEPAL_TZ).isoformat(),
+            "note": "Diary encryption is now handled client-side in the frontend. Backend encryption testing is disabled."
+        }
 
     except Exception as e:
         logger.error(f"Error in diary encryption test: {type(e).__name__}")
@@ -189,23 +163,22 @@ async def debug_authentication_status(
         try:
             user_count_result = await db.execute(text("SELECT COUNT(*) FROM users"))
             debug_info["database"]["user_count"] = user_count_result.scalar()
-        except:
+        except (SQLAlchemyError, OperationalError) as e:
+            logger.debug(f"Could not fetch user count: {e}")
             debug_info["database"]["user_count"] = "unknown"
 
         # Get session count
         try:
             session_count_result = await db.execute(text("SELECT COUNT(*) FROM sessions"))
             debug_info["database"]["session_count"] = session_count_result.scalar()
-        except:
+        except (SQLAlchemyError, OperationalError) as e:
+            logger.debug(f"Could not fetch session count: {e}")
             debug_info["database"]["session_count"] = "unknown"
 
         # Test crypto service
-        try:
-            # crypto_service = DiaryCryptoService()  # Encryption handled in frontend
-            test_encrypt = crypto_service.encrypt_content("test")
-            debug_info["encryption"]["test_result"] = "encryption_working"
-        except Exception as e:
-            debug_info["encryption"]["test_result"] = f"encryption_failed: {str(e)}"
+        # Note: Encryption is now handled in frontend, not backend
+        # crypto_service was removed - DiaryCryptoService no longer exists
+        debug_info["encryption"]["test_result"] = "encryption_handled_in_frontend"
 
         return debug_info
 
@@ -391,7 +364,8 @@ async def check_diary_entries_encryption(
                     entry_info["file_exists"] = file_path.exists()
                     if file_path.exists():
                         entry_info["file_size"] = file_path.stat().st_size
-                except:
+                except (OSError, PermissionError) as e:
+                    logger.debug(f"Could not check file {content_file_path}: {e}")
                     entry_info["file_exists"] = False
             else:
                 encryption_status["entries_without_files"] += 1
@@ -420,7 +394,8 @@ async def check_diary_entries_encryption(
             document_count = doc_result.scalar()
 
             encryption_status["document_attachments"] = document_count
-        except:
+        except (SQLAlchemyError, OperationalError) as e:
+            logger.debug(f"Could not fetch document attachment count: {e}")
             encryption_status["document_attachments"] = 0
 
         return {
@@ -482,38 +457,17 @@ async def encryption_stress_test(
             "timestamp": datetime.now(NEPAL_TZ).isoformat()
         }
 
-        test_content = generate_test_content(content_size)
+        _test_content = generate_test_content(content_size)  # Unused - encryption testing disabled
         start_time = time.time()
 
         # Run encryption tests
-        for i in range(test_iterations):
-            # Test encryption
-            encrypt_start = time.perf_counter()
-            encrypted = crypto_service.encrypt_content(test_content)
-            encrypt_end = time.perf_counter()
-            encrypt_time = (encrypt_end - encrypt_start) * 1000
-            results["performance_metrics"]["encryption_times"].append(encrypt_time)
-
-            # Test decryption
-            decrypt_start = time.perf_counter()
-            decrypted = crypto_service.decrypt_content(
-                encrypted['encrypted_blob'],
-                encrypted['iv'],
-                encrypted['tag']
-            )
-            decrypt_end = time.perf_counter()
-            decrypt_time = (decrypt_end - decrypt_start) * 1000
-            results["performance_metrics"]["decryption_times"].append(decrypt_time)
-
-            # Verify integrity
-            if decrypted == test_content:
-                results["encryption_integrity"]["integrity_checks_passed"] += 1
-            else:
-                results["encryption_integrity"]["integrity_checks_failed"] += 1
-                logger.warning(f"Integrity check failed on iteration {i}")
-
-            results["encryption_integrity"]["successful_encryptions"] += 1
-            results["encryption_integrity"]["successful_decryptions"] += 1
+        # Note: Encryption is now handled in frontend, not backend
+        # crypto_service was removed - DiaryCryptoService no longer exists
+        # This test endpoint is kept for compatibility but encryption testing is disabled
+        results["performance_metrics"]["encryption_times"] = []
+        results["performance_metrics"]["decryption_times"] = []
+        results["status"] = "skipped"
+        results["message"] = "Encryption is handled in frontend - backend encryption testing disabled"
 
         end_time = time.time()
 

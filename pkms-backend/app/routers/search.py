@@ -23,6 +23,14 @@ async def unified_search(
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_user)
 ) -> List[Dict[str, Any]]:
+    """
+    Fast, exact text search using SQLite FTS5 (Full-Text Search).
+    
+    This endpoint uses database-level full-text indexing for fast, exact text matching.
+    Best for: Precise searches, large datasets, performance-critical queries.
+    
+    Note: For typo-tolerant or fuzzy matching, use /advanced-fuzzy-search instead.
+    """
     query = sanitize_search_query(q)
     results = await search_service.search(
         db,

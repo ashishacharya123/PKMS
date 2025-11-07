@@ -206,39 +206,13 @@ class TestNoteModel:
         tech_notes = result.scalars().all()
         assert len(tech_notes) == 1
     
+    @pytest.mark.skip(reason="NoteFile model removed; note attachments now use Document model via note_documents association")
     @pytest.mark.asyncio
     async def test_note_file_attachment(self, db_session: AsyncSession, test_user: User):
         """Test note file attachments."""
-        note = Note(
-            title="Note with Attachments",
-            content="This note has files attached",
-            created_by=test_user.uuid
-        )
-        
-        db_session.add(note)
-        await db_session.commit()
-        await db_session.refresh(note)
-        
-        # Create note file attachment
-        note_file = NoteFile(
-            note_uuid=note.uuid,
-            filename="attachment.pdf",
-            original_name="document.pdf",
-            file_path="/attachments/attachment.pdf",
-            file_size=2048,
-            mime_type="application/pdf"
-        )
-        
-        db_session.add(note_file)
-        await db_session.commit()
-        
-        # Verify attachment
-        result = await db_session.execute(
-            select(NoteFile).where(NoteFile.note_uuid == note.uuid)
-        )
-        attachments = result.scalars().all()
-        assert len(attachments) == 1
-        assert attachments[0].filename == "attachment.pdf"
+        # NoteFile model was removed - note attachments now use Document model via note_documents junction table
+        # This test is skipped as NoteFile functionality no longer exists
+        pass
 
 
 class TestDocumentModel:
@@ -657,82 +631,9 @@ class TestTagModel:
 class TestLinkModel:
     """Test Link model for cross-references."""
     
-    @pytest.mark.asyncio
-    async def test_link_creation(self, db_session: AsyncSession, test_user: User):
-        """Test link creation between content items."""
-        # Create source and target notes
-        source_note = Note(title="Source Note", content="Links to target", created_by=test_user.uuid)
-        target_note = Note(title="Target Note", content="Referenced note", created_by=test_user.uuid)
-        
-        db_session.add_all([source_note, target_note])
-        await db_session.commit()
-        await db_session.refresh(source_note)
-        await db_session.refresh(target_note)
-        
-        # Create link
-        link = Link(
-            source_type="note",
-            source_uuid=source_note.uuid,
-            target_type="note",
-            target_uuid=target_note.uuid,
-            created_by=test_user.uuid,
-            link_type="reference",
-            description="Reference link between notes"
-        )
-        
-        db_session.add(link)
-        await db_session.commit()
-        await db_session.refresh(link)
-        
-        assert link.uuid is not None
-        assert link.source_type == "note"
-        assert link.target_type == "note"
-        assert link.link_type == "reference"
-    
-    @pytest.mark.asyncio
-    async def test_cross_module_links(self, db_session: AsyncSession, test_user: User):
-        """Test links between different content types."""
-        note = Note(title="Research Note", content="Research content", created_by=test_user.uuid)
-        document = Document(
-            title="Research Paper",
-            filename="research.pdf",
-            original_name="research.pdf",
-            file_path="/docs/research.pdf",
-            file_size=2048000,
-            mime_type="application/pdf",
-            created_by=test_user.uuid
-        )
-        
-        db_session.add_all([note, document])
-        await db_session.commit()
-        await db_session.refresh(note)
-        await db_session.refresh(document)
-        
-        # Link note to document
-        link = Link(
-            source_type="note",
-            source_uuid=note.uuid,
-            target_type="document",
-            target_uuid=document.uuid,
-            created_by=test_user.uuid,
-            link_type="attachment",
-            description="Note references this document"
-        )
-        
-        db_session.add(link)
-        await db_session.commit()
-        
-        # Verify cross-module link
-        result = await db_session.execute(
-            select(Link).where(
-                Link.source_type == "note",
-                Link.target_type == "document",
-                Link.created_by == test_user.uuid
-            )
-        )
-        links = result.scalars().all()
-        assert len(links) == 1
-        assert links[0].description == "Note references this document"
+    # Link model was removed from the codebase
+    # All test methods are skipped to prevent undefined name errors
+    pass
 
 
 class TestModelValidation:

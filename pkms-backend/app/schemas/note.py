@@ -3,11 +3,10 @@ from typing import Optional, List
 from datetime import datetime
 import re
 from .base import CamelCaseModel
+from app.schemas.project import ProjectBadge
 
 # UUID4 regex pattern - hoisted to module scope for performance
 UUID4_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
-
-from app.schemas.project import ProjectBadge
 
 
 class NoteCreate(CamelCaseModel):

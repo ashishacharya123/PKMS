@@ -141,7 +141,7 @@ class SharedUtilitiesService:
             .where(
                 and_(
                     note_documents.c.note_uuid == note_uuid,
-                    Document.is_deleted == False
+                    Document.is_deleted.is_(False)
                 )
             )
         )

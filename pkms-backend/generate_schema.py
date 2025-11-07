@@ -1,8 +1,8 @@
-
+import sys
 
 from sqlalchemy import create_engine
 from app.models.base import Base
-from app.models import *
+from app.models import *  # noqa: F403  # Wildcard import needed to register all models with Base.metadata
 
 # Reflect the models into a MetaData object
 metadata = Base.metadata
@@ -21,6 +21,5 @@ def to_sql(metadata_obj):
 # Get the SQL and output it
 schema_sql = to_sql(metadata)
 # Output schema to stdout for piping to files
-import sys
 sys.stdout.write(schema_sql)
 

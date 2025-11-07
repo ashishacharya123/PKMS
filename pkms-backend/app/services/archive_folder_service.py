@@ -231,7 +231,7 @@ class ArchiveFolderService:
             .where(
                 and_(
                     ArchiveFolder.created_by == user_uuid,
-                    ArchiveFolder.is_deleted == False,
+                    ArchiveFolder.is_deleted.is_(False),
                     ArchiveFolder.name.ilike(f"%{search_query}%")
                 )
             )
@@ -256,7 +256,7 @@ class ArchiveFolderService:
                 and_(
                     ArchiveFolder.parent_uuid.in_(folder_uuids),
                     ArchiveFolder.created_by == user_uuid,
-                    ArchiveFolder.is_deleted == False
+                    ArchiveFolder.is_deleted.is_(False)
                 )
             )
             .group_by(ArchiveFolder.parent_uuid)
@@ -494,7 +494,7 @@ class ArchiveFolderService:
                     and_(
                         ArchiveItem.folder_uuid == folder_uuid,
                         ArchiveItem.created_by == user_uuid,
-                        ArchiveItem.is_deleted == False
+                        ArchiveItem.is_deleted.is_(False)
                     )
                 )
             )
@@ -513,7 +513,7 @@ class ArchiveFolderService:
                     and_(
                         ArchiveFolder.parent_uuid == folder_uuid,
                         ArchiveFolder.created_by == user_uuid,
-                        ArchiveFolder.is_deleted == False
+                        ArchiveFolder.is_deleted.is_(False)
                     )
                 )
             )
@@ -618,6 +618,11 @@ class ArchiveFolderService:
                             logger.info(f"Deleted archive thumbnail: {thumbnail_path}")
                         except Exception as e:
                             logger.warning(f"Could not delete archive thumbnail {thumbnail_path}: {e}")
+
+            # NOTE: Individual deletes used instead of bulk operations
+            # Reason: Archive folders typically contain few hundred files max
+            # Bulk delete complexity outweighs performance benefits for our use case
+            # Individual deletes provide better error handling and debugging
 
             # Delete database records for items
             for item in items:

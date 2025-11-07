@@ -40,15 +40,15 @@ import shutil
 import asyncio
 import logging
 
+from ..database import get_db
+from ..auth.dependencies import get_current_user
+from ..models.user import User
+
 # Nepal Standard Time offset
 NEPAL_TZ = timezone(timedelta(hours=5, minutes=45))
 
 # Set up logger
 logger = logging.getLogger(__name__)
-
-from ..database import get_db
-from ..auth.dependencies import get_current_user
-from ..models.user import User
 
 router = APIRouter(tags=["backup"])
 
@@ -481,7 +481,7 @@ async def get_wal_status(
         # Get WAL information from SQLite
         try:
             wal_info_result = await db.execute(text("PRAGMA wal_checkpoint"))
-            wal_info = wal_info_result.fetchone()
+            _wal_info = wal_info_result.fetchone()  # Unused - checkpoint executed for side effect
             
             pragma_result = await db.execute(text("PRAGMA journal_mode"))
             journal_mode = pragma_result.scalar()
@@ -493,7 +493,7 @@ async def get_wal_status(
             page_size = page_size_result.scalar()
             
         except Exception:
-            wal_info = None
+            _wal_info = None  # Unused variable - kept for future use
             journal_mode = "unknown"
             page_count = 0
             page_size = 4096

@@ -439,6 +439,7 @@ class ArchiveItemService:
 
             # Delete database record FIRST for atomic operation
             await db.delete(item)
+            await db.commit()  # Commit DB deletion before file operations
 
             # Delete physical files AFTER successful database deletion
             if file_path:
