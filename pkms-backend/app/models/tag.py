@@ -7,7 +7,7 @@ from sqlalchemy import (
     UniqueConstraint, Index
 )
 from sqlalchemy.orm import relationship
-from uuid import uuid4
+from uuid6 import uuid7
 
 from app.models.base import Base
 from app.config import nepal_now
@@ -24,7 +24,7 @@ class Tag(Base):
     
     __tablename__ = "tags"
 
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
     name = Column(String(100), nullable=False, index=True)
     
     description = Column(Text, nullable=True)

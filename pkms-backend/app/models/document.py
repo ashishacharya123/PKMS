@@ -3,7 +3,7 @@ Document Model for File Management
 """
 from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
-from uuid import uuid4
+from uuid6 import uuid7
 
 from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
@@ -17,7 +17,7 @@ class Document(Base, SoftDeleteMixin):
     
     __tablename__ = "documents"
     
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)  # Primary key
     
     title = Column(String(255), nullable=False, index=True)
     filename = Column(String(255), nullable=False)  # Stored filename on disk

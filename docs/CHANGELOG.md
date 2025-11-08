@@ -1,5 +1,26 @@
 ## 2025-01-08
 
+- Virgin Database Optimizations (Assistant: Claude Sonnet 4.5)
+  - **UUIDv7 Migration**: Migrated all 8 models from UUIDv4 to UUIDv7 for time-ordered primary keys
+    - **Performance**: Reduced B-tree index fragmentation for better query performance
+    - **Benefits**: Natural chronological sorting, no breaking changes (same string format)
+    - **Models Updated**: `user.py`, `todo.py`, `project.py`, `note.py`, `document.py`, `archive.py`, `diary.py`, `tag.py`
+    - **Dependencies**: Added `uuid6>=2024.1.12` to `requirements.txt` and `requirements-slim.txt`
+  - **Diary Key Fix**: Added missing `diary_key` parameter to `get_diary_entry_by_id` endpoint
+    - **Security**: Proper diary encryption/decryption through session service
+    - **File**: `pkms-backend/app/routers/diary.py` (lines 351-364)
+  - **Database Constraints**: Added `UniqueConstraint` to DiaryEntry model for (created_by, date)
+    - **Data Integrity**: Prevents duplicate diary entries at database level (optimal for virgin DB)
+    - **File**: `pkms-backend/app/models/diary.py` (line 52)
+  - **Module Validation Centralization**: Single source of truth for allowed modules
+    - **Architecture**: `validate_and_parse_modules` now references `FuzzySearchService.MODULE_CONFIGS`
+    - **Maintainability**: Zero duplication, automatic sync with service changes
+    - **File**: `pkms-backend/app/routers/advanced_fuzzy.py` (lines 31-32)
+  - **Clean Code**: Removed redundant validation in database.py PRAGMA loop
+    - **Simplification**: Cleaner loop logic, mode already validated by whitelist
+    - **File**: `pkms-backend/app/database.py` (lines 148-158)
+  - **Virgin Database Advantage**: All optimizations implemented without legacy constraints or migration complexity
+
 - Cache Architecture Refactoring (Assistant: Claude Sonnet 4.5)
   - **Dead Code Removal**: Removed unused `diary_cache` and `search_cache` from backend
   - **Memory Reduction**: 30% reduction by eliminating 2 unused cache instances

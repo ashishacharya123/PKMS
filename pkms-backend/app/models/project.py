@@ -6,7 +6,7 @@ Supports FTS5 search and project duplication functionality.
 """
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Date, Enum, Index
 from sqlalchemy.orm import relationship
-from uuid import uuid4
+from uuid6 import uuid7
 from datetime import date
 
 from app.models.base import Base, SoftDeleteMixin
@@ -21,7 +21,7 @@ class Project(Base, SoftDeleteMixin):
     __tablename__ = "projects"
 
     # Primary identity
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
 
     # Basic info
     name = Column(String(255), nullable=False, index=True)

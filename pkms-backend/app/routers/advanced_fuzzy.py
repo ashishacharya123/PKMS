@@ -25,8 +25,11 @@ def validate_and_parse_modules(modules: Optional[str]) -> List[str]:
     Validate and parse comma-separated module parameter.
     Raises HTTPException(400) if invalid modules provided.
     Returns list of valid modules to search.
+    
+    Single source of truth: Uses FuzzySearchService.MODULE_CONFIGS
     """
-    allowed_modules = {"todo", "project", "note", "document", "archive"}
+    # Single source of truth - get allowed modules from service layer
+    allowed_modules = set(FuzzySearchService.MODULE_CONFIGS.keys())
     
     if not modules:
         return list(allowed_modules)

@@ -147,11 +147,8 @@ async def init_db():
             
             for mode in VALID_JOURNAL_MODES:
                 try:
-                    # Explicit validation for security consistency
                     # PRAGMA statements don't support parameterized queries in SQLite,
-                    # but we validate against whitelist for security consistency
-                    if mode not in VALID_JOURNAL_MODES:
-                        raise ValueError(f"Invalid journal mode: {mode}")
+                    # but mode is from hardcoded whitelist above for security
                     await session.execute(text(f"PRAGMA journal_mode = {mode};"))
                     journal_mode = mode
                     logger.info(f"SUCCESS: Journal mode set to {mode}")

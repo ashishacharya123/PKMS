@@ -348,10 +348,19 @@ async def get_diary_entry_by_id(
     db: AsyncSession = Depends(get_db)
 ):
     """Get a single diary entry by UUID or date."""
+    # Get diary encryption key from session
+    diary_key = await diary_session_service.get_password_from_session(current_user.uuid)
+    if not diary_key:
+        raise HTTPException(
+            status_code=403,
+            detail="Diary is locked. Please unlock diary first."
+        )
+    
     return await diary_crud_service.get_entry_by_ref(
         db=db,
         user_uuid=current_user.uuid,
-        entry_ref=entry_ref
+        entry_ref=entry_ref,
+        diary_key=diary_key
     )
 
 
@@ -364,11 +373,20 @@ async def update_diary_entry(
     db: AsyncSession = Depends(get_db)
 ):
     """Update a diary entry."""
+    # Get diary encryption key from session
+    diary_key = await diary_session_service.get_password_from_session(current_user.uuid)
+    if not diary_key:
+        raise HTTPException(
+            status_code=403,
+            detail="Diary is locked. Please unlock diary first."
+        )
+    
     return await diary_crud_service.update_entry(
         db=db,
         user_uuid=current_user.uuid,
         entry_ref=entry_ref,
-        updates=updates
+        updates=updates,
+        diary_key=diary_key
     )
 
 
