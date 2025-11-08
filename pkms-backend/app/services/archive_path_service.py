@@ -211,9 +211,6 @@ class ArchivePathService:
         result = await db.execute(select(ArchiveFolder).where(cond).order_by(ArchiveFolder.depth, ArchiveFolder.name))
         all_folders = result.scalars().all()
         
-        # Build folder lookup map (kept for potential future use)
-        _folder_map = {folder.uuid: folder for folder in all_folders}
-        
         # Build children map (parent_uuid -> list of children)
         children_map = {}
         for folder in all_folders:

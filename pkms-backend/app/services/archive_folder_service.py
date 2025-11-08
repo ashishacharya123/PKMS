@@ -582,8 +582,8 @@ class ArchiveFolderService:
                     detail="Deleted folder not found"
                 )
 
-            # Get all descendant folders
-            descendant_uuids = await self._get_descendant_uuids(db, folder_uuid, user_uuid)
+            # Get all descendant folders (including soft-deleted ones for hard delete)
+            descendant_uuids = await self._get_descendant_uuids(db, folder_uuid, user_uuid, include_deleted=True)
             all_folder_uuids = [folder_uuid] + descendant_uuids
 
             # First, get all items to delete their physical files
@@ -643,6 +643,9 @@ class ArchiveFolderService:
             for folder in folders:
                 await db.delete(folder)
 
+            # Commit all deletions to persist changes
+            await db.commit()
+
             logger.info(f"Folder and all contents permanently deleted: {folder_uuid}")
 
         except HTTPException:
@@ -653,7 +656,7 @@ class ArchiveFolderService:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to hard delete folder: {str(e)}"
-            )
+            ) from e
 
     async def get_breadcrumb(
         self, 
@@ -963,20 +966,32 @@ class ArchiveFolderService:
         self, 
         db: AsyncSession, 
         parent_uuid: str, 
-        user_uuid: str
+        user_uuid: str,
+        include_deleted: bool = False
     ) -> List[str]:
-        """Get all descendant folder UUIDs"""
+        """Get all descendant folder UUIDs
+        
+        Args:
+            db: Database session
+            parent_uuid: Parent folder UUID
+            user_uuid: User UUID
+            include_deleted: If True, include soft-deleted folders (default: False)
+        """
         descendant_uuids = []
+        
+        # Build query conditions
+        conditions = [
+            ArchiveFolder.parent_uuid == parent_uuid,
+            ArchiveFolder.created_by == user_uuid
+        ]
+        
+        # Filter by deletion status unless including deleted
+        if not include_deleted:
+            conditions.append(ArchiveFolder.is_deleted.is_(False))
         
         # Get direct children
         result = await db.execute(
-            select(ArchiveFolder).where(
-                and_(
-                    ArchiveFolder.parent_uuid == parent_uuid,
-                    ArchiveFolder.created_by == user_uuid,
-                    ArchiveFolder.is_deleted.is_(False)
-                )
-            )
+            select(ArchiveFolder).where(and_(*conditions))
         )
         children = result.scalars().all()
         
@@ -984,7 +999,7 @@ class ArchiveFolderService:
             descendant_uuids.append(child.uuid)
             # Recursively get descendants
             child_descendants = await self._get_descendant_uuids(
-                db, child.uuid, user_uuid
+                db, child.uuid, user_uuid, include_deleted=include_deleted
             )
             descendant_uuids.extend(child_descendants)
         
@@ -1050,7 +1065,7 @@ class ArchiveFolderService:
             all_subfolder_uuids = await self._get_all_subfolder_uuids_recursive(db, user_uuid, [folder_uuid])
 
         # BATCH LOAD: Get ALL items for the root folder + all subfolders in a single query
-        all_folder_uuids = [folder_uuid] + all_subfolder_uuids
+        all_folder_uuids = [folder_uuid, *all_subfolder_uuids]
 
         result = await db.execute(
             select(ArchiveItem).where(
@@ -1112,7 +1127,7 @@ class ArchiveFolderService:
             return subfolder_uuids
 
         except Exception as e:
-            logger.error(f"CTE query failed for folder {folder_uuid}: {e}")
+            logger.exception(f"CTE query failed for folder {folder_uuid}")
             # Fall back to recursive method on error
             return await self._get_all_subfolder_uuids_recursive(db, user_uuid, [folder_uuid])
 

@@ -16,6 +16,8 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+# NOTE: slowapi is used for rate limiting (replaces fastapi-limiter which is not used)
+# fastapi-limiter was removed from requirements-slim.txt but is not needed
 import logging
 import logging.config
 import sys

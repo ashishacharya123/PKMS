@@ -152,6 +152,22 @@ const UnifiedSearch: React.FC<UnifiedSearchProps> = ({ initialQuery = '' }) => {
     performSearch(1);
   };
 
+  const renderSnippet = (snippet: string) => {
+    // Backend sends **match** markers - convert to HTML
+    const htmlContent = snippet
+      .replace(/\*\*(.*?)\*\*/g, '<strong style="background: yellow; padding: 2px 4px; border-radius: 2px;">$1</strong>');
+    
+    return (
+      <Text 
+        size="xs" 
+        c="dimmed" 
+        mb="xs" 
+        lineClamp={3}
+        dangerouslySetInnerHTML={{ __html: htmlContent }}
+      />
+    );
+  };
+
   const renderSearchResult = (result: SearchResult) => {
     const icon = (() => {
       switch (result.module) {
@@ -187,14 +203,36 @@ const UnifiedSearch: React.FC<UnifiedSearchProps> = ({ initialQuery = '' }) => {
           </Group>
         </Group>
 
-        {result.preview && (
-          <Text size="xs" c="dimmed" mb="xs" lineClamp={2}>
-            <Highlight highlight={searchQuery.split(' ')}>{result.preview}</Highlight>
-          </Text>
+        {/* Display snippet with match highlighting */}
+        {(result.snippet || result.description || result.contentPreview) && (
+          <>
+            {renderSnippet(result.snippet || result.contentPreview || result.description || '')}
+            
+            {/* Show snippet metadata if available */}
+            {result.snippetMetadata && result.snippetMetadata.hasMoreMatches && (
+              <Text size="xs" c="blue" mt="xs">
+                {result.snippetMetadata.totalMatches} matches found in this item
+              </Text>
+            )}
+          </>
         )}
 
         <Group justify="space-between">
           <Group gap="xs">
+            <Button
+              size="xs"
+              variant="light"
+              onClick={() => {
+                if (result.navigationUrl) {
+                  navigate(result.navigationUrl);
+                } else {
+                  // Fallback to old navigation logic
+                  navigate(`/${result.module}/${result.id}`);
+                }
+              }}
+            >
+              View
+            </Button>
             {result.tags?.slice(0, 3).map((tag) => (
               <Badge key={tag} size="xs" variant="outline">
                 {tag}

@@ -94,7 +94,7 @@ async def reserve_diary_entry(
           from_template_id=None,
           daily_income=None,
           daily_expense=None,
-          is_office_day=None
+          is_office_day=False
       )
       entry = await diary_crud_service.create_entry(db, current_user.uuid, create_payload)
       return {"uuid": entry.uuid}

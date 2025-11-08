@@ -20,6 +20,7 @@ from ..models.todo import Todo
 from ..models.project import Project
 from ..models.diary import DiaryEntry
 from ..models.archive import ArchiveFolder, ArchiveItem
+from ..utils.search_snippets import generate_snippet
 
 logger = logging.getLogger(__name__)
 
@@ -201,22 +202,61 @@ class SearchService:
                     if has_attachments != has_files:
                         continue
                 
-                # Build result
+                # Build result with contextual snippets
                 result_item = {
                     "uuid": item_uuid,
                     "type": item_type,
                     "title": getattr(item, 'title', None) or getattr(item, 'name', None),
-                    "description": getattr(item, 'description', None),
                     "created_at": item.created_at.isoformat() if item.created_at else None,
                     "score": score,
                     "tags": [t.name for t in getattr(item, 'tag_objs', [])] if hasattr(item, 'tag_objs') else [],
-                    "attachments": await self._extract_attachments(db, item, item_type)
+                    "attachments": await self._extract_attachments(db, item, item_type),
+                    "navigation_url": self._generate_navigation_url(item_type, item_uuid)
                 }
                 
-                # Add type-specific fields
+                # Generate contextual snippets for description/content
+                description_text = getattr(item, 'description', None) or ''
+                
+                # For notes, prioritize content snippet over description
                 if item_type == 'note':
-                    result_item["content_preview"] = getattr(item, 'content', '')[:200] + '...' if getattr(item, 'content', '') else ''
-                elif item_type == 'document':
+                    content_text = getattr(item, 'content', '') or ''
+                    if content_text:
+                        snippet_data = generate_snippet(content_text, query, max_length=200, context_words=10)
+                        result_item["content_preview"] = snippet_data["snippet"]
+                        result_item["snippet_metadata"] = {
+                            "match_position": snippet_data["match_position"],
+                            "match_end": snippet_data["match_end"],
+                            "total_matches": snippet_data["total_matches"],
+                            "match_positions": snippet_data["match_positions"],
+                            "best_match_index": snippet_data["best_match_index"],
+                            "has_more_matches": snippet_data["has_more_matches"]
+                        }
+                    else:
+                        result_item["content_preview"] = ""
+                    # Also add description if present
+                    if description_text:
+                        desc_snippet = generate_snippet(description_text, query, max_length=200, context_words=10)
+                        result_item["description"] = desc_snippet["snippet"]
+                    else:
+                        result_item["description"] = ""
+                else:
+                    # For non-note types, use description for snippet
+                    if description_text:
+                        snippet_data = generate_snippet(description_text, query, max_length=200, context_words=10)
+                        result_item["description"] = snippet_data["snippet"]
+                        result_item["snippet_metadata"] = {
+                            "match_position": snippet_data["match_position"],
+                            "match_end": snippet_data["match_end"],
+                            "total_matches": snippet_data["total_matches"],
+                            "match_positions": snippet_data["match_positions"],
+                            "best_match_index": snippet_data["best_match_index"],
+                            "has_more_matches": snippet_data["has_more_matches"]
+                        }
+                    else:
+                        result_item["description"] = ""
+                
+                # Add type-specific fields
+                if item_type == 'document':
                     result_item["filename"] = getattr(item, 'filename', None)
                 elif item_type == 'archive_item':
                     result_item["filename"] = getattr(item, 'original_filename', None) or getattr(item, 'stored_filename', None)
@@ -282,6 +322,19 @@ class SearchService:
         
         # Format as "2025 January Friday" for natural language search
         return created_at.strftime("%Y %B %A")
+    
+    def _generate_navigation_url(self, item_type: str, item_uuid: str) -> str:
+        """Generate frontend navigation URL based on item type."""
+        url_map = {
+            "note": f"/notes/{item_uuid}",
+            "document": f"/documents/{item_uuid}",
+            "todo": f"/todos/{item_uuid}",
+            "project": f"/projects/{item_uuid}",
+            "diary": f"/diary",  # Diary uses date-based navigation
+            "archive_folder": f"/archive",
+            "archive_item": f"/archive"
+        }
+        return url_map.get(item_type, "/")
     
     def _build_fts_query(self, query: str) -> str:
         """Build FTS5 query string with proper escaping."""

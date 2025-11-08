@@ -204,10 +204,22 @@ def get_database_url() -> str:
 
 
 def get_redis_url() -> str:
-    """Get the Redis URL with proper error handling and fallback support"""
+    """
+    Get the Redis URL with proper error handling and fallback support.
+    
+    FALLBACK BEHAVIOR:
+    - If Redis URL is empty/None/invalid, returns empty string
+    - Empty string triggers in-memory cache fallback (no Redis required)
+    - This ensures the application works with or without Redis
+    - Compatible with both requirements.txt (Redis optional) and requirements-slim.txt
+    
+    NOTE: Redis is listed in requirements-slim.txt but is optional.
+    The application gracefully degrades to in-memory caching if Redis is unavailable.
+    """
     redis_url = os.getenv("REDIS_URL", settings.redis_url)
     
     # Allow empty or None Redis URL for fallback to in-memory cache
+    # FALLBACK: If Redis unavailable, system uses in-memory cache (no error)
     if not redis_url or redis_url.strip() == "":
         return ""  # Empty string indicates no Redis - will use in-memory cache
     

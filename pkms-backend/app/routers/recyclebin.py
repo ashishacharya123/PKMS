@@ -244,6 +244,9 @@ async def empty_recycle_bin(
             except Exception:
                 logger.exception("Error permanently deleting archive folder %s", folder_uuid)
         
+        # Commit folder deletions to persist changes
+        await db.commit()
+        
         logger.info(f"Successfully purged {deleted_count} items from recycle bin for user {user_uuid}")
         
         return {
