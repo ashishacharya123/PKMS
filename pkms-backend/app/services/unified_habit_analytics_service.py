@@ -787,7 +787,7 @@ class UnifiedHabitAnalyticsService:
     @staticmethod
     def invalidate_user_analytics_cache(user_uuid: str):
         """Clear all cached analytics for a user"""
-        analytics_cache.invalidate_user(user_uuid)
+        analytics_cache.clear(pattern=user_uuid)
 
     @staticmethod
     async def get_wellness_stats(

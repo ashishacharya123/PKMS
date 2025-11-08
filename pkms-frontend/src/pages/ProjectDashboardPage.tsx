@@ -942,25 +942,9 @@ export function ProjectDashboardPage() {
               viewMode="kanban"
               ViewMenu={() => null}
               onItemClick={(item) => navigate(`/todos/${item.uuid}`)}
-              onToggleFavorite={(item) => {
-                // Toggle favorite for todo
-                console.log('Toggle favorite:', item);
-              }}
-              onToggleArchive={(item) => {
-                // Toggle archive for todo
-                console.log('Toggle archive:', item);
-              }}
-              onDelete={(item) => {
-                // Delete todo
-                console.log('Delete todo:', item);
-              }}
               onEdit={(item) => {
                 // Edit todo
                 navigate(`/todos/${item.uuid}/edit`);
-              }}
-              onComplete={(item) => {
-                // Complete todo
-                console.log('Complete todo:', item);
               }}
               renderIcon={(item) => <IconCheckbox size={16} />}
               renderContent={(item) => (
@@ -991,15 +975,6 @@ export function ProjectDashboardPage() {
               isLoading={isLoading}
               viewMode="list"
               onItemClick={(item) => navigate(`/notes/${item.uuid}`)}
-              onToggleFavorite={(item) => {
-                console.log('Toggle favorite note:', item);
-              }}
-              onToggleArchive={(item) => {
-                console.log('Toggle archive note:', item);
-              }}
-              onDelete={(item) => {
-                console.log('Delete note:', item);
-              }}
               renderIcon={(item) => <IconNote size={16} />}
               renderContent={(item) => (
                 <div>
@@ -1026,15 +1001,6 @@ export function ProjectDashboardPage() {
               isLoading={isLoading}
               viewMode="list"
               onItemClick={(item) => navigate(`/documents/${item.uuid}`)}
-              onToggleFavorite={(item) => {
-                console.log('Toggle favorite document:', item);
-              }}
-              onToggleArchive={(item) => {
-                console.log('Toggle archive document:', item);
-              }}
-              onDelete={(item) => {
-                console.log('Delete document:', item);
-              }}
               renderIcon={(item) => <IconFile size={16} />}
               renderContent={(item) => (
                 <div>

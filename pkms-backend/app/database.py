@@ -142,8 +142,16 @@ async def init_db():
             # --- Journal mode with full fallback ---
             # Try each mode with graceful degradation to ensure startup success
             journal_mode = "default"
-            for mode in ["WAL", "TRUNCATE", "DELETE"]:
+            # Whitelist of valid journal modes for security
+            VALID_JOURNAL_MODES = ["WAL", "TRUNCATE", "DELETE"]
+            
+            for mode in VALID_JOURNAL_MODES:
                 try:
+                    # Explicit validation for security consistency
+                    # PRAGMA statements don't support parameterized queries in SQLite,
+                    # but we validate against whitelist for security consistency
+                    if mode not in VALID_JOURNAL_MODES:
+                        raise ValueError(f"Invalid journal mode: {mode}")
                     await session.execute(text(f"PRAGMA journal_mode = {mode};"))
                     journal_mode = mode
                     logger.info(f"SUCCESS: Journal mode set to {mode}")

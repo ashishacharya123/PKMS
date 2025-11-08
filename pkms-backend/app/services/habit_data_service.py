@@ -37,7 +37,6 @@ from app.schemas.diary import (
     MoodStats,
     WeeklyHighlights,
 )
-from app.services.unified_cache_service import diary_cache
 
 logger = logging.getLogger(__name__)
 
@@ -420,11 +419,8 @@ class HabitDataService:
         Returns:
             WeeklyHighlights with activity summary
         """
-        # Check cache
-        cache_key = f"weekly:{user_uuid}"
-        cached = diary_cache.get(cache_key)
-        if cached is not None:
-            return cached
+        # Note: Frontend handles caching for this data (not computationally expensive)
+        # See ARCHITECTURAL_RULES.md Rule #27 for backend cache usage guidelines
         
         end_date = datetime.now(NEPAL_TZ).date()
         start_date = end_date - timedelta(days=6)
@@ -545,9 +541,6 @@ class HabitDataService:
             top_insights=habit_summary.get("top_insights", []),
             defined_habits_summary=defined_habits_summary.get("habits", {})
         )
-        
-        # Cache the result
-        diary_cache.set(cache_key, highlights)
         
         return highlights
 

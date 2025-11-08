@@ -11,6 +11,8 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 import logging
 import json
+import os
+import base64
 
 from app.database import get_db
 from app.models.user import User
@@ -55,54 +57,46 @@ router = APIRouter(tags=["diary"])
 diary_session_service.start_cleanup_task()
 
 @router.post("/reserve")
+@handle_api_errors("reserve diary entry")
 async def reserve_diary_entry(
     payload: dict = Body(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Reserve a diary entry UUID for a given date. Expects { date: YYYY-MM-DD }."""
+    date_str = payload.get("date")
+    if not date_str:
+        raise HTTPException(status_code=400, detail="date is required (YYYY-MM-DD)")
+    
     try:
-      from datetime import datetime as _dt
-      date_str = payload.get("date")
-      if not date_str:
-          raise HTTPException(status_code=400, detail="date is required (YYYY-MM-DD)")
-      try:
-          entry_date = _dt.strptime(date_str, "%Y-%m-%d").date()
-      except ValueError:
-          raise HTTPException(status_code=400, detail="Invalid date format; expected YYYY-MM-DD")
-
-      # Create minimal entry via service with unique placeholders to avoid hash collisions
-      import os
-      import base64
-
-      placeholder_cipher = base64.b64encode(os.urandom(32)).decode("ascii")
-      placeholder_iv = base64.b64encode(os.urandom(12)).decode("ascii")
-
-      from app.schemas.diary import DiaryEntryCreate
-      create_payload = DiaryEntryCreate(
-          date=entry_date,
-          title="",
-          encrypted_blob=placeholder_cipher,  # unique placeholder to satisfy uq_user_file_hash
-          encryption_iv=placeholder_iv,
-          content_length=len(placeholder_cipher),
-          nepali_date=None,
-          mood=None,
-          weather_code=None,
-          location=None,
-          tags=[] ,
-          is_template=False,
-          from_template_id=None,
-          daily_income=None,
-          daily_expense=None,
-          is_office_day=False
-      )
-      entry = await diary_crud_service.create_entry(db, current_user.uuid, create_payload)
-      return {"uuid": entry.uuid}
-    except HTTPException:
-      raise
-    except Exception as e:
-      logger.exception("Error reserving diary entry")
-      raise HTTPException(status_code=500, detail=f"Failed to reserve diary entry: {str(e)}")
+        entry_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format; expected YYYY-MM-DD")
+    
+    # Create minimal entry with unique placeholders to avoid hash collisions
+    placeholder_cipher = base64.b64encode(os.urandom(32)).decode("ascii")
+    placeholder_iv = base64.b64encode(os.urandom(12)).decode("ascii")
+    
+    create_payload = DiaryEntryCreate(
+        date=entry_date,
+        title="",
+        encrypted_blob=placeholder_cipher,
+        encryption_iv=placeholder_iv,
+        content_length=0,  # Fixed: was len(placeholder_cipher)
+        nepali_date=None,
+        mood=None,
+        weather_code=None,
+        location=None,
+        tags=[],
+        is_template=False,
+        from_template_id=None,
+        daily_income=None,
+        daily_expense=None,
+        is_office_day=False
+    )
+    
+    entry = await diary_crud_service.create_entry(db, current_user.uuid, create_payload)
+    return {"uuid": entry.uuid}
 
 
 # --- Authentication Endpoints ---
@@ -670,43 +664,8 @@ async def get_wellness_score_analytics_unified(
         )
 
 
-@router.get("/analytics/cache-stats")
-async def get_analytics_cache_stats(
-    current_user: User = Depends(get_current_user)
-):
-    """Get analytics cache statistics (for monitoring and debugging)"""
-    try:
-        from app.services.unified_analytics_service import unified_analytics_service
-
-        return unified_analytics_service.get_cache_stats()
-
-    except Exception as e:
-        logger.error(f"Error getting cache stats: {type(e).__name__}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get cache statistics"
-        )
 
 
-@router.delete("/analytics/cache")
-async def clear_analytics_cache(
-    current_user: User = Depends(get_current_user)
-):
-    """Clear analytics cache for current user"""
-    try:
-
-        # Note: unified_analytics_service.invalidate_user_cache() method doesn't exist
-        # If cache invalidation is needed, implement the method properly
-        logger.warning("Analytics cache invalidation requested but method not implemented")
-
-        return {"message": "Analytics cache cleared successfully"}
-
-    except Exception as e:
-        logger.error(f"Error clearing cache: {type(e).__name__}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to clear analytics cache"
-        )
 
 @router.get("/habits/active")
 async def get_active_habits(

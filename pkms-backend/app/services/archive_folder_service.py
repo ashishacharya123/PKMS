@@ -643,8 +643,8 @@ class ArchiveFolderService:
             for folder in folders:
                 await db.delete(folder)
 
-            # Commit all deletions to persist changes
-            await db.commit()
+            # Flush to database but don't commit (let router handle commit)
+            await db.flush()
 
             logger.info(f"Folder and all contents permanently deleted: {folder_uuid}")
 

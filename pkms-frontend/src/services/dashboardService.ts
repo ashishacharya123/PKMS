@@ -305,17 +305,20 @@ class DashboardService {
    * Force refresh by invalidating all caches
    */
   async forceRefresh() {
-    console.log(`🔄 FORCE REFRESH: Invalidating all caches`);
+    console.log('Force refresh: Invalidating all caches');
     
-    // Invalidate dashboard cache
+    // Frontend cache invalidation (critical)
     await dashboardCache.invalidatePattern('dashboard');
     
-    // Invalidate backend cache
+    // Backend analytics cache invalidation (non-critical)
     try {
-      await apiService.post('/dashboard/cache/invalidate', {});
-      console.log(`✅ Backend cache invalidated`);
+      await apiService.post('/dashboard/cache/invalidate', {
+        cacheType: 'analytics'
+      });
+      console.log('Backend analytics cache invalidated');
     } catch (error) {
-      console.error('Failed to invalidate backend cache:', error);
+      // Non-critical - frontend cache cleared is sufficient
+      console.warn('Backend cache invalidation failed (non-critical):', error);
     }
   }
 
