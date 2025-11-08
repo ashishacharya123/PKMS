@@ -3,7 +3,7 @@ PKMS Backend - Main FastAPI Application
 Personal Knowledge Management System
 """
 
-from fastapi import FastAPI, HTTPException, Request, Response, status, Cookie
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -11,12 +11,13 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import uvicorn
 import asyncio
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+# NOTE: slowapi is used for rate limiting (replaces fastapi-limiter which is not used)
+# fastapi-limiter was removed from requirements-slim.txt but is not needed
 import logging
 import logging.config
 import sys
@@ -52,29 +53,17 @@ from app.routers.search import router as search_endpoints_router
 from app.routers.thumbnails import router as thumbnails_router
 from app.services.chunk_service import chunk_manager
 from app.middleware.query_monitoring import QueryMonitoringMiddleware
+from app.middleware.sanitization import SanitizationMiddleware
 
 # Import database initialization
 from app.database import init_db, close_db, get_db_session
-from app.config import settings, get_data_dir, NEPAL_TZ
+from app.config import settings, NEPAL_TZ
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
 
-# TODO: Add security headers middleware for production deployment
-# Security headers to add:
-# - X-Content-Type-Options: nosniff
-# - X-Frame-Options: DENY
-# - X-XSS-Protection: 1; mode=block
-# - Strict-Transport-Security: max-age=31536000; includeSubDomains
-# - Content-Security-Policy: default-src 'self'
-# Example implementation:
-# @app.middleware("http")
-# async def add_security_headers(request: Request, call_next):
-#     response = await call_next(request)
-#     response.headers["X-Content-Type-Options"] = "nosniff"
-#     response.headers["X-Frame-Options"] = "DENY"
-#     response.headers["X-XSS-Protection"] = "1; mode=block"
-#     return response
+# Security headers are implemented in add_security_headers middleware below (line 298)
+# Controlled by settings.enable_security_headers (default: True)
 
 # Session cleanup task
 cleanup_task = None
@@ -151,7 +140,7 @@ async def lifespan(app: FastAPI):
 
         yield
         
-    except Exception as e:
+    except Exception:
         logger.exception("Critical error during startup")
         raise
     finally:
@@ -190,8 +179,18 @@ app.add_middleware(
     allow_origins=settings.cors_origins,  # Use origins from settings
     allow_credentials=True,  # Enable credentials for proper authentication
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],  # Specific methods
-    allow_headers=["*"],  # Allow all headers
-    expose_headers=["*"]  # Expose all headers
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "X-Requested-With",
+        "If-Unmodified-Since",  # For optimistic locking in projects
+    ],
+    expose_headers=[
+        "Content-Type",
+        "Content-Length",
+        "Location",  # For redirects
+    ]
 )
 
 # 2. Query monitoring for N+1 detection (development only)
@@ -199,7 +198,6 @@ if settings.environment in ["development", "staging"]:
     app.add_middleware(QueryMonitoringMiddleware, query_threshold=10, enabled=True)
 
 # 3. Query-string sanitisation (defence-in-depth)
-from app.middleware.sanitization import SanitizationMiddleware
 app.add_middleware(SanitizationMiddleware)
 
 # Add routers
@@ -210,7 +208,6 @@ app.include_router(todos.router, prefix="/api/v1/todos")
 app.include_router(projects.router, prefix="/api/v1/projects")
 app.include_router(diary.router, prefix="/api/v1/diary")
 app.include_router(archive.router, prefix="/api/v1/archive")
-# Removed archive_improvements disabled include (module deprecated)
 app.include_router(dashboard.router, prefix="/api/v1/dashboard")
 app.include_router(search_endpoints_router, prefix="/api/v1")  # Unified search endpoints
 app.include_router(thumbnails_router, prefix="/api/v1")  # Thumbnails serving

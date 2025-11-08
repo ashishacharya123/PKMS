@@ -17,15 +17,13 @@ from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 from app.config import get_file_storage_dir, NEPAL_TZ
 from app.models.note import Note
-# NoteFile model removed - notes now use Document + note_documents association
 from app.models.document import Document
+from app.utils.transaction_helper import TransactionHelper
 from app.models.associations import note_documents, project_items
 from app.models.tag_associations import note_tags
-# REMOVED: note_projects import - now using polymorphic project_items
 from app.models.enums import ModuleType
 from app.schemas.note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary
 from app.schemas.document import DocumentResponse
-# NoteFile schemas removed - notes now use Document + note_documents association
 from app.schemas.project import ProjectBadge
 from app.utils.security import sanitize_text_input, sanitize_tags
 from app.services.tag_service import tag_service
@@ -42,6 +40,28 @@ class NoteCRUDService:
     
     def __init__(self):
         pass
+    async def reserve_note(self, db: AsyncSession, user_uuid: str) -> str:
+        """Reserve a minimal note row and return its UUID (owner-scoped)."""
+        async def reserve_operation():
+            new_uuid = str(uuid_lib.uuid4())
+            note = Note(
+                uuid=new_uuid,
+                title="",
+                content=None,
+                is_template=False,
+                is_archived=False,
+                created_by=user_uuid,
+                size_bytes=0
+            )
+            db.add(note)
+            return new_uuid
+
+        return await TransactionHelper.execute_with_transaction(
+            db,
+            reserve_operation,
+            error_message=f"Failed to reserve note for user {user_uuid}"
+        )
+
     
     def _get_note_content_path(self, user_uuid: str, note_uuid: str) -> Path:
         """Returns the standardized path for a large note's content file."""
@@ -75,22 +95,30 @@ class NoteCRUDService:
             return f"[Error reading content: {e}]"
     
     async def create_note(
-        self, 
-        db: AsyncSession, 
-        user_uuid: str, 
+        self,
+        db: AsyncSession,
+        user_uuid: str,
         note_data: NoteCreate
     ) -> NoteResponse:
         """Create a new note with content processing and validation"""
-        try:
+
+        async def create_note_operation():
             # Sanitize inputs
             sanitized_title = sanitize_text_input(note_data.title)
             sanitized_content = sanitize_text_input(note_data.content)
             sanitized_tags = sanitize_tags(note_data.tags) if note_data.tags else []
-            
+
+            # ✅ ADD VALIDATION: Ensure note has either content or forced file storage
+            if (not sanitized_content or not sanitized_content.strip()) and not note_data.force_file_storage:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Note must have either content or force file storage enabled"
+                )
+
             # Create note with large content handling
             MAX_DB_CONTENT_SIZE = 5120  # 5KB threshold - keep it short and sweet
             content_size_bytes = len(sanitized_content.encode('utf-8'))
-            
+
             note = Note(
                 uuid=str(uuid_lib.uuid4()),
                 title=sanitized_title,
@@ -98,7 +126,7 @@ class NoteCRUDService:
                 created_by=user_uuid,
                 size_bytes=content_size_bytes  # Store the full size
             )
-            
+
             if content_size_bytes > MAX_DB_CONTENT_SIZE or note_data.force_file_storage:
                 # Content is large OR user wants file storage: save to file
                 file_path = self._get_note_content_path(user_uuid, note.uuid)
@@ -109,16 +137,16 @@ class NoteCRUDService:
                 # Content is small: save to DB
                 note.content = sanitized_content
                 note.content_file_path = None
-            
+
             db.add(note)
             await db.flush()  # Get the UUID
-            
+
             # Handle tags
             if sanitized_tags:
                 await tag_service.handle_tags(
                     db, note, sanitized_tags, user_uuid, ModuleType.NOTE, note_tags
                 )
-            
+
             # Handle project associations
             if note_data.project_uuids:
                 await project_service.handle_polymorphic_associations(
@@ -130,27 +158,24 @@ class NoteCRUDService:
                     item_type='Note',
                     is_exclusive=note_data.are_projects_exclusive or False
                 )
-            
+
             # Content processing removed - analysis was unused
-            
+
             # Index in search
             await search_service.index_item(db, note, 'note')
-            
-            await db.commit()
+
             await db.refresh(note)
-            
+
             # Invalidate dashboard cache
-            
+
             # Get note with relations for response
             return await self.get_note_with_relations(db, note.uuid, user_uuid)
-            
-        except Exception as e:
-            await db.rollback()
-            logger.exception(f"Error creating note for user {user_uuid}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to create note: {str(e)}"
-            )
+
+        return await TransactionHelper.execute_with_transaction(
+            db,
+            create_note_operation,
+            error_message=f"Failed to create note for user {user_uuid}"
+        )
     
     async def list_notes(
         self, 
@@ -226,14 +251,17 @@ class NoteCRUDService:
                 note_summaries.append(NoteSummary(
                     uuid=note.uuid,
                     title=note.title,
-                    preview=self.extract_preview(note.content),
+                    preview=self.extract_preview(note.content or ""),
                     file_count=note.file_count,
                     is_favorite=note.is_favorite,
-                    # REMOVED: is_project_exclusive - exclusivity now handled in project_items association
+                    is_archived=note.is_archived,
+                    is_template=note.is_template,
+                    from_template_id=note.from_template_id,
                     tags=[tag.name for tag in note.tag_objs],
                     projects=project_badges,
                     created_at=note.created_at,
-                    updated_at=note.updated_at
+                    updated_at=note.updated_at,
+                    createdBy=note.created_by
                 ))
             
             return note_summaries
@@ -272,13 +300,17 @@ class NoteCRUDService:
                 note_summaries.append(NoteSummary(
                     uuid=note.uuid,
                     title=note.title,
-                    preview=self.extract_preview(note.content) if note.content else "",
+                    preview=self.extract_preview(note.content or ""),
                     file_count=note.file_count,
                     is_favorite=note.is_favorite,
+                    is_archived=note.is_archived,
+                    is_template=note.is_template,
+                    from_template_id=note.from_template_id,
                     tags=[tag.name for tag in note.tag_objs],
                     projects=[],  # No project associations for deleted notes
                     created_at=note.created_at,
-                    updated_at=note.updated_at
+                    updated_at=note.updated_at,
+                    created_by=note.created_by
                 ))
             
             return note_summaries
@@ -379,8 +411,6 @@ class NoteCRUDService:
             
             if update_data.is_favorite is not None:
                 note.is_favorite = update_data.is_favorite
-            
-            # REMOVED: is_project_exclusive field - exclusivity now handled in project_items association
             
             # Handle tags
             if update_data.tags is not None:
@@ -521,50 +551,43 @@ class NoteCRUDService:
         note.updated_at = datetime.now(NEPAL_TZ)
         db.add(note)
         
-        # 3. Commit
         await db.commit()
-        
-        # 4. Re-index in search
         await search_service.index_item(db, note, 'note')
+        await db.commit()
         logger.info(f"Note restored: {note.title}")
 
     async def archive_note(
-        self, 
-        db: AsyncSession, 
-        user_uuid: str, 
+        self,
+        db: AsyncSession,
+        user_uuid: str,
         note_uuid: str
     ) -> None:
         """Archive note (soft delete)"""
-        try:
+        async def archive_operation():
             result = await db.execute(
                 select(Note).where(
                     and_(Note.uuid == note_uuid, Note.created_by == user_uuid)
                 )
             )
             note = result.scalar_one_or_none()
-            
+
             if not note:
                 raise HTTPException(status_code=404, detail="Note not found")
-            
+
             # Soft delete by setting archived flag
             note.is_archived = True
-            
+
             # Remove from search index
             await search_service.remove_item(db, note_uuid)
-            
-            await db.commit()
-            
+
             # Invalidate dashboard cache
-            
-        except HTTPException:
-            raise
-        except Exception as e:
-            await db.rollback()
-            logger.exception(f"Error archiving note {note_uuid}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to archive note: {str(e)}"
-            )
+
+        # Use TransactionHelper for consistent transaction management
+        await TransactionHelper.execute_with_transaction(
+            db,
+            archive_operation,
+            error_message=f"Error archiving note {note_uuid}"
+        )
     
     async def get_note_documents(
         self, 
@@ -610,11 +633,6 @@ class NoteCRUDService:
                 detail=f"Failed to get note documents: {str(e)}"
             )
     
-    # NoteFile methods removed - file handling now done via Document + note_documents association
-    # Use unified upload service and document_crud_service for file operations
-    
-    # delete_note_file method removed - use document_crud_service.delete_document() instead
-    
     
     def _convert_note_to_response(
         self, 
@@ -626,15 +644,19 @@ class NoteCRUDService:
         return NoteResponse(
             uuid=note.uuid,
             title=note.title,
-            content=note.content,
+            content=note.content or "",  # ✅ Safe fallback for null content
+            contentFilePath=note.content_file_path,  # ✅ Expose file path (camelCase for consistency)
             file_count=note.file_count,
             thumbnail_path=note.thumbnail_path,
             is_favorite=note.is_favorite,
-            # REMOVED: is_project_exclusive - exclusivity now handled in project_items association
+            is_archived=note.is_archived,
+            is_template=note.is_template,
+            from_template_id=note.from_template_id,
             tags=[tag.name for tag in note.tag_objs],
             projects=badges,
             created_at=note.created_at,
-            updated_at=note.updated_at
+            updated_at=note.updated_at,
+            created_by=note.created_by  # ✅ ADDED - User who created the note
         )
     
 
@@ -696,6 +718,7 @@ class NoteCRUDService:
             # Get all documents linked to this note
             result = await db.execute(
                 select(Document, note_documents.c.is_exclusive, note_documents.c.sort_order)
+                .options(selectinload(Document.tag_objs))
                 .join(note_documents, Document.uuid == note_documents.c.document_uuid)
                 .where(
                     and_(
@@ -719,13 +742,14 @@ class NoteCRUDService:
                     mime_type=doc.mime_type,
                     is_favorite=doc.is_favorite,
                     is_archived=doc.is_archived,
-                    is_encrypted=doc.is_encrypted,
+                    is_encrypted=False,
                     is_deleted=doc.is_deleted,
                     thumbnail_path=doc.thumbnail_path,
                     created_at=doc.created_at,
                     updated_at=doc.updated_at,
                     tags=[tag.name for tag in doc.tag_objs],
-                    projects=[]  # No project associations for note files
+                    projects=[],  # No project associations for note files
+                    created_by=doc.created_by
                 )
                 for doc, is_exclusive, sort_order in documents
             ]

@@ -19,7 +19,7 @@ import asyncio
 import argparse
 import sys
 import time
-from typing import Dict, List, Any
+from typing import Dict, Any
 from pathlib import Path
 
 # Add parent directory to path for imports
@@ -31,7 +31,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy import text
 
 from app.config import settings
-from app.database import Base
 from app.auth.security import create_access_token, verify_token
 
 
@@ -94,7 +93,7 @@ class HealthChecker:
         try:
             engine = create_async_engine(self.settings.DATABASE_URL)
             async with engine.begin() as conn:
-                result = await conn.execute(text("SELECT 1"))
+                await conn.execute(text("SELECT 1"))  # Test query - result not needed
                 await engine.dispose()
                 return True
         except Exception as e:

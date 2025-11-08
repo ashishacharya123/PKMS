@@ -477,7 +477,6 @@ from . import (
     # Document Management
     document_crud_service,
     document_hash_service,
-    note_document_service,
 
     # Note & Todo Management
     note_crud_service,
@@ -512,7 +511,6 @@ __all__ = [
     # Document Management
     'document_crud_service',
     'document_hash_service',
-    'note_document_service',
 
     # Note & Todo Management
     'note_crud_service',

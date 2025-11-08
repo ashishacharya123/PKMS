@@ -46,7 +46,7 @@ class ArchivePathService:
             select(ArchiveFolder).where(
                 and_(
                     ArchiveFolder.created_by == created_by,
-                    ArchiveFolder.is_deleted == False
+                    ArchiveFolder.is_deleted.is_(False)
                 )
             )
         )
@@ -179,7 +179,7 @@ class ArchivePathService:
             ArchiveFolder.name == name,
             ArchiveFolder.parent_uuid == parent_uuid,
             ArchiveFolder.created_by == created_by,
-            ArchiveFolder.is_deleted == False
+            ArchiveFolder.is_deleted.is_(False)
         )
         
         if exclude_uuid:
@@ -201,7 +201,7 @@ class ArchivePathService:
         # BATCH LOAD: Get ALL folders for the user in a single query
         cond = and_(
             ArchiveFolder.created_by == created_by,
-            ArchiveFolder.is_deleted == False
+            ArchiveFolder.is_deleted.is_(False)
         )
         
         # If max_depth is specified, limit the depth
@@ -210,9 +210,6 @@ class ArchivePathService:
         
         result = await db.execute(select(ArchiveFolder).where(cond).order_by(ArchiveFolder.depth, ArchiveFolder.name))
         all_folders = result.scalars().all()
-        
-        # Build folder lookup map
-        folder_map = {folder.uuid: folder for folder in all_folders}
         
         # Build children map (parent_uuid -> list of children)
         children_map = {}
@@ -286,7 +283,7 @@ class ArchivePathService:
                     and_(
                         ArchiveFolder.uuid == current_parent,
                         ArchiveFolder.created_by == created_by,
-                        ArchiveFolder.is_deleted == False
+                        ArchiveFolder.is_deleted.is_(False)
                     )
                 )
             )

@@ -6,7 +6,7 @@ Includes DiaryEntry for journal entries and DiaryDailyMetadata for habit trackin
 financial data, and wellness analytics. Supports Nepali calendar integration.
 """
 
-from uuid import uuid4
+from uuid6 import uuid7
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, SmallInteger, UniqueConstraint, Index, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +26,7 @@ class DiaryEntry(Base, SoftDeleteMixin):
     
     __tablename__ = "diary_entries"
     
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)  # Primary key
     title = Column(String(255), nullable=False, index=True)
     date = Column(DateTime(timezone=True), nullable=False, index=True)  # Date for the diary entry
     mood = Column(SmallInteger, nullable=True, index=True)  # 1-5 scale
@@ -46,8 +46,10 @@ class DiaryEntry(Base, SoftDeleteMixin):
     
     # is_deleted now provided by SoftDeleteMixin
     
-    # Composite indexes for common query patterns
+    # Composite indexes and constraints for common query patterns
     __table_args__ = (
+        # Unique constraint: One entry per user per date (prevents duplicates)
+        UniqueConstraint('created_by', 'date', name='uq_diary_user_date'),
         Index('ix_diary_user_date', 'created_by', 'date'),
         Index('ix_diary_user_mood', 'created_by', 'mood'),
         Index('ix_diary_user_weather', 'created_by', 'weather_code'),
@@ -96,7 +98,7 @@ class DiaryDailyMetadata(Base):
         Index('ix_diary_metadata_office_day', 'created_by', 'is_office_day'),
     )
 
-    uuid = Column(String(36), primary_key=True, default=lambda: str(uuid4()), index=True)
+    uuid = Column(String(36), primary_key=True, default=lambda: str(uuid7()), index=True)
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     date = Column(DateTime(timezone=True), nullable=False, index=True)
     nepali_date = Column(String(20), nullable=True)

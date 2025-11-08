@@ -4,6 +4,7 @@
  */
 
 import { dashboardCache } from './unifiedCacheService';
+import { apiService } from './api';
 
 export interface DashboardStats {
   notes: {
@@ -85,6 +86,29 @@ export interface RecentActivityTimeline {
 class DashboardService {
 
   /**
+   * Format ISO date for compact UI display in nav/menu tooltips
+   */
+  formatLastUpdated(input: string | Date): string {
+    try {
+      const d = typeof input === 'string' ? new Date(input) : input;
+      if (Number.isNaN(d.getTime())) return 'Unknown';
+      const now = new Date();
+      const sameDay = d.toDateString() === now.toDateString();
+      if (sameDay) {
+        return `Today ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      }
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      if (d.toDateString() === yesterday.toDateString()) {
+        return `Yesterday ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      }
+      return d.toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return 'Unknown';
+    }
+  }
+
+  /**
    * Get main dashboard data - unified cache with IndexedDB persistence
    */
   async getMainDashboardData(): Promise<DashboardStats> {
@@ -101,14 +125,8 @@ class DashboardService {
     
     const startTime = performance.now();
     try {
-      const response = await fetch('/api/v1/dashboard/stats');
+      const { data } = await apiService.get<DashboardStats>('/dashboard/stats');
       const responseTime = performance.now() - startTime;
-      
-      if (!response.ok) {
-        throw new Error(`Dashboard API returned ${response.status}`);
-      }
-      
-      const data = await response.json();
       
       // Cache with tags for easy invalidation
       await dashboardCache.set(cacheKey, data, 120000, ['dashboard', 'stats']);
@@ -151,14 +169,8 @@ class DashboardService {
     
     const startTime = performance.now();
     try {
-      const response = await fetch(`/api/v1/dashboard/activity?days=${days}`);
+      const { data } = await apiService.get<ModuleActivity>(`/dashboard/activity?days=${days}`);
       const responseTime = performance.now() - startTime;
-      
-      if (!response.ok) {
-        throw new Error(`Activity API returned ${response.status}`);
-      }
-      
-      const data = await response.json();
       
       // Cache with tags
       await dashboardCache.set(cacheKey, data, 120000, ['dashboard', 'activity']);
@@ -198,14 +210,8 @@ class DashboardService {
     
     const startTime = performance.now();
     try {
-      const response = await fetch('/api/v1/dashboard/quick-stats');
+      const { data } = await apiService.get<QuickStats>('/dashboard/quick-stats');
       const responseTime = performance.now() - startTime;
-      
-      if (!response.ok) {
-        throw new Error(`Quick stats API returned ${response.status}`);
-      }
-      
-      const data = await response.json();
       
       // Cache with tags
       await dashboardCache.set(cacheKey, data, 120000, ['dashboard', 'stats']);
@@ -273,14 +279,8 @@ class DashboardService {
     
     const startTime = performance.now();
     try {
-      const response = await fetch(`/api/v1/dashboard/timeline?days=${days}&limit=${limit}`);
+      const { data } = await apiService.get<RecentActivityTimeline>(`/dashboard/timeline?days=${days}&limit=${limit}`);
       const responseTime = performance.now() - startTime;
-      
-      if (!response.ok) {
-        throw new Error(`Timeline API returned ${response.status}`);
-      }
-      
-      const data = await response.json();
       
       // Cache with tags
       await dashboardCache.set(cacheKey, data, 120000, ['dashboard', 'timeline']);
@@ -305,17 +305,20 @@ class DashboardService {
    * Force refresh by invalidating all caches
    */
   async forceRefresh() {
-    console.log(`🔄 FORCE REFRESH: Invalidating all caches`);
+    console.log('Force refresh: Invalidating all caches');
     
-    // Invalidate dashboard cache
+    // Frontend cache invalidation (critical)
     await dashboardCache.invalidatePattern('dashboard');
     
-    // Invalidate backend cache
+    // Backend analytics cache invalidation (non-critical)
     try {
-      await fetch('/api/v1/dashboard/cache/invalidate', { method: 'POST' });
-      console.log(`✅ Backend cache invalidated`);
+      await apiService.post('/dashboard/cache/invalidate', {
+        cacheType: 'analytics'
+      });
+      console.log('Backend analytics cache invalidated');
     } catch (error) {
-      console.error('Failed to invalidate backend cache:', error);
+      // Non-critical - frontend cache cleared is sufficient
+      console.warn('Backend cache invalidation failed (non-critical):', error);
     }
   }
 
@@ -336,11 +339,7 @@ class DashboardService {
   // Module-specific data fetchers using existing backend APIs
   private async fetchTodosDetailedData(): Promise<any> {
     try {
-      const response = await fetch('/api/v1/todos/stats');
-      if (!response.ok) {
-        throw new Error(`Todos stats API returned ${response.status}`);
-      }
-      const stats = await response.json();
+      const { data: stats } = await apiService.get<any>('/todos/stats');
       
       return {
         stats,
@@ -355,20 +354,18 @@ class DashboardService {
 
   private async fetchDiaryDetailedData(): Promise<any> {
     try {
-      const [habitsResponse, wellnessResponse] = await Promise.all([
-        fetch('/api/v1/diary/habits/analytics'),
-        fetch('/api/v1/diary/habits/wellness-score-analytics')
+      const [habitsRes, wellnessRes] = await Promise.all([
+        apiService.get<any>('/diary/habits/analytics'),
+        apiService.get<any>('/diary/habits/wellness-score-analytics')
       ]);
 
-      const [habits, wellness] = await Promise.all([
-        habitsResponse.ok ? habitsResponse.json() : {},
-        wellnessResponse.ok ? wellnessResponse.json() : {}
-      ]);
+      const habits = habitsRes.data || {};
+      const wellness = wellnessRes.data || {};
 
       return {
         habits,
         wellness,
-        wellnessScore: wellness.overall_wellness_score || 0,
+        wellnessScore: wellness.overallWellnessScore || 0,
         habitStreaks: habits.streaks || {}
       };
     } catch (error) {

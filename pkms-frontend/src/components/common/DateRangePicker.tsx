@@ -63,32 +63,32 @@ export function DateRangePicker({
           label="Start Date"
           placeholder="Select start date"
           value={startDate}
-          onChange={onStartDateChange}
+          onChange={(value) => onStartDateChange?.(value && typeof value === 'object' && 'getTime' in value ? value : (value ? new Date(value) : null))}
           disabled={disabled}
           error={startDateError}
           leftSection={<IconCalendar size={16} />}
           clearable
           style={{ flex: 1 }}
         />
-        
+
         <DateInput
           label="Due Date"
           placeholder="Select due date"
           value={dueDate}
-          onChange={onDueDateChange}
+          onChange={(value) => onDueDateChange?.(value && typeof value === 'object' && 'getTime' in value ? value : (value ? new Date(value) : null))}
           disabled={disabled}
           error={dueDateError}
           leftSection={<IconCalendar size={16} />}
           clearable
           style={{ flex: 1 }}
         />
-        
+
         {showCompletionDate && (
           <DateInput
             label="Completion Date"
             placeholder="Select completion date"
             value={completionDate}
-            onChange={onCompletionDateChange}
+            onChange={(value) => onCompletionDateChange?.(value && typeof value === 'object' && 'getTime' in value ? value : (value ? new Date(value) : null))}
             disabled={disabled}
             leftSection={<IconCalendar size={16} />}
             clearable

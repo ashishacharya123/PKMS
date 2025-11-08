@@ -9,7 +9,7 @@ import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, delete, update
+from sqlalchemy import select, and_, or_, func, update
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status
 
@@ -26,6 +26,7 @@ from app.services.tag_service import tag_service
 from app.services.search_service import search_service
 from app.services.shared_utilities_service import shared_utilities_service
 from app.services.todo_dependency_service import todo_dependency_service
+from app.services.project_service import project_service
 
 logger = logging.getLogger(__name__)
 
@@ -308,56 +309,23 @@ class TodoCRUDService:
             # Update fields
             update_dict = update_data.model_dump(exclude_unset=True)
             
-            # Handle project associations
+            # Handle project associations using centralized method
             if "project_uuids" in update_dict:
                 project_uuids = update_dict.pop("project_uuids", []) or []
                 are_projects_exclusive = update_dict.pop("are_projects_exclusive", False)
 
-                # Handle project associations using polymorphic project_items
+                # Use the centralized project association method
                 if project_uuids is not None:  # Allow clearing with empty list
-                    # Delete existing associations for this todo
-                    await db.execute(
-                        delete(project_items).where(
-                            and_(
-                                project_items.c.item_type == 'Todo',
-                                project_items.c.item_uuid == todo.uuid
-                            )
-                        )
+                    await project_service.handle_polymorphic_associations(
+                        db,
+                        todo,
+                        project_uuids,
+                        user_uuid,
+                        project_items,
+                        'Todo',
+                        are_projects_exclusive
                     )
-                    
-                    if project_uuids:  # If not empty, add new associations
-                        # Verify ownership
-                        projects_result = await db.execute(
-                            select(Project).where(
-                                and_(
-                                    Project.active_only(),
-                                    Project.uuid.in_(project_uuids),
-                                    Project.created_by == user_uuid
-                                )
-                            )
-                        )
-                        owned_projects = projects_result.scalars().all()
-                        owned_project_uuids = {p.uuid for p in owned_projects}
-                        
-                        invalid_uuids = set(project_uuids) - owned_project_uuids
-                        if invalid_uuids:
-                            raise HTTPException(
-                                status_code=400,
-                                detail="Invalid or inaccessible project UUIDs"
-                            )
-                        
-                        # Insert new associations
-                        for idx, project_uuid in enumerate(project_uuids):
-                            await db.execute(
-                                insert(project_items).values(
-                                    project_uuid=project_uuid,
-                                    item_type='Todo',
-                                    item_uuid=todo.uuid,
-                                    is_exclusive=are_projects_exclusive,
-                                    sort_order=idx
-                                )
-                            )
-            
+  
             # Handle tags
             if "tags" in update_dict:
                 tags = update_dict.pop("tags", [])
@@ -761,7 +729,6 @@ class TodoCRUDService:
             priority=todo.priority,
             is_archived=todo.is_archived,
             is_favorite=todo.is_favorite,
-            # REMOVED: is_project_exclusive and is_todo_exclusive - now handled via project_items
             start_date=todo.start_date,
             due_date=todo.due_date,
             created_at=todo.created_at,
@@ -772,7 +739,8 @@ class TodoCRUDService:
             # NEW: Dependency info
             blocking_todos=blocking_list if blocking_list else None,
             blocked_by_todos=blocked_list if blocked_list else None,
-            blocker_count=len([b for b in blocked_list if not b.get('is_completed', False)])
+            blocker_count=len([b for b in blocked_list if b.get('status') != TodoStatus.DONE]),
+            created_by=todo.created_by  # ✅ ADDED - User who created the todo
         )
 
 

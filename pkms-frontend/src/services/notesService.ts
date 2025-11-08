@@ -13,7 +13,6 @@ import { coreDownloadService, DownloadProgress } from './shared/coreDownloadServ
 export interface ProjectBadge {
   uuid: string | null;  // null if project is deleted (snapshot)
   name: string;
-  color: string;
   isProjectExclusive: boolean;
   isDeleted: boolean;  // True if project was deleted (using snapshot name)
 }
@@ -136,6 +135,7 @@ class NotesService extends BaseService<Note, CreateNoteRequest, UpdateNoteReques
     limit?: number;
     offset?: number;
     isDeleted?: boolean;
+    projectId?: string;
   } = {}): Promise<NoteSummary[]> {
     // URL parameters must use snake_case (not converted by CamelCaseModel)
     const queryParams = new URLSearchParams();
@@ -148,6 +148,7 @@ class NotesService extends BaseService<Note, CreateNoteRequest, UpdateNoteReques
     if (params.limit !== undefined) queryParams.append('limit', params.limit.toString());
     if (params.offset !== undefined) queryParams.append('offset', params.offset.toString());
     if (params.isDeleted !== undefined) queryParams.append('is_deleted', String(params.isDeleted));
+    if (params.projectId !== undefined) queryParams.append('project_id', params.projectId);
 
     const url = `/notes/${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
     const response = await apiService.get<NoteSummary[]>(url);
@@ -274,6 +275,6 @@ class NotesService extends BaseService<Note, CreateNoteRequest, UpdateNoteReques
     return '📎';
   }
 
-  }
+}
 
 export const notesService = new NotesService(); 

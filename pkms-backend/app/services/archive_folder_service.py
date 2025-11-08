@@ -6,7 +6,7 @@ Handles folder CRUD operations, tree structure, and bulk operations
 import uuid
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func, update
+from sqlalchemy import select, and_, func, update, text
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 import logging
@@ -17,6 +17,7 @@ from pathlib import Path
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.schemas.archive import FolderCreate, FolderUpdate, FolderResponse, FolderTree, BulkMoveRequest
 from app.services.archive_path_service import archive_path_service
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +166,8 @@ class ArchiveFolderService:
                     item_count=stats["item_count"],
                     total_size=stats["total_size"],
                     created_at=folder.created_at,
-                    updated_at=folder.updated_at
+                    updated_at=folder.updated_at,
+                    created_by=folder.created_by  # ✅ ADDED - User who created the folder
                 )
                 responses.append(response)
             return responses
@@ -229,7 +231,7 @@ class ArchiveFolderService:
             .where(
                 and_(
                     ArchiveFolder.created_by == user_uuid,
-                    ArchiveFolder.is_deleted == False,
+                    ArchiveFolder.is_deleted.is_(False),
                     ArchiveFolder.name.ilike(f"%{search_query}%")
                 )
             )
@@ -254,7 +256,7 @@ class ArchiveFolderService:
                 and_(
                     ArchiveFolder.parent_uuid.in_(folder_uuids),
                     ArchiveFolder.created_by == user_uuid,
-                    ArchiveFolder.is_deleted == False
+                    ArchiveFolder.is_deleted.is_(False)
                 )
             )
             .group_by(ArchiveFolder.parent_uuid)
@@ -353,7 +355,8 @@ class ArchiveFolderService:
             item_count=stats["item_count"],
             total_size=stats["total_size"],
             created_at=folder.created_at,
-            updated_at=folder.updated_at
+            updated_at=folder.updated_at,
+            created_by=folder.created_by  # ✅ ADDED - User who created the folder
         )
     
     async def update_folder(
@@ -491,7 +494,7 @@ class ArchiveFolderService:
                     and_(
                         ArchiveItem.folder_uuid == folder_uuid,
                         ArchiveItem.created_by == user_uuid,
-                        ArchiveItem.is_deleted == False
+                        ArchiveItem.is_deleted.is_(False)
                     )
                 )
             )
@@ -510,7 +513,7 @@ class ArchiveFolderService:
                     and_(
                         ArchiveFolder.parent_uuid == folder_uuid,
                         ArchiveFolder.created_by == user_uuid,
-                        ArchiveFolder.is_deleted == False
+                        ArchiveFolder.is_deleted.is_(False)
                     )
                 )
             )
@@ -552,7 +555,109 @@ class ArchiveFolderService:
         )
         
         # Remove this line entirely - router will commit
-    
+
+    async def hard_delete_folder(
+        self,
+        db: AsyncSession,
+        user_uuid: str,
+        folder_uuid: str
+    ) -> None:
+        """Permanently delete folder and all contents (hard delete) - WARNING: Cannot be undone!"""
+        try:
+            # Get folder with all descendants
+            result = await db.execute(
+                select(ArchiveFolder).where(
+                    and_(
+                        ArchiveFolder.uuid == folder_uuid,
+                        ArchiveFolder.created_by == user_uuid,
+                        ArchiveFolder.is_deleted.is_(True)
+                    )
+                )
+            )
+            folder = result.scalar_one_or_none()
+
+            if not folder:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Deleted folder not found"
+                )
+
+            # Get all descendant folders (including soft-deleted ones for hard delete)
+            descendant_uuids = await self._get_descendant_uuids(db, folder_uuid, user_uuid, include_deleted=True)
+            all_folder_uuids = [folder_uuid] + descendant_uuids
+
+            # First, get all items to delete their physical files
+            items_result = await db.execute(
+                select(ArchiveItem).where(
+                    and_(
+                        ArchiveItem.folder_uuid.in_(all_folder_uuids),
+                        ArchiveItem.created_by == user_uuid,
+                        ArchiveItem.is_deleted.is_(True)
+                    )
+                )
+            )
+            items = items_result.scalars().all()
+
+            # Delete physical files for all items
+            for item in items:
+                if item.file_path:
+                    file_path = Path(item.file_path)
+                    if file_path.exists():
+                        try:
+                            file_path.unlink()
+                            logger.info(f"Deleted archive file: {file_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not delete archive file {file_path}: {e}")
+
+                # Delete thumbnail if exists
+                if item.thumbnail_path:
+                    thumbnail_path = Path(item.thumbnail_path)
+                    if thumbnail_path.exists():
+                        try:
+                            thumbnail_path.unlink()
+                            logger.info(f"Deleted archive thumbnail: {thumbnail_path}")
+                        except Exception as e:
+                            logger.warning(f"Could not delete archive thumbnail {thumbnail_path}: {e}")
+
+            # NOTE: Individual deletes used instead of bulk operations
+            # Reason: Archive folders typically contain few hundred files max
+            # Bulk delete complexity outweighs performance benefits for our use case
+            # Individual deletes provide better error handling and debugging
+
+            # Delete database records for items
+            for item in items:
+                await db.delete(item)
+
+            # Delete database records for folders
+            folders_result = await db.execute(
+                select(ArchiveFolder).where(
+                    and_(
+                        ArchiveFolder.uuid.in_(all_folder_uuids),
+                        ArchiveFolder.created_by == user_uuid,
+                        ArchiveFolder.is_deleted.is_(True)
+                    )
+                )
+            )
+            folders = folders_result.scalars().all()
+
+            for folder in folders:
+                await db.delete(folder)
+
+            # Flush to database but don't commit (let router handle commit)
+            await db.flush()
+
+            logger.info(f"Folder and all contents permanently deleted: {folder_uuid}")
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            await db.rollback()
+            logger.exception(f"Error hard deleting folder {folder_uuid}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to hard delete folder: {str(e)}"
+            ) from e
+
     async def get_breadcrumb(
         self, 
         db: AsyncSession, 
@@ -861,20 +966,32 @@ class ArchiveFolderService:
         self, 
         db: AsyncSession, 
         parent_uuid: str, 
-        user_uuid: str
+        user_uuid: str,
+        include_deleted: bool = False
     ) -> List[str]:
-        """Get all descendant folder UUIDs"""
+        """Get all descendant folder UUIDs
+        
+        Args:
+            db: Database session
+            parent_uuid: Parent folder UUID
+            user_uuid: User UUID
+            include_deleted: If True, include soft-deleted folders (default: False)
+        """
         descendant_uuids = []
+        
+        # Build query conditions
+        conditions = [
+            ArchiveFolder.parent_uuid == parent_uuid,
+            ArchiveFolder.created_by == user_uuid
+        ]
+        
+        # Filter by deletion status unless including deleted
+        if not include_deleted:
+            conditions.append(ArchiveFolder.is_deleted.is_(False))
         
         # Get direct children
         result = await db.execute(
-            select(ArchiveFolder).where(
-                and_(
-                    ArchiveFolder.parent_uuid == parent_uuid,
-                    ArchiveFolder.created_by == user_uuid,
-                    ArchiveFolder.is_deleted.is_(False)
-                )
-            )
+            select(ArchiveFolder).where(and_(*conditions))
         )
         children = result.scalars().all()
         
@@ -882,7 +999,7 @@ class ArchiveFolderService:
             descendant_uuids.append(child.uuid)
             # Recursively get descendants
             child_descendants = await self._get_descendant_uuids(
-                db, child.uuid, user_uuid
+                db, child.uuid, user_uuid, include_deleted=include_deleted
             )
             descendant_uuids.extend(child_descendants)
         
@@ -934,18 +1051,22 @@ class ArchiveFolderService:
         )
     
     async def _get_all_items_recursive(
-        self, 
-        db: AsyncSession, 
-        user_uuid: str, 
+        self,
+        db: AsyncSession,
+        user_uuid: str,
         folder_uuid: str
     ) -> List[ArchiveItem]:
-        """Get all items in folder and subfolders recursively - OPTIMIZED to avoid N+1 queries"""
-        # BATCH LOAD: Get ALL subfolders in the entire tree in a single query
-        all_subfolder_uuids = await self._get_all_subfolder_uuids_recursive(db, user_uuid, [folder_uuid])
-        
+        """Get all items in folder and subfolders recursively - OPTIMIZED with SQL CTEs"""
+        # Use CTE optimization if enabled, otherwise fall back to batch recursive method
+        if settings.enable_archive_cte_optimization:
+            all_subfolder_uuids = await self._get_all_subfolder_uuids_cte(db, user_uuid, folder_uuid)
+        else:
+            # Fall back to the original batch recursive method
+            all_subfolder_uuids = await self._get_all_subfolder_uuids_recursive(db, user_uuid, [folder_uuid])
+
         # BATCH LOAD: Get ALL items for the root folder + all subfolders in a single query
-        all_folder_uuids = [folder_uuid] + all_subfolder_uuids
-        
+        all_folder_uuids = [folder_uuid, *all_subfolder_uuids]
+
         result = await db.execute(
             select(ArchiveItem).where(
                 and_(
@@ -956,9 +1077,60 @@ class ArchiveFolderService:
             )
         )
         all_items = result.scalars().all()
-        
+
         return all_items
-    
+
+    async def _get_all_subfolder_uuids_cte(
+        self,
+        db: AsyncSession,
+        user_uuid: str,
+        folder_uuid: str
+    ) -> List[str]:
+        """
+        Get all subfolder UUIDs using a single SQL CTE query.
+        This replaces the recursive Python approach with database-level hierarchy traversal.
+        """
+        if not settings.enable_archive_cte_optimization:
+            # Fall back to the recursive Python method if feature flag is disabled
+            return await self._get_all_subfolder_uuids_recursive(db, user_uuid, [folder_uuid])
+
+        try:
+            # SQL CTE query to get all descendant folders
+            cte_query = text("""
+                WITH RECURSIVE folder_hierarchy AS (
+                    -- Base case: direct children of the root folder
+                    SELECT uuid, parent_uuid, 1 as level
+                    FROM archive_folders
+                    WHERE parent_uuid = :folder_uuid
+                      AND created_by = :user_uuid
+                      AND is_deleted = FALSE
+
+                    UNION ALL
+
+                    -- Recursive case: children of children
+                    SELECT f.uuid, f.parent_uuid, fh.level + 1
+                    FROM archive_folders f
+                    INNER JOIN folder_hierarchy fh ON f.parent_uuid = fh.uuid
+                    WHERE f.created_by = :user_uuid
+                      AND f.is_deleted = FALSE
+                )
+                SELECT uuid FROM folder_hierarchy
+            """)
+
+            result = await db.execute(cte_query, {
+                "folder_uuid": folder_uuid,
+                "user_uuid": user_uuid
+            })
+
+            subfolder_uuids = [row.uuid for row in result.fetchall()]
+            logger.debug(f"CTE query found {len(subfolder_uuids)} subfolders for {folder_uuid}")
+            return subfolder_uuids
+
+        except Exception as e:
+            logger.exception(f"CTE query failed for folder {folder_uuid}")
+            # Fall back to recursive method on error
+            return await self._get_all_subfolder_uuids_recursive(db, user_uuid, [folder_uuid])
+
     async def _get_all_subfolder_uuids_recursive(
         self, 
         db: AsyncSession, 

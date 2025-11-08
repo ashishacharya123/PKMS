@@ -253,7 +253,7 @@ export function ModuleDashboard({ module, onRefresh }: ModuleDashboardProps) {
             <Text fw={500}>Total Entries</Text>
           </Group>
           <Text size="xl" fw={700}>
-            {data.stats?.total_entries || 0}
+            {data.stats?.totalEntries || 0}
           </Text>
         </Card>
 

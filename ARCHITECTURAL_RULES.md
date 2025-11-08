@@ -455,6 +455,27 @@ Scaling to multiple workers will require:
   }
   ```
 
+### 27. Backend Cache Usage Pattern
+- **ONLY USE FOR**: Computationally expensive operations (>100ms)
+- **NEVER USE FOR**: Simple CRUD operations, data already cached on frontend
+- **CURRENT CACHES**: Only `analytics_cache` exists - for habit correlations and trend analysis
+- **TTL STRATEGY**: Backend TTL (10 min) > Frontend TTL (2 min) to ensure frontend refreshes first
+- **RATIONALE**: Frontend-first caching (Rule #24) is primary, backend is secondary for expensive ops
+- **EXAMPLES**:
+  ```python
+  # CORRECT: Expensive correlation calculation (2-3 seconds)
+  cache_key = f"correlations_{user_uuid}_{days}"
+  cached = analytics_cache.get(cache_key)
+  if cached:
+      return cached
+  result = calculate_expensive_correlations()  # 2-3 seconds
+  analytics_cache.set(cache_key, result, 600)  # 10 min TTL
+  
+  # WRONG: Simple habit data retrieval
+  # Don't cache this - frontend handles it!
+  habits = get_simple_habits_list()  # <50ms
+  ```
+
 ## 📋 MODEL FIELD VERIFICATION
 
 ### User Ownership Pattern

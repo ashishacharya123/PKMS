@@ -42,6 +42,8 @@ import MainDashboard from '../components/dashboard/MainDashboard';
 import { todosService, type LegacyProject } from '../services/todosService';
 import { StorageBreakdownCard } from '../components/dashboard/StorageBreakdownCard';
 import { ActivityTimeline } from '../components/dashboard/ActivityTimeline';
+import { LoadingState } from '../components/common/LoadingState';
+import { ErrorState } from '../components/common/ErrorState';
 
 // Update interfaces to match backend response
 interface ModuleStats {
@@ -188,8 +190,8 @@ const ProjectCardsSection = () => {
   return (
     <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
       {projects.slice(0, 6).map((project) => {
-        const completionPercentage = project.todo_count > 0 
-          ? Math.round((project.completed_count / project.todo_count) * 100) 
+        const completionPercentage = project.todoCount > 0
+          ? Math.round((project.completedCount / project.todoCount) * 100)
           : 0;
         
         return (
@@ -209,7 +211,7 @@ const ProjectCardsSection = () => {
                       width: 12,
                       height: 12,
                       borderRadius: '50%',
-                      backgroundColor: project.color || '#2196F3',
+                      backgroundColor: '#2196F3',
                       flexShrink: 0
                     }}
                   />
@@ -246,11 +248,11 @@ const ProjectCardsSection = () => {
               <Group gap="md" justify="space-between">
                 <Badge size="sm" variant="light" color="gray">
                   <IconFolder size={12} style={{ marginRight: 4 }} />
-                  {project.todo_count} tasks
+                  {project.todoCount} tasks
                 </Badge>
-                {project.completed_count > 0 && (
+                {project.completedCount > 0 && (
                   <Badge size="sm" variant="light" color="green">
-                    {project.completed_count} done
+                    {project.completedCount} done
                   </Badge>
                 )}
               </Group>
@@ -530,23 +532,11 @@ export function DashboardPage() {
 
 
   if (isLoading) {
-    return (
-      <Container size="xl">
-        <Stack gap="xl">
-          <Skeleton height={60} radius="md" />
-          <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }} spacing="lg">
-            {Array.from({ length: 5 }).map((_, index) => (
-              <Skeleton key={index} height={200} radius="md" />
-            ))}
-          </SimpleGrid>
-          <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <Skeleton key={index} height={80} radius="md" />
-            ))}
-          </SimpleGrid>
-        </Stack>
-      </Container>
-    );
+    return <LoadingState message="Loading dashboard..." />;
+  }
+
+  if (error) {
+    return <ErrorState message={error} onRetry={handleRefresh} />;
   }
 
   return (

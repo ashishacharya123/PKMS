@@ -36,7 +36,10 @@ import { notifications } from '@mantine/notifications';
 
 const sanitizeHighlight = (html: string): string =>
   html
-    ? DOMPurify.sanitize(html, { ALLOWED_TAGS: ['mark'], ALLOWED_ATTR: [] })
+    ? DOMPurify.sanitize(html, { 
+        ALLOWED_TAGS: ['mark', 'strong'], 
+        ALLOWED_ATTR: ['style'] 
+      })
     : '';
 
 // Types
@@ -524,11 +527,30 @@ export default function FuzzySearchPage() {
                         <span dangerouslySetInnerHTML={{ __html: sanitizeHighlight(result.highlight_title || result.title || result.name || '') }} />
                       </Text>
                       
-                      {(result.highlight || result.content || result.description) && (
-                        <Text size="xs" c="dimmed" lineClamp={2}>
-                          <span dangerouslySetInnerHTML={{ __html: sanitizeHighlight(result.highlight || result.content || result.description || '') }} />
-                        </Text>
-                      )}
+                      {/* Display snippet with backend highlighting */}
+                      {(result.snippet || result.description || result.highlight || result.content) && (() => {
+                        // Priority: snippet (new) > description (snippeted) > highlight > content (fallback)
+                        const textToDisplay = result.snippet || result.description || result.highlight || result.content || '';
+                        
+                        // Convert **match** markers from backend to HTML
+                        const htmlContent = textToDisplay
+                          .replace(/\*\*(.*?)\*\*/g, '<strong style="background: yellow; padding: 2px 4px; border-radius: 2px;">$1</strong>');
+                        
+                        return (
+                          <>
+                            <Text size="xs" c="dimmed" lineClamp={3}>
+                              <span dangerouslySetInnerHTML={{ __html: sanitizeHighlight(htmlContent) }} />
+                            </Text>
+                            
+                            {/* Show match count if available */}
+                            {result.snippetMetadata && result.snippetMetadata.hasMoreMatches && (
+                              <Text size="xs" c="blue" mt={4}>
+                                {result.snippetMetadata.totalMatches} matches • Click to see all
+                              </Text>
+                            )}
+                          </>
+                        );
+                      })()}
 
                       {/* Fuzzy Match Details */}
                       {result.fuzzyDetails && Object.keys(result.fuzzyDetails).length > 0 && (
@@ -552,7 +574,13 @@ export default function FuzzySearchPage() {
                     <Button
                       size="xs"
                       variant="light"
-                      onClick={() => navigate(result.url)}
+                      onClick={() => {
+                        // Use navigationUrl if available (new backend field)
+                        const url = result.navigationUrl || result.url;
+                        if (url) {
+                          navigate(url);
+                        }
+                      }}
                     >
                       View
                     </Button>

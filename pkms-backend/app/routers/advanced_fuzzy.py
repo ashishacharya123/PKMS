@@ -1,336 +1,152 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-from typing import List, Dict, Any
-from rapidfuzz import fuzz
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
 from app.database import get_db
 from app.auth.dependencies import get_current_user
 from app.models.user import User
-from app.models.todo import Todo
-from app.models.project import Project
-from app.models.note import Note
-from app.models.document import Document
-from app.models.diary import DiaryEntry
-from app.models.archive import ArchiveItem
-import json
+from app.utils.security import sanitize_search_query
+from app.services.fuzzy_search_service import FuzzySearchService, SearchConfig
 
 router = APIRouter(tags=["advanced-fuzzy-search"])
 
+# Fuzzy search configuration constants
+DEFAULT_FUZZY_THRESHOLD = 70  # Minimum fuzzy match score (0-100)
+# Lower threshold = more results, higher threshold = more precise matches
+# 70 is optimal balance for most use cases
+
+DEFAULT_SEARCH_LIMIT = 30  # Maximum results to return per search
+# Prevents overwhelming users with too many results
+# Can be overridden per request via query parameter
+
+
+def validate_and_parse_modules(modules: Optional[str]) -> List[str]:
+    """
+    Validate and parse comma-separated module parameter.
+    Raises HTTPException(400) if invalid modules provided.
+    Returns list of valid modules to search.
+    
+    Single source of truth: Uses FuzzySearchService.MODULE_CONFIGS
+    """
+    # Single source of truth - get allowed modules from service layer
+    allowed_modules = set(FuzzySearchService.MODULE_CONFIGS.keys())
+    
+    if not modules:
+        return list(allowed_modules)
+    
+    module_list = []
+    invalid_modules = set()
+    
+    for m in modules.split(","):
+        clean_module = m.strip().lower()
+        if not clean_module:
+            continue
+        if clean_module in allowed_modules:
+            module_list.append(clean_module)
+        else:
+            invalid_modules.add(clean_module)
+    
+    if invalid_modules:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid module(s): {', '.join(sorted(invalid_modules))}. "
+                   f"Valid: {', '.join(sorted(allowed_modules))}"
+        )
+    
+    if not module_list:
+        raise HTTPException(
+            status_code=400,
+            detail="No valid modules specified"
+        )
+    
+    return module_list
+
+
+async def unified_fuzzy_search(
+    db: AsyncSession,
+    user_uuid: str,
+    query: str,
+    config: SearchConfig
+) -> List[Dict[str, Any]]:
+    """
+    Unified fuzzy search function - delegates to service layer.
+    
+    This function maintains backward compatibility while delegating
+    all search logic to FuzzySearchService.
+    """
+    return await FuzzySearchService.unified_fuzzy_search(db, user_uuid, query, config)
+
+
 @router.get("/advanced-fuzzy-search")
 async def advanced_fuzzy_search(
-    query: str = Query(..., min_length=2),
-    limit: int = Query(30, ge=1, le=100),
-    modules: str = Query(None, description="Comma-separated list of modules to search (todo,project,note,document,diary,archive)"),
-    fuzzy_threshold: int = Query(70, ge=0, le=100, description="Minimum fuzzy match score (0-100)"),
+    query: str = Query(..., min_length=2, max_length=500),
+    limit: int = Query(DEFAULT_SEARCH_LIMIT, ge=1, le=100),
+    modules: str = Query(None, description="Comma-separated list of modules to search (todo,project,note,document,archive). Note: diary entries use dedicated FTS5 search."),
+    fuzzy_threshold: int = Query(DEFAULT_FUZZY_THRESHOLD, ge=0, le=100, description="Minimum fuzzy match score (0-100)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> List[Dict[str, Any]]:
     """
-    Perform a slow, typo-tolerant fuzzy search across selected user content modules.
-    Returns a flat, relevance-ranked list with summary fields.
+    Typo-tolerant fuzzy search using Python-based fuzzy matching (RapidFuzz).
+    
+    This endpoint loads items into memory and performs fuzzy string matching in Python.
+    Best for: Typo-tolerant searches, forgiving queries, smaller datasets.
+    
+    PERFORMANCE WARNING: This search loads all matching items into memory for each module,
+    then performs fuzzy matching in Python. For large datasets, this can be slow and memory-intensive.
+    For fast, exact text search, use /search (FTS5) instead.
+    
+    Note: Diary entries are excluded from fuzzy search - use dedicated diary FTS5 interface.
     """
-    results = []
-    created_by = current_user.uuid
-    # Parse modules param
-    allowed_modules = {"todo", "project", "note", "document", "diary", "archive"}
-    if modules:
-        selected_modules = set(m.strip().lower() for m in modules.split(",") if m.strip()) & allowed_modules
-        if not selected_modules:
-            selected_modules = allowed_modules
-    else:
-        selected_modules = allowed_modules
-    # --- TODOS & PROJECTS ---
-    if "todo" in selected_modules:
-        todo_rows = (await db.execute(select(Todo).options(selectinload(Todo.tag_objs), selectinload(Todo.projects)).where(Todo.created_by == created_by, Todo.is_deleted == False))).scalars().all()
-        for todo in todo_rows:
-            # Get first project from M2M relationship
-            project = todo.projects[0] if todo.projects else None
-            todo_tags = [t.name for t in getattr(todo, 'tag_objs', [])] if hasattr(todo, 'tag_objs') else []
-            search_blob = f"{todo.title or ''} {todo.description or ''} {' '.join(todo_tags)} {project.name if project else ''}"
-            score = fuzz.token_set_ratio(query, search_blob)
-            if score >= fuzzy_threshold:
-                results.append({
-                    "type": "todo",
-                    "title": todo.title,
-                    "tags": todo_tags,
-                    "description": todo.description,
-                    "module": "todo",
-                    "created_at": todo.created_at,
-                    "media_count": None,
-                    "type_info": f"{project.name if project else ''}: {todo.title}",
-                    "score": score
-                })
-    if "project" in selected_modules:
-        project_map = {p.uuid: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.created_by == created_by, Project.is_deleted == False))).scalars().all()}
-        for project in project_map.values():
-            project_tags = [t.name for t in getattr(project, 'tag_objs', [])] if hasattr(project, 'tag_objs') else []
-            search_blob = f"{project.name or ''} {project.description or ''} {' '.join(project_tags)}"
-            score = fuzz.token_set_ratio(query, search_blob)
-            if score >= fuzzy_threshold:
-                results.append({
-                    "type": "project",
-                    "title": project.name,
-                    "tags": project_tags,
-                    "description": project.description,
-                    "module": "project",
-                    "created_at": project.created_at,
-                    "media_count": None,
-                    "type_info": project.name,
-                    "score": score
-                })
-    # --- NOTES ---
-    if "note" in selected_modules:
-        note_rows = (await db.execute(select(Note).options(selectinload(Note.tag_objs)).where(Note.created_by == created_by, Note.is_deleted == False))).scalars().all()
-        for note in note_rows:
-            note_tags = [t.name for t in getattr(note, 'tag_objs', [])] if hasattr(note, 'tag_objs') else []
-            search_blob = f"{note.title or ''} {note.content or ''} {' '.join(note_tags)}"
-            score = fuzz.token_set_ratio(query, search_blob)
-            if score >= fuzzy_threshold:
-                results.append({
-                    "type": "note",
-                    "title": note.title,
-                    "tags": note_tags,
-                    "description": None,
-                    "module": "note",
-                    "created_at": note.created_at,
-                    "media_count": None,
-                    "type_info": note.title,
-                    "score": score
-                })
-    # --- DOCUMENTS ---
-    if "document" in selected_modules:
-        doc_rows = (await db.execute(select(Document).options(selectinload(Document.tag_objs)).where(Document.created_by == created_by, Document.is_deleted == False))).scalars().all()
-        for doc in doc_rows:
-            doc_tags = [t.name for t in getattr(doc, 'tag_objs', [])] if hasattr(doc, 'tag_objs') else []
-            search_blob = f"{doc.title or ''} {doc.original_name or ''} {doc.description or ''} {' '.join(doc_tags)}"
-            score = fuzz.token_set_ratio(query, search_blob)
-            if score >= fuzzy_threshold:
-                results.append({
-                    "type": "document",
-                    "title": doc.title or doc.original_name,
-                    "tags": doc_tags,
-                    "description": doc.description,
-                    "module": "document",
-                    "created_at": doc.created_at,
-                    "media_count": None,
-                    "type_info": doc.title or doc.original_name,
-                    "score": score
-                })
-    # --- DIARY ---
-    if "diary" in selected_modules:
-        diary_rows = (await db.execute(select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.created_by == created_by, DiaryEntry.is_deleted == False))).scalars().all()
-        for entry in diary_rows:
-            diary_tags = [t.name for t in getattr(entry, 'tag_objs', [])] if hasattr(entry, 'tag_objs') else []
-            # Include structured fields like weather_code and location
-            weather = f"weather_{entry.weather_code}" if entry.weather_code else ""
-            location = entry.location or ""
-            search_blob = f"{entry.title or ''} {' '.join(diary_tags)} {weather} {location} {entry.date}"
-            score = fuzz.token_set_ratio(query, search_blob)
-            if score >= fuzzy_threshold:
-                results.append({
-                    "type": "diary",
-                    "title": entry.title,
-                    "tags": diary_tags,
-                    "description": None,
-                    "module": "diary",
-                    "created_at": entry.created_at,
-                    "media_count": entry.media_count if hasattr(entry, 'media_count') else None,
-                    "type_info": entry.title,
-                    "score": score
-                })
-    # --- ARCHIVE ---
-    if "archive" in selected_modules:
-        archive_rows = (await db.execute(select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.created_by == created_by, ArchiveItem.is_deleted == False))).scalars().all()
-        for item in archive_rows:
-            archive_tags = [t.name for t in getattr(item, 'tag_objs', [])] if hasattr(item, 'tag_objs') else []
-            meta = {}
-            if item.metadata_json:
-                try:
-                    meta = json.loads(item.metadata_json)
-                except json.JSONDecodeError:
-                    meta = {}
-            meta_flat = ' '.join([str(v) for v in meta.values()])
-            search_blob = f"{item.name or ''} {item.original_filename or ''} {item.description or ''} {' '.join(archive_tags)} {meta_flat}"
-            score = fuzz.token_set_ratio(query, search_blob)
-            if score >= fuzzy_threshold:
-                results.append({
-                    "type": "archive",
-                    "title": item.name,
-                    "tags": archive_tags,
-                    "description": item.description,
-                    "module": "archive",
-                    "created_at": item.created_at,
-                    "media_count": None,
-                    "type_info": item.name,
-                    "score": score
-                })
-    # Sort by score descending, return top N
-    results.sort(key=lambda x: x['score'], reverse=True)
-    return results[:limit]
+    # Validate and sanitize search query
+    sanitized_query = sanitize_search_query(query)
+
+    # Parse and validate modules param
+    # Note: diary entries are excluded from global fuzzy search - use dedicated diary FTS5 interface
+    module_list = validate_and_parse_modules(modules) if modules else None
+
+    # Create config for advanced search (includes content)
+    config = SearchConfig(
+        modules=module_list,
+        include_content=True,  # Advanced search includes content
+        fuzzy_threshold=fuzzy_threshold,
+        limit=limit
+    )
+
+    return await unified_fuzzy_search(db, current_user.uuid, sanitized_query, config)
 
 
 @router.get("/fuzzy-search-light")
 async def fuzzy_search_light(
-    query: str = Query(..., min_length=2),
-    limit: int = Query(30, ge=1, le=100),
-    modules: str = Query(None, description="Comma-separated list of modules to search (todo,project,note,document,diary,archive)"),
-    fuzzy_threshold: int = Query(70, ge=0, le=100, description="Minimum fuzzy match score (0-100)"),
+    query: str = Query(..., min_length=2, max_length=500),
+    limit: int = Query(DEFAULT_SEARCH_LIMIT, ge=1, le=100),
+    modules: str = Query(None, description="Comma-separated list of modules to search (todo,project,note,document,archive). Note: diary entries use dedicated FTS5 search."),
+    fuzzy_threshold: int = Query(DEFAULT_FUZZY_THRESHOLD, ge=0, le=100, description="Minimum fuzzy match score (0-100)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ) -> List[Dict[str, Any]]:
     """
-    Lighter fuzzy search - searches title, description, tags only (NO full content)
-    Faster than advanced_fuzzy_search
+    Lightweight typo-tolerant fuzzy search (title, description, tags only - NO full content).
+    
+    Similar to /advanced-fuzzy-search but excludes full content from matching, making it faster
+    and less memory-intensive. Best for quick searches when you don't need content matching.
+    
+    PERFORMANCE WARNING: Still loads items into memory for fuzzy matching. For exact text search,
+    use /search (FTS5) instead.
     """
-    results = []
-    created_by = current_user.uuid
-    # Parse modules param
-    allowed_modules = {"todo", "project", "note", "document", "diary", "archive"}
-    if modules:
-        selected_modules = set(m.strip().lower() for m in modules.split(",") if m.strip()) & allowed_modules
-        if not selected_modules:
-            selected_modules = allowed_modules
-    else:
-        selected_modules = allowed_modules
-    
-    # --- TODOS & PROJECTS ---
-    if "todo" in selected_modules:
-        todo_rows = (await db.execute(select(Todo).options(selectinload(Todo.tag_objs), selectinload(Todo.projects)).where(Todo.created_by == created_by, Todo.is_deleted == False))).scalars().all()
-        for todo in todo_rows:
-            # Get first project from M2M relationship
-            project = todo.projects[0] if todo.projects else None
-            todo_tags = [t.name for t in getattr(todo, 'tag_objs', [])] if hasattr(todo, 'tag_objs') else []
-            # LIGHT: title + description + tags + project name (same as advanced)
-            search_blob = f"{todo.title or ''} {todo.description or ''} {' '.join(todo_tags)} {project.name if project else ''}"
-            score = fuzz.token_set_ratio(query, search_blob)
-            if score >= fuzzy_threshold:
-                results.append({
-                    "type": "todo",
-                    "title": todo.title,
-                    "tags": todo_tags,
-                    "description": todo.description,
-                    "module": "todo",
-                    "created_at": todo.created_at,
-                    "media_count": None,
-                    "type_info": f"{project.name if project else ''}: {todo.title}",
-                    "score": score
-                })
-    
-    if "project" in selected_modules:
-        project_map = {p.uuid: p for p in (await db.execute(select(Project).options(selectinload(Project.tag_objs)).where(Project.created_by == created_by, Project.is_deleted == False))).scalars().all()}
-        for project in project_map.values():
-            project_tags = [t.name for t in getattr(project, 'tag_objs', [])] if hasattr(project, 'tag_objs') else []
-            # LIGHT: name + description + tags (same as advanced)
-            search_blob = f"{project.name or ''} {project.description or ''} {' '.join(project_tags)}"
-            score = fuzz.token_set_ratio(query, search_blob)
-            if score >= fuzzy_threshold:
-                results.append({
-                    "type": "project",
-                    "title": project.name,
-                    "tags": project_tags,
-                    "description": project.description,
-                    "module": "project",
-                    "created_at": project.created_at,
-                    "media_count": None,
-                    "type_info": project.name,
-                    "score": score
-                })
-    
-    # --- NOTES ---
-    if "note" in selected_modules:
-        note_rows = (await db.execute(select(Note).options(selectinload(Note.tag_objs)).where(Note.created_by == created_by, Note.is_deleted == False))).scalars().all()
-        for note in note_rows:
-            note_tags = [t.name for t in getattr(note, 'tag_objs', [])] if hasattr(note, 'tag_objs') else []
-            # LIGHT: title + tags ONLY (NO content!)
-            search_blob = f"{note.title or ''} {' '.join(note_tags)}"
-            score = fuzz.token_set_ratio(query, search_blob)
-            if score >= fuzzy_threshold:
-                results.append({
-                    "type": "note",
-                    "title": note.title,
-                    "tags": note_tags,
-                    "description": None,
-                    "module": "note",
-                    "created_at": note.created_at,
-                    "media_count": None,
-                    "type_info": note.title,
-                    "score": score
-                })
-    
-    # --- DOCUMENTS ---
-    if "document" in selected_modules:
-        doc_rows = (await db.execute(select(Document).options(selectinload(Document.tag_objs)).where(Document.created_by == created_by, Document.is_deleted == False))).scalars().all()
-        for doc in doc_rows:
-            doc_tags = [t.name for t in getattr(doc, 'tag_objs', [])] if hasattr(doc, 'tag_objs') else []
-            # LIGHT: title + filename + description + tags (same as advanced)
-            search_blob = f"{doc.title or ''} {doc.original_name or ''} {doc.description or ''} {' '.join(doc_tags)}"
-            score = fuzz.token_set_ratio(query, search_blob)
-            if score >= fuzzy_threshold:
-                results.append({
-                    "type": "document",
-                    "title": doc.title or doc.original_name,
-                    "tags": doc_tags,
-                    "description": doc.description,
-                    "module": "document",
-                    "created_at": doc.created_at,
-                    "media_count": None,
-                    "type_info": doc.title or doc.original_name,
-                    "score": score
-                })
-    
-    # --- DIARY ---
-    if "diary" in selected_modules:
-        diary_rows = (await db.execute(select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.created_by == created_by, DiaryEntry.is_deleted == False))).scalars().all()
-        for entry in diary_rows:
-            diary_tags = [t.name for t in getattr(entry, 'tag_objs', [])] if hasattr(entry, 'tag_objs') else []
-            # Include structured fields like weather_code and location
-            weather = f"weather_{entry.weather_code}" if entry.weather_code else ""
-            location = entry.location or ""
-            # LIGHT: title + tags + metadata (same as advanced - no content anyway)
-            search_blob = f"{entry.title or ''} {' '.join(diary_tags)} {weather} {location} {entry.date}"
-            score = fuzz.token_set_ratio(query, search_blob)
-            if score >= fuzzy_threshold:
-                results.append({
-                    "type": "diary",
-                    "title": entry.title,
-                    "tags": diary_tags,
-                    "description": None,
-                    "module": "diary",
-                    "created_at": entry.created_at,
-                    "media_count": entry.media_count if hasattr(entry, 'media_count') else None,
-                    "type_info": entry.title,
-                    "score": score
-                })
-    
-    # --- ARCHIVE ---
-    if "archive" in selected_modules:
-        archive_rows = (await db.execute(select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.created_by == created_by, ArchiveItem.is_deleted == False))).scalars().all()
-        for item in archive_rows:
-            archive_tags = [t.name for t in getattr(item, 'tag_objs', [])] if hasattr(item, 'tag_objs') else []
-            meta = {}
-            if item.metadata_json:
-                try:
-                    meta = json.loads(item.metadata_json)
-                except json.JSONDecodeError:
-                    meta = {}
-            meta_flat = ' '.join([str(v) for v in meta.values()])
-            # LIGHT: name + filename + description + tags + metadata (same as advanced)
-            search_blob = f"{item.name or ''} {item.original_filename or ''} {item.description or ''} {' '.join(archive_tags)} {meta_flat}"
-            score = fuzz.token_set_ratio(query, search_blob)
-            if score >= fuzzy_threshold:
-                results.append({
-                    "type": "archive",
-                    "title": item.name,
-                    "tags": archive_tags,
-                    "description": item.description,
-                    "module": "archive",
-                    "created_at": item.created_at,
-                    "media_count": None,
-                    "type_info": item.name,
-                    "score": score
-                })
-    
-    # Sort by score descending, return top N
-    results.sort(key=lambda x: x['score'], reverse=True)
-    return results[:limit] 
+    # Validate and sanitize search query
+    sanitized_query = sanitize_search_query(query)
+
+    # Parse and validate modules param
+    # Note: diary entries are excluded from global fuzzy search - use dedicated diary FTS5 interface
+    module_list = validate_and_parse_modules(modules) if modules else None
+
+    # Create config for light search (excludes content)
+    config = SearchConfig(
+        modules=module_list,
+        include_content=False,  # Light search excludes content
+        fuzzy_threshold=fuzzy_threshold,
+        limit=limit
+    )
+
+    return await unified_fuzzy_search(db, current_user.uuid, sanitized_query, config)

@@ -1,4 +1,3 @@
-import pytest
 
 
 def test_removed_columns_not_present_models():

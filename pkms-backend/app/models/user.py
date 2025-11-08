@@ -4,7 +4,7 @@ User Model for Authentication and User Management
 
 from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.orm import relationship
-from uuid import uuid4
+from uuid6 import uuid7
 
 from app.models.base import Base
 from app.config import nepal_now
@@ -20,7 +20,7 @@ class User(Base):
     
     __tablename__ = "users"
     
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=True)
     password_hash = Column(String(255), nullable=False)  # bcrypt hash (includes salt)
@@ -40,6 +40,7 @@ class User(Base):
     # Relationships
     sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
     recovery_keys = relationship("RecoveryKey", back_populates="user", cascade="all, delete-orphan")
+    password_resets = relationship("PasswordReset", back_populates="user", cascade="all, delete-orphan")
     notes = relationship("Note", back_populates="user", cascade="all, delete-orphan", foreign_keys="Note.created_by")
     # note_files relationship removed - replaced with note_documents junction table
     documents = relationship("Document", back_populates="user", cascade="all, delete-orphan", foreign_keys="Document.created_by")
@@ -82,7 +83,7 @@ class RecoveryKey(Base):
     
     __tablename__ = "recovery_keys"
     
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     key_hash = Column(String(255), nullable=False)
     questions_json = Column(Text, nullable=False)  # Security questions as JSON
@@ -95,4 +96,25 @@ class RecoveryKey(Base):
     user = relationship("User", back_populates="recovery_keys")
     
     def __repr__(self):
-        return f"<RecoveryKey(uuid={self.uuid}, created_by={self.created_by})>" 
+        return f"<RecoveryKey(uuid={self.uuid}, created_by={self.created_by})>"
+
+
+class PasswordReset(Base):
+    """Email-based password reset system with secure tokens"""
+
+    __tablename__ = "password_resets"
+
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
+    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    token = Column(String(255), nullable=False, unique=True, index=True)  # Secure reset token
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)  # When token was used
+    ip_address = Column(String(45), nullable=True)  # IPv6 support
+    user_agent = Column(String(500), nullable=True)
+
+    # Relationships
+    user = relationship("User", back_populates="password_resets")
+
+    def __repr__(self):
+        return f"<PasswordReset(uuid={self.uuid}, user_uuid={self.user_uuid}, used_at={self.used_at})>" 

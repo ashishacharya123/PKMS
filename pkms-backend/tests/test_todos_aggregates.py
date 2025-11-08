@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from httpx import AsyncClient
 from app.models.todo import Todo
 from app.models.project import Project
-from app.models.enums import TodoStatus, TaskPriority
+from app.models.enums import TodoStatus
 
 
 @pytest.mark.asyncio
@@ -36,8 +36,10 @@ async def test_list_projects_grouped_counts(async_client: AsyncClient, db_sessio
     assert r.status_code == 200
     rows = r.json()
     by_uuid = {row["uuid"]: row for row in rows}
-    assert by_uuid["p1"]["total_todos"] == 2 or by_uuid["p1"].get("total", 2) == 2
-    assert by_uuid["p1"].get("completed_todos") in (1, by_uuid["p1"].get("completed"))
-    assert by_uuid["p2"].get("completed_todos") in (1, by_uuid["p2"].get("completed"))
+    # Assert on canonical field names returned by /api/v1/projects
+    assert by_uuid["p1"]["total_todos"] == 2
+    assert by_uuid["p1"]["completed_todos"] == 1
+    assert by_uuid["p2"]["total_todos"] == 1
+    assert by_uuid["p2"]["completed_todos"] == 1
 
 

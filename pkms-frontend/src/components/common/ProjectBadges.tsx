@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 export interface ProjectBadge {
   uuid: string | null;
   name: string;
-  color: string;
+  color?: string;
   isProjectExclusive: boolean;
   isDeleted: boolean;
 }
@@ -64,7 +64,7 @@ export const ProjectBadges: React.FC<ProjectBadgesProps> = ({
             withArrow
           >
             <Badge
-              color={project.isDeleted ? 'gray' : project.color}
+              color={project.isDeleted ? 'gray' : 'blue'}
               variant={project.isDeleted ? 'outline' : 'light'}
               size={size}
               style={{

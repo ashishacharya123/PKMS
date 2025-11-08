@@ -2,6 +2,7 @@ from pydantic import Field, field_validator, model_validator, EmailStr
 from typing import Optional, List
 from datetime import datetime
 import re
+import uuid
 from .base import CamelCaseModel
 
 USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{3,50}$')
@@ -134,6 +135,15 @@ class UserResponse(CamelCaseModel):
     created_at: datetime
     updated_at: datetime
     last_login: Optional[datetime]
+    
+    @field_validator('uuid')
+    @classmethod
+    def validate_uuid_format(cls, v):
+        try:
+            uuid.UUID(v)
+        except ValueError as e:
+            raise ValueError('uuid must be a valid UUID') from e
+        return v
 
 class RefreshTokenRequest(CamelCaseModel):
     pass
@@ -150,7 +160,7 @@ class UsernameBody(CamelCaseModel):
 
 class LoginPasswordHintUpdate(CamelCaseModel):
     hint: str = Field(..., max_length=255)
-    
+
     @field_validator('hint')
     @classmethod
     def validate_hint(cls, v):
@@ -159,4 +169,33 @@ class LoginPasswordHintUpdate(CamelCaseModel):
             raise ValueError('Hint cannot be empty')
         if len(v) < 2:
             raise ValueError('Hint must be at least 2 characters long')
+        return v
+
+class PasswordResetRequest(CamelCaseModel):
+    username: str = Field(..., min_length=3, max_length=50)
+    email: Optional[EmailStr] = None  # Optional verification
+
+    @field_validator('username')
+    @classmethod
+    def validate_username(cls, v):
+        if not USERNAME_PATTERN.match(v):
+            raise ValueError('Invalid username format')
+        return v.strip()
+
+class PasswordResetConfirm(CamelCaseModel):
+    token: str = Field(..., min_length=32, max_length=255)
+    new_password: str = Field(..., min_length=8, max_length=72)  # Bcrypt limitation
+
+    @field_validator('token')
+    @classmethod
+    def validate_token(cls, v):
+        if not v or len(v.strip()) < 32:
+            raise ValueError('Invalid reset token')
+        return v.strip()
+
+    @field_validator('new_password')
+    @classmethod
+    def validate_new_password(cls, v):
+        if any(char in v for char in ['<', '>', '&', '"', "'"]):
+            raise ValueError('Password contains unsafe characters')
         return v

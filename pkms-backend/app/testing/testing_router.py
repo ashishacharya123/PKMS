@@ -5,15 +5,15 @@ Router for testing and debugging purposes.
 from fastapi import APIRouter
 from datetime import datetime
 from app.config import NEPAL_TZ
+from app.database import get_db_session
+from app.models.todo import Todo
+from sqlalchemy import select
 
 router = APIRouter()
 
 @router.get("/test-todos")
 async def test_todos():
     try:
-        from app.database import get_db_session
-        from app.models.todo import Todo
-        from sqlalchemy import select
         
         async with get_db_session() as db:
             # Just test if we can query todos without errors

@@ -39,8 +39,7 @@
  * 📁 calendar/ - Calendar and scheduling components
  *    Purpose: Date selection, event scheduling, timeline visualization
  *    Components:
- *      - UnifiedCalendar_unused.tsx: Legacy calendar (DEPRECATED)
- *    Note: This component is unused and can be removed in cleanup
+ *      - (No active calendar components - calendar functionality integrated in other modules)
  *
  * 📁 common/ - Shared reusable UI components
  *    Purpose: UI patterns used across multiple features
@@ -280,9 +279,6 @@
  * ──────────────────────────────────────────────────────────────────────────────
  * MAINTENANCE & CLEANUP NOTES
  * ──────────────────────────────────────────────────────────────────────────────
- *
- * TODO: Remove deprecated components:
- * - /calendar/UnifiedCalendar_unused.tsx (unused legacy calendar)
  *
  * TODO: Improve component consistency:
  * - Ensure all modals follow consistent close/confirm patterns

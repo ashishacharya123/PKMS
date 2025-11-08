@@ -2,9 +2,9 @@
 Note Model for Knowledge Management
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Index, CheckConstraint
 from sqlalchemy.orm import relationship
-from uuid import uuid4
+from uuid6 import uuid7
 
 from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
@@ -17,18 +17,17 @@ class Note(Base, SoftDeleteMixin):
     
     __tablename__ = "notes"
     
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid4()), index=True)  # Primary key
+    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)  # Primary key
     
     title = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)  # Brief description for FTS5 search
-    content = Column(Text, nullable=False)  # Max ~65KB in SQLite TEXT
+    content = Column(Text, nullable=True)  # May be None when file-backed
     content_file_path = Column(String(500), nullable=True)  # For large content stored as files
     size_bytes = Column(BigInteger, default=0, nullable=False)  # Calculated on the fly and stored for analytics
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
     is_template = Column(Boolean, default=False, index=True)  # Template flag for reusable notes
     from_template_id = Column(String(36), nullable=True, index=True)  # Source template UUID/ID
-    # REMOVED: is_project_exclusive - exclusivity now handled in project_items association table
     # Ownership
     created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
 
@@ -54,6 +53,7 @@ class Note(Base, SoftDeleteMixin):
         Index('ix_note_user_favorite', 'created_by', 'is_favorite'),
         Index('ix_note_user_template', 'created_by', 'is_template'),
         Index('ix_note_user_deleted', 'created_by', 'is_deleted'),
+        CheckConstraint('(content IS NOT NULL OR content_file_path IS NOT NULL)', name='ck_note_content_or_file')
     )
     thumbnail_path = Column(String(500), nullable=True)  # Path to note thumbnail (if applicable)
     
@@ -63,8 +63,7 @@ class Note(Base, SoftDeleteMixin):
     # Relationships
     user = relationship("User", back_populates="notes", foreign_keys=[created_by])
     tag_objs = relationship("Tag", secondary=note_tags, back_populates="notes")
-    documents = relationship("Document", secondary=note_documents, back_populates="notes")  # NEW: Documents via note_documents
-    # REMOVED: projects relationship - notes now linked to projects via polymorphic project_items
+    documents = relationship("Document", secondary=note_documents, back_populates="notes")
     
     def get_size_bytes(self):
         """Calculate content size in bytes on the fly"""
@@ -72,6 +71,3 @@ class Note(Base, SoftDeleteMixin):
 
     def __repr__(self):
         return f"<Note(uuid={self.uuid}, title='{self.title}')>"
-
-
-# NoteFile class removed - replaced with note_documents junction table 

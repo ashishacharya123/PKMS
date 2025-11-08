@@ -10,17 +10,14 @@ Tests the centralized tag management functionality including:
 """
 
 import pytest
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, Select, Delete, Insert
-from typing import List
+from sqlalchemy import Select, Delete, Insert
 
 from app.services.tag_service import tag_service
 from app.models.tag import Tag
 from app.models.tag_associations import (
-    note_tags, document_tags, todo_tags,
-    archive_item_tags, archive_folder_tags, diary_entry_tags
+    note_tags, document_tags
 )
 
 
@@ -68,12 +65,11 @@ class TestTagService:
 
         # Test data
         tag_names = ["Important", "WORK", "personal"]  # Mixed case
-        module_type = "notes"
         association_table = note_tags
 
-        # Execute
+        # Execute - module_type removed as tags are now universal
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_created_by, module_type, association_table
+            mock_db, mock_item, tag_names, mock_created_by, None, association_table
         )
 
         # Verify tag creation calls
@@ -89,7 +85,7 @@ class TestTagService:
         # Verify usage_count is set to 1 for new tags
         for tag in added_tags:
             assert tag.usage_count == 1
-            assert tag.module_type == module_type
+            # module_type removed - tags are now universal
             assert tag.created_by == mock_created_by
 
     @pytest.mark.asyncio
@@ -105,7 +101,7 @@ class TestTagService:
             uuid="existing-tag-uuid",
             name="important",
             created_by=mock_created_by,
-            module_type="notes",
+            # module_type removed - tags are now universal
             usage_count=5
         )
         async def execute_router(_stmt, *_args, **_kwargs):
@@ -123,12 +119,12 @@ class TestTagService:
 
         # Test data
         tag_names = ["Important"]  # Case-insensitive match
-        module_type = "notes"
+        # module_type removed - tags are now universal
         association_table = note_tags
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_created_by, module_type, association_table
+            mock_db, mock_item, tag_names, mock_created_by, None, association_table
         )
 
         # Verify usage count was incremented
@@ -145,14 +141,14 @@ class TestTagService:
             uuid="tag1-uuid",
             name="old_tag",
             created_by=mock_created_by,
-            module_type="notes",
+            # module_type removed - tags are now universal
             usage_count=3
         )
         existing_tag2 = Tag(
             uuid="tag2-uuid", 
             name="another_tag",
             created_by=mock_created_by,
-            module_type="notes",
+            # module_type removed - tags are now universal
             usage_count=2
         )
         mock_existing_result = AsyncMock()
@@ -172,12 +168,12 @@ class TestTagService:
 
         # Test data - removing old tags, adding new one
         tag_names = ["new_tag"]
-        module_type = "notes"
+        # module_type removed - tags are now universal
         association_table = note_tags
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_created_by, module_type, association_table
+            mock_db, mock_item, tag_names, mock_created_by, None, association_table
         )
 
         # Verify usage counts were decremented for removed tags
@@ -195,7 +191,7 @@ class TestTagService:
             uuid="tag1-uuid",
             name="IMPORTANT",  # Uppercase in DB
             created_by=mock_created_by,
-            module_type="notes",
+            # module_type removed - tags are now universal
             usage_count=2
         )
         mock_existing_result = AsyncMock()
@@ -215,12 +211,12 @@ class TestTagService:
 
         # Test data - same tag with different case
         tag_names = ["important"]  # Lowercase in input
-        module_type = "notes"
+        # module_type removed - tags are now universal
         association_table = note_tags
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_created_by, module_type, association_table
+            mock_db, mock_item, tag_names, mock_created_by, None, association_table
         )
 
         # Verify usage count was incremented (tag was recognized as existing)
@@ -239,12 +235,12 @@ class TestTagService:
 
         # Test data
         tag_names = []
-        module_type = "notes"
+        # module_type removed - tags are now universal
         association_table = note_tags
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_created_by, module_type, association_table
+            mock_db, mock_item, tag_names, mock_created_by, None, association_table
         )
 
         # Verify no tags were created
@@ -274,12 +270,12 @@ class TestTagService:
 
         # Test data with whitespace
         tag_names = ["  Important  ", "  Work  ", ""]  # Whitespace and empty string
-        module_type = "notes"
+        # module_type removed - tags are now universal
         association_table = note_tags
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_created_by, module_type, association_table
+            mock_db, mock_item, tag_names, mock_created_by, None, association_table
         )
 
         # Verify only 2 tags were created (empty string filtered out)
@@ -292,8 +288,8 @@ class TestTagService:
         assert "work" in tag_names_lower
 
     @pytest.mark.asyncio
-    async def test_handle_tags_module_isolation(self, mock_db, mock_item, mock_created_by):
-        """Test that tags are isolated by module type"""
+    async def test_handle_tags_universal_tagging(self, mock_db, mock_item, mock_created_by):
+        """Test that tags work universally across all modules"""
         # Mock existing tags query (no existing tags)
         mock_result = AsyncMock()
         mock_result.scalars.return_value.all.return_value = []
@@ -312,18 +308,16 @@ class TestTagService:
 
         # Test data
         tag_names = ["important"]
-        module_type = "documents"  # Different module
+        # Tags are now universal - can be used with any association table
         association_table = document_tags
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_created_by, module_type, association_table
+            mock_db, mock_item, tag_names, mock_created_by, None, association_table
         )
 
-        # Verify tag was created with correct module type
+        # Verify tag was created (universal tagging works across all modules)
         mock_db.add.assert_called_once()
-        created_tag = mock_db.add.call_args[0][0]
-        assert created_tag.module_type == "documents"
 
     @pytest.mark.asyncio
     async def test_decrement_tags_on_delete(self, mock_db, mock_item):
@@ -377,7 +371,7 @@ class TestTagService:
             uuid="tag1-uuid",
             name="test_tag",
             created_by=mock_created_by,
-            module_type="notes",
+            # module_type removed - tags are now universal
             usage_count=0  # Already at 0
         )
         mock_existing_result = AsyncMock()
@@ -402,12 +396,12 @@ class TestTagService:
 
         # Test data - removing existing tag, adding new one
         tag_names = ["new_tag"]
-        module_type = "notes"
+        # module_type removed - tags are now universal
         association_table = note_tags
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_created_by, module_type, association_table
+            mock_db, mock_item, tag_names, mock_created_by, None, association_table
         )
 
         # Verify usage count didn't go negative
@@ -421,14 +415,14 @@ class TestTagService:
             uuid="tag1-uuid",
             name="keep_tag",
             created_by=mock_created_by,
-            module_type="notes",
+            # module_type removed - tags are now universal
             usage_count=2
         )
         existing_tag2 = Tag(
             uuid="tag2-uuid",
             name="remove_tag",
             created_by=mock_created_by,
-            module_type="notes",
+            # module_type removed - tags are now universal
             usage_count=3
         )
         mock_existing_result = AsyncMock()
@@ -462,12 +456,12 @@ class TestTagService:
 
         # Test data - keep one, remove one, add one
         tag_names = ["keep_tag", "new_tag"]
-        module_type = "notes"
+        # module_type removed - tags are now universal
         association_table = note_tags
 
         # Execute
         await tag_service.handle_tags(
-            mock_db, mock_item, tag_names, mock_created_by, module_type, association_table
+            mock_db, mock_item, tag_names, mock_created_by, None, association_table
         )
 
         # Verify usage counts

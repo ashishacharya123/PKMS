@@ -28,7 +28,8 @@ import {
   IconBook,
   IconTrendingUp,
   IconAlertTriangle,
-  IconRefresh
+  IconRefresh,
+  IconArchive
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
 import { dashboardService } from '../../services/dashboardService';

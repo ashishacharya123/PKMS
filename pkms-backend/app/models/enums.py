@@ -76,3 +76,8 @@ class ModuleStatsKey(str, enum.Enum):
     """Module statistics keys for dashboard"""
     TOTAL = "total"
     RECENT = "recent"
+
+class ProjectStatsKey(str, enum.Enum):
+    """Project statistics keys for dashboard (projects expose active count)"""
+    TOTAL = "total"
+    ACTIVE = "active"

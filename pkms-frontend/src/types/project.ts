@@ -19,19 +19,30 @@ export interface ProjectBadge {
 export interface ProjectCreate extends BaseCreateRequest {
   name: string;
   description?: string;
-  priority?: TaskPriority;
-  dueDate?: string;
+  sortOrder?: number; // sort_order in backend
   status?: ProjectStatus;
-  tags?: string[];
+  priority?: TaskPriority;
+  isArchived?: boolean;
+  isFavorite?: boolean;
+  progressPercentage?: number; // 0-100
+  startDate?: string;
+  dueDate?: string;
+  tags?: string[]; // Max 20 items
 }
 
 export interface ProjectUpdate extends BaseUpdateRequest {
   name?: string;
   description?: string;
-  priority?: TaskPriority;
-  dueDate?: string;
+  sortOrder?: number; // sort_order in backend
   status?: ProjectStatus;
-  tags?: string[];
+  priority?: TaskPriority;
+  isArchived?: boolean;
+  isFavorite?: boolean;
+  progressPercentage?: number; // 0-100
+  startDate?: string;
+  dueDate?: string;
+  completionDate?: string; // When project was actually completed
+  tags?: string[]; // Max 20 items
 }
 
 export interface Project extends BaseEntity {
@@ -39,11 +50,30 @@ export interface Project extends BaseEntity {
   description?: string;
   status: ProjectStatus; // Enum type
   priority: TaskPriority; // Enum type
-  dueDate: string | null;  // NEW - Professional project management
-  completionDate: string | null;  // NEW - When project was actually completed
-  progressPercentage: number;
-  todoCount: number;
-  completedCount: number;
+  sortOrder: number; // sort_order in backend
+  isArchived: boolean;
+  isFavorite: boolean;
+  isDeleted: boolean;
+  progressPercentage: number; // 0-100
+  startDate?: string;
+  dueDate?: string; // Professional project management
+  completionDate?: string; // When project was actually completed
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+
+  // Computed fields from backend
+  todoCount: number; // todo_count in backend
+  completedCount: number; // completed_count in backend
+  documentCount: number; // document_count in backend
+  noteCount: number; // note_count in backend
+  tagCount: number; // tag_count in backend
+  actualProgress: number; // actual_progress in backend
+  daysRemaining?: number; // days_remaining in backend
+
+  // Relationships
+  tags: string[];
+
   // NO color, NO icon (removed in backend)
 }
 
@@ -56,6 +86,15 @@ export interface ProjectSummary extends BaseSummary {
   progressPercentage: number;
   todoCount: number;
   completedCount: number;
+  // Backend fields missing from frontend
+  sortOrder: number;
+  startDate?: string;
+  documentCount: number;
+  noteCount: number;
+  tagCount: number;
+  isArchived: boolean;
+  isFavorite: boolean;
+  isDeleted: boolean;
 }
 
 export interface ProjectBadgeResponse {

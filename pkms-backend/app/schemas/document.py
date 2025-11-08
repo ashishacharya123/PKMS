@@ -2,6 +2,7 @@ from pydantic import Field, field_validator
 from typing import Optional
 from datetime import datetime
 from .base import CamelCaseModel
+from app.schemas.project import ProjectBadge
 
 
 class DocumentCreate(CamelCaseModel):
@@ -39,7 +40,6 @@ class DocumentUpdate(CamelCaseModel):
     # is_project_exclusive and is_diary_exclusive removed - exclusivity now handled via association tables
 
 # UploadStatus import removed - documents no longer store upload status
-from app.schemas.project import ProjectBadge
 
 class DocumentResponse(CamelCaseModel):
     """Simple DocumentResponse using CamelCaseModel automatic conversion"""
@@ -60,6 +60,7 @@ class DocumentResponse(CamelCaseModel):
     updated_at: datetime
     tags: list[str]
     projects: list[ProjectBadge] = Field(default_factory=list, description="Projects this document belongs to")
+    created_by: str  # ✅ ADDED - User who created the document
 
 class CommitDocumentUploadRequest(CamelCaseModel):
     file_id: str

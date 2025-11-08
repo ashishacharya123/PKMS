@@ -1,0 +1,331 @@
+MAJOR GAPS IDENTIFIED
+
+  1. Security & Encryption (COMPLETED MISSING)
+
+  // OLD: Full encryption system
+  const [unlockModalOpen, setUnlockModalOpen] = useState(false);
+  const [passwordHint, setPasswordHint] = useState('');
+  store.unlockSession(encryptionPassword);
+  store.lockSession();
+  store.isEncryptionSetup && !store.isUnlocked
+  NEW: Missing entirely - No password protection, no encryption status, no session locking
+
+  2. Interactive Calendar (COMPLETED MISSING)
+
+  // OLD: Full-featured calendar
+  <Calendar
+    date={selectedDate}
+    onDateChange={(date) => setSelectedDate(date || new Date())}
+    renderDay={renderDay}
+    getDayProps={(date) => ({ onClick: () => handleDateClick(date) })}
+  />
+  NEW: Missing - Current DiaryPage has analytics tabs but no interactive calendar
+
+  3. Historical Data Access (COMPLETED MISSING)
+
+  // OLD: Historical entries component
+  <HistoricalEntries onViewEntry={handleViewEntry} />
+  NEW: Missing - No way to view past entries (yesterday, last week, month, year)
+
+  4. Rich Entry Management (PARTIALLY MISSING)
+
+  // OLD: Advanced features
+  - Media preview modal
+  - Keyboard shortcuts help
+  - Advanced diary search
+  - Session timeout warnings
+  - Wellness analytics panel
+  - Daily metrics panel
+  NEW: Missing - Most of these advanced features are absent
+
+  COMPONENT EXISTENCE ANALYSIS
+
+  | Component             | Exists | Status in New Diary |
+  |-----------------------|--------|---------------------|
+  | EncryptionStatus      | ✅      | MISSING             |
+  | HistoricalEntries     | ✅      | MISSING             |
+  | SessionTimeoutWarning | ✅      | MISSING             |
+  | KeyboardShortcutsHelp | ✅      | MISSING             |
+  | AdvancedDiarySearch   | ✅      | MISSING             |
+  | DailyMetricsPanel     | ✅      | MISSING             |
+  | WellnessAnalytics     | ✅      | MISSING             |
+  | Calendar              | ✅      | MISSING             |
+
+  📋 COMPREHENSIVE REFACTORING PLAN
+
+  Phase 1: Security Foundation (PRIORITY: HIGH)
+
+  Timeline: 2-3 days
+  Goal: Restore password protection and encryption system
+
+  1.1 Implement Encryption Status Component
+
+  // Add to DiaryPage.tsx
+  import EncryptionStatus from '../components/diary/EncryptionStatus';
+
+  // In render:
+  <EncryptionStatus
+    isUnlocked={store.isUnlocked}
+    onLock={store.lockSession}
+    onUnlock={() => setUnlockModalOpen(true)}
+  />
+
+  1.2 Add Password Unlock Modal
+
+  // Add unlock state
+  const [unlockModalOpen, setUnlockModalOpen] = useState(false);
+  const [encryptionPassword, setEncryptionPassword] = useState('');
+  const [passwordHint, setPasswordHint] = useState('');
+
+  // Auto-show unlock modal
+  useEffect(() => {
+    if (store.isEncryptionSetup && !store.isUnlocked) {
+      setUnlockModalOpen(true);
+    }
+  }, [store.isEncryptionSetup, store.isUnlocked]);
+
+  1.3 Implement Session Management
+
+  // Auto-lock when leaving page
+  useEffect(() => {
+    return () => {
+      if (store.isUnlocked) {
+        setTimeout(() => store.lockSession(), 5 * 60 * 1000); // 5 minutes
+      }
+    };
+  }, [store.isUnlocked]);
+
+  Phase 2: Interactive Calendar (PRIORITY: HIGH)
+
+  Timeline: 2-3 days
+  Goal: Restore full calendar navigation functionality
+
+  2.1 Add Calendar Component
+
+  import { Calendar } from '@mantine/dates';
+
+  // State management
+  const [selectedDate, setSelectedDate] = useState<Date | null>(new Date());
+
+  // Calendar rendering
+  <Calendar
+    date={selectedDate}
+    onDateChange={(date) => setSelectedDate(date || new Date())}
+    renderDay={renderDay}
+    getDayProps={(date) => ({
+      onClick: () => handleDateClick(date),
+      disabled: !store.isUnlocked
+    })}
+  />
+
+  2.2 Implement Date Selection Handlers
+
+  const handleDateClick = (date: Date) => {
+    setSelectedDate(date);
+    // Load entries for selected date
+    store.loadEntriesForDate(date);
+  };
+
+  const renderDay = (date: Date) => {
+    const hasEntry = store.entries.some(entry =>
+      entry.date === date.toISOString().split('T')[0]
+    );
+    return hasEntry ? <Indicator /> : null;
+  };
+
+  2.3 Integrate with Existing Store Methods
+
+  // Ensure diary store has required methods
+  store.loadCalendarData(year, month);
+  store.loadEntriesForDate(date);
+  store.getEntriesByDate(date);
+
+  Phase 3: Historical Data Access (PRIORITY: MEDIUM)
+
+  Timeline: 2 days
+  Goal: Restore ability to view past entries
+
+  3.1 Add Historical Entries Component
+
+  import { HistoricalEntries } from '../components/diary/HistoricalEntries';
+
+  // In render:
+  <HistoricalEntries onViewEntry={handleViewEntry} />
+
+  3.2 Implement Navigation Handlers
+
+  const handleViewEntry = (entryId: string) => {
+    navigate(`/diary/${entryId}`);
+  };
+
+  Phase 4: Rich Features Integration (PRIORITY: MEDIUM)
+
+  Timeline: 3-4 days
+  Goal: Add advanced diary features
+
+  4.1 Add Advanced Components
+
+  import { AdvancedDiarySearch } from '../components/diary/AdvancedDiarySearch';
+  import { KeyboardShortcutsButton } from '../components/diary/KeyboardShortcutsHelp';
+  import { SessionTimeoutWarning } from '../components/diary/SessionTimeoutWarning';
+  import { DailyMetricsPanel } from '../components/diary/DailyMetricsPanel';
+  import { WellnessAnalytics } from '../components/diary/WellnessAnalytics';
+
+  4.2 Implement Media Preview
+
+  const [mediaPreview, setMediaPreview] = useState<{url: string, name: string} | null>(null);
+
+  // Media preview modal
+  <Modal
+    opened={!!mediaPreview}
+    onClose={() => {
+      if (mediaPreview?.url) {
+        URL.revokeObjectURL(mediaPreview.url);
+      }
+      setMediaPreview(null);
+    }}
+    title={mediaPreview?.name || 'Photo'}
+    size="auto"
+  >
+    <Image src={mediaPreview?.url} alt={mediaPreview?.name} />
+  </Modal>
+
+  Phase 5: UI/UX Enhancement (PRIORITY: LOW)
+
+  Timeline: 2 days
+  Goal: Polish and optimize user experience
+
+  5.1 Optimize Layout Structure
+
+  // Replace current analytics-only layout with comprehensive diary layout
+  <Stack gap="lg">
+    {/* Header with security status */}
+    <ModuleHeader
+      title="🧠 Personal Diary"
+      customActions={<EncryptionStatus />}
+    />
+
+    {/* Two-column layout */}
+    <Grid>
+      <Grid.Col span={4}>
+        {/* Calendar */}
+        <Card withBorder>
+          <Calendar {...calendarProps} />
+        </Card>
+
+        {/* Historical entries */}
+        <HistoricalEntries />
+      </Grid.Col>
+
+      <Grid.Col span={8}>
+        {/* Entries list */}
+        {/* Current entry creation */}
+        {/* Advanced features */}
+      </Grid.Col>
+    </Grid>
+  </Stack>
+
+  🔧 MODEL REUSE ANALYSIS
+
+  Diary vs Note Creation Models
+
+  Current Note Creation Model (NoteEditorPage.tsx):
+  interface NoteData {
+    title: string;
+    content: string;
+    tags: string[];
+    projectIds: string[];
+    files: NoteFile[];
+  }
+
+  Potential Diary Creation Model (DiaryEntryModal.tsx):
+  interface DiaryEntryData {
+    title?: string;
+    content?: string;
+    date: string; // Required
+    mood?: number; // 1-5 scale
+    weather_code?: number;
+    files: UnifiedFileItem[];
+  }
+
+  Reusable Patterns
+
+  ✅ Can Reuse:
+  - Optimistic UUID pattern (entityReserveService)
+  - File upload integration (UnifiedFileSection)
+  - Auto-discard logic (save_discard_verification)
+  - Toast notifications system
+  - Form validation patterns
+
+  ❌ Cannot Reuse:
+  - Data models (different required fields)
+  - Store integration (different APIs)
+  - Component structure (different form fields)
+
+  Recommended Approach
+
+  1. Keep separate models - Diary and notes have fundamentally different data structures
+  2. Reuse infrastructure - Share UUID, file upload, and notification systems
+  3. Create base modal component - Extract common modal patterns into reusable base
+  4. Specialize per module - Keep domain-specific logic separate
+
+  📊 IMPLEMENTATION PRIORITY MATRIX
+
+  | Feature              | Priority | Impact   | Effort | Dependencies       |
+  |----------------------|----------|----------|--------|--------------------|
+  | Encryption Status    | HIGH     | Critical | Medium | store integration  |
+  | Password Unlock      | HIGH     | Critical | Medium | encryption system  |
+  | Interactive Calendar | HIGH     | High     | Medium | date handling      |
+  | Historical Entries   | MEDIUM   | High     | Low    | existing component |
+  | Media Preview        | MEDIUM   | Medium   | Low    | file handling      |
+  | Advanced Search      | LOW      | Medium   | Low    | search service     |
+  | Keyboard Shortcuts   | LOW      | Low      | Low    | no dependencies    |
+  | Session Management   | HIGH     | Critical | Low    | store methods      |
+
+  🎯 SUCCESS CRITERIA
+
+  Phase 1 Completion (Security)
+
+  - ✅ Diary can be locked/unlocked with password
+  - ✅ Encryption status is clearly visible
+  - ✅ Session timeout warnings work
+  - ✅ Auto-lock functionality works
+
+  Phase 2 Completion (Navigation)
+
+  - ✅ Interactive calendar with entry indicators
+  - ✅ Date selection loads corresponding entries
+  - ✅ Calendar integrates with entry creation
+
+  Phase 3 Completion (Data Access)
+
+  - ✅ Historical entries viewable
+  - ✅ Easy navigation to past entries
+  - ✅ Temporal filtering works
+
+  Final State
+
+  - ✅ All old diary functionality restored
+  - ✅ New optimistic UUID features integrated
+  - ✅ Consistent UX with other modules
+  - ✅ Security and performance maintained
+
+  🚀 NEXT STEPS
+
+  1. Start with Phase 1 (Security) - Critical for basic functionality
+  2. Move to Phase 2 (Calendar) - Core navigation feature
+  3. Add Phase 3 (Historical) - Enhances data accessibility
+  4. Polish with Phase 4-5 - Advanced features and UX improvements
+
+  This comprehensive plan ensures we restore all critical diary functionality while maintaining the new optimistic UUID improvements we just
+  implemented. The approach is systematic, prioritized, and minimizes risk by working in phases.
+
+> Few things are restored
+  ⎿  Interrupted · What should Claude do instead?
+
+  Todos
+  ☒ Search for old diary page files
+  ☒ Add proper docstrings to DiaryEntryModal
+  ☐ Analyze missing diary features (calendar, password, historical data)
+  ☐ Create detailed diary refactoring plan
+  ☐ Evaluate model reuse possibilities

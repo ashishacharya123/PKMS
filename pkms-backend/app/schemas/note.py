@@ -3,11 +3,10 @@ from typing import Optional, List
 from datetime import datetime
 import re
 from .base import CamelCaseModel
+from app.schemas.project import ProjectBadge
 
 # UUID4 regex pattern - hoisted to module scope for performance
 UUID4_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
-
-from app.schemas.project import ProjectBadge
 
 
 class NoteCreate(CamelCaseModel):
@@ -65,18 +64,19 @@ class NoteUpdate(CamelCaseModel):
 class NoteResponse(CamelCaseModel):
     uuid: str
     title: str
-    content: str
+    content: Optional[str]  # ✅ Allow null for file-backed notes
+    contentFilePath: Optional[str] = Field(alias="content_file_path")  # ✅ Expose file path
     fileCount: int = Field(alias="file_count")
     thumbnailPath: Optional[str] = Field(alias="thumbnail_path")  # ✅ ADDED - now exists in Note model
     isFavorite: bool = Field(alias="is_favorite")
     isArchived: bool = Field(alias="is_archived")
     isTemplate: bool = Field(alias="is_template")
     fromTemplateId: Optional[str] = Field(alias="from_template_id")
-    # REMOVED: is_project_exclusive - exclusivity now handled in project_items association
     createdAt: datetime = Field(alias="created_at")
     updatedAt: datetime = Field(alias="updated_at")
     tags: list[str]
     projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this note belongs to")
+    createdBy: str = Field(alias="created_by")  # ✅ ADDED - User who created the note
 
 class NoteSummary(CamelCaseModel):
     uuid: str
@@ -86,12 +86,10 @@ class NoteSummary(CamelCaseModel):
     isArchived: bool = Field(alias="is_archived")
     isTemplate: bool = Field(alias="is_template")
     fromTemplateId: Optional[str] = Field(alias="from_template_id")
-    # REMOVED: is_project_exclusive - exclusivity now handled in project_items association
     createdAt: datetime = Field(alias="created_at")
     updatedAt: datetime = Field(alias="updated_at")
     tags: list[str]
     preview: str
     projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this note belongs to")
+    createdBy: str = Field(alias="created_by")
 
-# NoteFile schemas removed - notes now use Document + note_documents association
-# Use Document schemas instead for file operations

@@ -298,21 +298,21 @@ def sanitize_tags(tags: List[str]) -> List[str]:
 def sanitize_json_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
     """
     Sanitize JSON metadata to prevent XSS and injection
-    
+
     Args:
         metadata: Dictionary of metadata
-    
+
     Returns:
         Sanitized metadata dictionary
     """
     if not metadata:
         return {}
-    
+
     sanitized = {}
     for key, value in metadata.items():
         # Sanitize key
         clean_key = sanitize_text_input(str(key), 100)
-        
+
         # Sanitize value based on type
         if isinstance(value, str):
             clean_value = sanitize_text_input(value, 1000)
@@ -322,7 +322,242 @@ def sanitize_json_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
             clean_value = [sanitize_text_input(str(item), 500) for item in value[:10]]
         else:
             clean_value = sanitize_text_input(str(value), 500)
-        
+
         sanitized[clean_key] = clean_value
-    
-    return sanitized 
+
+    return sanitized
+
+
+def validate_email_address(email: str) -> str:
+    """
+    Validate and sanitize email address
+
+    Args:
+        email: Email address to validate
+
+    Returns:
+        Sanitized email address
+    """
+    if not email:
+        return ""
+
+    email = email.strip().lower()
+
+    # Basic email pattern validation
+    email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+
+    if not email_pattern.match(email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid email address format"
+        )
+
+    # Length check
+    if len(email) > 254:  # RFC 5321 limit
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email address too long"
+        )
+
+    return html.escape(email)
+
+
+def validate_username(username: str) -> str:
+    """
+    Validate and sanitize username
+
+    Args:
+        username: Username to validate
+
+    Returns:
+        Sanitized username
+    """
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username cannot be empty"
+        )
+
+    username = username.strip()
+
+    # Length check
+    if len(username) < 3 or len(username) > 50:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username must be between 3 and 50 characters"
+        )
+
+    # Pattern check (alphanumeric, hyphens, underscores only)
+    username_pattern = re.compile(r'^[a-zA-Z0-9_-]+$')
+
+    if not username_pattern.match(username):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username can only contain letters, numbers, hyphens, and underscores"
+        )
+
+    # Prevent reserved usernames
+    reserved_usernames = {
+        'admin', 'administrator', 'root', 'system', 'api', 'www',
+        'test', 'demo', 'guest', 'user', 'null', 'undefined'
+    }
+
+    if username.lower() in reserved_usernames:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This username is not allowed"
+        )
+
+    return html.escape(username)
+
+
+def validate_priority(priority: str) -> str:
+    """
+    Validate priority field
+
+    Args:
+        priority: Priority value to validate
+
+    Returns:
+        Validated priority
+    """
+    if not priority:
+        return "medium"  # Default priority
+
+    valid_priorities = {'low', 'medium', 'high', 'urgent'}
+
+    if priority.lower() not in valid_priorities:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid priority. Must be one of: {', '.join(valid_priorities)}"
+        )
+
+    return priority.lower()
+
+
+def validate_status(status: str, valid_statuses: List[str]) -> str:
+    """
+    Validate status field against allowed values
+
+    Args:
+        status: Status value to validate
+        valid_statuses: List of allowed status values
+
+    Returns:
+        Validated status
+    """
+    if not status:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Status cannot be empty"
+        )
+
+    if status.lower() not in [s.lower() for s in valid_statuses]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+        )
+
+    return status.lower()
+
+
+def sanitize_url(url: str) -> str:
+    """
+    Validate and sanitize URL
+
+    Args:
+        url: URL to validate
+
+    Returns:
+        Sanitized URL
+    """
+    if not url:
+        return ""
+
+    url = url.strip()
+
+    # Basic URL pattern validation
+    url_pattern = re.compile(
+        r'^https?://'  # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
+        r'localhost|'  # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+
+    if not url_pattern.match(url):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid URL format"
+        )
+
+    # Length check
+    if len(url) > 2048:  # Common URL length limit
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="URL too long"
+        )
+
+    return html.escape(url)
+
+
+def validate_date_string(date_str: str) -> str:
+    """
+    Validate date string format (YYYY-MM-DD)
+
+    Args:
+        date_str: Date string to validate
+
+    Returns:
+        Validated date string
+    """
+    if not date_str:
+        return ""
+
+    date_str = date_str.strip()
+
+    # Date pattern validation (YYYY-MM-DD)
+    date_pattern = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+    if not date_pattern.match(date_str):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid date format. Use YYYY-MM-DD"
+        )
+
+    try:
+        from datetime import datetime
+        datetime.strptime(date_str, '%Y-%m-%d')
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid date"
+        )
+
+    return date_str
+
+
+def validate_sort_parameters(sort_by: str, allowed_fields: List[str], sort_order: str = "desc") -> tuple:
+    """
+    Validate sort parameters
+
+    Args:
+        sort_by: Field to sort by
+        allowed_fields: List of allowed sort fields
+        sort_order: Sort order (asc/desc)
+
+    Returns:
+        Tuple of (validated_sort_by, validated_sort_order)
+    """
+    if not sort_by:
+        sort_by = "created_at"  # Default sort field
+    elif sort_by not in allowed_fields:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid sort field. Must be one of: {', '.join(allowed_fields)}"
+        )
+
+    if sort_order not in ["asc", "desc"]:
+        sort_order = "desc"  # Default sort order
+
+    return sort_by, sort_order 

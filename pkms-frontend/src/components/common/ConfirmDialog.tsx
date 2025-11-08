@@ -3,9 +3,8 @@
  * Provides consistent confirmation dialogs across the app
  */
 
-import React from 'react';
 import { Modal, Stack, Text, Group, Button } from '@mantine/core';
-import { IconAlertTriangle, IconCheck, IconX } from '@tabler/icons-react';
+import { IconAlertTriangle, IconCheck } from '@tabler/icons-react';
 
 interface ConfirmDialogProps {
   opened: boolean;
@@ -30,31 +29,23 @@ export function ConfirmDialog({
   type = 'danger',
   loading = false
 }: ConfirmDialogProps) {
-  const getIcon = () => {
-    switch (type) {
-      case 'danger':
-        return <IconAlertTriangle size={20} color="var(--mantine-color-red-6)" />;
-      case 'warning':
-        return <IconAlertTriangle size={20} color="var(--mantine-color-yellow-6)" />;
-      case 'info':
-        return <IconCheck size={20} color="var(--mantine-color-blue-6)" />;
-      default:
-        return <IconAlertTriangle size={20} color="var(--mantine-color-red-6)" />;
+  // Unified configuration object for type mappings
+  const typeConfig = {
+    danger: {
+      icon: <IconAlertTriangle size={20} color="var(--mantine-color-red-6)" />,
+      color: 'red'
+    },
+    warning: {
+      icon: <IconAlertTriangle size={20} color="var(--mantine-color-yellow-6)" />,
+      color: 'yellow'
+    },
+    info: {
+      icon: <IconCheck size={20} color="var(--mantine-color-blue-6)" />,
+      color: 'blue'
     }
-  };
+  } as const;
 
-  const getConfirmColor = () => {
-    switch (type) {
-      case 'danger':
-        return 'red';
-      case 'warning':
-        return 'yellow';
-      case 'info':
-        return 'blue';
-      default:
-        return 'red';
-    }
-  };
+  const config = typeConfig[type] || typeConfig.danger;
 
   return (
     <Modal
@@ -66,10 +57,10 @@ export function ConfirmDialog({
     >
       <Stack gap="md">
         <Group gap="sm">
-          {getIcon()}
+          {config.icon}
           <Text size="sm">{message}</Text>
         </Group>
-        
+
         <Group justify="flex-end" gap="sm">
           <Button
             variant="subtle"
@@ -79,7 +70,7 @@ export function ConfirmDialog({
             {cancelLabel}
           </Button>
           <Button
-            color={getConfirmColor()}
+            color={config.color}
             onClick={onConfirm}
             loading={loading}
             leftSection={!loading ? <IconCheck size={16} /> : undefined}

@@ -61,14 +61,11 @@ class UnifiedCache:
 def get_all_cache_stats() -> dict:
     """Get statistics from all cache instances."""
     return {
-        "diary_cache": diary_cache.get_stats(),
         "analytics_cache": analytics_cache.get_stats(),
-        "search_cache": search_cache.get_stats(),
-        "total_combined_entries": len(diary_cache._cache) + len(analytics_cache._cache) + len(search_cache._cache)
+        "total_combined_entries": len(analytics_cache._cache)
     }
 
 
-# Global cache instances for different purposes
-diary_cache = UnifiedCache()
+# Global cache instance for expensive analytics computations only
+# Frontend handles all other caching (see ARCHITECTURAL_RULES.md Rule #24-27)
 analytics_cache = UnifiedCache()
-search_cache = UnifiedCache()

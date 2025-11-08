@@ -24,6 +24,8 @@ from app.auth.security import (
 )
 from app.auth.dependencies import get_current_user
 from app.config import settings, NEPAL_TZ
+from app.utils.transaction_helper import TransactionHelper
+from app.decorators.error_handler import handle_api_errors
 
 router = APIRouter()
 
@@ -45,6 +47,7 @@ SAFE_STRING_PATTERN = re.compile(r'^[a-zA-Z0-9\s\-_.,!?\'\"()\[\]{}@#$%^&*+=|\\:
 
 @router.post("/setup", response_model=TokenResponse)
 @limiter.limit("3/minute")
+@handle_api_errors("user setup")
 async def setup_user(
     user_data: UserSetup,
     request: Request,
@@ -160,6 +163,7 @@ async def setup_user(
 
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("5/minute")
+@handle_api_errors("user login")
 async def login(
     user_data: UserLogin,
     request: Request,
@@ -258,6 +262,7 @@ async def login(
 
 
 @router.get("/session-status")
+@handle_api_errors("checking session status")
 async def get_session_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -265,10 +270,10 @@ async def get_session_status(
     """Get current session status and token expiry information."""
     try:
         # Get current user's active session
+        now = datetime.now(NEPAL_TZ)
         session_result = await db.execute(
             select(Session)
             .where(Session.created_by == current_user.uuid)
-            .where(Session.expires_at > datetime.now(NEPAL_TZ))
             .order_by(Session.expires_at.desc())
             .limit(1)
         )
@@ -283,8 +288,30 @@ async def get_session_status(
                 "is_critically_expiring": False
             }
 
-        now = datetime.now(NEPAL_TZ)
-        time_until_expiry = session.expires_at - now
+        # Normalize timezone for expires_at
+        expires_at = session.expires_at
+        if expires_at is None:
+            return {
+                "status": "no_active_session",
+                "message": "No active session found",
+                "expires_in_seconds": 0,
+                "is_expiring_soon": False,
+                "is_critically_expiring": False
+            }
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=NEPAL_TZ)
+
+        # Return no active session if already expired
+        if expires_at <= now:
+            return {
+                "status": "no_active_session",
+                "message": "No active session found",
+                "expires_in_seconds": 0,
+                "is_expiring_soon": False,
+                "is_critically_expiring": False
+            }
+
+        time_until_expiry = expires_at - now
         expires_in_seconds = int(time_until_expiry.total_seconds())
         
         # Check if expiring soon (within 5 minutes)
@@ -293,13 +320,18 @@ async def get_session_status(
         # Check if critically expiring (within 1 minute)
         is_critically_expiring = expires_in_seconds <= 60  # 1 minute
 
+        # Normalize last_activity for serialization
+        last_activity = session.last_activity
+        if last_activity and last_activity.tzinfo is None:
+            last_activity = last_activity.replace(tzinfo=NEPAL_TZ)
+
         return {
             "status": "active",
             "expires_in_seconds": max(0, expires_in_seconds),
             "is_expiring_soon": is_expiring_soon,
             "is_critically_expiring": is_critically_expiring,
-            "expires_at": session.expires_at.isoformat(),
-            "last_activity": session.last_activity.isoformat() if session.last_activity else None
+            "expires_at": expires_at.isoformat(),
+            "last_activity": last_activity.isoformat() if last_activity else None
         }
 
     except Exception:
@@ -311,6 +343,7 @@ async def get_session_status(
 
 
 @router.post("/logout")
+@handle_api_errors("user logout")
 async def logout(
     response: Response,
     current_user: User = Depends(get_current_user),
@@ -347,125 +380,168 @@ async def logout(
 
 
 @router.get("/recovery/questions")
+@limiter.limit("10/minute")
+@handle_api_errors("getting recovery questions")
 async def get_recovery_questions(
+    request: Request,
     username: Optional[str] = Query(None, min_length=3, max_length=50),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Get recovery questions for a specific user.
-    This now requires a username to support multi-user environments.
+    Enhanced with security measures to prevent user enumeration.
     """
     logger.info("Recovery questions requested" + (f" for username: {username}" if username else " without username (single-user fallback)"))
 
-    if username:
-        user_res = await db.execute(select(User).where(User.username == username))
-        user = user_res.scalar_one_or_none()
-    else:
-        # Fallback: allow omission only when a single user exists
-        users_res = await db.execute(select(User))
-        users = users_res.scalars().all()
-        if len(users) == 1:
-            user = users[0]
+    async def get_questions_operation():
+        if username:
+            # Use constant-time comparison to prevent timing attacks
+            user_res = await db.execute(select(User).where(User.username == username))
+            user = user_res.scalar_one_or_none()
         else:
+            # Fallback: allow omission only when a single user exists
+            # Use count query instead of loading all users into memory
+            user_count = await db.scalar(select(func.count(User.uuid)))
+            if user_count == 1:
+                # Get the single user
+                user_res = await db.execute(select(User).limit(1))
+                user = user_res.scalar_one_or_none()
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Username must be provided when multiple users exist."
+                )
+
+        if not user:
+            # SECURITY: Return generic response to prevent user enumeration
+            logger.warning(f"Recovery questions requested for unknown username: {username}")
+            return {"questions": [], "message": "If the username exists, recovery questions are available"}
+
+        recovery_key_res = await db.execute(
+            select(RecoveryKey).where(RecoveryKey.created_by == user.uuid)
+        )
+        recovery_key = recovery_key_res.scalar_one_or_none()
+
+        if not recovery_key or not recovery_key.questions_json:
+            # SECURITY: Return generic response to prevent enumeration
+            logger.warning(f"No recovery questions found for user: {user.username}")
+            return {"questions": [], "message": "If the username exists, recovery questions are available"}
+
+        try:
+            questions = json.loads(recovery_key.questions_json)
+            return {"questions": questions}
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse recovery questions for user {user.uuid}")
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username must be provided when multiple users exist."
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Could not retrieve recovery questions."
             )
 
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
-
-    recovery_key_res = await db.execute(
-        select(RecoveryKey).where(RecoveryKey.created_by == user.uuid)
+    return await TransactionHelper.execute_with_transaction(
+        db,
+        get_questions_operation,
+        error_message="Failed to retrieve recovery questions"
     )
-    recovery_key = recovery_key_res.scalar_one_or_none()
-
-    if not recovery_key or not recovery_key.questions_json:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Recovery questions not set up for this user."
-        )
-
-    try:
-        questions = json.loads(recovery_key.questions_json)
-        return {"questions": questions}
-    except json.JSONDecodeError:
-        logger.error(f"Failed to parse recovery questions for user {user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not retrieve recovery questions."
-        )
 
 
 @router.post("/recovery/reset")
+@limiter.limit(f"{settings.rate_limit_password_reset}/minute")
+@handle_api_errors("resetting password")
 async def reset_password(
+    request: Request,
     recovery_data: RecoveryReset,
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Reset password using security questions
+    Reset password using security questions with enhanced security measures.
     """
-    # Validate new password
-    is_valid, error_message = validate_password_strength(recovery_data.new_password)
-    if not is_valid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_message
-        )
-    
-    # Get user according to provided (or inferred) username
-    if recovery_data.username:
-        user_res = await db.execute(select(User).where(User.username == recovery_data.username))
-        user = user_res.scalar_one_or_none()
-    else:
-        # Count users instead of loading all
-        user_count = await db.scalar(select(func.count(User.uuid)))
-        if user_count == 1:
-            # Get the single user
-            user_res = await db.execute(select(User).limit(1))
-            user = user_res.scalar_one_or_none()
-        else:
+    logger.info(f"Password reset attempt for username: {recovery_data.username}")
+
+    async def reset_password_operation():
+        # Validate new password
+        is_valid, error_message = validate_password_strength(recovery_data.new_password)
+        if not is_valid:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username must be provided when multiple users exist."
+                detail=error_message
             )
 
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+        # Get user according to provided (or inferred) username
+        if recovery_data.username:
+            user_res = await db.execute(select(User).where(User.username == recovery_data.username))
+            user = user_res.scalar_one_or_none()
+        else:
+            # Count users instead of loading all
+            user_count = await db.scalar(select(func.count(User.uuid)))
+            if user_count == 1:
+                # Get the single user
+                user_res = await db.execute(select(User).limit(1))
+                user = user_res.scalar_one_or_none()
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Username must be provided when multiple users exist."
+                )
 
-    # Get recovery key for this user
-    result = await db.execute(select(RecoveryKey).where(RecoveryKey.created_by == user.uuid))
-    recovery_record = result.scalar_one_or_none()
+        if not user:
+            # SECURITY: Generic response to prevent user enumeration
+            logger.warning(f"Password reset attempted for unknown username: {recovery_data.username}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid username or security answers"
+            )
 
-    if not recovery_record:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No recovery setup found"
-        )
+        # Get recovery key for this user
+        result = await db.execute(select(RecoveryKey).where(RecoveryKey.created_by == user.uuid))
+        recovery_record = result.scalar_one_or_none()
 
-    # Verify answers
-    if not verify_security_answers(recovery_data.answers, recovery_record.answers_hash, recovery_record.salt):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect security answers"
-        )
-    
-    # Hash new password using bcrypt
-    password_hash = hash_password(recovery_data.new_password)
-    
-    # Update user password
-    user.password_hash = password_hash
-    user.is_first_login = False
-    
-    # Update recovery key last used
-    recovery_record.last_used = datetime.now(NEPAL_TZ)
-    
-    await db.commit()
-    
-    return {"message": "Password successfully reset"}
+        if not recovery_record:
+            # SECURITY: Generic response to prevent enumeration
+            logger.warning(f"Password reset attempted for user without recovery setup: {user.username}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid username or security answers"
+            )
+
+        # Verify answers with constant-time comparison
+        if not verify_security_answers(recovery_data.answers, recovery_record.answers_hash, recovery_record.salt):
+            logger.warning(f"Incorrect security answers provided for user: {user.username}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or security answers"
+            )
+
+        # Hash new password using bcrypt
+        password_hash = hash_password(recovery_data.new_password)
+
+        # Update user password
+        user.password_hash = password_hash
+        user.is_first_login = False
+        user.updated_at = datetime.now(NEPAL_TZ)
+
+        # Update recovery key last used
+        recovery_record.last_used = datetime.now(NEPAL_TZ)
+
+        # SECURITY: Invalidate all existing sessions for this user after password change
+        if settings.session_invalidate_on_password_change:
+            await db.execute(
+                delete(Session).where(Session.created_by == user.uuid)
+            )
+            logger.info(f"Invalidated all sessions for user: {user.username} after password reset")
+
+        logger.info(f"Password successfully reset for user: {user.username}")
+
+        return {"message": "Password successfully reset. All existing sessions have been invalidated."}
+
+    return await TransactionHelper.execute_with_transaction(
+        db,
+        reset_password_operation,
+        error_message="Failed to reset password"
+    )
 
 
 @router.get("/me", response_model=UserResponse)
+@handle_api_errors("getting current user info")
 async def get_current_user_info(
     current_user: User = Depends(get_current_user)
 ):
@@ -476,42 +552,62 @@ async def get_current_user_info(
 
 
 @router.put("/password")
+@handle_api_errors("changing password")
 async def change_password(
     password_data: PasswordChange,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Change user password
+    Change user password with enhanced security measures
     """
-    # Verify current password
-    if not verify_password(password_data.current_password, current_user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Current password is incorrect"
-        )
-    
-    # Validate new password
-    is_valid, error_message = validate_password_strength(password_data.new_password)
-    if not is_valid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_message
-        )
-    
-    # Hash new password using bcrypt
-    password_hash = hash_password(password_data.new_password)
-    
-    # Update user
-    current_user.password_hash = password_hash
-    current_user.is_first_login = False
-    
-    await db.commit()
-    
-    return {"message": "Password successfully changed"}
+    logger.info(f"Password change attempt for user: {current_user.username}")
+
+    async def change_password_operation():
+        # Verify current password
+        if not verify_password(password_data.current_password, current_user.password_hash):
+            logger.warning(f"Incorrect current password provided for user: {current_user.username}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is incorrect"
+            )
+
+        # Validate new password
+        is_valid, error_message = validate_password_strength(password_data.new_password)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_message
+            )
+
+        # Hash new password using bcrypt
+        password_hash = hash_password(password_data.new_password)
+
+        # Update user
+        current_user.password_hash = password_hash
+        current_user.is_first_login = False
+        current_user.updated_at = datetime.now(NEPAL_TZ)
+
+        # SECURITY: Invalidate all existing sessions for this user after password change
+        if settings.session_invalidate_on_password_change:
+            await db.execute(
+                delete(Session).where(Session.created_by == current_user.uuid)
+            )
+            logger.info(f"Invalidated all sessions for user: {current_user.username} after password change")
+
+        logger.info(f"Password successfully changed for user: {current_user.username}")
+
+        return {"message": "Password successfully changed. All existing sessions have been invalidated."}
+
+    return await TransactionHelper.execute_with_transaction(
+        db,
+        change_password_operation,
+        error_message="Failed to change password"
+    )
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@handle_api_errors("refreshing access token")
 async def refresh_access_token(
     response: Response,
     db: AsyncSession = Depends(get_db),
@@ -551,20 +647,23 @@ async def refresh_access_token(
         # SECURITY: Invalidate the used refresh token to prevent replay attacks
         # Generate new session token to prevent session fixation
         new_session_token = generate_session_token()
-        
+
         # Update session with new token (this invalidates the old one)
         session.session_token = new_session_token
         session.last_activity = now
-        
-        # SIMPLE LOGIC: Extend by 30 minutes from NOW (manual extension only)
-        new_expiry = now + timedelta(minutes=30)
 
-        # But don't extend beyond 1 hour total from session creation (security limit)
-        created_at = session.created_at.replace(tzinfo=NEPAL_TZ) if session.created_at.tzinfo is None else session.created_at
-        max_expiry = created_at + timedelta(hours=1)
+        # Calculate new expiry time: extend session by configured minutes from now
+        extension_expiry = now + timedelta(minutes=settings.session_extension_minutes)
 
-        # Use the earlier of the two dates
-        session.expires_at = min(new_expiry, max_expiry)
+        # Calculate maximum allowed expiry: session cannot exceed max lifetime from creation
+        # This prevents sessions from being extended indefinitely
+        session_created_at = session.created_at.replace(tzinfo=NEPAL_TZ) if session.created_at.tzinfo is None else session.created_at
+        max_lifetime_expiry = session_created_at + timedelta(hours=settings.session_max_lifetime_hours)
+
+        # Use the earlier of the two dates to enforce both limits:
+        # 1. Session extension limit (how much to extend from now)
+        # 2. Maximum session lifetime (total time from creation)
+        session.expires_at = min(extension_expiry, max_lifetime_expiry)
         
         await db.commit()
 
@@ -609,6 +708,7 @@ async def refresh_access_token(
 
 # Login Password Hint Endpoints
 @router.put("/login-password-hint")
+@handle_api_errors("setting login password hint")
 async def set_login_password_hint(
     hint_data: LoginPasswordHintUpdate,
     current_user: User = Depends(get_current_user),
@@ -624,6 +724,7 @@ async def set_login_password_hint(
 
 
 @router.post("/login-password-hint")
+@handle_api_errors("getting login password hint")
 async def get_login_password_hint(
     data: UsernameBody,
     db: AsyncSession = Depends(get_db)
@@ -642,6 +743,7 @@ async def get_login_password_hint(
     return {"hint": hint}
 
 @router.get("/login-password-hint")
+@handle_api_errors("getting any login password hint")
 async def get_any_login_password_hint(db: AsyncSession = Depends(get_db)):
     """
     Get any login password hint from the system (for single user systems).

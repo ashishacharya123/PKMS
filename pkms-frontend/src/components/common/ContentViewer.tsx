@@ -5,7 +5,7 @@
  * Supports markdown rendering, file display, and various metadata fields.
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Container,
   Stack,
@@ -18,10 +18,7 @@ import {
   Skeleton,
   Alert,
   Paper,
-  Grid,
-  Divider,
-  ActionIcon,
-  Tooltip
+  Grid
 } from '@mantine/core';
 import {
   IconEdit,
@@ -30,7 +27,7 @@ import {
   IconArchiveOff,
   IconTrash,
   IconAlertTriangle,
-  IconMood,
+  IconMoodHappy,
   IconCloudRain,
   IconMapPin,
   IconCalendar,
@@ -39,7 +36,6 @@ import {
 } from '@tabler/icons-react';
 import MDEditor from '@uiw/react-md-editor';
 import { modals } from '@mantine/modals';
-import { notifications } from '@mantine/notifications';
 import { UnifiedFileSection } from '../file/UnifiedFileSection';
 import { UnifiedFileItem } from '../../services/unifiedFileService';
 
@@ -55,7 +51,7 @@ export interface ContentViewerProps {
   isArchived?: boolean;
   
   // Project fields (for notes)
-  projectBadges?: Array<{ id: string; name: string; color: string }>;
+  projectBadges?: Array<{ id: string; name: string; color?: string }>;
   
   // Diary-specific fields
   mood?: number;
@@ -218,18 +214,18 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 {mood && mood > 0 && (
                   <Grid.Col span={4}>
                     <Group gap="xs">
-                      <IconMood size={16} />
+                      <IconMoodHappy size={16} />
                       <Text size="sm" fw={500}>Mood:</Text>
                       <Text size="sm">{moodEmojis[mood - 1]} {moodLabels[mood - 1]}</Text>
                     </Group>
                   </Grid.Col>
                 )}
-                {weatherCode !== undefined && weatherCode > 0 && (
+                {weatherCode !== undefined && weatherCode >= 0 && (
                   <Grid.Col span={4}>
                     <Group gap="xs">
                       <IconCloudRain size={16} />
                       <Text size="sm" fw={500}>Weather:</Text>
-                      <Text size="sm">{weatherLabels[weatherCode]}</Text>
+                      <Text size="sm">{weatherLabels[Math.min(weatherLabels.length - 1, Math.max(0, weatherCode))]}</Text>
                     </Group>
                   </Grid.Col>
                 )}
@@ -276,7 +272,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 <Text size="sm" fw={500}>Projects:</Text>
                 <Group gap="xs">
                   {projectBadges.map((project) => (
-                    <Badge key={project.id} color={project.color} size="sm">
+                    <Badge key={project.id} color="blue" size="sm">
                       {project.name}
                     </Badge>
                   ))}
@@ -304,7 +300,10 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
         <Card withBorder p="md">
           <Title order={5} mb="md">Content</Title>
           <Paper p="md" withBorder>
-            <MDEditor.Markdown source={content} />
+            <MDEditor.Markdown 
+              source={content} 
+              data-color-mode="light"
+            />
           </Paper>
         </Card>
 

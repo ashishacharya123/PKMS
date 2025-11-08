@@ -114,7 +114,7 @@ class TodoResponse(CamelCaseModel):
     updated_at: datetime
     tags: List[str]
     projects: List[ProjectBadge] = Field(default_factory=list, description="Projects this todo belongs to")
-    
+
     # NEW: Dependency info (populated on request)
     blocking_todos: Optional[List[BlockingTodoSummary]] = Field(
         default=None,
@@ -128,6 +128,7 @@ class TodoResponse(CamelCaseModel):
         default=0,
         description="Number of incomplete todos blocking this one"
     )
+    created_by: str  # ✅ ADDED - User who created the todo
     
     # Time tracking calculated in frontend:
     # estimate_days = (due_date - start_date).days if both exist

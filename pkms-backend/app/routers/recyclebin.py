@@ -15,7 +15,7 @@ from app.models.note import Note
 from app.models.todo import Todo
 from app.models.document import Document
 from app.models.diary import DiaryEntry
-from app.models.archive import ArchiveItem
+from app.models.archive import ArchiveItem, ArchiveFolder
 from app.auth.dependencies import get_current_user
 from app.services.project_service import project_service
 from app.services.note_crud_service import note_crud_service
@@ -23,6 +23,7 @@ from app.services.todo_crud_service import todo_crud_service
 from app.services.document_crud_service import document_crud_service
 from app.services.diary_crud_service import diary_crud_service
 from app.services.archive_item_service import archive_item_service
+from app.services.archive_folder_service import archive_folder_service
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,14 @@ async def empty_recycle_bin(
             )
         ) or 0
         
-        total_items = project_count + note_count + todo_count + document_count + diary_count + archive_count
+        archive_folder_count = await db.scalar(
+            select(func.count(ArchiveFolder.uuid)).where(
+                ArchiveFolder.created_by == user_uuid,
+                ArchiveFolder.deleted_only()
+            )
+        ) or 0
+        
+        total_items = project_count + note_count + todo_count + document_count + diary_count + archive_count + archive_folder_count
         
         if total_items == 0:
             return {
@@ -99,7 +107,8 @@ async def empty_recycle_bin(
                     "todos": 0,
                     "documents": 0,
                     "diary_entries": 0,
-                    "archive_items": 0
+                    "archive_items": 0,
+                    "archive_folders": 0
                 }
             }
         
@@ -153,6 +162,14 @@ async def empty_recycle_bin(
             )
         )
         archive_uuids = [row[0] for row in archive_result.all()]
+        
+        archive_folders_result = await db.execute(
+            select(ArchiveFolder.uuid).where(
+                ArchiveFolder.created_by == user_uuid,
+                ArchiveFolder.deleted_only()
+            )
+        )
+        archive_folder_uuids = [row[0] for row in archive_folders_result.all()]
         
         # Permanently delete all items
         # Note: We use the existing permanent delete methods to ensure proper cleanup
@@ -217,6 +234,19 @@ async def empty_recycle_bin(
             except Exception:
                 logger.exception("Error permanently deleting archive item %s", archive_uuid)
         
+        # Delete archive folders (CRITICAL: prevents orphaned files)
+        for folder_uuid in archive_folder_uuids:
+            try:
+                await archive_folder_service.hard_delete_folder(db, user_uuid, folder_uuid)
+                deleted_count += 1
+            except HTTPException as e:
+                logger.info("Skip archive folder %s: %s", folder_uuid, e.detail)
+            except Exception:
+                logger.exception("Error permanently deleting archive folder %s", folder_uuid)
+        
+        # Commit folder deletions to persist changes
+        await db.commit()
+        
         logger.info(f"Successfully purged {deleted_count} items from recycle bin for user {user_uuid}")
         
         return {
@@ -228,7 +258,8 @@ async def empty_recycle_bin(
                 "todos": len(todo_uuids),
                 "documents": len(document_uuids),
                 "diary_entries": len(diary_uuids),
-                "archive_items": len(archive_uuids)
+                "archive_items": len(archive_uuids),
+                "archive_folders": len(archive_folder_uuids)
             }
         }
         

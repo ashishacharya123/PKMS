@@ -19,7 +19,7 @@ from main import app
 from app.database import Base, get_db
 from app.models.user import User
 from app.auth.security import hash_password, create_access_token
-from app.config import settings
+from app.config import Settings
 
 # Test database URL (in-memory SQLite)
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -141,7 +141,7 @@ async def test_user_first_login(db_session: AsyncSession) -> User:
 @pytest.fixture
 def test_access_token(test_user: User) -> str:
     """Create a valid access token for testing."""
-    return create_access_token(data={"sub": str(test_user.id)})
+    return create_access_token(data={"sub": str(test_user.uuid)})
 
 @pytest.fixture
 def auth_headers(test_access_token: str) -> dict:
@@ -151,9 +151,13 @@ def auth_headers(test_access_token: str) -> dict:
 @pytest.fixture
 def test_settings():
     """Get test-specific settings."""
-    settings = get_settings()
-    settings.environment = "testing"
-    return settings
+    from app.config import settings
+    # Create a copy for testing to avoid modifying global settings
+    test_settings_obj = Settings(
+        **settings.model_dump(),
+        environment="testing"
+    )
+    return test_settings_obj
 
 # Utility functions for tests
 def assert_token_valid(token: str) -> bool:

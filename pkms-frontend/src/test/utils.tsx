@@ -4,6 +4,28 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MantineProvider } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 
+// Polyfill for window.matchMedia which is required by Mantine
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: jest.fn().mockImplementation(query => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(), // deprecated
+    removeListener: jest.fn(), // deprecated
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  })),
+});
+
+// Mock ResizeObserver
+global.ResizeObserver = jest.fn().mockImplementation(() => ({
+  observe: jest.fn(),
+  unobserve: jest.fn(),
+  disconnect: jest.fn(),
+}));
+
 // Create a custom render function that includes providers
 const AllTheProviders = ({ children }: { children: React.ReactNode }) => {
   const queryClient = new QueryClient({
@@ -64,6 +86,36 @@ export const mockUser = {
 
 // Import Jest DOM matchers
 import '@testing-library/jest-dom';
+
+// Mock utilities for API testing
+export const createMockFetch = (response: any, ok = true, status = 200) => {
+  return jest.fn().mockResolvedValue({
+    ok,
+    status,
+    json: () => Promise.resolve(response),
+    text: () => Promise.resolve(JSON.stringify(response)),
+    blob: () => Promise.resolve(new Blob()),
+  });
+};
+
+// Mock service functions
+export const mockService = {
+  get: jest.fn(),
+  post: jest.fn(),
+  put: jest.fn(),
+  delete: jest.fn(),
+  patch: jest.fn(),
+};
+
+// Reset all mocks
+export const resetAllMocks = () => {
+  jest.clearAllMocks();
+  mockService.get.mockClear();
+  mockService.post.mockClear();
+  mockService.put.mockClear();
+  mockService.delete.mockClear();
+  mockService.patch.mockClear();
+};
 
 // Re-export everything
 export * from '@testing-library/react';

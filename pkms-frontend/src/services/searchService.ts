@@ -16,9 +16,22 @@ import { apiService } from './api';
 
 export interface SearchResult {
   id: string;
+  uuid?: string;
   module: 'notes' | 'documents' | 'todos' | 'archive' | 'archive-folder' | 'diary' | 'projects' | 'folders';
   title: string;
-  preview: string;
+  preview?: string;  // Kept for backward compatibility
+  description?: string;
+  contentPreview?: string;  // For notes
+  snippet?: string;  // NEW: Backend snippet with **match** markers
+  snippetMetadata?: {  // NEW: Match information
+    matchPosition: number;
+    matchEnd: number;
+    totalMatches: number;
+    matchPositions: number[][];
+    bestMatchIndex: number;
+    hasMoreMatches: boolean;
+  };
+  navigationUrl?: string;  // NEW: Ready-to-use navigation URL
   tags: string[];
   score?: number;
   createdAt?: string;
@@ -27,6 +40,7 @@ export interface SearchResult {
   // optional HTML highlights if backend provides
   highlight?: string;
   highlightTitle?: string;
+  url?: string;  // Kept for backward compatibility
 }
 
 export interface SearchStats {
@@ -108,9 +122,15 @@ class SearchService {
       
       return {
         id: item.id ?? item.uuid ?? '',
+        uuid: item.uuid,
         module: item.module ?? item.type ?? 'notes',
         title: item.title ?? item.name ?? 'Untitled',
         preview: item.preview ?? item.preview_text ?? '',
+        description: item.description,
+        contentPreview: item.contentPreview ?? item.content_preview,
+        snippet: item.snippet,
+        snippetMetadata: item.snippetMetadata ?? item.snippet_metadata,
+        navigationUrl: item.navigationUrl ?? item.navigation_url,
         tags: item.tags ?? [],
         score: normScore,
         createdAt: item.createdAt ?? item.created_at,
@@ -118,6 +138,7 @@ class SearchService {
         metadata: item.metadata ?? {},
         highlight: item.highlight,
         highlightTitle: item.highlightTitle ?? item.highlight_title,
+        url: item.url,
       };
     });
   }

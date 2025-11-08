@@ -13,14 +13,12 @@ Provides comprehensive database testing endpoints including:
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, func, select
+from sqlalchemy.exc import SQLAlchemyError, OperationalError
 from typing import Any
 from datetime import datetime
 import time
-import logging
 import os
-
-# Set up logger
-logger = logging.getLogger(__name__)
+import logging
 
 from app.database import get_db
 from app.auth.dependencies import get_current_user
@@ -38,6 +36,9 @@ from app.models.associations import (
 
 from app.config import NEPAL_TZ, get_data_dir
 from app.schemas.testing import DatabaseStatsResponse, TableSchemaResponse, SampleRowsResponse, FtsTablesDataResponse
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/testing/database", tags=["testing-database-enhanced"])
 
@@ -89,8 +90,8 @@ async def get_comprehensive_database_stats(
                 # Get size information
                 await _get_table_size_info(db, table_name, stats)
                 
-            except Exception:
-                logger.exception("Error getting stats for %s", table_name)
+            except (SQLAlchemyError, OperationalError) as e:
+                logger.debug(f"Error getting stats for {table_name}: {e}")
                 stats[f"{table_name}_count"] = 0
                 stats[f"{table_name}_size_bytes"] = 0
                 stats[f"{table_name}_size_kb"] = 0
@@ -105,8 +106,8 @@ async def get_comprehensive_database_stats(
                 # Get size information
                 await _get_table_size_info(db, table_name, stats)
                 
-            except Exception:
-                logger.exception("Error getting stats for %s", table_name)
+            except (SQLAlchemyError, OperationalError) as e:
+                logger.debug(f"Error getting stats for {table_name}: {e}")
                 stats[f"{table_name}_count"] = 0
                 stats[f"{table_name}_size_bytes"] = 0
                 stats[f"{table_name}_size_kb"] = 0
@@ -184,7 +185,8 @@ async def _analyze_fts_tables(db: AsyncSession, stats: dict[str, Any]) -> None:
                 info_query = text(f"SELECT * FROM {fts_table}_data LIMIT 1")
                 await db.execute(info_query)
                 stats[f"{fts_table}_has_data"] = True
-            except:
+            except (SQLAlchemyError, OperationalError) as e:
+                logger.debug(f"Could not check FTS table {fts_table} for data: {e}")
                 stats[f"{fts_table}_has_data"] = False
                 
     except Exception as e:
@@ -247,7 +249,8 @@ async def _get_sqlite_metrics(db: AsyncSession, stats: dict[str, Any]) -> None:
                     "wal_size_bytes": wal_info[1],
                     "checkpointed_frames": wal_info[2]
                 }
-        except:
+        except (SQLAlchemyError, OperationalError) as e:
+            logger.debug(f"Could not fetch WAL checkpoint info: {e}")
             stats["wal_checkpoint_info"] = {}
             
     except Exception as e:
@@ -272,7 +275,8 @@ async def _check_data_integrity(db: AsyncSession, user_uuid: str, stats: dict[st
                 result = await db.execute(text(query), {"uid": user_uuid})
                 count = result.scalar()
                 integrity_checks[check_name] = count
-            except:
+            except (SQLAlchemyError, OperationalError) as e:
+                logger.debug(f"Could not run integrity check '{check_name}': {e}")
                 integrity_checks[check_name] = -1
         
         # Check association table integrity
@@ -287,7 +291,8 @@ async def _check_data_integrity(db: AsyncSession, user_uuid: str, stats: dict[st
                 result = await db.execute(text(query))
                 count = result.scalar()
                 integrity_checks[check_name] = count
-            except:
+            except (SQLAlchemyError, OperationalError) as e:
+                logger.debug(f"Could not run integrity check '{check_name}': {e}")
                 integrity_checks[check_name] = -1
         
         stats["integrity_checks"] = integrity_checks
@@ -446,7 +451,8 @@ async def get_fts_analysis(
                 sample_result = await db.execute(sample_query)
                 sample_rows = sample_result.fetchall()
                 sample_data[fts_table] = [dict(row._mapping) for row in sample_rows]
-            except:
+            except (SQLAlchemyError, OperationalError) as e:
+                logger.debug(f"Could not fetch sample data from FTS table {fts_table}: {e}")
                 sample_data[fts_table] = []
         
         return FtsTablesDataResponse(

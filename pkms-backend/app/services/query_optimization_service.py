@@ -121,7 +121,7 @@ class QueryOptimizationService:
     
     async def _apply_optimizations(self, query: Any) -> Any:
         """Apply query optimizations"""
-        optimizations = []
+        _optimizations = []  # Track optimizations applied (for future logging/debugging)
         
         # Add LIMIT if not present and query might return many rows
         if not hasattr(query, 'limit') or query.limit is None:

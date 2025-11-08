@@ -20,6 +20,7 @@ from ..models.todo import Todo
 from ..models.project import Project
 from ..models.diary import DiaryEntry
 from ..models.archive import ArchiveFolder, ArchiveItem
+from ..utils.search_snippets import generate_snippet
 
 logger = logging.getLogger(__name__)
 
@@ -201,22 +202,61 @@ class SearchService:
                     if has_attachments != has_files:
                         continue
                 
-                # Build result
+                # Build result with contextual snippets
                 result_item = {
                     "uuid": item_uuid,
                     "type": item_type,
                     "title": getattr(item, 'title', None) or getattr(item, 'name', None),
-                    "description": getattr(item, 'description', None),
                     "created_at": item.created_at.isoformat() if item.created_at else None,
                     "score": score,
                     "tags": [t.name for t in getattr(item, 'tag_objs', [])] if hasattr(item, 'tag_objs') else [],
-                    "attachments": await self._extract_attachments(db, item, item_type)
+                    "attachments": await self._extract_attachments(db, item, item_type),
+                    "navigation_url": self._generate_navigation_url(item_type, item_uuid)
                 }
                 
-                # Add type-specific fields
+                # Generate contextual snippets for description/content
+                description_text = getattr(item, 'description', None) or ''
+                
+                # For notes, prioritize content snippet over description
                 if item_type == 'note':
-                    result_item["content_preview"] = getattr(item, 'content', '')[:200] + '...' if getattr(item, 'content', '') else ''
-                elif item_type == 'document':
+                    content_text = getattr(item, 'content', '') or ''
+                    if content_text:
+                        snippet_data = generate_snippet(content_text, query, max_length=200, context_words=10)
+                        result_item["content_preview"] = snippet_data["snippet"]
+                        result_item["snippet_metadata"] = {
+                            "match_position": snippet_data["match_position"],
+                            "match_end": snippet_data["match_end"],
+                            "total_matches": snippet_data["total_matches"],
+                            "match_positions": snippet_data["match_positions"],
+                            "best_match_index": snippet_data["best_match_index"],
+                            "has_more_matches": snippet_data["has_more_matches"]
+                        }
+                    else:
+                        result_item["content_preview"] = ""
+                    # Also add description if present
+                    if description_text:
+                        desc_snippet = generate_snippet(description_text, query, max_length=200, context_words=10)
+                        result_item["description"] = desc_snippet["snippet"]
+                    else:
+                        result_item["description"] = ""
+                else:
+                    # For non-note types, use description for snippet
+                    if description_text:
+                        snippet_data = generate_snippet(description_text, query, max_length=200, context_words=10)
+                        result_item["description"] = snippet_data["snippet"]
+                        result_item["snippet_metadata"] = {
+                            "match_position": snippet_data["match_position"],
+                            "match_end": snippet_data["match_end"],
+                            "total_matches": snippet_data["total_matches"],
+                            "match_positions": snippet_data["match_positions"],
+                            "best_match_index": snippet_data["best_match_index"],
+                            "has_more_matches": snippet_data["has_more_matches"]
+                        }
+                    else:
+                        result_item["description"] = ""
+                
+                # Add type-specific fields
+                if item_type == 'document':
                     result_item["filename"] = getattr(item, 'filename', None)
                 elif item_type == 'archive_item':
                     result_item["filename"] = getattr(item, 'original_filename', None) or getattr(item, 'stored_filename', None)
@@ -283,6 +323,19 @@ class SearchService:
         # Format as "2025 January Friday" for natural language search
         return created_at.strftime("%Y %B %A")
     
+    def _generate_navigation_url(self, item_type: str, item_uuid: str) -> str:
+        """Generate frontend navigation URL based on item type."""
+        url_map = {
+            "note": f"/notes/{item_uuid}",
+            "document": f"/documents/{item_uuid}",
+            "todo": f"/todos/{item_uuid}",
+            "project": f"/projects/{item_uuid}",
+            "diary": f"/diary",  # Diary uses date-based navigation
+            "archive_folder": f"/archive",
+            "archive_item": f"/archive"
+        }
+        return url_map.get(item_type, "/")
+    
     def _build_fts_query(self, query: str) -> str:
         """Build FTS5 query string with proper escaping."""
         # Simple escaping for FTS5 - remove special characters that could break the query
@@ -335,66 +388,210 @@ class SearchService:
     
     async def bulk_index_user_content(self, db: AsyncSession, created_by: str) -> None:
         """
-        Bulk index all content for a user (useful for migration).
+        Bulk index all content for a user using efficient bulk operations.
+        
+        Optimized to use batch DELETE and INSERT operations instead of individual
+        index_item calls, reducing database round-trips from 2000+ to ~20 for 1000 items.
 
         Args:
             db: Database session
             created_by: User UUID to index content for
         """
         logger.info("Starting bulk index for user %s", created_by)
-
-        # Index notes
+        
+        # Collect all items with tags pre-loaded
         notes_result = await db.execute(
-            select(Note).options(selectinload(Note.tag_objs)).where(Note.created_by == created_by)
+            select(Note).options(selectinload(Note.tag_objs), selectinload(Note.documents))
+            .where(Note.created_by == created_by)
         )
-        for note in notes_result.scalars():
-            await self.index_item(db, note, 'note')
-
-        # Index documents
+        notes = list(notes_result.scalars())
+        
         docs_result = await db.execute(
-            select(Document).options(selectinload(Document.tag_objs)).where(Document.created_by == created_by)
+            select(Document).options(selectinload(Document.tag_objs))
+            .where(Document.created_by == created_by)
         )
-        for doc in docs_result.scalars():
-            await self.index_item(db, doc, 'document')
-
-        # Index todos
+        documents = list(docs_result.scalars())
+        
         todos_result = await db.execute(
-            select(Todo).options(selectinload(Todo.tag_objs)).where(Todo.created_by == created_by)
+            select(Todo).options(selectinload(Todo.tag_objs))
+            .where(Todo.created_by == created_by)
         )
-        for todo in todos_result.scalars():
-            await self.index_item(db, todo, 'todo')
-
-        # Index projects
+        todos = list(todos_result.scalars())
+        
         projects_result = await db.execute(
-            select(Project).options(selectinload(Project.tag_objs)).where(Project.created_by == created_by)
+            select(Project).options(selectinload(Project.tag_objs))
+            .where(Project.created_by == created_by)
         )
-        for project in projects_result.scalars():
-            await self.index_item(db, project, 'project')
-
-        # Index diary entries
+        projects = list(projects_result.scalars())
+        
         diary_result = await db.execute(
-            select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs)).where(DiaryEntry.created_by == created_by)
+            select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs), selectinload(DiaryEntry.documents))
+            .where(DiaryEntry.created_by == created_by)
         )
-        for entry in diary_result.scalars():
-            await self.index_item(db, entry, 'diary')
-
-        # Note: Link model not implemented yet - skipping link indexing
-
-        # Index archive folders
+        diary_entries = list(diary_result.scalars())
+        
         folders_result = await db.execute(
-            select(ArchiveFolder).options(selectinload(ArchiveFolder.tag_objs)).where(ArchiveFolder.created_by == created_by)
+            select(ArchiveFolder).options(selectinload(ArchiveFolder.tag_objs))
+            .where(ArchiveFolder.created_by == created_by)
         )
-        for folder in folders_result.scalars():
-            await self.index_item(db, folder, 'archive_folder')
-
-        # Index archive items
+        folders = list(folders_result.scalars())
+        
         items_result = await db.execute(
-            select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs)).where(ArchiveItem.created_by == created_by)
+            select(ArchiveItem).options(selectinload(ArchiveItem.tag_objs))
+            .where(ArchiveItem.created_by == created_by)
         )
-        for item in items_result.scalars():
-            await self.index_item(db, item, 'archive_item')
-
-        logger.info("Completed bulk index for user %s", created_by)
+        archive_items = list(items_result.scalars())
+        
+        total_items = len(notes) + len(documents) + len(todos) + len(projects) + len(diary_entries) + len(folders) + len(archive_items)
+        logger.info("Collected %d items for bulk indexing", total_items)
+        
+        # Build index data for all items
+        index_data = []
+        
+        # Process notes
+        for note in notes:
+            tags = ' '.join(t.name for t in note.tag_objs) if note.tag_objs else ''
+            attachments = "\n".join(d.filename for d in note.documents if d.filename) if note.documents else ''
+            index_data.append({
+                "uuid": str(note.uuid),
+                "type": "note",
+                "created_by": created_by,
+                "title": note.title or '',
+                "description": note.description or '',
+                "tags": tags,
+                "attachments": attachments,
+                "date_text": self._format_date_text(note.created_at)
+            })
+        
+        # Process documents
+        for doc in documents:
+            tags = ' '.join(t.name for t in doc.tag_objs) if doc.tag_objs else ''
+            attachments = doc.filename or ''
+            index_data.append({
+                "uuid": str(doc.uuid),
+                "type": "document",
+                "created_by": created_by,
+                "title": doc.title or '',
+                "description": doc.description or '',
+                "tags": tags,
+                "attachments": attachments,
+                "date_text": self._format_date_text(doc.created_at)
+            })
+        
+        # Process todos
+        for todo in todos:
+            tags = ' '.join(t.name for t in todo.tag_objs) if todo.tag_objs else ''
+            index_data.append({
+                "uuid": str(todo.uuid),
+                "type": "todo",
+                "created_by": created_by,
+                "title": todo.title or '',
+                "description": todo.description or '',
+                "tags": tags,
+                "attachments": '',
+                "date_text": self._format_date_text(todo.created_at)
+            })
+        
+        # Process projects
+        for project in projects:
+            tags = ' '.join(t.name for t in project.tag_objs) if project.tag_objs else ''
+            index_data.append({
+                "uuid": str(project.uuid),
+                "type": "project",
+                "created_by": created_by,
+                "title": project.name or '',
+                "description": project.description or '',
+                "tags": tags,
+                "attachments": '',
+                "date_text": self._format_date_text(project.created_at)
+            })
+        
+        # Process diary entries
+        for entry in diary_entries:
+            tags = ' '.join(t.name for t in entry.tag_objs) if entry.tag_objs else ''
+            attachments = "\n".join(d.filename for d in entry.documents if d.filename) if entry.documents else ''
+            index_data.append({
+                "uuid": str(entry.uuid),
+                "type": "diary",
+                "created_by": created_by,
+                "title": entry.title or '',
+                "description": '',
+                "tags": tags,
+                "attachments": attachments,
+                "date_text": self._format_date_text(entry.created_at)
+            })
+        
+        # Process archive folders
+        for folder in folders:
+            tags = ' '.join(t.name for t in folder.tag_objs) if folder.tag_objs else ''
+            index_data.append({
+                "uuid": str(folder.uuid),
+                "type": "archive_folder",
+                "created_by": created_by,
+                "title": folder.name or '',
+                "description": folder.description or '',
+                "tags": tags,
+                "attachments": '',
+                "date_text": self._format_date_text(folder.created_at)
+            })
+        
+        # Process archive items
+        for item in archive_items:
+            tags = ' '.join(t.name for t in item.tag_objs) if item.tag_objs else ''
+            filename = getattr(item, 'original_filename', None) or getattr(item, 'stored_filename', None) or ''
+            index_data.append({
+                "uuid": str(item.uuid),
+                "type": "archive_item",
+                "created_by": created_by,
+                "title": item.name or '',
+                "description": item.description or '',
+                "tags": tags,
+                "attachments": filename,
+                "date_text": self._format_date_text(item.created_at)
+            })
+        
+        if not index_data:
+            logger.info("No items to index for user %s", created_by)
+            return
+        
+        # Bulk DELETE all existing FTS entries for this user
+        await db.execute(text("""
+            DELETE FROM fts_content WHERE created_by = :created_by
+        """), {"created_by": created_by})
+        
+        # Bulk INSERT all index data
+        # Use batch INSERT with multiple VALUES for efficiency
+        # SQLite supports up to 999 parameters per query, so we'll batch in chunks
+        BATCH_SIZE = 100
+        for i in range(0, len(index_data), BATCH_SIZE):
+            batch = index_data[i:i + BATCH_SIZE]
+            
+            # Build VALUES clause for batch
+            values_clauses = []
+            params = {}
+            for idx, item in enumerate(batch):
+                param_prefix = f"b{i}_{idx}_"
+                values_clauses.append(f"(:{param_prefix}uuid, :{param_prefix}type, :{param_prefix}created_by, "
+                                    f":{param_prefix}title, :{param_prefix}description, :{param_prefix}tags, "
+                                    f":{param_prefix}attachments, :{param_prefix}date_text)")
+                params[f"{param_prefix}uuid"] = item["uuid"]
+                params[f"{param_prefix}type"] = item["type"]
+                params[f"{param_prefix}created_by"] = item["created_by"]
+                params[f"{param_prefix}title"] = item["title"]
+                params[f"{param_prefix}description"] = item["description"]
+                params[f"{param_prefix}tags"] = item["tags"]
+                params[f"{param_prefix}attachments"] = item["attachments"]
+                params[f"{param_prefix}date_text"] = item["date_text"]
+            
+            insert_sql = f"""
+                INSERT INTO fts_content(item_uuid, item_type, created_by, title, description, tags, attachments, date_text)
+                VALUES {', '.join(values_clauses)}
+            """
+            
+            await db.execute(text(insert_sql), params)
+        
+        await db.commit()
+        logger.info("Completed bulk index for user %s: %d items indexed", created_by, len(index_data))
 
 
 # Global instance

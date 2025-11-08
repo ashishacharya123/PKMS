@@ -70,6 +70,48 @@ class DiaryService {
     return diaryCryptoService.decryptText(encryptedBlob, key);
   }
 
+  async getEntryContent(entryUuid: string, key: CryptoKey): Promise<string> {
+    try {
+      // Get documents linked to this diary entry
+      const documents = await this.getEntryFiles(entryUuid);
+
+      // Look for content document (usually a .txt or .md file with the entry's content)
+      const contentDocument = documents.find(doc =>
+        doc.originalName?.endsWith('.txt') ||
+        doc.originalName?.endsWith('.md') ||
+        doc.mimeType === 'text/plain' ||
+        doc.mimeType === 'text/markdown'
+      );
+
+      if (!contentDocument) {
+        throw new Error('No content document found for this diary entry');
+      }
+
+      // Download and decrypt the content document
+      const encryptedBlob = await coreDownloadService.downloadFile(
+        `/api/v1/documents/${contentDocument.uuid}/download`,
+        {
+          onProgress: (progress) => {
+            // Silent download for content - no progress callback needed
+          }
+        }
+      );
+
+      // Decrypt the content
+      const decryptedFile = await diaryCryptoService.decryptFile(
+        encryptedBlob,
+        key,
+        contentDocument.originalName || 'content.txt'
+      );
+
+      // Convert to text
+      return await decryptedFile.text();
+    } catch (error) {
+      console.error('❌ Failed to get diary entry content:', error);
+      throw error;
+    }
+  }
+
   async getPasswordHint(): Promise<string> {
     const response = await apiService.get<{ hint: string }>(`${this.baseUrl}/encryption/hint`);
     return response.data.hint;

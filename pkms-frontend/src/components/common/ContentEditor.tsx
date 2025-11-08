@@ -5,7 +5,7 @@
  * Supports markdown editing, file attachments, and various metadata fields.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Container,
   Grid,
@@ -15,32 +15,28 @@ import {
   Stack,
   Card,
   Title,
+  Text,
   TagsInput,
   Alert,
   Skeleton,
-  Badge,
   Paper,
-  Text,
   Select,
-  NumberInput,
-  Switch,
-  Textarea
+  Switch
 } from '@mantine/core';
+import { DatePicker } from '@mantine/dates';
 import {
   IconDeviceFloppy,
   IconX,
   IconEye,
-  IconEdit,
-  IconMarkdown,
-  IconFolder,
-  IconMood,
+  IconMoodHappy,
   IconCloudRain,
   IconMapPin
 } from '@tabler/icons-react';
 import MDEditor from '@uiw/react-md-editor';
-import { notifications } from '@mantine/notifications';
 import { UnifiedFileSection } from '../file/UnifiedFileSection';
 import { UnifiedFileItem } from '../../services/unifiedFileService';
+import { MultiProjectSelector } from './MultiProjectSelector';
+
 
 export interface ContentEditorProps {
   // Content fields
@@ -67,6 +63,8 @@ export interface ContentEditorProps {
   onWeatherCodeChange?: (weatherCode: number) => void;
   location?: string;
   onLocationChange?: (location: string) => void;
+  date?: Date;
+  onDateChange?: (date: Date) => void;
   
   // Template selection
   availableTemplates?: Array<{ uuid: string; title: string; date: string; isTemplate: boolean }>;
@@ -117,6 +115,12 @@ export const ContentEditor: React.FC<ContentEditorProps> = ({
   onWeatherCodeChange,
   location,
   onLocationChange,
+  date,  // ✅ Add missing date prop
+  onDateChange,  // ✅ Add missing onDateChange prop
+  availableTemplates,
+  selectedTemplateId,
+  onTemplateSelect,
+  onCreateFromTemplate,
   files,
   onFilesUpdate,
   module,
@@ -188,17 +192,37 @@ export const ContentEditor: React.FC<ContentEditorProps> = ({
         {/* Diary-specific fields */}
         {showDiaryFields && (
           <Grid>
-            <Grid.Col span={4}>
+            <Grid.Col span={3}>
+              <Text size="sm" fw={500} mb={5}>Date</Text>
+              <DatePicker
+                value={date}
+                onChange={(value) => {
+                  // Handle both Date and string types from DatePicker
+                  if (value && typeof value === 'object' && 'getTime' in value) {
+                    // It's a Date object
+                    onDateChange?.(value);
+                  } else if (value && typeof value === 'string') {
+                    // It's a string date
+                    onDateChange?.(new Date(value));
+                  } else {
+                    // Default fallback
+                    onDateChange?.(new Date());
+                  }
+                }}
+                size="md"
+              />
+            </Grid.Col>
+            <Grid.Col span={3}>
               <Select
                 label="Mood"
                 placeholder="Select mood"
                 data={moodOptions}
                 value={mood?.toString()}
                 onChange={(value) => onMoodChange?.(value ? parseInt(value) : 0)}
-                leftSection={<IconMood size={16} />}
+                leftSection={<IconMoodHappy size={16} />}
               />
             </Grid.Col>
-            <Grid.Col span={4}>
+            <Grid.Col span={3}>
               <Select
                 label="Weather"
                 placeholder="Select weather"
@@ -208,7 +232,7 @@ export const ContentEditor: React.FC<ContentEditorProps> = ({
                 leftSection={<IconCloudRain size={16} />}
               />
             </Grid.Col>
-            <Grid.Col span={4}>
+            <Grid.Col span={3}>
               <TextInput
                 label="Location"
                 placeholder="Enter location"
@@ -270,8 +294,10 @@ export const ContentEditor: React.FC<ContentEditorProps> = ({
             <Stack gap="md">
               <Title order={5}>Project Association</Title>
               <MultiProjectSelector
-                selectedProjectIds={projectIds}
-                onProjectIdsChange={onProjectIdsChange}
+                value={projectIds || []}
+                onChange={onProjectIdsChange || (() => {})}
+                isExclusive={isExclusive}
+                onExclusiveChange={onIsExclusiveChange || (() => {})}
               />
               <Switch
                 label="Exclusive to this project"
@@ -303,13 +329,16 @@ export const ContentEditor: React.FC<ContentEditorProps> = ({
 
           {isPreviewMode ? (
             <Paper p="md" withBorder>
-              <MDEditor.Markdown source={content} />
+              <MDEditor.Markdown 
+                source={content} 
+                data-color-mode="light"
+              />
             </Paper>
           ) : (
             <MDEditor
               value={content}
               onChange={(value) => onContentChange(value || '')}
-              height={400}
+              height={250}
               data-color-mode="light"
             />
           )}

@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '../../../test/testUtils';
-import { TodoForm } from '../todos/TodoForm';
+import { TodoForm } from '../../todos/TodoForm';
 import { mockProject } from '../../../test/testUtils';
 import { TodoStatus, TaskPriority, TodoType } from '../../../types/todo';
 

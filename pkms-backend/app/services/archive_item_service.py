@@ -433,28 +433,33 @@ class ArchiveItemService:
                     detail="Deleted archive item not found"
                 )
             
-            # Delete physical file
-            if item.file_path:
-                file_path = Path(item.file_path)
-                if file_path.exists():
+            # Store file paths before deleting database record
+            file_path = item.file_path
+            thumbnail_path = item.thumbnail_path
+
+            # Delete database record FIRST for atomic operation
+            await db.delete(item)
+            await db.commit()  # Commit DB deletion before file operations
+
+            # Delete physical files AFTER successful database deletion
+            if file_path:
+                file_path_obj = Path(file_path)
+                if file_path_obj.exists():
                     try:
-                        file_path.unlink()
+                        file_path_obj.unlink()
                         logger.info(f"Deleted archive file: {file_path}")
                     except Exception as e:
                         logger.warning(f"Could not delete archive file {file_path}: {e}")
-            
+
             # Delete thumbnail if exists
-            if item.thumbnail_path:
-                thumbnail_path = Path(item.thumbnail_path)
-                if thumbnail_path.exists():
+            if thumbnail_path:
+                thumbnail_path_obj = Path(thumbnail_path)
+                if thumbnail_path_obj.exists():
                     try:
-                        thumbnail_path.unlink()
+                        thumbnail_path_obj.unlink()
                         logger.info(f"Deleted archive thumbnail: {thumbnail_path}")
                     except Exception as e:
                         logger.warning(f"Could not delete archive thumbnail {thumbnail_path}: {e}")
-            
-            # Hard delete item record
-            await db.delete(item)
             
             logger.info(f"Archive item permanently deleted: {item_uuid}")
             

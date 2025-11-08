@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '../../test/utils';
-import { DiaryPage } from '../../pages/DiaryPage';
+import { render, screen, fireEvent, waitFor } from '../../../test/testUtils';
+import { DiaryPage } from '../../../pages/DiaryPage';
 
 // Mock the diary service
 vi.mock('../../services/diaryService', () => ({

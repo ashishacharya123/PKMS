@@ -1,0 +1,217 @@
+See this plan, is it good?
+Detailed Implementation Plan: Complete Diary & Projects Reserve Integration
+
+ Overview
+
+ Complete the optimistic UUID implementation by wiring diary and projects modules to use the existing entityReserveService infrastructure. This will
+ provide the same seamless UX (immediate file operations, clean discard behavior) that's already working for notes.
+
+ Current Status
+
+ - ✅ Infrastructure Complete: entityReserveService, backend endpoints, file operations
+ - ✅ Notes Module: Fully implemented with optimistic UUID + discard
+ - 🔧 Remaining: Diary and Projects UI integration
+
+ Phase 1: Diary Module Integration
+
+ 1.1 Locate Diary Entry Creation Flow
+
+ Target Files to Explore:
+ - pkms-frontend/src/pages/DiaryViewPage.tsx
+ - pkms-frontend/src/components/diary/DiaryLayout.tsx
+ - pkms-frontend/src/components/diary/DiaryEditor.tsx
+ - pkms-frontend/src/components/diary/NewEntryModal.tsx
+
+ Find These Elements:
+ - "New Entry" button/modal trigger
+ - Date selection component
+ - Entry creation logic
+ - Cancel/back handlers
+
+ 1.2 Implement Reserve Integration
+
+ Implementation Steps:
+ 1. Add Reserve Call: After date selection, call entityReserveService.reserve('diary', { date })
+ 2. Update Component State: Persist returned UUID in diary entry state
+ 3. Enable File Operations: Conditionally enable UnifiedFileSection with valid UUID
+ 4. Add Discard Handler: On cancel, call entityReserveService.discard('diary', uuid) if empty
+
+ Expected Code Pattern:
+ // In diary component
+ const [currentEntry, setCurrentEntry] = useState(null);
+ const [isCreating, setIsCreating] = useState(false);
+
+ const handleNewEntry = async (selectedDate: string) => {
+   try {
+     const { uuid } = await entityReserveService.reserve('diary', { date: selectedDate });
+     setCurrentEntry({ uuid, date: selectedDate, content: '', mood: null });
+     setIsCreating(true);
+   } catch (error) {
+     console.error('Failed to reserve diary entry:', error);
+   }
+ };
+
+ const handleCancel = async () => {
+   if (isCreating && currentEntry?.uuid && isEmptyEntry(currentEntry)) {
+     await entityReserveService.discard('diary', currentEntry.uuid);
+   }
+   setCurrentEntry(null);
+   setIsCreating(false);
+ };
+
+ 1.3 Update Diary File Operations
+
+ Target: UnifiedFileSection in diary component
+ Changes:
+ - Update entityId={currentEntry?.uuid || ''}
+ - Enable upload/recorder/drag-drop only when UUID exists
+
+ Phase 2: Projects Module Integration
+
+ 2.1 Locate Project Creation Flow
+
+ Target Files to Explore:
+ - pkms-frontend/src/pages/ProjectsPage.tsx
+ - pkms-frontend/src/components/projects/ProjectForm.tsx
+ - pkms-frontend/src/components/projects/ProjectCard.tsx
+ - pkms-frontend/src/components/projects/NewProjectModal.tsx
+
+ Find These Elements:
+ - "New Project" button/modal
+ - Project creation form
+ - Project state management
+ - Cancel handlers
+
+ 2.2 Implement Reserve Integration
+
+ Implementation Steps:
+ 1. Add Reserve Call: On "New Project" trigger, call entityReserveService.reserve('projects')
+ 2. Update Component State: Persist returned UUID in project state
+ 3. Enable File Operations: Conditionally enable UnifiedFileSection with valid UUID
+ 4. Add Discard Handler: On cancel, call entityReserveService.discard('projects', uuid) if empty
+
+ Expected Code Pattern:
+ // In projects component
+ const [currentProject, setCurrentProject] = useState(null);
+ const [isCreating, setIsCreating] = useState(false);
+
+ const handleNewProject = async () => {
+   try {
+     const { uuid } = await entityReserveService.reserve('projects');
+     setCurrentProject({ uuid, title: '', description: '' });
+     setIsCreating(true);
+   } catch (error) {
+     console.error('Failed to reserve project:', error);
+   }
+ };
+
+ const handleCancel = async () => {
+   if (isCreating && currentProject?.uuid && isEmptyProject(currentProject)) {
+     await entityReserveService.discard('projects', currentProject.uuid);
+   }
+   setCurrentProject(null);
+   setIsCreating(false);
+ };
+
+ 2.3 Update Projects File Operations
+
+ Target: UnifiedFileSection in project component
+ Changes:
+ - Update entityId={currentProject?.uuid || ''}
+ - Enable upload features only when UUID exists
+
+ Phase 3: Helper Functions & Utilities
+
+ 3.1 Create Empty Detection Helpers
+
+ File: pkms-frontend/src/utils/entityUtils.ts
+ Implementation:
+ export const isEmptyDiaryEntry = (entry: any): boolean => {
+   return !entry.title &&
+          !entry.content &&
+          (!entry.files || entry.files.length === 0) &&
+          !entry.mood;
+ };
+
+ export const isEmptyProject = (project: any): boolean => {
+   return !project.title &&
+          !project.description &&
+          (!project.files || project.files.length === 0);
+ };
+
+ 3.2 Add Error Handling
+
+ Implementation: Add try-catch blocks with user-friendly error messages
+ Fallback: Handle reserve failures gracefully with retry options
+
+ Phase 4: Testing & Validation
+
+ 4.1 Diary Testing Checklist
+
+ - New Entry creates reserved UUID immediately after date selection
+ - File upload/audio recorder enabled immediately with UUID
+ - Cancel with empty entry triggers discard (confirmed via backend)
+ - Cancel with content keeps entry (no discard)
+ - Entry saves correctly with uploaded files
+
+ 4.2 Projects Testing Checklist
+
+ - New Project creates reserved UUID immediately
+ - File upload enabled immediately with UUID
+ - Cancel with empty project triggers discard
+ - Cancel with content keeps project
+ - Project saves correctly with files
+
+ 4.3 Cross-Module Testing
+
+ - Paste-to-upload works in both diary and projects
+ - Replace file action works consistently
+ - File sharing between modules works correctly
+ - Discard doesn't affect files used in other modules
+
+ Phase 5: Documentation Updates
+
+ 5.1 Update Developmental Comments
+
+ File: DEVELOPMENTAL_COMMENTS.md
+ Add Sections:
+ - Diary and Projects optimistic UUID implementation
+ - Cross-module consistency patterns
+ - File operation enhancements (replace, paste-to-upload)
+ - Entity reserve and discard patterns
+
+ 5.2 Update API Documentation
+
+ Document New Endpoints:
+ - POST /api/v1/diary/reserve - Request/response examples
+ - POST /api/v1/projects/reserve - Request/response examples
+ - DELETE /api/v1/entities/discard - Usage patterns
+
+ Implementation Timeline
+
+ Estimated Time: 45-60 minutes total
+
+ Phase Breakdown:
+ - Phase 1 (Diary): 20-25 minutes
+ - Phase 2 (Projects): 15-20 minutes
+ - Phase 3 (Utilities): 5 minutes
+ - Phase 4 (Testing): 5-10 minutes
+ - Phase 5 (Documentation): 5 minutes
+
+ Success Criteria
+
+ Functional Requirements
+
+ - ✅ Diary entries can be created with immediate file upload capability
+ - ✅ Projects can be created with immediate file upload capability
+ - ✅ Empty reserved entities are automatically discarded on cancel
+ - ✅ Non-empty entities are preserved on cancel
+ - ✅ All file operations (upload, paste, replace) work consistently
+
+ Technical Requirements
+
+ - ✅ No backend changes needed (endpoints already exist)
+ - ✅ Uses existing entityReserveService infrastructure
+ - ✅ Maintains same patterns as notes implementation
+ - ✅ Proper error handling and user feedback
+ - ✅ Database consistency (no orphaned reserved entities)

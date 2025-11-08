@@ -59,7 +59,8 @@ class AsyncFileLock:
             if self._lock_file:
                 try:
                     self._lock_file.unlink(missing_ok=True)
-                except:
+                except (OSError, PermissionError):
+                    # Ignore cleanup errors - original exception is more important
                     pass
             raise e
 

@@ -2,27 +2,48 @@
  * Note TypeScript interfaces matching backend schemas exactly
  */
 
-import { BaseEntity, BaseCreateRequest, BaseUpdateRequest, BaseSummary } from './common';
+import { BaseEntity, BaseCreateRequest, BaseUpdateRequest, BaseItem } from './common';
 import { ProjectBadge } from './project';
 
 export interface Note extends BaseEntity {
   title: string;
-  content: string;
-  description?: string; // NEW - for FTS5
+  content?: string; // Backend allows null for file-backed notes
+  contentFilePath?: string;
+  thumbnailPath?: string;
+  isTemplate?: boolean;
+  fromTemplateId?: string;
+  description?: string; // Brief description for FTS5 search (max 500 chars)
   fileCount: number;
+  isFavorite: boolean;
   isArchived: boolean;
-  isProjectExclusive: boolean;
+  isExclusiveMode?: boolean;
+  isProjectExclusive?: boolean;
   projects: ProjectBadge[];
+  createdBy: string;
+  tags: string[];
   version?: number;
 }
 
-export interface NoteSummary extends BaseSummary {
-  content: string;
+export interface NoteSummary extends BaseItem {
+  uuid: string;
+  name: string; // BaseItem requires 'name'
+  title: string;
+  preview: string;
+  content?: string; // Optional full content
   description?: string;
   fileCount: number;
+  isFavorite: boolean;
   isArchived: boolean;
-  isProjectExclusive: boolean;
+  isExclusiveMode?: boolean;
+  isProjectExclusive?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  tags: string[];
+  isTemplate?: boolean;
+  fromTemplateId?: string;
   projects: ProjectBadge[];
+  version?: number;
 }
 
 export interface NoteFile {
@@ -36,20 +57,29 @@ export interface NoteFile {
 }
 
 export interface CreateNoteRequest extends BaseCreateRequest {
+  title: string;
   content: string;
-  description?: string;
-  projectIds?: string[]; // Multi-project support (UUIDs)
-  isProjectExclusive?: boolean;
-  isArchived?: boolean;
+  description?: string; // Brief description for FTS5 search (max 500 chars)
+  tags?: string[];
+  projectUuids?: string[]; // List of project UUIDs to link this note to (max 10)
+  areProjectsExclusive?: boolean; // Apply exclusive flag to all project associations
+  forceFileStorage?: boolean; // Force content to be saved as file even if small
+  isTemplate?: boolean; // Mark this note as a template
+  fromTemplateId?: string; // UUID of the template this note was created from
 }
 
 export interface UpdateNoteRequest extends BaseUpdateRequest {
+  title?: string;
   content?: string;
-  description?: string;
-  projectIds?: string[]; // Multi-project support (UUIDs)
-  isProjectExclusive?: boolean;
+  description?: string; // Brief description for FTS5 search (max 500 chars)
+  tags?: string[];
+  forceFileStorage?: boolean; // Force content to be saved as file even if small
   isArchived?: boolean;
-  version?: number;
+  isFavorite?: boolean;
+  isTemplate?: boolean;
+  fromTemplateId?: string;
+  projectUuids?: string[]; // List of project UUIDs to link this note to (max 10)
+  areProjectsExclusive?: boolean; // Apply exclusive flag to all project associations
 }
 
 export interface CommitNoteFileRequest {

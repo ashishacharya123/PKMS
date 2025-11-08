@@ -39,8 +39,6 @@ export interface DiaryEntry {
   date: string;
   nepaliDate?: string;
   title?: string;
-  encryptedBlob: string;
-  encryptionIv: string;
   mood?: number;
   weatherCode?: WeatherCode;
   weatherLabel?: string;
@@ -57,6 +55,7 @@ export interface DiaryEntry {
   fileCount: number;
   tags: string[];
   contentLength?: number;
+  contentAvailable?: boolean;
 }
 
 export interface DiaryEntrySummary {
@@ -77,10 +76,9 @@ export interface DiaryEntrySummary {
   fromTemplateId?: string | null;
   createdAt: string;
   fileCount: number;
-  encryptedBlob: string;
-  encryptionIv: string;
   tags: string[];
   contentLength?: number;
+  contentAvailable?: boolean;
   isFavorite?: boolean;
 }
 

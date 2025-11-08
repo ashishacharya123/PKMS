@@ -9,6 +9,7 @@ import { Notifications } from '@mantine/notifications';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 import { vi } from 'vitest';
+import { TodoStatus, TaskPriority, TodoType } from '../types/enums';
 
 // Mock Mantine theme
 const theme = {
@@ -58,15 +59,22 @@ export const mockNote = {
 
 export const mockTodo = {
   uuid: 'test-todo-uuid',
+  name: 'Test Todo',
   title: 'Test Todo',
   description: 'Test todo description',
-  status: 'pending' as const,
-  priority: 'medium' as const,
-  type: 'task' as const,
-  startDate: null,
-  dueDate: null,
+  status: TodoStatus.PENDING,
+  priority: TaskPriority.MEDIUM,
+  type: TodoType.TASK,
+  startDate: undefined,
+  dueDate: undefined,
   completionPercentage: 0,
   isArchived: false,
+  isFavorite: false,
+  orderIndex: 0,
+  subtasks: [],
+  tags: [],
+  blockerCount: 0,
+  createdBy: 'test-user',
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z',
   projects: []
@@ -78,13 +86,19 @@ export const mockProject = {
   description: 'Test project description',
   status: 'is_running' as const,
   priority: 'medium' as const,
+  sortOrder: 0,
   dueDate: null,
   completionDate: null,
   progressPercentage: 0,
   todoCount: 0,
   completedCount: 0,
+  isArchived: false,
+  isFavorite: false,
+  isDeleted: false,
+  createdBy: 'test-user',
   createdAt: '2024-01-01T00:00:00Z',
-  updatedAt: '2024-01-01T00:00:00Z'
+  updatedAt: '2024-01-01T00:00:00Z',
+  tags: []
 };
 
 export const mockDocument = {
@@ -106,6 +120,13 @@ export const mockDiaryEntry = {
   contentAvailable: true,
   createdAt: '2024-01-01T00:00:00Z',
   updatedAt: '2024-01-01T00:00:00Z'
+};
+
+export const mockProjectBadge = {
+  uuid: 'test-project-uuid',
+  name: 'Test Project',
+  isProjectExclusive: false,
+  isDeleted: false
 };
 
 export const mockTag = {

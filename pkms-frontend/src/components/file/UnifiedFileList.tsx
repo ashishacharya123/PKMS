@@ -18,33 +18,91 @@ import {
   IconUnlink, 
   IconGripVertical,
   IconEye,
-  IconChecklist
+  IconChecklist,
+  IconRefresh,
+  IconEdit
 } from '@tabler/icons-react';
-import { 
-  Group, 
-  Text, 
-  ActionIcon, 
-  Badge, 
-  Card, 
-  Stack, 
-  Image, 
+import {
+  Group,
+  Text,
+  ActionIcon,
+  Badge,
+  Card,
+  Stack,
+  Image,
   Tooltip
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import { unifiedFileService, UnifiedFileItem } from '../../services/unifiedFileService';
 import { fileService } from '../../services/fileCacheService';
 import { reorderArray, getDragPreviewStyles, getDropZoneStyles } from '../../utils/dragAndDrop';
 import { ImageViewer } from '../common/ImageViewer';
 import { TodoCard } from '../todos/TodoCard';
 import { Todo } from '../../types/todo';
+import { UnifiedContentModal } from './UnifiedContentModal';
+import { useModal } from '../../hooks/useModal';
+
+// Utility function for getting cache module
+const getCacheModule = (module: string): 'documents' | 'archive' | 'diary' => {
+  switch (module) {
+    case 'documents':
+      return 'documents';
+    case 'archive':
+      return 'archive';
+    case 'diary':
+      return 'diary';
+    default:
+      return 'documents';
+  }
+};
+
+// Utility function for getting thumbnail URLs
+const getThumbnailUrl = async (file: UnifiedFileItem, size: 'small' | 'medium' | 'large' = 'small'): Promise<string | null> => {
+  // First check if we have a cached thumbnail
+  const cacheKey = `${file.uuid}_thumbnail`;
+  const module = getCacheModule(file.module);
+  
+  try {
+    const cachedThumbnail = await fileService.getThumbnail(cacheKey, module);
+    if (cachedThumbnail) {
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.log(`🎯 THUMBNAIL CACHE HIT: ${file.originalName}`);
+      }
+      return URL.createObjectURL(cachedThumbnail);
+    }
+  } catch (error) {
+    console.warn('Failed to get cached thumbnail:', error);
+  }
+
+  // Fallback to backend thumbnail
+  if (file.thumbnailPath) {
+    return file.thumbnailPath;
+  }
+  if (file.filePath) {
+    const basePath = file.filePath.replace(/\\/g, '/');
+    const encoded = encodeURIComponent(basePath);
+    return `/api/v1/thumbnails/file/${encoded}?size=${size}`;
+  }
+  
+  return null;
+};
 
 interface UnifiedFileListProps {
   files: UnifiedFileItem[];
   onDelete: (fileId: string) => void;
   onUnlink?: (fileId: string) => void; // For project context
   onReorder?: (reorderedFiles: UnifiedFileItem[]) => void; // For drag-and-drop reordering
+  onReplace?: (fileId: string, newFile: File) => void; // For replacing files
   className?: string;
   showUnlink?: boolean; // Show unlink action instead of delete
   enableDragDrop?: boolean; // Enable drag-and-drop reordering
+  encryptionKey?: CryptoKey; // For diary encryption
+  // Content editing props
+  module: 'notes' | 'diary' | 'documents' | 'archive' | 'projects';
+  entityId: string; // Parent entity UUID
+  onContentSave?: (data: any) => Promise<void>; // For content saving
+  onContentDelete?: () => Promise<void>; // For content deletion
 }
 
 export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
@@ -52,25 +110,32 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   onDelete,
   onUnlink,
   onReorder,
+  onReplace,
   className = '',
   showUnlink = false,
-  enableDragDrop = false
+  enableDragDrop = false,
+  encryptionKey,
+  module,
+  entityId,
+  onContentSave,
+  onContentDelete
 }) => {
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   
-  // Image viewing state
-  const [imageViewerOpen, setImageViewerOpen] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<UnifiedFileItem | null>(null);
-  
-  // TODO viewing state
-  const [todoViewerOpen, setTodoViewerOpen] = useState(false);
-  const [selectedTodo, setSelectedTodo] = useState<Todo | null>(null);
+  // Modal management with useModal hooks
+  const contentModal = useModal<{ file: UnifiedFileItem; mode: 'view' | 'edit' | 'create' }>();
+  const imageModal = useModal<{ url: string; name: string }>();
+  const todoModal = useModal<Todo>();
   
   // Drag and drop state
   const [draggedFile, setDraggedFile] = useState<UnifiedFileItem | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  // Content loading state
+  const [isContentLoading, setIsContentLoading] = useState(false);
+  const [contentError, setContentError] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -146,16 +211,32 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
     }
   };
 
-  const handleViewImage = (file: UnifiedFileItem) => {
-    setSelectedImage(file);
-    setImageViewerOpen(true);
+  const handleViewImage = async (file: UnifiedFileItem) => {
+    try {
+      let imageUrl: string;
+
+      if (file.isEncrypted && encryptionKey) {
+        // Decrypt and create blob URL
+        const decryptedBlob = await unifiedFileService.downloadFile(file, encryptionKey);
+        imageUrl = URL.createObjectURL(decryptedBlob);
+      } else {
+        // Use existing thumbnail logic
+        imageUrl = await getThumbnailUrl(file, 'large') || file.filePath || '';
+      }
+
+      imageModal.openModal({ url: imageUrl, name: file.originalName || 'Image' });
+    } catch (error) {
+      console.error('Failed to load image:', error);
+      // Show user-friendly error message with fallback
+      imageModal.openModal({ url: file.filePath || '', name: file.originalName || 'Image' });
+    }
   };
 
   const handleViewDocument = (file: UnifiedFileItem) => {
     // Get the proper download URL for the file
     const downloadUrl = unifiedFileService.getDownloadUrl(file);
-    // Open document in new tab using the download URL
-    window.open(downloadUrl, '_blank');
+    // Open document in new tab using the download URL with security flags
+    window.open(downloadUrl, '_blank', 'noopener,noreferrer');
   };
 
   const handleViewTodo = async (file: UnifiedFileItem) => {
@@ -164,10 +245,9 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
       const downloadUrl = unifiedFileService.getDownloadUrl(file);
       const response = await fetch(downloadUrl);
       const todoData = await response.json();
-      
+
       // Set the TODO data and open viewer
-      setSelectedTodo(todoData as Todo);
-      setTodoViewerOpen(true);
+      todoModal.openModal(todoData as Todo);
     } catch (error) {
       console.error('Failed to load TODO file:', error);
       // Fallback to opening as document
@@ -203,6 +283,75 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
         alert('Failed to unlink file');
       }
     }
+  };
+
+  const handleReplace = (fileId: string) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = false;
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file && onReplace) {
+        onReplace(fileId, file);
+      }
+    };
+    input.click();
+  };
+
+  // Content modal handlers
+  const openContentModal = async (mode: 'view' | 'edit' | 'create', file: UnifiedFileItem) => {
+    // Only load content for existing files (not create mode)
+    if (mode !== 'create' && isContentFile(file)) {
+      try {
+        setIsContentLoading(true);
+        setContentError(null);
+
+        // Load actual file content
+        const blob = await unifiedFileService.downloadFile(file, encryptionKey);
+        const contentText = await blob.text();
+
+        // Use corrected useModal hook pattern
+        contentModal.openModal(
+          { file, mode },  // First param: selectedItem
+          { content: contentText }  // Second param: modalData
+        );
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to load file content';
+        setContentError(errorMessage);
+        notifications.show({
+          title: 'Error',
+          message: errorMessage,
+          color: 'red'
+        });
+      } finally {
+        setIsContentLoading(false);
+      }
+    } else {
+      // Create mode or non-content file - open modal without content
+      contentModal.openModal({ file, mode }, { content: '' });
+    }
+  };
+
+  const handleContentSave = async (data: any) => {
+    if (onContentSave) {
+      await onContentSave(data);
+    }
+    contentModal.closeModal();
+  };
+
+  const handleContentDelete = async () => {
+    if (onContentDelete) {
+      await onContentDelete();
+    }
+    contentModal.closeModal();
+  };
+
+  // Check if file is content-type (text/markdown)
+  const isContentFile = (file: UnifiedFileItem): boolean => {
+    return file.mimeType === 'text/markdown' || 
+           file.mimeType === 'text/plain' ||
+           file.originalName.endsWith('.md') ||
+           file.originalName.endsWith('.txt');
   };
 
   // Drag and drop handlers (universal)
@@ -367,7 +516,42 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
                     <IconDownload size={16} />
                   </ActionIcon>
                 </Tooltip>
-                
+
+                {/* View/Edit Content buttons for text files */}
+                {isContentFile(file) && (
+                  <>
+                    <Tooltip label="View Content">
+                      <ActionIcon
+                        variant="light"
+                        size="sm"
+                        onClick={() => openContentModal('view', file)}
+                      >
+                        <IconEye size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label="Edit Content">
+                      <ActionIcon
+                        variant="light"
+                        size="sm"
+                        onClick={() => openContentModal('edit', file)}
+                      >
+                        <IconEdit size={16} />
+                      </ActionIcon>
+                    </Tooltip>
+                  </>
+                )}
+
+                {/* Replace button */}
+                <Tooltip label="Replace">
+                  <ActionIcon
+                    variant="light"
+                    size="sm"
+                    onClick={() => handleReplace(file.uuid)}
+                  >
+                    <IconRefresh size={16} />
+                  </ActionIcon>
+                </Tooltip>
+
                 {showUnlink ? (
                   <Tooltip label="Unlink from project">
                     <ActionIcon
@@ -405,33 +589,33 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
     </Stack>
     
     {/* Image Viewer Modal */}
-      {selectedImage && (
-        <ImageViewer
-          opened={imageViewerOpen}
-          onClose={() => {
-            setImageViewerOpen(false);
-            setSelectedImage(null);
-          }}
-          imageUrl={selectedImage.originalName}
-          imageName={selectedImage.originalName}
-          onDownload={() => handleDownload(selectedImage)}
-          size="lg"
-        />
-      )}
+      <ImageViewer
+        opened={imageModal.isOpen}
+        onClose={imageModal.closeModal}
+        imageUrl={imageModal.selectedItem?.url || ''}
+        imageName={imageModal.selectedItem?.name || ''}
+        onDownload={() => {
+          if (imageModal.selectedItem) {
+            // Find the original file by name
+            const originalFile = files.find(f => f.originalName === imageModal.selectedItem?.name);
+            if (originalFile) {
+              handleDownload(originalFile);
+            }
+          }
+        }}
+        size="lg"
+      />
 
       {/* TODO Viewer Modal */}
-      {selectedTodo && todoViewerOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '8px', maxWidth: '80%', maxHeight: '80%', overflow: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3>TODO Viewer</h3>
-              <button onClick={() => {
-                setTodoViewerOpen(false);
-                setSelectedTodo(null);
-              }}>Close</button>
-            </div>
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', visibility: todoModal.isOpen ? 'visible' : 'hidden' }}>
+        <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '8px', maxWidth: '80%', maxHeight: '80%', overflow: 'auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h3>TODO Viewer</h3>
+            <button onClick={todoModal.closeModal}>Close</button>
+          </div>
+          {todoModal.selectedItem && (
             <TodoCard
-              todo={selectedTodo}
+              todo={todoModal.selectedItem}
               onEdit={() => {}}
               onDelete={() => {}}
               onArchive={() => {}}
@@ -439,10 +623,34 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
               onComplete={() => {}}
               onAddSubtask={() => {}}
               showArchived={false}
+              onClose={todoModal.closeModal}
             />
-          </div>
+          )}
         </div>
-      )}
+      </div>
+
+      {/* Unified Content Modal */}
+      <UnifiedContentModal
+        opened={contentModal.isOpen}
+        onClose={contentModal.closeModal}
+        mode={contentModal.selectedItem?.mode || 'view'}
+        module={module}
+        entityId={entityId}
+        initialData={{
+          title: contentModal.selectedItem?.file.originalName,
+          content: contentModal.modalData?.content ?? '', // ✅ Use loaded content
+          createdAt: contentModal.selectedItem?.file.createdAt,
+        }}
+        files={[contentModal.selectedItem?.file].filter(Boolean)}
+        onFilesUpdate={() => {}} // File updates handled by parent
+          encryptionKey={encryptionKey}
+          onSave={handleContentSave}
+          onDelete={handleContentDelete}
+          showProjects={module === 'notes' || module === 'projects'}
+          showDiaryFields={module === 'diary'}
+          enableDragDrop={false}
+        />
+      )
     </>
   );
 };
@@ -451,53 +659,6 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
 const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  const getThumbnailUrl = async (file: UnifiedFileItem, size: 'small' | 'medium' | 'large' = 'small'): Promise<string | null> => {
-    // First check if we have a cached thumbnail
-    const cacheKey = `${file.uuid}_thumbnail`;
-    const module = getCacheModule(file.module);
-    
-    try {
-      const cachedThumbnail = await fileService.getThumbnail(cacheKey, module);
-      if (cachedThumbnail) {
-        if (process.env.NODE_ENV !== 'production') {
-          // eslint-disable-next-line no-console
-          console.log(`🎯 THUMBNAIL CACHE HIT: ${file.originalName}`);
-        }
-        return URL.createObjectURL(cachedThumbnail);
-      }
-    } catch (error) {
-      console.warn('Failed to get cached thumbnail:', error);
-    }
-
-    // Fallback to backend thumbnail
-    if (file.thumbnailPath) {
-      return file.thumbnailPath;
-    }
-    if (file.filePath) {
-      const basePath = file.filePath.replace(/\\/g, '/');
-      const encoded = encodeURIComponent(basePath);
-      return `/api/v1/thumbnails/file/${encoded}?size=${size}`;
-    }
-    return null;
-  };
-
-  const getCacheModule = (module: string): 'documents' | 'archive' | 'diary' => {
-    switch (module) {
-      case 'documents':
-        return 'documents';
-      case 'archive':
-        return 'archive';
-      case 'diary':
-        return 'diary';
-      case 'notes':
-        return 'documents'; // Notes use documents cache
-      case 'projects':
-        return 'documents'; // Projects use documents cache
-      default:
-        return 'documents';
-    }
-  };
 
   const getFileIcon = (mimeType: string, mediaType?: string) => {
     if (mediaType === 'voice' || mimeType.startsWith('audio/')) {
@@ -536,7 +697,13 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
     };
 
     loadThumbnail();
-  }, [file]);
+
+    return () => {
+      if (thumbUrl && thumbUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(thumbUrl);
+      }
+    };
+  }, [file, thumbUrl]);
 
   if (isLoading) {
     return (

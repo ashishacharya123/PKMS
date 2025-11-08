@@ -14,6 +14,7 @@ from app.database import get_db
 from app.models.tag import Tag
 from app.auth.dependencies import get_current_user
 from app.schemas.tag import TagResponse
+from app.decorators.error_handler import handle_api_errors
 from app.models.user import User
 
 router = APIRouter(tags=["Tags"])
@@ -24,6 +25,7 @@ _CACHE_TTL_S = 5  # seconds
 
 
 @router.get("/autocomplete", response_model=List[TagResponse])
+@handle_api_errors("autocomplete tags")
 async def autocomplete_tags(
     q: str = Query("", description="Tag search query"),
     module_type: Optional[str] = Query(None, description="Filter by module type"),
@@ -45,7 +47,7 @@ async def autocomplete_tags(
         select(Tag).where(
             and_(
                 Tag.created_by == current_user.uuid,
-                Tag.is_archived == False  # Exclude archived tags
+                Tag.is_archived.is_(False)  # Exclude archived tags
             )
         )
     )
@@ -65,7 +67,7 @@ async def autocomplete_tags(
             .where(
                 and_(
                     Tag.created_by == current_user.uuid,
-                    Tag.is_archived == False
+                    Tag.is_archived.is_(False)
                 )
             )
             .order_by(Tag.usage_count.desc(), Tag.name)

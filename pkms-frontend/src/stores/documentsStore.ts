@@ -1,8 +1,14 @@
 import { create } from 'zustand';
-import { 
-  unifiedFileService, 
+import {
+  unifiedFileService,
   type UnifiedFileItem
 } from '../services/unifiedFileService';
+import {
+  type Document,
+  type DocumentSummary,
+  type UpdateDocumentRequest,
+  type DocumentsListParams
+} from '../types/document';
 import { documentsCacheAware } from '../services/cacheAwareService';
 
 interface DocumentsState {
@@ -91,6 +97,9 @@ const initialState: Omit<DocumentsState, 'reset' | 'setUploadProgress' | 'clearC
   offset: 0,
   hasMore: true,
 };
+
+// Export types for external use
+export type { DocumentsState };
 
 export const useDocumentsStore = create<DocumentsState>((set, get) => ({
   ...initialState,

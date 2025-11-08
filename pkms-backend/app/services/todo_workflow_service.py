@@ -98,7 +98,8 @@ class TodoWorkflowService:
                     updated_at=todo.updated_at,
                     completed_at=todo.completed_at,
                     tags=tags,
-                    projects=project_badges
+                    projects=project_badges,
+                    created_by=todo.created_by  # ✅ ADDED - User who created the todo
                 )
                 
                 # Add metadata
@@ -185,7 +186,8 @@ class TodoWorkflowService:
                     updated_at=todo.updated_at,
                     completed_at=todo.completed_at,
                     tags=tags,
-                    projects=project_badges
+                    projects=project_badges,
+                    created_by=todo.created_by  # ✅ ADDED - User who created the todo
                 )
                 
                 # Add metadata
@@ -217,7 +219,7 @@ class TodoWorkflowService:
                         Todo.priority == TaskPriority.HIGH.value,
                         Todo.status != TodoStatus.DONE,
                         # Include blocked todos - they can be high priority too!
-                        Todo.is_archived == False
+                        Todo.is_archived.is_(False)
                     )
                 )
                 .order_by(Todo.due_date.asc().nullslast())
@@ -255,7 +257,8 @@ class TodoWorkflowService:
                     updated_at=todo.updated_at,
                     completed_at=todo.completed_at,
                     tags=tags,
-                    projects=project_badges
+                    projects=project_badges,
+                    created_by=todo.created_by  # ✅ ADDED - User who created the todo
                 )
                 todo_responses.append(todo_response)
             

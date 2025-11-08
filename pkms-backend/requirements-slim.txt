@@ -36,6 +36,7 @@ tinytag>=1.8.0              # Audio/document basic metadata (1MB vs 30MB docx)
 python-dateutil>=2.8.2      # Date/time parsing
 pydantic[email]>=2.5.0      # Data validation
 pydantic-settings>=2.1.0    # Settings management
+uuid6>=2024.1.12            # UUIDv7 support for time-ordered primary keys
 
 # Environment variables
 python-dotenv>=1.0.1        # Load .env files
@@ -54,10 +55,19 @@ rapidfuzz==3.6.1
 
 # REMOVED PACKAGES (not used or replaced):
 # - imagesize>=1.4.1        # REPLACED by Pillow (Pillow does dimensions + thumbnails)
-# - structlog==23.2.0       # Structured logging - NOT USED
-# - prometheus-client==0.19.0   # Prometheus metrics - NOT USED
-# - fastapi-limiter==0.1.5  # Enhanced rate limiting - NOT USED
-# - fastapi-cache2>=0.2.1   # FastAPI caching - NOT USED
-# - aiocache==0.12.2        # Async caching - NOT USED
-# - magika==0.6.2           # File detection - NOT USED (too large)
-# - pyfsig==1.1.1           # File detection - NOT USED (filetype is sufficient)
+# - structlog==23.2.0       # Structured logging - NOT USED (standard logging used)
+# - prometheus-client==0.19.0   # Prometheus metrics - NOT USED (feature not implemented)
+# - fastapi-limiter==0.1.5  # Enhanced rate limiting - NOT USED (slowapi used instead)
+# - fastapi-cache2>=0.2.1   # FastAPI caching - NOT USED (feature not implemented)
+# - aiocache==0.12.2        # Async caching - NOT USED (Redis with in-memory fallback)
+# - magika==0.6.2           # File detection - OPTIONAL, has fallback (see file_detection.py)
+# - pyfsig==1.1.1           # File detection - OPTIONAL, has fallback (see file_detection.py)
+# - PyMuPDF>=1.23.0         # PDF processing - NOT USED (pypdf listed but also unused)
+# - python-docx>=1.1.0     # Document processing - NOT USED (tinytag listed but also unused)
+#
+# FALLBACK SYSTEM:
+# - magika/pyfsig: File detection falls back to filetype → mimetypes (see app/services/file_detection.py)
+# - Redis: Falls back to in-memory cache if unavailable (see app/config.py:get_redis_url)
+# - All other removed packages: Not used in codebase, no fallback needed
+#
+# For detailed fallback documentation, see REQUIREMENTS_FALLBACK_VERIFICATION.md

@@ -7,7 +7,7 @@ Handles only HTTP concerns: request/response mapping, authentication, error hand
 Refactored to follow "thin router, thick service" architecture pattern.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional
@@ -24,33 +24,38 @@ from app.schemas.project import (
     ProjectSectionReorderRequest
 )
 from app.services.project_service import project_service
+from app.decorators.error_handler import handle_api_errors
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+@router.post("/reserve")
+@handle_api_errors("reserve project")
+async def reserve_project(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Reserve a project UUID by creating a minimal placeholder project."""
+    uuid = await project_service.reserve_project(db, current_user.uuid)
+    return {"uuid": uuid}
+
+
 @router.post("/", response_model=ProjectResponse)
 @router.post("", response_model=ProjectResponse)
+@handle_api_errors("create project")
 async def create_project(
     project_data: ProjectCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new project."""
-    try:
-        return await project_service.create_project(db, current_user.uuid, project_data)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error creating project for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create project: {str(e)}"
-        )
+    return await project_service.create_project(db, current_user.uuid, project_data)
 
 
 @router.get("/", response_model=List[ProjectResponse])
 @router.get("", response_model=List[ProjectResponse])
+@handle_api_errors("list projects")
 async def list_projects(
     archived: Optional[bool] = Query(None, description="Filter by archived status"),
     tag: Optional[str] = Query(None, description="Filter by tag name"),
@@ -58,56 +63,32 @@ async def list_projects(
     db: AsyncSession = Depends(get_db)
 ):
     """List all projects for the current user."""
-    try:
-        return await project_service.list_projects(db, current_user.uuid, archived, tag)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error listing projects for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list projects: {str(e)}"
-        )
+    return await project_service.list_projects(db, current_user.uuid, archived, tag)
 
 
 @router.get("/deleted", response_model=List[ProjectResponse])
+@handle_api_errors("list deleted projects")
 async def list_deleted_projects(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """List all soft-deleted projects for the current user."""
-    try:
-        return await project_service.list_deleted_projects(db, current_user.uuid)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error listing deleted projects for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list deleted projects: {str(e)}"
-        )
+    return await project_service.list_deleted_projects(db, current_user.uuid)
 
 
 @router.get("/{project_uuid}", response_model=ProjectResponse)
+@handle_api_errors("get project")
 async def get_project(
     project_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get a specific project by UUID."""
-    try:
-        return await project_service.get_project(db, current_user.uuid, project_uuid)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error getting project {project_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve project: {str(e)}"
-        )
+    return await project_service.get_project(db, current_user.uuid, project_uuid)
 
 
 @router.put("/{project_uuid}", response_model=ProjectResponse)
+@handle_api_errors("update project")
 async def update_project(
     project_uuid: str,
     project_data: ProjectUpdate,
@@ -115,78 +96,46 @@ async def update_project(
     db: AsyncSession = Depends(get_db)
 ):
     """Update project metadata and tags."""
-    try:
-        return await project_service.update_project(db, current_user.uuid, project_uuid, project_data)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error updating project {project_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update project: {str(e)}"
-        )
+    return await project_service.update_project(db, current_user.uuid, project_uuid, project_data)
 
 
 @router.delete("/{project_uuid}", status_code=status.HTTP_204_NO_CONTENT)
+@handle_api_errors("delete project")
 async def delete_project(
     project_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Soft delete project (move to Recycle Bin)."""
-    try:
-        await project_service.soft_delete_project(db, current_user.uuid, project_uuid)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error deleting project {project_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete project: {str(e)}"
-        )
+    await project_service.soft_delete_project(db, current_user.uuid, project_uuid)
 
 
 @router.post("/{project_uuid}/restore")
+@handle_api_errors("restore project")
 async def restore_project(
     project_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Restore a soft-deleted project from Recycle Bin."""
-    try:
-        await project_service.restore_project(db, current_user.uuid, project_uuid)
-        return {"message": "Project restored successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error restoring project {project_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to restore project: {str(e)}"
-        )
+    await project_service.restore_project(db, current_user.uuid, project_uuid)
+    return {"message": "Project restored successfully"}
 
 
 @router.delete("/{project_uuid}/permanent")
+@handle_api_errors("hard delete project")
 async def permanent_delete_project(
     project_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Permanently delete project (hard delete) - WARNING: Cannot be undone!"""
-    try:
-        await project_service.permanent_delete_project(db, current_user.uuid, project_uuid)
-        return {"message": "Project permanently deleted"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Error permanently deleting project %s for user %s", project_uuid, current_user.uuid)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to permanently delete project"
-        ) from e
+    await project_service.permanent_delete_project(db, current_user.uuid, project_uuid)
+    return {"message": "Project permanently deleted"}
 
 
 @router.post("/{project_uuid}/duplicate", response_model=ProjectDuplicateResponse)
+@handle_api_errors("duplicate project")
 async def duplicate_project(
     project_uuid: str,
     request: ProjectDuplicateRequest,
@@ -205,24 +154,16 @@ async def duplicate_project(
     """
     from app.services.duplication_service import duplication_service
     
-    try:
-        return await duplication_service.duplicate_project(
-            db=db,
-            user_uuid=current_user.uuid,
-            original_project_uuid=project_uuid,
-            request=request
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error duplicating project {project_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to duplicate project: {str(e)}"
-        )
+    return await duplication_service.duplicate_project(
+        db=db,
+        user_uuid=current_user.uuid,
+        original_project_uuid=project_uuid,
+        request=request
+    )
 
 
 @router.get("/{project_uuid}/items-summary")
+@handle_api_errors("get project items summary")
 async def get_project_items_summary(
     project_uuid: str,
     current_user: User = Depends(get_current_user),
@@ -286,14 +227,11 @@ async def get_project_items_summary(
         return summary
         
     except Exception as e:
-        logger.exception(f"Error getting project items summary for {project_uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get project items summary: {str(e)}"
-        )
+        raise e
 
 
 @router.get("/{project_uuid}/items/{item_type}")
+@handle_api_errors("get project items")
 async def get_project_items(
     project_uuid: str,
     item_type: str,
@@ -301,19 +239,11 @@ async def get_project_items(
     db: AsyncSession = Depends(get_db)
 ):
     """Get all items (documents, notes, todos) associated with a project."""
-    try:
-        return await project_service.get_project_items(db, current_user.uuid, project_uuid, item_type)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error getting project items for project {project_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve project items: {str(e)}"
-        )
+    return await project_service.get_project_items(db, current_user.uuid, project_uuid, item_type)
 
 
 @router.patch("/{project_uuid}/items/{item_type}/reorder", status_code=status.HTTP_204_NO_CONTENT)
+@handle_api_errors("reorder project items")
 async def reorder_project_items(
     project_uuid: str,
     item_type: str,
@@ -322,19 +252,11 @@ async def reorder_project_items(
     db: AsyncSession = Depends(get_db)
 ):
     """Reorder items within a project."""
-    try:
-        await project_service.reorder_project_items(db, current_user.uuid, project_uuid, item_type, reorder_data.document_uuids)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error reordering {item_type} for project {project_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to reorder {item_type}: {str(e)}"
-        )
+    await project_service.reorder_project_items(db, current_user.uuid, project_uuid, item_type, reorder_data.document_uuids)
 
 
 @router.post("/{project_uuid}/items/{item_type}/link", status_code=status.HTTP_204_NO_CONTENT)
+@handle_api_errors("link items to project")
 async def link_items_to_project(
     project_uuid: str,
     item_type: str,
@@ -343,22 +265,14 @@ async def link_items_to_project(
     db: AsyncSession = Depends(get_db)
 ):
     """Link existing items to a project."""
-    try:
-        await project_service.link_items_to_project(
-            db, current_user.uuid, project_uuid, item_type, link_data.document_uuids,
-            is_exclusive=link_data.are_items_exclusive
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error linking {item_type} to project {project_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to link {item_type}: {str(e)}"
-        )
+    await project_service.link_items_to_project(
+        db, current_user.uuid, project_uuid, item_type, link_data.document_uuids,
+        is_exclusive=link_data.are_items_exclusive
+    )
 
 
 @router.post("/{project_uuid}/items/{item_type}/unlink", status_code=status.HTTP_204_NO_CONTENT)
+@handle_api_errors("unlink item from project")
 async def unlink_item_from_project(
     project_uuid: str,
     item_type: str,
@@ -367,19 +281,11 @@ async def unlink_item_from_project(
     db: AsyncSession = Depends(get_db)
 ):
     """Unlink an item from a project."""
-    try:
-        await project_service.unlink_item_from_project(db, current_user.uuid, project_uuid, item_type, unlink_data.document_uuid)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error unlinking {item_type} from project {project_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to unlink {item_type}: {str(e)}"
-        )
+    await project_service.unlink_item_from_project(db, current_user.uuid, project_uuid, item_type, unlink_data.document_uuid)
 
 
 @router.patch("/{project_uuid}/sections/reorder", status_code=status.HTTP_204_NO_CONTENT)
+@handle_api_errors("reorder project sections")
 async def reorder_project_sections(
     project_uuid: str,
     reorder_data: ProjectSectionReorderRequest,
@@ -387,13 +293,4 @@ async def reorder_project_sections(
     db: AsyncSession = Depends(get_db)
 ):
     """Reorder sections within a project."""
-    try:
-        await project_service.reorder_sections(db, current_user.uuid, project_uuid, reorder_data)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception(f"Error reordering sections for project {project_uuid} for user {current_user.uuid}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to reorder sections: {str(e)}"
-        )
+    await project_service.reorder_sections(db, current_user.uuid, project_uuid, reorder_data)

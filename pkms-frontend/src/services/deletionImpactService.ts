@@ -1,16 +1,16 @@
 import { apiService } from './api';
 
 export interface DeletionImpact {
-  can_delete: boolean;
+  canDelete: boolean;
   warnings: string[];
   blockers: string[];
-  impact_summary: string;
-  orphan_items: Array<{
+  impactSummary: string;
+  orphanItems: Array<{
     type: string;
     uuid: string;
     title?: string;
   }>;
-  preserved_items: Array<{
+  preservedItems: Array<{
     type: string;
     uuid: string;
     title?: string;
@@ -55,18 +55,18 @@ class DeletionImpactService {
       return `Cannot delete: ${impact.blockers.join(', ')}`;
     }
 
-    if (impact.orphan_items.length === 0 && impact.preserved_items.length === 0) {
+    if (impact.orphanItems.length === 0 && impact.preservedItems.length === 0) {
       return 'This item will be permanently deleted.';
     }
 
     const parts: string[] = [];
-    
-    if (impact.orphan_items.length > 0) {
-      parts.push(`${impact.orphan_items.length} orphaned item(s) will be deleted forever`);
+
+    if (impact.orphanItems.length > 0) {
+      parts.push(`${impact.orphanItems.length} orphaned item(s) will be deleted forever`);
     }
-    
-    if (impact.preserved_items.length > 0) {
-      parts.push(`${impact.preserved_items.length} shared item(s) will be preserved`);
+
+    if (impact.preservedItems.length > 0) {
+      parts.push(`${impact.preservedItems.length} shared item(s) will be preserved`);
     }
 
     return parts.length > 0 ? parts.join(', ') : 'This item will be permanently deleted.';
@@ -81,11 +81,11 @@ class DeletionImpactService {
     warnings: string[];
   } {
     return {
-      willBeDeleted: impact.orphan_items.map(item => ({
+      willBeDeleted: impact.orphanItems.map(item => ({
         type: item.type,
         title: item.title || `${item.type} (${item.uuid.slice(0, 8)}...)`
       })),
-      willBePreserved: impact.preserved_items.map(item => ({
+      willBePreserved: impact.preservedItems.map(item => ({
         type: item.type,
         title: item.title || `${item.type} (${item.uuid.slice(0, 8)}...)`
       })),
@@ -97,7 +97,7 @@ class DeletionImpactService {
    * Check if deletion is allowed
    */
   canDelete(impact: DeletionImpact): boolean {
-    return impact.can_delete && impact.blockers.length === 0;
+    return impact.canDelete && impact.blockers.length === 0;
   }
 
   /**
@@ -112,8 +112,8 @@ class DeletionImpactService {
       return 'Cannot Delete';
     }
 
-    if (impact.orphan_items.length > 0) {
-      return `Delete Forever (${impact.orphan_items.length} items)`;
+    if (impact.orphanItems.length > 0) {
+      return `Delete Forever (${impact.orphanItems.length} items)`;
     }
 
     return 'Delete Forever';
@@ -156,18 +156,18 @@ class DeletionImpactService {
       return `This item cannot be deleted: ${impact.blockers.join(', ')}`;
     }
 
-    if (impact.orphan_items.length === 0 && impact.preserved_items.length === 0) {
+    if (impact.orphanItems.length === 0 && impact.preservedItems.length === 0) {
       return 'This action cannot be undone. The item will be permanently deleted.';
     }
 
     const parts: string[] = ['This action cannot be undone.'];
-    
-    if (impact.orphan_items.length > 0) {
-      parts.push(`${impact.orphan_items.length} orphaned item(s) will also be deleted forever.`);
+
+    if (impact.orphanItems.length > 0) {
+      parts.push(`${impact.orphanItems.length} orphaned item(s) will also be deleted forever.`);
     }
-    
-    if (impact.preserved_items.length > 0) {
-      parts.push(`${impact.preserved_items.length} shared item(s) will be preserved.`);
+
+    if (impact.preservedItems.length > 0) {
+      parts.push(`${impact.preservedItems.length} shared item(s) will be preserved.`);
     }
 
     return parts.join(' ');

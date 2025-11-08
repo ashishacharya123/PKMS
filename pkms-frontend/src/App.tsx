@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { ColorSchemeScript } from '@mantine/core';
 import { useAuthStore } from './stores/authStore';
 import { Layout } from './components/shared/Layout';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useGlobalKeyboardShortcuts } from './hooks/useGlobalKeyboardShortcuts';
 import { keyboardShortcuts } from './services/keyboardShortcuts';
 
@@ -117,7 +118,13 @@ function App() {
   return (
     <>
       <ColorSchemeScript />
-      <Routes>
+      <ErrorBoundary
+        onError={(error, errorInfo) => {
+          console.error('App-level error caught:', error, errorInfo);
+        }}
+        showErrorDetails={process.env.NODE_ENV === 'development'}
+      >
+        <Routes>
           {/* Public Routes */}
           <Route 
             path="/auth" 
@@ -287,6 +294,7 @@ function App() {
             </AuthGuard>
           } />
         </Routes>
+      </ErrorBoundary>
     </>
   );
 }

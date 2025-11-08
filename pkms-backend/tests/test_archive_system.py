@@ -9,22 +9,15 @@ Date: 2025-01-16
 """
 
 import pytest
-import os
-import tempfile
 from pathlib import Path
 from uuid import uuid4
-from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from fastapi import UploadFile
-from io import BytesIO
 
 from app.models.user import User
 from app.models.archive import ArchiveFolder, ArchiveItem
 from app.models.document import Document
 from app.models.tag import Tag
-from app.routers.archive import create_folder, upload_file_to_folder
-from .conftest import assert_response_success
 
 
 class TestArchiveFolderOperations:
