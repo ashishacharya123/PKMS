@@ -424,8 +424,14 @@ export function SetupForm({ onSwitchToLogin }: SetupFormProps) {
           <Button
             type="submit"
             size="lg"
-            leftSection={<IconUserPlus size={16} />}
+            fullWidth
+            variant="gradient"
+            gradient={{ from: 'blue', to: 'cyan', deg: 60 }}
+            leftSection={<IconUserPlus size={18} />}
             loading={isLoading}
+            style={{
+              fontWeight: 600,
+            }}
           >
             Create Account & Complete Setup
           </Button>

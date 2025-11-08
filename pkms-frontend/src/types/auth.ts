@@ -20,7 +20,7 @@ export interface UserSettings {
  * Excludes sensitive fields that should only exist server-side
  */
 export interface User {
-  id: number;
+  uuid: string;  // UUID string from backend (changed from id: number)
   username: string;
   email?: string;
   isActive: boolean;
@@ -76,7 +76,7 @@ export interface AuthResponse {
   accessToken: string;  // Backend returns camelCase due to CamelCaseModel
   tokenType: string;
   expiresIn: number;
-  userId: number;
+  createdBy: string;  // UUID string from backend
   username: string;
   isFirstLogin?: boolean;  // Optional
 }

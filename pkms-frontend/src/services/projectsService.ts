@@ -6,7 +6,7 @@
  * Follows architectural rules with proper naming and UX patterns
  */
 
-import { BaseService } from './BaseService';
+import { CacheAwareBaseService } from './BaseService';
 import { projectsCache } from './unifiedCacheService';
 import { apiService } from './api';
 import { documentsService } from './documentsService';

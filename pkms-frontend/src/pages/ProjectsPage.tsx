@@ -8,7 +8,7 @@
  * - Uses existing ModuleFilters and LoadingState patterns
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LoadingState } from '../components/common/LoadingState';
 import { ErrorState } from '../components/common/ErrorState';
@@ -34,7 +34,8 @@ import {
   IconAlertCircle
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { todosService, Project } from '../services/todosService';
+import { todosService } from '../services/todosService';
+import { projectsService, type Project } from '../services/projectsService';
 import { ActionMenu } from '../components/common/ActionMenu';
 import { ModuleHeader } from '../components/common/ModuleHeader';
 import { ModuleFilters, getModuleFilterConfig } from '../components/common/ModuleFilters';
@@ -52,18 +53,22 @@ export function ProjectsPage() {
 
   // Data loading with useDataLoader hook
   const {
-    data: projects = [],
+    data: projectsData = [],
     loading,
+    isRefreshing,
     error,
     refetch
   } = useDataLoader(
-    () => todosService.getProjects(false),
+    () => projectsService.listProjects(false),
     {
       onError: (error) => {
         console.error('Failed to load projects:', error);
-      }
+      },
+      keepDataWhileLoading: true // Prevent flickering during refresh
     }
   );
+  
+  const projects = useMemo(() => projectsData ?? [], [projectsData]);
 
   // Modal management with useModal hook
   const createModal = useModal<Project>();
@@ -312,7 +317,7 @@ export function ProjectsPage() {
     return <ErrorState message={error} onRetry={refetch} />;
   }
 
-  const filteredProjects = projects.filter(p =>
+  const filteredProjects = (projects || []).filter(p =>
     p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()))
   );
@@ -334,7 +339,7 @@ export function ProjectsPage() {
           showFilters={true}
           showCreate={true}
           showRefresh={true}
-          isLoading={loading}
+          isLoading={isRefreshing}
         />
 
         {/* Modular Filters & View Controls */}

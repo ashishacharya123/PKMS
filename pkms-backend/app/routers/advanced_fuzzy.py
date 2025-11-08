@@ -69,10 +69,10 @@ async def unified_fuzzy_search(
     config: SearchConfig
 ) -> List[Dict[str, Any]]:
     """
-    Unified fuzzy search function - delegates to service layer.
+    Unified fuzzy search endpoint - delegates to service layer.
     
-    This function maintains backward compatibility while delegating
-    all search logic to FuzzySearchService.
+    Router wrapper that forwards search requests to FuzzySearchService
+    following the service layer architecture pattern.
     """
     return await FuzzySearchService.unified_fuzzy_search(db, user_uuid, query, config)
 

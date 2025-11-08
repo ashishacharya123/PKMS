@@ -133,27 +133,30 @@ class Project(Base, SoftDeleteMixin):
 
     def get_project_summary(self):
         """
-        Get a summary of project statistics.
+        Get a summary of project statistics (DEPRECATED - returns incomplete data).
+        
+        ⚠️ DEPRECATED: This sync property cannot perform async database queries.
+        Use project_service.get_project_statistics() instead for accurate counts.
+        
+        This method returns partial statistics (only notes count is accurate).
+        Todo/document counts always return 0 because they require async queries
+        via the project_items polymorphic table.
 
         Returns:
-            dict: Project summary with counts and stats
+            dict: Project summary with counts (todo_count, document_count, completed_todos always 0)
         """
 
-        # Count associated items
-        # TODO: Update to use project_items polymorphic queries (requires async session)
-        # For now, return 0 for todos and documents until refactored
-        todo_count = 0  # TODO: query project_items where item_type='Todo'
-        document_count = 0  # TODO: query project_items where item_type='Document'
+        # Only note_count is accurate (direct relationship, no async needed)
         note_count = len(self.notes) if self.notes else 0
-
-        # Count completed todos
-        completed_todos = 0  # TODO: query project_items + Todo.status == DONE
-
-        # Calculate actual progress if not manually set
-        if todo_count > 0:
-            actual_progress = int((completed_todos / todo_count) * 100)
-        else:
-            actual_progress = 0
+        
+        # These require async queries via project_items table
+        # Cannot be calculated in sync property - use project_service.get_project_statistics()
+        todo_count = 0  # Requires async query: project_items where item_type='Todo'
+        document_count = 0  # Requires async query: project_items where item_type='Document'
+        completed_todos = 0  # Requires async query: project_items + Todo.status == DONE
+        
+        # Progress calculation (will be 0 since todo_count is 0)
+        actual_progress = 0
 
         return {
             'uuid': self.uuid,

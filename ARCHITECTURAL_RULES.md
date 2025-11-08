@@ -476,6 +476,44 @@ Scaling to multiple workers will require:
   habits = get_simple_habits_list()  # <50ms
   ```
 
+### 28. Cache Passing Pattern
+- **ALWAYS PASS CACHE**: Pass cache instances to services/components via props/constructor when possible
+- **DEPENDENCY INJECTION**: Prefer dependency injection over direct imports for cache instances
+- **AVAILABLE CACHES**: 
+  - `dashboardCache` - Dashboard statistics (5 min TTL - invalidated on mutations)
+  - `notesCache` - Notes data (5 min TTL)
+  - `todosCache` - Todos data (3 min TTL)
+  - `documentsCache` - Documents data (10 min TTL)
+  - `projectsCache` - Projects data (5 min TTL)
+  - `archiveCache` - Archive data (5 min TTL)
+  - `diaryCache` - Diary data (5 min TTL - only individual entries change, invalidated on mutations)
+  - `fileCache` - File cache service (for blob storage)
+  - `nepaliDateCache` - Nepali date conversion cache
+- **SERVICE PATTERN**: Services should accept cache in constructor or via props
+- **COMPONENT PATTERN**: Components should receive cache via props when needed
+- **RATIONALE**: Dependency injection improves testability, allows cache swapping, and makes dependencies explicit
+- **EXAMPLES**:
+  ```typescript
+  // CORRECT: Service accepts cache in constructor
+  class DashboardService {
+    constructor(private cache: UnifiedCacheService) {}
+    async getData() {
+      return this.cache.get('key') || await this.fetchData();
+    }
+  }
+  
+  // CORRECT: Component receives cache via props
+  interface ComponentProps {
+    cache?: UnifiedCacheService;
+  }
+  
+  // CORRECT: Pass cache when instantiating
+  const service = new DashboardService(dashboardCache);
+  
+  // AVOID: Direct import in service (harder to test)
+  import { dashboardCache } from './unifiedCacheService';
+  ```
+
 ## 📋 MODEL FIELD VERIFICATION
 
 ### User Ownership Pattern

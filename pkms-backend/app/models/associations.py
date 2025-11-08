@@ -41,8 +41,7 @@ document_diary = Table(
 )
 Index('ix_docdiary_entry_order', document_diary.c.diary_entry_uuid, document_diary.c.sort_order)
 
-# REMOVED: todo_projects table - migrated to polymorphic project_items table
-# See migration: remove_todo_projects_migrate_to_project_items.py
+# REMOVED: todo_projects table - replaced with polymorphic project_items table
 # All todo-project associations now use project_items with item_type='Todo'
 
 # Junction table for Todo Dependencies (replaces blocked_by JSON field)

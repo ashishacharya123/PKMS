@@ -3,7 +3,7 @@
 from .note import NoteCreate, NoteUpdate, NoteResponse, NoteSummary  # noqa: F401
 from .archive import FolderCreate, FolderUpdate, ItemUpdate, FolderResponse, ItemResponse, ItemSummary, FolderTree, BulkMoveRequest, CommitUploadRequest  # noqa: F401
 from .diary import EncryptionSetupRequest, EncryptionUnlockRequest, DiaryEntryCreate, DiaryEntryUpdate, DiaryEntryResponse, DiaryEntrySummary, DiaryCalendarData, MoodStats, DiaryDailyMetadata, DiaryDailyMetadataResponse, DiaryDailyMetadataUpdate, WeeklyHighlights, WellnessTrendPoint  # noqa: F401
-from .document import DocumentCreate, DocumentUpdate, DocumentResponse, CommitDocumentUploadRequest, ArchiveDocumentRequest  # noqa: F401
+from .document import DocumentCreate, DocumentUpdate, DocumentResponse, CommitDocumentUploadRequest  # noqa: F401
 from .tag import TagResponse  # noqa: F401
 from .todo import TodoCreate, TodoUpdate, TodoResponse  # noqa: F401
 from .project import ProjectCreate, ProjectResponse  # noqa: F401

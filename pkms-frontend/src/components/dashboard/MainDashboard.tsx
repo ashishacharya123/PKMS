@@ -32,56 +32,37 @@ import {
   IconArchive
 } from '@tabler/icons-react';
 import { useNavigate } from 'react-router-dom';
-import { dashboardService } from '../../services/dashboardService';
-
-interface MainDashboardData {
-  notes: {
-    total: number;
-    recent: number;
-  };
-  documents: {
-    total: number;
-    recent: number;
-  };
-  todos: {
-    total: number;
-    pending: number;
-    completed: number;
-    overdue: number;
-  };
-  projects: {
-    total: number;
-    active: number;
-  };
-  diary: {
-    entries: number;
-    streak: number;
-  };
-  archive: {
-    items: number;
-  };
-  last_updated: string;
-}
+import { dashboardService, DashboardStats, RecentActivityTimeline, RecentActivityItem } from '../../services/dashboardService';
 import { notifications } from '@mantine/notifications';
+import { useDateTime } from '../../hooks/useDateTime';
+import { nepaliDateCache } from '../../utils/nepaliDateCache';
 
 interface MainDashboardProps {
   onRefresh?: () => void;
 }
 
 export function MainDashboard({ onRefresh }: MainDashboardProps) {
-  const [data, setData] = useState<MainDashboardData | null>(null);
+  const [data, setData] = useState<DashboardStats | null>(null);
+  const [timeline, setTimeline] = useState<RecentActivityTimeline | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
+  const { nepaliDateFormatted, nepaliDay, formattedTime, formattedDate } = useDateTime();
 
   useEffect(() => {
+    // Pre-cache Nepali dates only if not already cached (smart caching)
+    nepaliDateCache.preCacheDashboard();
     loadDashboardData();
   }, []);
 
   const loadDashboardData = async () => {
     setIsLoading(true);
     try {
-      const dashboardData = await dashboardService.getMainDashboardData();
+      const [dashboardData, timelineData] = await Promise.all([
+        dashboardService.getMainDashboardData(),
+        dashboardService.getRecentActivityTimeline(3, 10)
+      ]);
       setData(dashboardData);
+      setTimeline(timelineData);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
       notifications.show({
@@ -95,6 +76,9 @@ export function MainDashboard({ onRefresh }: MainDashboardProps) {
   };
 
   const handleRefresh = () => {
+    // Pre-cache Nepali dates (same as after login)
+    nepaliDateCache.preCacheDashboard();
+    // Invalidate cache and reload all data
     dashboardService.invalidateCache();
     loadDashboardData();
     onRefresh?.();
@@ -139,9 +123,19 @@ export function MainDashboard({ onRefresh }: MainDashboardProps) {
         <Group justify="space-between" align="center">
           <div>
             <Title order={2}>Dashboard Overview</Title>
-            <Text c="dimmed" size="sm">
-              Quick overview of all your modules
-            </Text>
+            <Group gap="md" mt="xs">
+              <Text c="dimmed" size="sm">
+                Quick overview of all your modules
+              </Text>
+              <Badge variant="light" color="blue">
+                {formattedDate} • {formattedTime}
+              </Badge>
+              {nepaliDateFormatted && (
+                <Badge variant="light" color="cyan">
+                  {nepaliDateFormatted} ({nepaliDay})
+                </Badge>
+              )}
+            </Group>
           </div>
           <Button
             leftSection={<IconRefresh size={16} />}
@@ -298,7 +292,7 @@ export function MainDashboard({ onRefresh }: MainDashboardProps) {
                   <div>
                     <Text fw={500}>Diary</Text>
                     <Text size="sm" c="dimmed">
-                      {data.diary.entries} entries
+                      {data.diary.total} entries
                     </Text>
                   </div>
                 </Group>
@@ -307,7 +301,7 @@ export function MainDashboard({ onRefresh }: MainDashboardProps) {
               <Stack gap="xs">
                 <Group justify="space-between">
                   <Text size="sm">Total Entries</Text>
-                  <Text fw={500}>{data.diary.entries}</Text>
+                  <Text fw={500}>{data.diary.total}</Text>
                 </Group>
                 <Group justify="space-between">
                   <Text size="sm">Current Streak</Text>
@@ -328,61 +322,58 @@ export function MainDashboard({ onRefresh }: MainDashboardProps) {
                   <div>
                     <Text fw={500}>Archive</Text>
                     <Text size="sm" c="dimmed">
-                      {data.archive.items} items
+                      {data.archive.total} items
                     </Text>
                   </div>
                 </Group>
-                <Badge color="indigo">{data.archive.items} items</Badge>
+                <Badge color="indigo">{data.archive.total} items</Badge>
               </Group>
               <Stack gap="xs">
                 <Group justify="space-between">
                   <Text size="sm">Total Items</Text>
-                  <Text fw={500}>{data.archive.items}</Text>
+                  <Text fw={500}>{data.archive.total}</Text>
                 </Group>
                 <Group justify="space-between">
-                  <Text size="sm">Organized</Text>
-                  <Text fw={500}>✓</Text>
+                  <Text size="sm">Folders</Text>
+                  <Text fw={500}>{data.archive.folders}</Text>
                 </Group>
-              </Stack>
-            </Card>
-          </Grid.Col>
-
-          {/* Quick Actions */}
-          <Grid.Col span={{ base: 12, sm: 6, md: 4 }}>
-            <Card withBorder p="md">
-              <Group justify="space-between" mb="md">
-                <Group gap="sm">
-                  <ThemeIcon color="cyan" variant="light" size="lg">
-                    <IconTrendingUp size={20} />
-                  </ThemeIcon>
-                  <div>
-                    <Text fw={500}>Quick Actions</Text>
-                    <Text size="sm" c="dimmed">
-                      Jump to modules
-                    </Text>
-                  </div>
-                </Group>
-              </Group>
-              <Stack gap="xs">
-                <Anchor onClick={() => navigate('/todos')} size="sm">
-                  View All Todos
-                </Anchor>
-                <Anchor onClick={() => navigate('/notes')} size="sm">
-                  View All Notes
-                </Anchor>
-                <Anchor onClick={() => navigate('/documents')} size="sm">
-                  View All Documents
-                </Anchor>
-                <Anchor onClick={() => navigate('/projects')} size="sm">
-                  View All Projects
-                </Anchor>
-                <Anchor onClick={() => navigate('/diary')} size="sm">
-                  View Diary
-                </Anchor>
               </Stack>
             </Card>
           </Grid.Col>
         </Grid>
+
+        {/* Recent Activity Timeline */}
+        {timeline && timeline.items.length > 0 && (
+          <Card withBorder p="lg" mt="xl">
+            <Group justify="space-between" mb="md">
+              <Title order={3}>Recent Activity</Title>
+              <Badge size="lg">{timeline.totalCount} total</Badge>
+            </Group>
+            <Stack gap="sm">
+              {timeline.items.map((item: RecentActivityItem) => (
+                <Card key={item.id} p="md" withBorder>
+                  <Group justify="space-between">
+                    <div style={{ flex: 1 }}>
+                      <Text fw={500}>{item.title}</Text>
+                      {item.description && (
+                        <Text size="sm" c="dimmed" lineClamp={1}>{item.description}</Text>
+                      )}
+                      <Group gap="xs" mt="xs">
+                        <Badge size="sm" variant="light">{item.type}</Badge>
+                        <Text size="xs" c="dimmed">
+                          {new Date(item.createdAt).toLocaleDateString()}
+                        </Text>
+                      </Group>
+                    </div>
+                    <Badge color={item.isUpdated ? 'blue' : 'green'}>
+                      {item.isUpdated ? 'Updated' : 'Created'}
+                    </Badge>
+                  </Group>
+                </Card>
+              ))}
+            </Stack>
+          </Card>
+        )}
 
         {/* Alerts */}
         {data.todos.overdue > 0 && (

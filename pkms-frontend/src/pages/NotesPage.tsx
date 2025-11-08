@@ -15,7 +15,8 @@ import {
   Paper,
   Modal,
   // ThemeIcon,
-  Tooltip
+  Tooltip,
+  TextInput
 } from '@mantine/core';
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import ViewModeLayouts, { formatDate } from '../components/common/ViewModeLayouts';
@@ -31,13 +32,14 @@ import {
   // IconNotes,
   IconAlertTriangle,
   IconFileText,
-  IconHistory
+  IconHistory,
+  IconSearch,
+  IconRefresh
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { useNotesStore } from '../stores/notesStore';
-import { UnifiedSearchEmbedded } from '../components/search/UnifiedSearchEmbedded';
 import { ActionMenu } from '../components/common/ActionMenu';
 import { notesService } from '../services/notesService';
 import { PopularTagsWidget } from '../components/common/PopularTagsWidget';
@@ -73,8 +75,24 @@ export function NotesPage() {
   const navigate = useNavigate();
   const location = useLocation() as { state?: { highlightNoteId?: number } };
 
+  // Component mount/unmount logging
+  useEffect(() => {
+    console.log('[NotesPage] Component mounted');
+    return () => {
+      console.log('[NotesPage] Component unmounting');
+    };
+  }, []);
+
+  // Location changes logging
+  useEffect(() => {
+    console.log('[NotesPage] Location changed:', {
+      pathname: location.pathname,
+      state: location.state
+    });
+  }, [location]);
+
   // Local state
-  const [searchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
   const [sortField, setSortField] = useState<SortField>('updatedAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -104,31 +122,50 @@ export function NotesPage() {
   // Modal management with useModal hook
   const filterModal = useModal();
 
+  // Stable callbacks to prevent infinite re-renders
+  const handleLoadSuccess = useCallback((data: any) => {
+    // Success callback - no logging needed for normal operation
+  }, []);
+
+  const handleLoadError = useCallback((error: Error) => {
+    console.error('[NotesPage] Failed to load notes:', {
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+  }, []);
+
+  // Stable load function to prevent infinite re-renders
+  const loadNotes = useCallback(async () => {
+    return await notesService.listNotes({
+      tag: currentTag || undefined,
+      search: debouncedSearch || undefined,
+      archived: showArchived,
+      limit: itemsPerPage,
+      offset: (currentPage - 1) * itemsPerPage,
+    });
+  }, [currentTag, debouncedSearch, showArchived, currentPage, itemsPerPage]);
+
   // Data loading with useDataLoader hook
   const {
-    data: notes = [],
+    data: notesData,
     loading,
+    isRefreshing,
     error,
     refetch
   } = useDataLoader(
-    async () => {
-      return await notesService.listNotes({
-        tag: currentTag || undefined,
-        search: debouncedSearch || undefined,
-        archived: showArchived,
-        limit: itemsPerPage,
-        offset: (currentPage - 1) * itemsPerPage,
-      });
-    },
+    loadNotes,
     {
       dependencies: [currentTag, debouncedSearch, showArchived, currentPage, itemsPerPage],
-      onError: (error) => {
-        console.error('Failed to load notes:', error);
-      }
+      onSuccess: handleLoadSuccess,
+      onError: handleLoadError,
+      keepDataWhileLoading: true // Prevent flickering during refresh
     }
   );
 
-  
+  // Memoize notes with stable empty array reference
+  const notes = useMemo(() => notesData ?? [], [notesData]);
+
   // Separate filtering and sorting logic for better performance and clarity
   const filteredNotes = useMemo(() => {
     if (!Array.isArray(notes)) return [];
@@ -257,25 +294,19 @@ export function NotesPage() {
               New Note
             </Button>
 
-            {/* Unified Search */}
-            <UnifiedSearchEmbedded
-              initialQuery={searchQuery}
-              defaultModules={['notes']}
-              includeDiary={false}
-              showModuleSelector={false}
-              showSearchTypeToggle={false}
-              onResultClick={(result) => {
-                // Navigate to note or show in modal
-                notifications.show({
-                  title: 'Note Found',
-                  message: `Found note: ${result.title}`,
-                  color: 'blue'
-                });
-              }}
-              emptyMessage="No notes found. Try different search terms."
-              resultsPerPage={10}
-              showPagination={false}
-            />
+            {/* Search */}
+            <Paper p="md" withBorder>
+              <Group mb="xs">
+                <IconSearch size={16} />
+                <Text fw={600} size="sm">Search Notes</Text>
+              </Group>
+              <TextInput
+                placeholder="Search Notes"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.currentTarget.value)}
+                leftSection={<IconSearch size={14} />}
+              />
+            </Paper>
 
             {/* Filters */}
             <Paper p="md" withBorder>
@@ -320,6 +351,16 @@ export function NotesPage() {
                   }}
                   disabled={loading}
                 />
+                
+                <Button
+                  variant="light"
+                  size="sm"
+                  leftSection={<IconRefresh size={16} />}
+                  onClick={refetch}
+                  loading={isRefreshing}
+                >
+                  Refresh
+                </Button>
                 
                 <Button
                   variant="light"

@@ -134,13 +134,13 @@ export const AuthResponseSchema: z.ZodType<AuthResponse> = z.object({
   accessToken: z.string().min(1),
   tokenType: z.string(),
   expiresIn: z.number().positive(),
-  userId: z.number().positive(),
+  createdBy: z.string().min(1),  // UUID string from backend
   username: z.string().min(1),
   isFirstLogin: z.boolean().optional(),
 });
 
 export const UserSchema: z.ZodType<User> = z.object({
-  id: z.number().positive(),
+  uuid: z.string().min(1),  // UUID string from backend (changed from id: number)
   username: z.string().min(1),
   email: z.string().email().optional(),
   isActive: z.boolean(),

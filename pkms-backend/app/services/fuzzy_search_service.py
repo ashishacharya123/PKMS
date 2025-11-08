@@ -52,7 +52,7 @@ class FuzzySearchService:
     MODULE_CONFIGS = {
         "todo": {
             "model": Todo,
-            "relationships": [selectinload(Todo.tag_objs), selectinload(Todo.projects)],
+            "relationships": [selectinload(Todo.tag_objs)],
         },
         "project": {
             "model": Project,
@@ -79,10 +79,9 @@ class FuzzySearchService:
         tags = [t.name for t in getattr(item, 'tag_objs', [])] if hasattr(item, 'tag_objs') else []
 
         if item_type == "todo":
-            # Get first project from M2M relationship
-            project = item.projects[0] if item.projects else None
-            project_name = project.name if project else ""
-            return f"{item.title or ''} {item.description or ''} {' '.join(tags)} {project_name}"
+            # Note: Projects are accessed via project_items polymorphic table, not direct relationship
+            # Project name not included in search blob (can be queried separately if needed)
+            return f"{item.title or ''} {item.description or ''} {' '.join(tags)}"
 
         elif item_type == "project":
             return f"{item.name or ''} {item.description or ''} {' '.join(tags)}"
@@ -189,12 +188,11 @@ class FuzzySearchService:
         }
 
         if item_type == "todo":
-            project = item.projects[0] if item.projects else None
             title = item.title or ""
             base_result.update({
                 "title": title,
                 "module": "todo",
-                "type_info": f"{project.name if project else ''}: {title}",
+                "type_info": title,  # Project name removed (accessed via project_items table)
             })
             # Use description for snippet if available, otherwise title
             if not snippet_data and item.description:

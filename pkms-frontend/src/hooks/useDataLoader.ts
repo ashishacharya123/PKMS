@@ -6,6 +6,7 @@ export interface DataLoaderOptions<T> {
   onError?: (error: Error) => void;
   dependencies?: any[];
   autoLoad?: boolean;
+  keepDataWhileLoading?: boolean; // NEW: Prevent flickering by keeping data visible during refresh
 }
 
 export function useDataLoader<T>(
@@ -17,17 +18,29 @@ export function useDataLoader<T>(
     onSuccess,
     onError,
     dependencies = [],
-    autoLoad = true
+    autoLoad = true,
+    keepDataWhileLoading = true // DEFAULT: true to prevent flickering
   } = options;
 
   const [data, setData] = useState<T | null>(initialData);
   const [loading, setLoading] = useState<boolean>(autoLoad);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false); // NEW: Track refresh state
   const [error, setError] = useState<string | null>(null);
+
+  // Stringify dependencies for stable comparison
+  // This ensures loadData only changes when dependency VALUES change, not array reference
+  const depsKey = useMemo(() => JSON.stringify(dependencies), [dependencies]);
 
   // Memoize dependencies to prevent unnecessary re-renders
   // Note: loadFn should be stable (useCallback in parent) to avoid infinite loops
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  // Note: onSuccess and onError should be wrapped in useCallback in parent component
+  const loadData = useCallback(async (isManualRefresh = false) => {
+    // If keepDataWhileLoading is true and we have data, show refresh state instead of full loading
+    if (keepDataWhileLoading && data && isManualRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     try {
       const result = await loadFn();
@@ -41,23 +54,28 @@ export function useDataLoader<T>(
       return null;
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadFn, onSuccess, onError, dependencies]);
+  }, [loadFn, depsKey, data, keepDataWhileLoading]);
 
   useEffect(() => {
     if (autoLoad) {
-      loadData();
+      loadData(false);
     }
   }, [autoLoad, loadData]);
 
+  // Wrapper for manual refresh that sets the isManualRefresh flag
+  const refetch = useCallback(() => loadData(true), [loadData]);
+
   const result = useMemo(() => ({
     data,
-    loading,
+    loading: loading || isRefreshing, // Show loading if either state is true
+    isRefreshing, // NEW: Expose refresh state separately for UX
     error,
-    refetch: loadData,
+    refetch, // Use wrapper instead of loadData directly
     setData,
-  }), [data, loading, error, loadData, setData]);
+  }), [data, loading, isRefreshing, error, refetch, setData]);
 
   return result;
 }

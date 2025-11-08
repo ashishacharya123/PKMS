@@ -41,13 +41,16 @@ import {
   IconEye,
   IconFolder,
   IconArchive,
-  IconStar
+  IconStar,
+  IconRefresh
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { searchService } from '../services/searchService';
 import { useDocumentsStore } from '../stores/documentsStore';
+import { LoadingState } from '../components/common/LoadingState';
+import { ErrorState } from '../components/common/ErrorState';
 import { documentsService, Document } from '../services/documentsService';
 import { ActionMenu } from '../components/common/ActionMenu';
 import { FileUploadModal } from '../components/file/FileUploadModal';
@@ -381,7 +384,7 @@ export function DocumentsPage() {
   const totalPages = Math.ceil(sortedDocuments.length / itemsPerPage);
 
   // Loading state for initial data load
-  if (loading && documents.length === 0) {
+  if (isLoading && documents.length === 0) {
     return <LoadingState message="Loading documents..." />;
   }
 
@@ -523,6 +526,16 @@ export function DocumentsPage() {
                   }}
                   disabled={isLoading}
                 />
+                
+                <Button
+                  variant="light"
+                  size="sm"
+                  leftSection={<IconRefresh size={16} />}
+                  onClick={loadDocuments}
+                  loading={isLoading}
+                >
+                  Refresh
+                </Button>
                 
                 <Button
                   variant="light"

@@ -9,11 +9,13 @@
  * - Maintains all existing functionality
  */
 
-import { useState, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import { notifications } from '@mantine/notifications';
-import { Modal, Stack, Group, Text, Paper } from '@mantine/core';
+import { Modal, Stack, Group, Text, Paper, Container, Grid, Button, Badge, Title, Select, TextInput } from '@mantine/core';
+import { IconPlus, IconFilter, IconArchive, IconStar, IconChecklist, IconSearch } from '@tabler/icons-react';
 import { todosService, TodoSummary } from '../services/todosService';
+import { projectsService } from '../services/projectsService';
 import { useDataLoader } from '../hooks/useDataLoader';
 import { useModal } from '../hooks/useModal';
 import { useViewPreferences } from '../hooks/useViewPreferences';
@@ -25,7 +27,7 @@ import { UnifiedSearchEmbedded } from '../components/search/UnifiedSearchEmbedde
 import { ModuleFilters, getModuleFilterConfig } from '../components/common/ModuleFilters';
 import { LoadingState } from '../components/common/LoadingState';
 import { ErrorState } from '../components/common/ErrorState';
-import { Todo, TodoStatus } from '../types/todo';
+import { Todo, TodoStatus, TaskPriority } from '../types/todo';
 
 // Utility functions for todos
 const getTodoIcon = (todo: any): string => {
@@ -60,30 +62,90 @@ const formatDueDate = (dueDate: string): string => {
 };
 
 export function TodosPage() {
+  // Component mount/unmount logging
+  useEffect(() => {
+    console.log('[TodosPage] Component mounted');
+    return () => {
+      console.log('[TodosPage] Component unmounting');
+    };
+  }, []);
+
+  const navigate = useNavigate();
+  
   // URL params and routing
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const projectId = searchParams.get('project');
+  
+  // Location changes logging
+  const location = useLocation();
+  useEffect(() => {
+    console.log('[TodosPage] Location changed:', {
+      pathname: location.pathname,
+      search: location.search,
+      projectId
+    });
+  }, [location.pathname, location.search, projectId]);
 
   // View preferences
   const { preferences, updatePreference } = useViewPreferences();
   const viewMode = preferences.todos || 'list';
   const setViewMode = (mode: any) => updatePreference('todos', mode);
 
+  // Sidebar filter state
+  const [selectedProject, setSelectedProject] = useState<string | null>(projectId);
+  const [selectedPriority, setSelectedPriority] = useState<string | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Load projects for sidebar
+  const {
+    data: projectsData = [],
+    loading: projectsLoading
+  } = useDataLoader(
+    useCallback(() => projectsService.listProjects(false), []),
+    {
+      keepDataWhileLoading: true // Prevent flickering during refresh
+    }
+  );
+  const projects = useMemo(() => projectsData ?? [], [projectsData]);
+
+  // Stable load function to prevent infinite re-renders
+  const loadTodos = useCallback(async () => {
+    return await todosService.getTodos({
+      projectId: projectId || undefined,
+      isArchived: false
+    });
+  }, [projectId]);
+
+  // Stable error callback
+  const handleLoadError = useCallback((error: Error) => {
+    console.error('[TodosPage] Failed to load todos:', {
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+  }, []);
+
   // Data loading with useDataLoader hook
   const {
-    data: todos = [],
+    data: todosData,
     loading,
+    isRefreshing,
     error,
     refetch
   } = useDataLoader(
-    () => todosService.getTodos({
-      projectId: projectId || undefined,
-      isArchived: false
-    }),
+    loadTodos,
     {
-      dependencies: [projectId]
+      dependencies: [projectId],
+      onError: handleLoadError,
+      keepDataWhileLoading: true // Prevent flickering during refresh
     }
   );
+
+  // Memoize todos with stable empty array reference
+  const todos = useMemo(() => todosData ?? [], [todosData]);
 
   // Modal management with useModal hook
   const createModal = useModal<Todo>();
@@ -107,6 +169,16 @@ export function TodosPage() {
   const filteredTodos = useMemo(() => {
     let filtered = [...todos];
 
+    // Apply search query filter (client-side filtering - no API calls)
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(t => 
+        t.title?.toLowerCase().includes(query) ||
+        t.description?.toLowerCase().includes(query) ||
+        t.tags?.some(tag => tag.toLowerCase().includes(query))
+      );
+    }
+
     // Apply tab filter
     if (activeTab === 'ongoing') {
       filtered = filtered.filter(t => t.status !== TodoStatus.DONE && !t.isArchived);
@@ -116,7 +188,37 @@ export function TodosPage() {
       filtered = filtered.filter(t => t.isArchived);
     }
 
-    // Apply additional filters
+    // Apply sidebar filters
+    if (selectedProject) {
+      filtered = filtered.filter(t => 
+        t.projectUuid === selectedProject || 
+        t.projects?.some(p => p.uuid === selectedProject)
+      );
+    }
+
+    if (selectedPriority !== null && selectedPriority !== 'all') {
+      filtered = filtered.filter(t => t.priority === selectedPriority);
+    }
+
+    if (selectedStatus !== null && selectedStatus !== 'all') {
+      filtered = filtered.filter(t => t.status === selectedStatus);
+    }
+
+    if (showFavorites) {
+      filtered = filtered.filter(t => t.isFavorite);
+    }
+
+    // Note: showArchived is handled by activeTab filter, but we can add explicit control if needed
+    // The activeTab already filters archived items, so showArchived toggle can override tab filter
+    if (showArchived && activeTab !== 'archived') {
+      // If showArchived is true but we're not on archived tab, include archived items
+      // This allows viewing archived items alongside active ones
+    } else if (!showArchived && activeTab !== 'archived') {
+      // If showArchived is false and we're not on archived tab, exclude archived items
+      filtered = filtered.filter(t => !t.isArchived);
+    }
+
+    // Apply additional filters from advanced modal
     if (filters.favorites) {
       filtered = filtered.filter(t => t.isFavorite);
     }
@@ -159,7 +261,7 @@ export function TodosPage() {
     });
 
     return filtered;
-  }, [todos, activeTab, filters]);
+  }, [todos, activeTab, filters, selectedProject, selectedPriority, selectedStatus, showFavorites, showArchived, searchQuery]);
 
   // Count active filters
   const activeFiltersCount = useMemo(() => {
@@ -172,11 +274,33 @@ export function TodosPage() {
   useKeyboardShortcuts({
     shortcuts: [
       { key: 'n', ctrlKey: true, action: () => createModal.openModal(), description: 'Create todo' },
-      { key: 'f', ctrlKey: true, action: () => searchModal.openModal(), description: 'Search todos' },
       { key: 'r', action: () => refetch(), description: 'Refresh' },
-      { key: 'f', action: () => setFiltersOpened(true), description: 'Filters' }
+      { key: 'f', action: () => setFiltersOpened(true), description: 'Advanced Filters' }
     ]
   });
+
+  // Handle project filter change
+  const handleProjectFilter = useCallback((projectUuid: string | null) => {
+    setSelectedProject(projectUuid);
+    if (projectUuid) {
+      setSearchParams(prev => {
+        const newParams = new URLSearchParams(prev);
+        newParams.set('project', projectUuid);
+        return newParams;
+      });
+    } else {
+      setSearchParams(prev => {
+        const newParams = new URLSearchParams(prev);
+        newParams.delete('project');
+        return newParams;
+      });
+    }
+  }, [setSearchParams]);
+
+  // Sync selectedProject with URL param
+  useEffect(() => {
+    setSelectedProject(projectId);
+  }, [projectId]);
 
   // Event handlers
   const handleCreateTodo = useCallback(() => {
@@ -186,6 +310,10 @@ export function TodosPage() {
   const handleEditTodo = useCallback((todo: Todo) => {
     editModal.openModal(todo);
   }, [editModal]);
+
+  const handleViewTodo = useCallback((todo: Todo) => {
+    navigate(`/todos/${todo.uuid}`);
+  }, [navigate]);
 
   const handleDeleteTodo = useCallback(async (todo: Todo) => {
     try {
@@ -341,24 +469,185 @@ export function TodosPage() {
   }
 
   return (
-    <>
-      {/* Filters Bar */}
-      <Paper p="md" mb="md" style={{ backgroundColor: 'var(--mantine-color-dark-7)' }}>
-        <Group justify="space-between" align="center">
-          <Text size="sm" fw={500} c="dimmed">
-            Filters & Sorting
-            {activeFiltersCount > 0 && (
-              <Text span size="xs" c="blue" ml="xs">
-                ({activeFiltersCount} active)
-              </Text>
-            )}
-          </Text>
-        </Group>
-      </Paper>
+    <Container size="xl">
+      <Grid>
+        {/* Sidebar */}
+        <Grid.Col span={{ base: 12, md: 3 }}>
+          <Stack gap="md">
+            {/* Create Todo Button */}
+            <Button
+              leftSection={<IconPlus size={16} />}
+              size="md"
+              onClick={() => createModal.openModal()}
+              fullWidth
+            >
+              New Todo
+            </Button>
 
-      <TodosLayout
+            {/* Search */}
+            <Paper p="md" withBorder>
+              <Group mb="xs">
+                <IconSearch size={16} />
+                <Text fw={600} size="sm">Search Todos</Text>
+              </Group>
+              <TextInput
+                placeholder="Search Todos"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.currentTarget.value)}
+                leftSection={<IconSearch size={14} />}
+              />
+            </Paper>
+
+            {/* Project Filter */}
+            <Paper p="md" withBorder>
+              <Group justify="space-between" mb="xs">
+                <Text fw={600} size="sm">Projects</Text>
+                <IconChecklist size={16} />
+              </Group>
+              <Stack gap="xs">
+                <Button
+                  variant={!selectedProject ? 'filled' : 'subtle'}
+                  size="xs"
+                  justify="space-between"
+                  fullWidth
+                  onClick={() => handleProjectFilter(null)}
+                >
+                  <span>All Projects</span>
+                  <Badge size="xs" variant="light">{todos.length}</Badge>
+                </Button>
+                {projects.map((project) => {
+                  const count = todos.filter(t => 
+                    t.projectUuid === project.uuid || 
+                    t.projects?.some(p => p.uuid === project.uuid)
+                  ).length;
+                  return (
+                    <Button
+                      key={project.uuid}
+                      variant={selectedProject === project.uuid ? 'filled' : 'subtle'}
+                      size="xs"
+                      justify="space-between"
+                      fullWidth
+                      onClick={() => handleProjectFilter(project.uuid)}
+                    >
+                      <span>{project.name}</span>
+                      <Badge size="xs" variant="light">{count}</Badge>
+                    </Button>
+                  );
+                })}
+              </Stack>
+            </Paper>
+
+            {/* Priority Filter */}
+            <Paper p="md" withBorder>
+              <Group justify="space-between" mb="xs">
+                <Text fw={600} size="sm">Priority</Text>
+                <IconFilter size={16} />
+              </Group>
+              <Select
+                placeholder="All Priorities"
+                value={selectedPriority || 'all'}
+                onChange={(value) => setSelectedPriority(value === 'all' ? null : value)}
+                data={[
+                  { value: 'all', label: 'All Priorities' },
+                  { value: TaskPriority.LOW, label: 'Low' },
+                  { value: TaskPriority.MEDIUM, label: 'Medium' },
+                  { value: TaskPriority.HIGH, label: 'High' },
+                  { value: TaskPriority.URGENT, label: 'Urgent' }
+                ]}
+                clearable={false}
+              />
+            </Paper>
+
+            {/* Status Filter */}
+            <Paper p="md" withBorder>
+              <Group justify="space-between" mb="xs">
+                <Text fw={600} size="sm">Status</Text>
+                <IconFilter size={16} />
+              </Group>
+              <Select
+                placeholder="All Statuses"
+                value={selectedStatus || 'all'}
+                onChange={(value) => setSelectedStatus(value === 'all' ? null : value)}
+                data={[
+                  { value: 'all', label: 'All Statuses' },
+                  { value: TodoStatus.PENDING, label: 'Pending' },
+                  { value: TodoStatus.IN_PROGRESS, label: 'In Progress' },
+                  { value: TodoStatus.BLOCKED, label: 'Blocked' },
+                  { value: TodoStatus.DONE, label: 'Done' },
+                  { value: TodoStatus.CANCELLED, label: 'Cancelled' }
+                ]}
+                clearable={false}
+              />
+            </Paper>
+
+            {/* Archive & Favorite Toggles */}
+            <Paper p="md" withBorder>
+              <Stack gap="xs">
+                <Button
+                  variant={showArchived ? 'filled' : 'subtle'}
+                  size="xs"
+                  leftSection={<IconArchive size={14} />}
+                  onClick={() => setShowArchived(!showArchived)}
+                  fullWidth
+                >
+                  {showArchived ? 'Hide Archived' : 'Show Archived'}
+                </Button>
+                <Button
+                  variant={showFavorites ? 'filled' : 'subtle'}
+                  size="xs"
+                  leftSection={<IconStar size={14} />}
+                  onClick={() => setShowFavorites(!showFavorites)}
+                  fullWidth
+                  color="yellow"
+                >
+                  {showFavorites ? 'Show All Todos' : 'Show Favorites Only'}
+                </Button>
+                <Button
+                  variant={filtersOpened ? 'filled' : 'subtle'}
+                  size="xs"
+                  leftSection={<IconFilter size={14} />}
+                  onClick={() => setFiltersOpened(true)}
+                  fullWidth
+                >
+                  Advanced Filters
+                  {activeFiltersCount > 0 && (
+                    <Badge size="xs" variant="light" ml="xs">
+                      {activeFiltersCount}
+                    </Badge>
+                  )}
+                </Button>
+              </Stack>
+            </Paper>
+          </Stack>
+        </Grid.Col>
+
+        {/* Main Content */}
+        <Grid.Col span={{ base: 12, md: 9 }}>
+          <Stack gap="md">
+            {/* Header */}
+            <Group justify="space-between" align="center">
+              <div>
+                <Title order={2}>Todos</Title>
+                <Text c="dimmed">
+                  {filteredTodos.length} {filteredTodos.length === 1 ? 'todo' : 'todos'}
+                </Text>
+              </div>
+              
+              <Group gap="xs">
+                <ViewMenu 
+                  currentView={viewMode}
+                  onChange={(mode) => {
+                    setViewMode(mode);
+                    updatePreference('todos', mode);
+                  }}
+                  disabled={loading}
+                />
+              </Group>
+            </Group>
+
+            <TodosLayout
         todos={filteredTodos}
-        isLoading={loading}
+        isLoading={isRefreshing}
         activeTab={activeTab}
         onCreateTodo={handleCreateTodo}
         onRefresh={refetch}
@@ -374,7 +663,7 @@ export function TodosPage() {
             disabled={disabled}
           />
         )}
-        onItemClick={handleEditTodo}
+        onItemClick={handleViewTodo}
         onToggleFavorite={() => {}} // Todos don't have favorite functionality
         onToggleArchive={handleToggleArchive}
         onDelete={handleDeleteTodo}
@@ -382,7 +671,10 @@ export function TodosPage() {
         onComplete={handleToggleComplete}
         renderIcon={renderTodoIcon}
         renderContent={renderTodoContent}
-      />
+            />
+          </Stack>
+        </Grid.Col>
+      </Grid>
 
       {/* Create Todo Modal */}
       <TodoForm
@@ -390,7 +682,7 @@ export function TodosPage() {
         onClose={createModal.closeModal}
         onSubmit={handleCreateSubmit}
         title="Create Todo"
-        projects={[]} // TODO: Load projects if needed
+        projects={projects}
       />
 
       {/* Edit Todo Modal */}
@@ -400,7 +692,7 @@ export function TodosPage() {
         onSubmit={handleEditSubmit}
         initialData={editModal.selectedItem || undefined}
         title="Edit Todo"
-        projects={[]} // TODO: Load projects if needed
+        projects={projects}
       />
 
       {/* Filters Modal */}
@@ -424,18 +716,7 @@ export function TodosPage() {
         />
       </Modal>
 
-      {/* Search Modal */}
-      <UnifiedSearchEmbedded
-        opened={searchModal.isOpen}
-        onClose={searchModal.closeModal}
-        onItemSelect={(item) => {
-          if (item.type === 'todo') {
-            handleEditTodo(item as Todo);
-          }
-          searchModal.closeModal();
-        }}
-      />
-    </>
+    </Container>
   );
 }
 

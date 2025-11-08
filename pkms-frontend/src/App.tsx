@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ColorSchemeScript } from '@mantine/core';
 import { useAuthStore } from './stores/authStore';
@@ -15,6 +15,7 @@ import { NoteEditorPage } from './pages/NoteEditorPage';
 import NoteViewPage from './pages/NoteViewPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { TodosPage } from './pages/TodosPage';
+import TodoViewPage from './pages/TodoViewPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectDashboardPage } from './pages/ProjectDashboardPage';
 import { DiaryPage } from './pages/DiaryPage';
@@ -75,6 +76,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   const { checkAuth, isLoading: authLoading } = useAuthStore();
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
 
   // Initialize global keyboard shortcuts
   useGlobalKeyboardShortcuts();
@@ -94,10 +96,20 @@ function App() {
   useEffect(() => {
     console.log('[APP] Performing single global authentication check');
     checkAuth();
-  }, [checkAuth]);
+    
+    // Set a maximum loading timeout (5 seconds) to prevent indefinite loading
+    const timeoutId = setTimeout(() => {
+      console.warn('[APP] Auth check timeout - allowing UI to render');
+      setLoadingTimeout(true);
+    }, 5000);
+    
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [checkAuth]); // Removed authLoading dependency to prevent re-running
 
-  // Show loading screen while authentication is being checked
-  if (authLoading) {
+  // Show loading screen while authentication is being checked (but not indefinitely)
+  if (authLoading && !loadingTimeout) {
     return (
       <div style={{ 
         display: 'flex', 
@@ -201,6 +213,15 @@ function App() {
           />
           
           <Route 
+            path="/todos/:id" 
+            element={
+              <AuthGuard>
+                <TodoViewPage />
+              </AuthGuard>
+            } 
+          />
+          
+          <Route 
             path="/projects" 
             element={
               <AuthGuard>
@@ -283,6 +304,18 @@ function App() {
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           
           {/* Catch-all route that tries to preserve the current path */}
+          <Route path="*" element={
+            <AuthGuard>
+              <div>
+                <h2>Page Not Found</h2>
+                <p>The page you're looking for doesn't exist.</p>
+                <button onClick={() => window.history.back()}>Go Back</button>
+                <button onClick={() => window.location.href = '/dashboard'}>Go to Dashboard</button>
+              </div>
+            </AuthGuard>
+          } />
+
+          
           <Route path="*" element={
             <AuthGuard>
               <div>

@@ -91,8 +91,3 @@ class CommitDocumentUploadRequest(CamelCaseModel):
             except Exception:
                 raise ValueError(f"Invalid UUID: {s}")
         return out
-
-class ArchiveDocumentRequest(CamelCaseModel):
-    """Cross-module archiving functionality."""
-    folder_uuid: str = Field(default="", description="Deprecated")
-    copy_tags: bool = Field(default=False, description="Deprecated")

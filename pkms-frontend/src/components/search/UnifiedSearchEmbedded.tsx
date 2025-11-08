@@ -50,6 +50,8 @@ interface UnifiedSearchEmbeddedProps {
   showModuleSelector?: boolean;
   /** Whether to show search type toggle (default: true) */
   showSearchTypeToggle?: boolean;
+  /** Whether to show diary exclusion alert (default: true for unified search, false for module pages) */
+  showDiaryExclusionAlert?: boolean;
   /** Callback when a result is clicked */
   onResultClick?: (result: SearchResult) => void;
   /** Custom empty state message */
@@ -58,6 +60,8 @@ interface UnifiedSearchEmbeddedProps {
   resultsPerPage?: number;
   /** Whether to show pagination */
   showPagination?: boolean;
+  /** Custom placeholder text for search input */
+  searchPlaceholder?: string;
 }
 
 const allModuleOptions = [
@@ -76,10 +80,12 @@ export function UnifiedSearchEmbedded({
   includeDiary = false,
   showModuleSelector = true,
   showSearchTypeToggle = true,
+  showDiaryExclusionAlert = true,
   onResultClick,
   emptyMessage = 'No results found. Try different search terms or adjust your filters.',
   resultsPerPage = 20,
   showPagination = true,
+  searchPlaceholder = 'Search your knowledge base...',
 }: UnifiedSearchEmbeddedProps) {
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -256,7 +262,7 @@ export function UnifiedSearchEmbedded({
         />
       )}
 
-      {!includeDiary && (
+      {!includeDiary && showDiaryExclusionAlert !== false && (
         <Alert icon={<IconEyeOff size={16} />} color="orange">
           Diary entries are excluded from search results. Use diary-specific search within the diary module.
         </Alert>
@@ -267,7 +273,7 @@ export function UnifiedSearchEmbedded({
           <Stack gap="md">
             <Group>
               <TextInput
-                placeholder="Search your knowledge base..."
+                placeholder={searchPlaceholder}
                 leftSection={<IconSearch size={16} />}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.currentTarget.value)}

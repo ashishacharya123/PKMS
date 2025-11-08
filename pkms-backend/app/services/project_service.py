@@ -818,6 +818,88 @@ class ProjectService:
         
         return counts
 
+    async def get_project_statistics(
+        self,
+        db: AsyncSession,
+        project_uuid: str,
+        user_uuid: str
+    ) -> Dict[str, Any]:
+        """
+        Get detailed project statistics with proper async database queries.
+        
+        Returns counts for todos, documents, notes, and completion progress.
+        Replaces the deprecated sync property in Project model.
+        
+        Returns:
+            Dictionary with todo_count, document_count, note_count, completed_todos, progress_percentage
+        """
+        from app.models.associations import project_items
+        
+        # First, verify project exists and user has access
+        project_query = select(Project).where(
+            Project.uuid == project_uuid,
+            Project.created_by == user_uuid,
+            Project.is_deleted == False
+        )
+        project_result = await db.execute(project_query)
+        project = project_result.scalar_one_or_none()
+        
+        if not project:
+            return {
+                "todo_count": 0,
+                "document_count": 0,
+                "note_count": 0,
+                "completed_todos": 0,
+                "progress_percentage": 0
+            }
+        
+        # Count todos in project (via project_items polymorphic table)
+        todo_count_query = select(func.count(project_items.c.id)).where(
+            project_items.c.project_uuid == project_uuid,
+            project_items.c.item_type == "Todo"
+        )
+        todo_count_result = await db.execute(todo_count_query)
+        todo_count = todo_count_result.scalar() or 0
+        
+        # Count documents in project (via project_items polymorphic table)
+        doc_count_query = select(func.count(project_items.c.id)).where(
+            project_items.c.project_uuid == project_uuid,
+            project_items.c.item_type == "Document"
+        )
+        doc_count_result = await db.execute(doc_count_query)
+        document_count = doc_count_result.scalar() or 0
+        
+        # Count completed todos (join project_items with todos table)
+        completed_query = select(func.count(project_items.c.id)).select_from(
+            project_items
+        ).join(
+            Todo, project_items.c.item_uuid == Todo.uuid
+        ).where(
+            project_items.c.project_uuid == project_uuid,
+            project_items.c.item_type == "Todo",
+            Todo.is_deleted == False,
+            Todo.status == TodoStatus.DONE
+        )
+        completed_result = await db.execute(completed_query)
+        completed_todos = completed_result.scalar() or 0
+        
+        # Count notes (direct relationship)
+        note_count = len(project.notes) if project.notes else 0
+        
+        # Calculate progress percentage
+        if todo_count > 0:
+            progress_percentage = int((completed_todos / todo_count) * 100)
+        else:
+            progress_percentage = 0
+        
+        return {
+            "todo_count": todo_count,
+            "document_count": document_count,
+            "note_count": note_count,
+            "completed_todos": completed_todos,
+            "progress_percentage": progress_percentage
+        }
+
     # ===== RESPONSE CONVERSION METHODS =====
 
     def _convert_project_to_response(

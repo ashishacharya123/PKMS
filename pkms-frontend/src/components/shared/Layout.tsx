@@ -3,6 +3,8 @@ import { useDisclosure } from '@mantine/hooks';
 import { IconMoon, IconSun } from '@tabler/icons-react';
 import { Navigation } from './Navigation';
 import { useDateTime } from '../../hooks/useDateTime';
+import { useAuthStore } from '../../stores/authStore';
+import { dashboardService } from '../../services/dashboardService';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -12,6 +14,7 @@ export function Layout({ children }: LayoutProps) {
   const [navbarCollapsed, { toggle: toggleNavbar }] = useDisclosure(false);
   const { formattedTime, formattedDate, nepaliDateFormatted, nepaliDay, isLoading: dateLoading } = useDateTime();
   const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const { user } = useAuthStore();
 
   return (
     <AppShell
@@ -40,6 +43,22 @@ export function Layout({ children }: LayoutProps) {
         >
           {!dateLoading && (
             <Group gap="lg" wrap="nowrap">
+              {/* Last Login */}
+              {user?.lastLogin && (
+                <Box
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 'var(--mantine-radius-md)',
+                    backgroundColor: 'var(--mantine-color-grape-light)',
+                    border: '1px solid var(--mantine-color-grape-filled)',
+                  }}
+                >
+                  <Text size="sm" fw={500} c="grape">
+                    Last login: {dashboardService.formatLastUpdated(user.lastLogin)}
+                  </Text>
+                </Box>
+              )}
+
               {/* English Date */}
               <Box
                 style={{

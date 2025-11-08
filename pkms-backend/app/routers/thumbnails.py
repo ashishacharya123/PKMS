@@ -5,11 +5,17 @@ Serves thumbnails for files
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import FileResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 import logging
+from pathlib import Path
 
 from app.auth.dependencies import get_current_user
 from app.models.user import User
-from app.config import get_file_storage_dir
+from app.models.document import Document
+from app.models.archive import ArchiveItem
+from app.config import get_file_storage_dir, settings
+from app.database import get_db
 from app.services.thumbnail_service import thumbnail_service
 
 logger = logging.getLogger(__name__)
@@ -20,28 +26,91 @@ router = APIRouter(prefix="/thumbnails", tags=["thumbnails"])
 async def get_thumbnail(
     file_uuid: str,
     size: str = Query("medium", regex="^(small|medium|large)$"),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """
-    Get thumbnail for a file
+    Get thumbnail for a file by UUID.
+    
+    Searches both Document and ArchiveItem tables for the file.
+    Returns thumbnail if exists, otherwise 404.
     
     Args:
         file_uuid: UUID of the file
-        size: Thumbnail size (small, medium, large)
+        size: Thumbnail size (small, medium, large) - note: currently returns stored thumbnail
         current_user: Current authenticated user
+        db: Database session
     """
     try:
-        # For now, we'll need to find the file by UUID
-        # This is a simplified version - in practice, you'd query the database
-        # to get the actual file path from the UUID
+        # First, check Document table
+        doc_query = select(Document).where(
+            Document.uuid == file_uuid,
+            Document.created_by == current_user.uuid,
+            Document.is_deleted == False
+        )
+        doc_result = await db.execute(doc_query)
+        document = doc_result.scalar_one_or_none()
         
-        # TODO: Implement proper file lookup by UUID
-        # For now, return a placeholder response
+        if document and document.thumbnail_path:
+            # Document has thumbnail
+            thumbnail_full_path = Path(settings.DATA_DIR) / document.thumbnail_path
+            
+            if thumbnail_full_path.exists():
+                # Determine media type from file extension
+                ext = thumbnail_full_path.suffix.lower()
+                media_type_map = {
+                    '.jpg': 'image/jpeg',
+                    '.jpeg': 'image/jpeg',
+                    '.png': 'image/png',
+                    '.gif': 'image/gif',
+                    '.webp': 'image/webp'
+                }
+                media_type = media_type_map.get(ext, 'image/jpeg')
+                
+                return FileResponse(
+                    str(thumbnail_full_path),
+                    media_type=media_type,
+                    headers={"Cache-Control": "public, max-age=3600"}
+                )
+        
+        # Second, check ArchiveItem table
+        archive_query = select(ArchiveItem).where(
+            ArchiveItem.uuid == file_uuid,
+            ArchiveItem.created_by == current_user.uuid,
+            ArchiveItem.is_deleted == False
+        )
+        archive_result = await db.execute(archive_query)
+        archive_item = archive_result.scalar_one_or_none()
+        
+        if archive_item and archive_item.thumbnail_path:
+            # Archive item has thumbnail
+            thumbnail_full_path = Path(settings.DATA_DIR) / archive_item.thumbnail_path
+            
+            if thumbnail_full_path.exists():
+                ext = thumbnail_full_path.suffix.lower()
+                media_type_map = {
+                    '.jpg': 'image/jpeg',
+                    '.jpeg': 'image/jpeg',
+                    '.png': 'image/png',
+                    '.gif': 'image/gif',
+                    '.webp': 'image/webp'
+                }
+                media_type = media_type_map.get(ext, 'image/jpeg')
+                
+                return FileResponse(
+                    str(thumbnail_full_path),
+                    media_type=media_type,
+                    headers={"Cache-Control": "public, max-age=3600"}
+                )
+        
+        # File not found or no thumbnail
         raise HTTPException(
-            status_code=501, 
-            detail="Thumbnail lookup by UUID not yet implemented"
+            status_code=404,
+            detail=f"Thumbnail not found for file {file_uuid}"
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get thumbnail for {file_uuid}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get thumbnail")
