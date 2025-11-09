@@ -3,6 +3,7 @@ from typing import Optional
 from datetime import datetime
 from .base import CamelCaseModel
 from app.schemas.project import ProjectBadge
+from app.utils.validation import validate_uuid_list
 
 
 class DocumentCreate(CamelCaseModel):
@@ -26,17 +27,7 @@ class DocumentUpdate(CamelCaseModel):
     @field_validator('project_uuids')
     @classmethod
     def _validate_project_uuids(cls, v):
-        if not v:
-            return v
-        import uuid as _uuid
-        out = []
-        for s in v:
-            try:
-                _uuid.UUID(str(s))
-                out.append(str(s))
-            except Exception:
-                raise ValueError(f"Invalid UUID: {s}")
-        return out
+        return validate_uuid_list(v)
     # is_project_exclusive and is_diary_exclusive removed - exclusivity now handled via association tables
 
 # UploadStatus import removed - documents no longer store upload status
@@ -80,14 +71,4 @@ class CommitDocumentUploadRequest(CamelCaseModel):
     @field_validator('project_uuids')
     @classmethod
     def _validate_project_uuids(cls, v):
-        if not v:
-            return v
-        import uuid as _uuid
-        out = []
-        for s in v:
-            try:
-                _uuid.UUID(str(s))
-                out.append(str(s))
-            except Exception:
-                raise ValueError(f"Invalid UUID: {s}")
-        return out
+        return validate_uuid_list(v)

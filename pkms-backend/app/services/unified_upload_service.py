@@ -4,7 +4,7 @@ UnifiedUploadService - Ensures atomic file operations and database consistency
 
 import asyncio
 import shutil
-import uuid as uuid_lib
+from uuid6 import uuid7
 import errno
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
@@ -137,8 +137,11 @@ class UnifiedUploadService:
             
             await self._finalize_file(temp_path, final_path, record, db)
             
-            # Generate thumbnails after successful upload
-            await self._generate_thumbnails(final_path)
+            # Generate thumbnails after successful upload and update DB
+            thumbnail_path = await self._generate_thumbnails(final_path, module)
+            if thumbnail_path and hasattr(record, 'thumbnail_path'):
+                record.thumbnail_path = thumbnail_path
+                await db.commit()
             
             await chunk_manager.cleanup_upload(upload_id)
             
@@ -148,19 +151,36 @@ class UnifiedUploadService:
             await self._cleanup_on_error(db, temp_path, assembled_path)
             raise
     
-    async def _generate_thumbnails(self, file_path: Path):
-        """Generate thumbnails for uploaded file"""
+    async def _generate_thumbnails(self, file_path: Path, module: str) -> Optional[str]:
+        """
+        Generate thumbnails for uploaded file.
+        
+        Returns:
+            Relative path to medium thumbnail for DB storage, or None if generation fails
+        """
         try:
-            # Get thumbnail directory (same level as file storage)
-            thumbnail_dir = get_file_storage_dir() / "thumbnails"
+            storage_dir = get_file_storage_dir()
             
-            # Generate all thumbnail sizes
-            await thumbnail_service.generate_all_sizes(file_path, thumbnail_dir)
-            logger.info(f"Generated thumbnails for: {file_path}")
+            # Documents use central thumbnail directory
+            if module in ["documents", "notes", "diary"]:
+                thumbnail_dir = storage_dir / "thumbnails"
+                results = await thumbnail_service.generate_all_sizes(file_path, thumbnail_dir)
+                
+                # Return medium thumbnail path (relative to storage_dir)
+                medium_thumb = results.get('medium')
+                if medium_thumb:
+                    logger.info(f"Generated thumbnails for document: {file_path}")
+                    return str(medium_thumb.relative_to(storage_dir))
+            
+            # Archive items use subdirectory thumbnails (handled separately in archive_item_service)
+            # So we don't generate them here
+            
+            return None
             
         except Exception as e:
             logger.error(f"Failed to generate thumbnails for {file_path}: {e}")
             # Don't fail the upload if thumbnail generation fails
+            return None
 
     async def _locate_assembled_file(self, upload_id: str, created_by: str) -> Path:
         status_obj = await chunk_manager.get_upload_status(upload_id)
@@ -182,7 +202,7 @@ class UnifiedUploadService:
         return assembled
 
     async def _generate_paths(self, module: str, assembled: Path, metadata: Dict[str, Any], db: Optional[AsyncSession] = None) -> tuple[Path, Path]:
-        file_uuid = metadata.get("file_uuid", str(uuid_lib.uuid4()))
+        file_uuid = metadata.get("file_uuid", str(uuid7()))
         extension = assembled.suffix
         created_by = metadata.get("created_by", "unknown")
         
@@ -255,7 +275,7 @@ class UnifiedUploadService:
 
     async def _create_record(self, db: AsyncSession, module: str, temp_path: Path, final_path: Path, metadata: Dict[str, Any], user: str) -> Any:
         file_stat = await asyncio.to_thread(temp_path.stat)
-        file_uuid = metadata.get("file_uuid", str(uuid_lib.uuid4()))
+        file_uuid = metadata.get("file_uuid", str(uuid7()))
         
         # Validate file size
         from app.services.file_size_service import file_size_service

@@ -186,7 +186,8 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
     if (debouncedSearchQuery) {
       filtered = filtered.filter((entry) =>
         entry.title?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-        entry.content?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
+        // Note: DiaryEntrySummary doesn't include full content for performance
+        // Use contentLength or preview if available, or skip content search
         entry.tags?.some(tag => tag.toLowerCase().includes(debouncedSearchQuery.toLowerCase()))
       );
     }
@@ -222,9 +223,15 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
 
   // Calendar day renderer
   const renderDay = useCallback((date: Date) => {
-    const dateStr = format(date, 'yyyy-MM-dd');
+    // Ensure date is a valid Date object (parseISO if it's a string)
+    const validDate = typeof date === 'string' ? parseISO(date) : date;
+    if (!validDate || isNaN(validDate.getTime())) {
+      return null; // Skip invalid dates
+    }
+    
+    const dateStr = format(validDate, 'yyyy-MM-dd');
     const entry = calendarEntries.get(dateStr);
-    const isSelectedDate = format(date, 'yyyy-MM-dd') === format(selectedDate, 'yyyy-MM-dd');
+    const isSelectedDate = format(validDate, 'yyyy-MM-dd') === format(selectedDate, 'yyyy-MM-dd');
     
     if (!entry) {
       // Show selected date indicator even if no entry
@@ -252,7 +259,7 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
       return null;
     }
 
-    const isTodayDate = isToday(date);
+    const isTodayDate = isToday(validDate);
     const mood = entry.mood || 3;
     const hasMedia = entry.mediaCount && entry.mediaCount > 0;
     const isLocked = !encryptionKey;  // Local variable, keep as is
@@ -680,9 +687,10 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
                           <Text c="dimmed" size="sm">
                             {formatDateTime(entry.createdAt)}
                           </Text>
-                          {entry.content && (
-                            <Text size="sm" lineClamp={2}>
-                              {entry.content}
+                          {/* Note: DiaryEntrySummary doesn't include full content - use preview or contentLength if available */}
+                          {entry.contentLength && entry.contentLength > 0 && (
+                            <Text size="sm" c="dimmed">
+                              {entry.contentLength} characters
                             </Text>
                           )}
                           {entry.tags && entry.tags.length > 0 && (

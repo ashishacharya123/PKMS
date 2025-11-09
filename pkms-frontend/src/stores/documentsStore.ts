@@ -181,11 +181,15 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     
     try {
       const document = await unifiedFileService.uploadFile(
-        file, 
-        tags, 
-        (progress) => set({ uploadProgress: progress }),
-        projectIds,
-        isExclusive
+        'documents',
+        '', // entityId not needed for documents module
+        file,
+        {
+          tags,
+          projectIds,
+          isExclusive,
+          onProgress: (progress) => set({ uploadProgress: progress.progress })
+        }
       );
       
       // Convert Document to DocumentSummary for the list
@@ -212,7 +216,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
       
       // Check if document matches current filters
       const matchesMimeType = !state.currentMimeType || document.mimeType === state.currentMimeType;
-      const matchesTag = !state.currentTag || document.tags.includes(state.currentTag);
+      const matchesTag = !state.currentTag || (document.tags ?? []).includes(state.currentTag);
       const matchesSearch = !state.searchQuery || document.originalName.toLowerCase().includes(state.searchQuery.toLowerCase());
       const matchesArchived = state.showArchived || !document.isArchived;
       const matchesFavorite = !state.showFavoritesOnly || document.isFavorite;

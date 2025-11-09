@@ -262,7 +262,7 @@ export function UnifiedSearchEmbedded({
         />
       )}
 
-      {!includeDiary && showDiaryExclusionAlert !== false && (
+      {!includeDiary && showDiaryExclusionAlert && (
         <Alert icon={<IconEyeOff size={16} />} color="orange">
           Diary entries are excluded from search results. Use diary-specific search within the diary module.
         </Alert>

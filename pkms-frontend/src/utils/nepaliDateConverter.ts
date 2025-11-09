@@ -117,6 +117,14 @@ function calculateDaysFromReference(year: number, month: number, date: number): 
  * Convert Gregorian date to Bikram Sambat using calendar data calculation
  */
 export function convertADtoBS(year: number, month: number, date: number): NepaliDateInfo {
+  // Validate date is not before reference date (April 14, 2018 = Baishakh 1, 2075 BS)
+  const checkDate = new Date(year, month - 1, date); // month is 1-indexed in function, 0-indexed in Date
+  const refDate = new Date(REFERENCE_EN_DATE[0], REFERENCE_EN_DATE[1] - 1, REFERENCE_EN_DATE[2]);
+  
+  if (checkDate < refDate) {
+    throw new Error('Dates before April 14, 2018 (Baishakh 1, 2075 BS) are not supported');
+  }
+  
   // Calculate days from reference date (April 14, 1943 = January 1, 2000 BS)
   const daysFromReference = calculateDaysFromReference(year, month, date);
 

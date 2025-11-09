@@ -817,6 +817,126 @@ class ProjectService:
                 counts[project_uuid] = (0, 0)
         
         return counts
+    
+    async def batch_get_project_statistics(
+        self,
+        db: AsyncSession,
+        user_uuid: str,
+        project_uuids: List[str]
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Batch load comprehensive statistics for multiple projects to avoid N+1 queries.
+        
+        Returns statistics for todos, documents, and notes all in optimized batch queries.
+        
+        Args:
+            db: Database session
+            user_uuid: User UUID for ownership validation
+            project_uuids: List of project UUIDs to fetch statistics for
+        
+        Returns:
+            Dict mapping project_uuid to statistics dict with:
+            - todo_count, document_count, note_count, completed_todos, progress_percentage
+        """
+        from app.models.associations import project_items
+        
+        if not project_uuids:
+            return {}
+        
+        # Batch query 1: Todo counts and completed counts
+        todo_result = await db.execute(
+            select(
+                project_items.c.project_uuid,
+                func.count(Todo.uuid).label('total'),
+                func.sum(case((Todo.status == TodoStatus.DONE, 1), else_=0)).label('completed')
+            )
+            .select_from(project_items)
+            .join(Todo, project_items.c.item_uuid == Todo.uuid)
+            .where(
+                and_(
+                    project_items.c.project_uuid.in_(project_uuids),
+                    project_items.c.item_type == 'Todo',
+                    Todo.created_by == user_uuid,
+                    ~Todo.is_deleted,
+                    ~Todo.is_archived
+                )
+            )
+            .group_by(project_items.c.project_uuid)
+        )
+        
+        # Batch query 2: Document counts
+        doc_result = await db.execute(
+            select(
+                project_items.c.project_uuid,
+                func.count(Document.uuid).label('count')
+            )
+            .select_from(project_items)
+            .join(Document, project_items.c.item_uuid == Document.uuid)
+            .where(
+                and_(
+                    project_items.c.project_uuid.in_(project_uuids),
+                    project_items.c.item_type == 'Document',
+                    Document.created_by == user_uuid,
+                    ~Document.is_deleted,
+                    ~Document.is_archived
+                )
+            )
+            .group_by(project_items.c.project_uuid)
+        )
+        
+        # Batch query 3: Note counts
+        note_result = await db.execute(
+            select(
+                project_items.c.project_uuid,
+                func.count(Note.uuid).label('count')
+            )
+            .select_from(project_items)
+            .join(Note, project_items.c.item_uuid == Note.uuid)
+            .where(
+                and_(
+                    project_items.c.project_uuid.in_(project_uuids),
+                    project_items.c.item_type == 'Note',
+                    Note.created_by == user_uuid,
+                    ~Note.is_deleted,
+                    ~Note.is_archived
+                )
+            )
+            .group_by(project_items.c.project_uuid)
+        )
+        
+        # Build statistics map
+        stats_map = {}
+        
+        # Initialize all projects with zero counts
+        for project_uuid in project_uuids:
+            stats_map[project_uuid] = {
+                'todo_count': 0,
+                'document_count': 0,
+                'note_count': 0,
+                'completed_todos': 0,
+                'progress_percentage': 0
+            }
+        
+        # Fill in todo counts
+        for row in todo_result.all():
+            project_uuid = row.project_uuid
+            todo_count = row.total or 0
+            completed = row.completed or 0
+            stats_map[project_uuid]['todo_count'] = todo_count
+            stats_map[project_uuid]['completed_todos'] = completed
+            # Calculate progress
+            if todo_count > 0:
+                stats_map[project_uuid]['progress_percentage'] = int((completed / todo_count) * 100)
+        
+        # Fill in document counts
+        for row in doc_result.all():
+            stats_map[row.project_uuid]['document_count'] = row.count or 0
+        
+        # Fill in note counts
+        for row in note_result.all():
+            stats_map[row.project_uuid]['note_count'] = row.count or 0
+        
+        return stats_map
 
     async def get_project_statistics(
         self,
@@ -853,23 +973,33 @@ class ProjectService:
                 "progress_percentage": 0
             }
         
-        # Count todos in project (via project_items polymorphic table)
-        todo_count_query = select(func.count(project_items.c.id)).where(
+        # Count todos in project - JOIN to filter archived/deleted
+        todo_count_query = select(func.count(Todo.uuid)).select_from(project_items).join(
+            Todo, project_items.c.item_uuid == Todo.uuid
+        ).where(
             project_items.c.project_uuid == project_uuid,
-            project_items.c.item_type == "Todo"
+            project_items.c.item_type == "Todo",
+            Todo.created_by == user_uuid,
+            ~Todo.is_deleted,
+            ~Todo.is_archived
         )
         todo_count_result = await db.execute(todo_count_query)
         todo_count = todo_count_result.scalar() or 0
         
-        # Count documents in project (via project_items polymorphic table)
-        doc_count_query = select(func.count(project_items.c.id)).where(
+        # Count documents in project - JOIN to filter archived/deleted
+        doc_count_query = select(func.count(Document.uuid)).select_from(project_items).join(
+            Document, project_items.c.item_uuid == Document.uuid
+        ).where(
             project_items.c.project_uuid == project_uuid,
-            project_items.c.item_type == "Document"
+            project_items.c.item_type == "Document",
+            Document.created_by == user_uuid,
+            ~Document.is_deleted,
+            ~Document.is_archived
         )
         doc_count_result = await db.execute(doc_count_query)
         document_count = doc_count_result.scalar() or 0
         
-        # Count completed todos (join project_items with todos table)
+        # Count completed todos - also filter archived
         completed_query = select(func.count(project_items.c.id)).select_from(
             project_items
         ).join(
@@ -877,14 +1007,26 @@ class ProjectService:
         ).where(
             project_items.c.project_uuid == project_uuid,
             project_items.c.item_type == "Todo",
-            Todo.is_deleted == False,
+            Todo.created_by == user_uuid,
+            ~Todo.is_deleted,
+            ~Todo.is_archived,
             Todo.status == TodoStatus.DONE
         )
         completed_result = await db.execute(completed_query)
         completed_todos = completed_result.scalar() or 0
         
-        # Count notes (direct relationship)
-        note_count = len(project.notes) if project.notes else 0
+        # Count notes in project - JOIN to filter archived/deleted
+        note_count_query = select(func.count(Note.uuid)).select_from(project_items).join(
+            Note, project_items.c.item_uuid == Note.uuid
+        ).where(
+            project_items.c.project_uuid == project_uuid,
+            project_items.c.item_type == "Note",
+            Note.created_by == user_uuid,
+            ~Note.is_deleted,
+            ~Note.is_archived
+        )
+        note_count_result = await db.execute(note_count_query)
+        note_count = note_count_result.scalar() or 0
         
         # Calculate progress percentage
         if todo_count > 0:

@@ -10,7 +10,7 @@ import {
   User,
   UserSettings
 } from '../types/auth';
-import { ResponseValidator, RUNTIME_VALIDATION_ENABLED, AuthResponseSchema, UserSchema } from '../utils/validation';
+import { ResponseValidator, RUNTIME_VALIDATION_ENABLED, AuthResponseSchema } from '../utils/validation';
 
 class AuthService {
   private _deprecationWarned: boolean = false;

@@ -303,19 +303,7 @@ function App() {
           {/* Default redirects */}
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           
-          {/* Catch-all route that tries to preserve the current path */}
-          <Route path="*" element={
-            <AuthGuard>
-              <div>
-                <h2>Page Not Found</h2>
-                <p>The page you're looking for doesn't exist.</p>
-                <button onClick={() => window.history.back()}>Go Back</button>
-                <button onClick={() => window.location.href = '/dashboard'}>Go to Dashboard</button>
-              </div>
-            </AuthGuard>
-          } />
-
-          
+          {/* Catch-all route */}
           <Route path="*" element={
             <AuthGuard>
               <div>

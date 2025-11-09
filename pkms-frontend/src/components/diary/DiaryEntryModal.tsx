@@ -25,6 +25,7 @@ import { entityReserveService } from '../../services/entityReserveService';
 import { isEmptyDiaryEntry } from '../../utils/save_discard_verification';
 import { ContentEditor } from '../common/ContentEditor';
 import { UnifiedFileItem } from '../../services/unifiedFileService';
+import { diaryService } from '../../services/diaryService';
 
 interface DiaryEntryModalProps {
   opened: boolean;
@@ -104,17 +105,45 @@ export function DiaryEntryModal({ opened, onClose, initialDate }: DiaryEntryModa
     }
 
     try {
+      if (!encryptionKey) {
+        throw new Error('Encryption key not available');
+      }
+
+      // Create entry first (without content - content will be uploaded as file)
       const entryData = {
+        date: entryDate,
         title: data.title,
-        content: data.content,
+        contentLength: data.content ? data.content.length : 0,
         tags: data.tags,
         mood: data.mood,
         weatherCode: data.weatherCode,
-        location: data.location,
-        date: entryDate
+        location: data.location
       };
 
-      await createEntry(entryData);
+      // Create entry (content will be uploaded as file separately)
+      await createEntry({
+        date: entryDate,
+        title: data.title,
+        contentLength: data.content ? data.content.length : 0,
+        tags: data.tags,
+        mood: data.mood,
+        weatherCode: data.weatherCode,
+        location: data.location
+      });
+      
+      // Upload content as file if content exists
+      if (data.content && reservedUuid) {
+        const contentBlob = new Blob([data.content], { type: 'text/plain' });
+        const contentFile = new File([contentBlob], 'content.txt', { type: 'text/plain' });
+        
+        await diaryService.uploadFile(
+          reservedUuid,
+          contentFile,
+          'photo', // File type doesn't matter for content
+          undefined, // No caption
+          encryptionKey // Encrypt the content file
+        );
+      }
       
       notifications.show({
         title: 'Success',

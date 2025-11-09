@@ -10,7 +10,7 @@ Refactored to follow "thin router, thick service" architecture pattern.
 from fastapi import APIRouter, Depends, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
-from pydantic.types import UUID4
+# UUID4 type removed - using str for UUID7 compatibility
 import logging
 
 from app.database import get_db
@@ -74,7 +74,7 @@ async def list_deleted_documents(
 @router.get("/{document_uuid}", response_model=DocumentResponse)
 @handle_api_errors("get document")
 async def get_document(
-    document_uuid: UUID4,
+    document_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -85,7 +85,7 @@ async def get_document(
 @router.put("/{document_uuid}", response_model=DocumentResponse)
 @handle_api_errors("update document")
 async def update_document(
-    document_uuid: UUID4,
+    document_uuid: str,
     document_data: DocumentUpdate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -99,7 +99,7 @@ async def update_document(
 @router.delete("/{document_uuid}", status_code=status.HTTP_204_NO_CONTENT)
 @handle_api_errors("delete document")
 async def delete_document(
-    document_uuid: UUID4,
+    document_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -110,7 +110,7 @@ async def delete_document(
 @router.post("/{document_uuid}/restore")
 @handle_api_errors("restore document")
 async def restore_document(
-    document_uuid: UUID4,
+    document_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -122,7 +122,7 @@ async def restore_document(
 @router.delete("/{document_uuid}/permanent")
 @handle_api_errors("hard delete document")
 async def permanent_delete_document(
-    document_uuid: UUID4,
+    document_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -134,7 +134,7 @@ async def permanent_delete_document(
 @router.get("/{document_uuid}/download")
 @handle_api_errors("download document")
 async def download_document(
-    document_uuid: UUID4,
+    document_uuid: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):

@@ -180,7 +180,7 @@ export default function ArchivePageNew() {
     // Load root folders on initial mount
     const loadInitialData = async () => {
       try {
-        await useArchiveStore.getState().loadItems();
+        await useArchiveStore.getState().loadFolders(undefined);
       } catch (error) {
         console.error('Failed to load archive data:', error);
       }
@@ -216,7 +216,7 @@ export default function ArchivePageNew() {
     if (!newFolderName.trim()) return;
     
     try {
-      await createFolder(newFolderName.trim(), currentFolder?.uuid, newFolderDescription.trim() || undefined);
+      await createFolder(newFolderName.trim(), currentFolder?.uuid);
       setNewFolderName('');
       setNewFolderDescription('');
       closeCreateFolder();
@@ -252,7 +252,7 @@ export default function ArchivePageNew() {
       if (currentFolder) {
         await loadFolderItems(currentFolder.uuid);
       } else {
-        await useArchiveStore.getState().loadItems();
+        await useArchiveStore.getState().loadFolders(undefined);
       }
       
       notifications.show({
@@ -286,7 +286,7 @@ export default function ArchivePageNew() {
       if (currentFolder) {
         await loadFolderItems(currentFolder.uuid);
       } else {
-        await useArchiveStore.getState().loadItems();
+        await useArchiveStore.getState().loadFolders(undefined);
       }
       
       notifications.show({

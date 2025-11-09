@@ -51,7 +51,8 @@ import { searchService } from '../services/searchService';
 import { useDocumentsStore } from '../stores/documentsStore';
 import { LoadingState } from '../components/common/LoadingState';
 import { ErrorState } from '../components/common/ErrorState';
-import { documentsService, Document } from '../services/documentsService';
+import { documentsService } from '../services/documentsService';
+import { Document } from '../types/document';
 import { ActionMenu } from '../components/common/ActionMenu';
 import { FileUploadModal } from '../components/file/FileUploadModal';
 import { ModuleLayout } from '../components/common/ModuleLayout';
@@ -637,13 +638,13 @@ export function DocumentsPage() {
                           {formatDate(document.updatedAt)}
                         </Text>
                         <ProjectBadges projects={document.projects || []} size="xs" maxVisible={2} />
-                        {document.tags.slice(0, 2).map((tag) => (
+                        {(document.tags ?? []).slice(0, 2).map((tag) => (
                           <Badge key={tag} size="xs" variant="dot" style={{ cursor: 'pointer' }} onClick={() => setTag(tag)}>
                             {tag}
                           </Badge>
                         ))}
-                        {document.tags.length > 2 && (
-                          <Badge size="xs" variant="outline">+{document.tags.length - 2}</Badge>
+                        {(document.tags ?? []).length > 2 && (
+                          <Badge size="xs" variant="outline">+{(document.tags ?? []).length - 2}</Badge>
                         )}
                       </Group>
                     </Stack>
@@ -679,14 +680,14 @@ export function DocumentsPage() {
                 </Group>,
                 <Group key="tags" gap={4}>
                   <ProjectBadges projects={document.projects || []} size="xs" maxVisible={3} />
-                  {document.tags.slice(0, 3).map((tag) => (
+                  {(document.tags ?? []).slice(0, 3).map((tag) => (
                     <Badge key={tag} size="xs" variant="dot" style={{ cursor: 'pointer' }} onClick={() => setTag(tag)}>
                       {tag}
                     </Badge>
                   ))}
-                  {document.tags.length > 3 && (
-                    <Tooltip label={`${document.tags.length - 3} more tags`}>
-                      <Badge size="xs" variant="outline">+{document.tags.length - 3}</Badge>
+                  {(document.tags ?? []).length > 3 && (
+                    <Tooltip label={`${(document.tags ?? []).length - 3} more tags`}>
+                      <Badge size="xs" variant="outline">+{(document.tags ?? []).length - 3}</Badge>
                     </Tooltip>
                   )}
                 </Group>,
@@ -784,7 +785,8 @@ export function DocumentsPage() {
         onUpload={async (files, metadata) => {
           try {
             for (const file of files) {
-              await uploadDocument(file, metadata.tags || [], metadata.projectIds || [], metadata.isExclusive || false);
+              // Note: FileMetadata doesn't include projectIds/isExclusive - using defaults
+              await uploadDocument(file, metadata.tags || [], [], false);
             }
             uploadModal.closeModal();
             notifications.show({

@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { ProjectSummary } from '../../types/project';
 import { ProjectStatus, TaskPriority } from '../../types/enums';
 import { getStatusColor, getPriorityColor } from '../../theme/colors';
+import { projectsService } from '../../services/projectsService';
 
 interface ProjectSelectorProps {
   value: string[]; // Array of project UUIDs
@@ -45,61 +46,9 @@ export function ProjectSelector({
     const loadProjects = async () => {
       setLoading(true);
       try {
-        // TODO: Replace with actual API call when projectsService is implemented
-        // const projects = await projectsService.getAll();
-        // setAvailableProjects(projects);
-        
-        // Mock data for now
-        setAvailableProjects([
-          {
-            uuid: '1',
-            title: 'Website Redesign',
-            name: 'Website Redesign',
-            description: 'Complete website overhaul',
-            status: ProjectStatus.IS_RUNNING,
-            priority: TaskPriority.HIGH,
-            dueDate: '2024-02-15',
-            progressPercentage: 65,
-            todoCount: 12,
-            completedCount: 8,
-            createdAt: '2024-01-01',
-            updatedAt: '2024-01-15',
-            tags: ['web', 'design'],
-            isFavorite: true,
-          },
-          {
-            uuid: '2',
-            title: 'Mobile App',
-            name: 'Mobile App',
-            description: 'iOS and Android app development',
-            status: ProjectStatus.ON_HOLD,
-            priority: TaskPriority.MEDIUM,
-            dueDate: '2024-03-30',
-            progressPercentage: 30,
-            todoCount: 25,
-            completedCount: 7,
-            createdAt: '2024-01-10',
-            updatedAt: '2024-01-20',
-            tags: ['mobile', 'app'],
-            isFavorite: false,
-          },
-          {
-            uuid: '3',
-            title: 'Database Migration',
-            name: 'Database Migration',
-            description: 'Migrate to new database system',
-            status: ProjectStatus.COMPLETED,
-            priority: TaskPriority.URGENT,
-            dueDate: '2024-01-31',
-            progressPercentage: 100,
-            todoCount: 8,
-            completedCount: 8,
-            createdAt: '2024-01-05',
-            updatedAt: '2024-01-31',
-            tags: ['database', 'migration'],
-            isFavorite: false,
-          }
-        ]);
+        // Use real API call instead of mock data
+        const projects = await projectsService.listProjects(false);
+        setAvailableProjects(projects as any); // Type assertion needed due to type mismatch between Project and ProjectSummary
       } catch (error) {
         console.error('Failed to load projects:', error);
       } finally {

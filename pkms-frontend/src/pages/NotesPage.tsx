@@ -449,7 +449,7 @@ export function NotesPage() {
                         sessionStorage.setItem('notesScrollY', String(window.scrollY));
                         navigate(`/notes/${note.uuid}`);
                       }}
-                      onDelete={() => handleDeleteNote(note.uuid, note.title)}
+                      onDelete={() => handleDeleteNote(note.uuid, note.title || 'Untitled')}
                       isFavorite={note.isFavorite}
                       isArchived={note.isArchived}
                       variant="subtle"
@@ -460,7 +460,7 @@ export function NotesPage() {
                   <Text size="xl">{getNoteIcon(note)}</Text>
                   <Group gap={4}>
                     <Badge size="xs" variant="light" color="blue">
-                      {getWordCount(note.preview)} words
+                      {getWordCount(note.preview || '')} words
                     </Badge>
                     {note.isArchived && (
                       <Badge size="xs" color="gray" variant="light">
@@ -476,9 +476,9 @@ export function NotesPage() {
                     <Text size="lg">{getNoteIcon(note)}</Text>
                     <Stack gap={2}>
                       <Group gap="xs">
-                        <Text 
-                          fw={600} 
-                          size="sm" 
+                        <Text
+                          fw={600}
+                          size="sm"
                           style={{ cursor: 'pointer', color: '#228be6' }}
                           onClick={() => {
                             sessionStorage.setItem('notesScrollY', String(window.scrollY));
@@ -500,7 +500,7 @@ export function NotesPage() {
                       </Group>
                       <Group gap="xs">
                         <Badge size="xs" variant="light" color="blue">
-                          {getWordCount(note.preview)} words
+                          {getWordCount(note.preview || '')} words
                         </Badge>
                         {note.fileCount > 0 && (
                           <Badge size="xs" variant="light" color="teal">
@@ -512,11 +512,11 @@ export function NotesPage() {
                         </Text>
                         <ProjectBadges projects={note.projects || []} size="xs" maxVisible={2} />
                         {(note.tags || []).slice(0, 2).map((tag: string) => (
-                          <Badge 
-                            key={tag} 
-                            size="xs" 
-                            variant="dot" 
-                            style={{ cursor: 'pointer' }} 
+                          <Badge
+                            key={tag}
+                            size="xs"
+                            variant="dot"
+                            style={{ cursor: 'pointer' }}
                             onClick={(e) => {
                               e.stopPropagation();
                               setTag(tag);
@@ -526,35 +526,16 @@ export function NotesPage() {
                           </Badge>
                         ))}
                       </Group>
-                      
-                      {/* NEW: Note Type and Versioning */}
-                      <Group gap="xs">
-                        {note.note_type && note.note_type !== 'general' && (
-                          <Tooltip label={`Note type: ${note.note_type}`}>
-                            <Badge size="xs" variant="outline" color="blue">
-                              <IconFileText size={10} style={{ marginRight: 4 }} />
-                              {note.note_type}
-                            </Badge>
-                          </Tooltip>
-                        )}
-                        {note.version && note.version > 1 && (
-                          <Tooltip label={`Version ${note.version}`}>
-                            <Badge size="xs" variant="outline" color="gray">
-                              <IconHistory size={10} style={{ marginRight: 4 }} />
-                              v{note.version}
-                            </Badge>
-                          </Tooltip>
-                        )}
-                      </Group>
-
-                {/* NEW: Tag Count */}
-                <Group gap="xs">
-                  {(note.tags?.length || 0) > 2 && (
-                    <Badge size="xs" variant="outline">+{(note.tags?.length || 0) - 2}</Badge>
-                  )}
-                </Group>
+                      {note.version && note.version > 1 && (
+                        <Tooltip label={`Version ${note.version}`}>
+                          <Badge size="xs" variant="outline" color="gray">
+                            <IconHistory size={10} style={{ marginRight: 4 }} />
+                            v{note.version}
+                          </Badge>
+                        </Tooltip>
+                      )}
                       <Text size="xs" c="dimmed" lineClamp={1}>
-                        {truncateText(note.preview, 100)}
+                        {truncateText(note.preview || '', 100)}
                       </Text>
                     </Stack>
                   </Group>
@@ -562,10 +543,10 @@ export function NotesPage() {
                     onToggleFavorite={async () => {
                       try {
                         await useNotesStore.getState().updateNote(note.uuid, { isFavorite: !note.isFavorite });
-                        notifications.show({ 
-                          title: note.isFavorite ? 'Removed from Favorites' : 'Added to Favorites', 
-                          message: '', 
-                          color: 'pink' 
+                        notifications.show({
+                          title: note.isFavorite ? 'Removed from Favorites' : 'Added to Favorites',
+                          message: '',
+                          color: 'pink'
                         });
                       } catch (err) {
                         notifications.show({ title: 'Action Failed', message: 'Could not update favorite', color: 'red' });
@@ -598,7 +579,7 @@ export function NotesPage() {
                       }
                     } : undefined}
                     onEdit={() => navigate(`/notes/${note.uuid}`)}
-                    onDelete={() => handleDeleteNote(note.uuid, note.title)}
+                    onDelete={() => handleDeleteNote(note.uuid, note.title || 'Untitled')}
                     isFavorite={note.isFavorite}
                     isArchived={note.isArchived}
                     variant="subtle"
@@ -633,11 +614,11 @@ export function NotesPage() {
                   </Stack>
                 </Group>,
                 <Text key="preview" size="xs" c="dimmed" lineClamp={2}>
-                  {truncateText(note.preview, 150)}
+                  {truncateText(note.preview || '', 150)}
                 </Text>,
                 <Group key="wordcount" gap="xs">
                   <Badge size="xs" variant="light" color="blue">
-                    {getWordCount(note.preview)} words
+                    {getWordCount(note.preview || '')} words
                   </Badge>
                 </Group>,
                 <Group key="tags" gap={4}>

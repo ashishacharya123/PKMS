@@ -112,9 +112,11 @@ export interface ArchiveSelectedItem {
   uuid: string;
   name: string;
   mimeType: 'folder' | 'file';
+  itemType: 'folder' | 'file';  // Discriminator field for type checking
   // Add additional fields as needed
   description?: string;
   fileSize?: number;
+  isFavorite?: boolean;
 }
 
 export interface ArchiveState {

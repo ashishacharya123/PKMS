@@ -35,8 +35,7 @@ class DiaryEntry(Base, SoftDeleteMixin):
     file_count = Column(Integer, nullable=False, default=0)  # Count of associated files (documents)
     content_length = Column(Integer, nullable=False, default=0)
     # content_file_path, file_hash removed - now stored via Document service
-    encryption_tag = Column(String(255), nullable=True)  # For main content document
-    encryption_iv = Column(String(255), nullable=True)   # For main content document
+    # encryption_tag and encryption_iv removed - IV and tag are embedded in encrypted file (PKMS format)
     is_favorite = Column(Boolean, default=False, index=True)
     is_template = Column(Boolean, default=False, index=True)  # Template flag for reusable entries
     from_template_id = Column(String(36), nullable=True, index=True)  # Source template UUID/ID

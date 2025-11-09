@@ -31,12 +31,16 @@ export function useDataLoader<T>(
   // This ensures loadData only changes when dependency VALUES change, not array reference
   const depsKey = useMemo(() => JSON.stringify(dependencies), [dependencies]);
 
+  // Memoize hasData boolean to prevent infinite loops
+  // Only changes when data transitions between null/non-null, not on every data update
+  const hasData = useMemo(() => data !== null, [data]);
+
   // Memoize dependencies to prevent unnecessary re-renders
   // Note: loadFn should be stable (useCallback in parent) to avoid infinite loops
   // Note: onSuccess and onError should be wrapped in useCallback in parent component
   const loadData = useCallback(async (isManualRefresh = false) => {
     // If keepDataWhileLoading is true and we have data, show refresh state instead of full loading
-    if (keepDataWhileLoading && data && isManualRefresh) {
+    if (keepDataWhileLoading && hasData && isManualRefresh) {
       setIsRefreshing(true);
     } else {
       setLoading(true);
@@ -57,7 +61,7 @@ export function useDataLoader<T>(
       setIsRefreshing(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadFn, depsKey, data, keepDataWhileLoading]);
+  }, [loadFn, depsKey, hasData, keepDataWhileLoading]);
 
   useEffect(() => {
     if (autoLoad) {

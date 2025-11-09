@@ -7,7 +7,7 @@ across all upload modules while allowing module-specific extensions.
 This eliminates schema duplication and provides a unified interface for upload requests.
 """
 
-from pydantic import Field, field_validator, UUID4
+from pydantic import Field, field_validator
 from typing import List, Optional, Literal
 from .base import CamelCaseModel
 
@@ -16,7 +16,7 @@ from app.utils.security import sanitize_tags
 
 class BaseCommitUploadRequest(CamelCaseModel):
     """Base schema for all upload commit requests."""
-    file_id: UUID4 = Field(..., description="Upload ID from chunk manager")
+    file_id: str = Field(..., description="Upload ID from chunk manager")
     description: Optional[str] = Field(None, max_length=1000, description="File description")
     display_order: int = Field(0, ge=0, description="Order of display (0 = first)")
     tags: List[str] = Field(default_factory=list, description="Tags for the uploaded file")
@@ -31,26 +31,24 @@ class BaseCommitUploadRequest(CamelCaseModel):
 class DocumentCommitUploadRequest(BaseCommitUploadRequest):
     """Extended schema for document uploads."""
     title: str = Field(..., min_length=1, max_length=255, description="Document title")
-    project_uuids: List[UUID4] = Field(default_factory=list, description="Project UUIDs to link this document to")
+    project_uuids: List[str] = Field(default_factory=list, description="Project UUIDs to link this document to")
     # REMOVED: is_project_exclusive - exclusivity now handled via project_items association table
-
-    # Pydantic v2 coerces list[str|UUID] → list[UUID4]; no custom validator needed
 
 
 class NoteCommitUploadRequest(BaseCommitUploadRequest):
     """Extended schema for note file uploads."""
-    note_uuid: UUID4 = Field(..., description="UUID of the note to attach file to")
+    note_uuid: str = Field(..., description="UUID of the note to attach file to")
 
 
 class ArchiveCommitUploadRequest(BaseCommitUploadRequest):
     """Extended schema for archive uploads."""
     name: Optional[str] = Field(None, max_length=255, description="Display name for the archive item")
-    folder_uuid: Optional[UUID4] = Field(None, description="UUID of parent folder")
+    folder_uuid: Optional[str] = Field(None, description="UUID of parent folder")
 
 
 class DiaryCommitUploadRequest(BaseCommitUploadRequest):
     """Extended schema for diary file uploads."""
-    entry_id: UUID4 = Field(..., description="UUID of the diary entry")
+    entry_id: str = Field(..., description="UUID of the diary entry")
     file_type: Literal["photo", "video", "voice"] = Field(..., description="File type")
 
     # Validator no longer needed; Literal enforces allowed values

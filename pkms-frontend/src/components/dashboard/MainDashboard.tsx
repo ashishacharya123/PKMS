@@ -75,12 +75,12 @@ export function MainDashboard({ onRefresh }: MainDashboardProps) {
     }
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     // Pre-cache Nepali dates (same as after login)
     nepaliDateCache.preCacheDashboard();
     // Invalidate cache and reload all data
-    dashboardService.invalidateCache();
-    loadDashboardData();
+    await dashboardService.invalidateCache();
+    await loadDashboardData();
     onRefresh?.();
   };
 

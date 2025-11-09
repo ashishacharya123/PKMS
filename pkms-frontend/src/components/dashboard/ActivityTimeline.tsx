@@ -275,9 +275,9 @@ export const ActivityTimeline: React.FC<ActivityTimelineProps> = ({
                         </Badge>
                       )}
 
-                      {!isAbandoned && item.metadata?.weatherCode && (
+                      {!isAbandoned && item.metadata?.weather_code && (
                         <Badge size="xs" variant="light" color="cyan">
-                          Weather: {item.metadata.weatherCode}
+                          Weather: {item.metadata.weather_code}
                         </Badge>
                       )}
                     </Group>

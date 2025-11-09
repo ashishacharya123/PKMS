@@ -5,14 +5,15 @@ export interface ModalOptions {
   onClose?: () => void;
 }
 
-export function useModal<T = any>(options: ModalOptions = {}) {
+// Add generic for modal data
+export function useModal<T = unknown, D = Record<string, unknown>>(options: ModalOptions = {}) {
   const { onOpen, onClose } = options;
 
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [selectedItem, setSelectedItem] = useState<T | null>(null);
-  const [modalData, setModalData] = useState<any>(null);
+  const [modalData, setModalData] = useState<D | null>(null);
 
-  const openModal = useCallback((item?: T, data?: any) => {
+  const openModal = useCallback((item?: T, data?: D) => {
     setSelectedItem(item ?? null);
     setModalData(data ?? null);
     setIsOpen(true);
@@ -26,7 +27,7 @@ export function useModal<T = any>(options: ModalOptions = {}) {
     onClose?.();
   }, [onClose]);
 
-  const updateModalData = useCallback((data: any) => {
+  const updateModalData = useCallback((data: D) => {
     setModalData(data);
   }, []);
 

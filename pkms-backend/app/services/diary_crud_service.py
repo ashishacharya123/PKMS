@@ -7,7 +7,7 @@ Includes entry creation, reading, updating, deletion, and file operations.
 
 import logging
 import json
-import uuid as uuid_lib
+from uuid6 import uuid7
 import base64
 import hashlib
 import aiofiles
@@ -59,7 +59,7 @@ class DiaryCRUDService:
         from app.services.unified_upload_service import get_user_storage_path
         
         # Generate content document UUID
-        content_doc_uuid = str(uuid_lib.uuid4())
+        content_doc_uuid = str(uuid7())
         
         # Create diary folder structure: /documents/diary/{user_uuid}/
         diary_storage_dir = get_user_storage_path(user_uuid, "documents") / "diary"
@@ -330,7 +330,7 @@ class DiaryCRUDService:
         )
 
         entry = DiaryEntry(
-            uuid=str(uuid_lib.uuid4()),
+            uuid=str(uuid7()),
             date=entry_date,
             title=entry_data.title,
             file_count=0,
@@ -341,23 +341,15 @@ class DiaryCRUDService:
             is_template=entry_data.is_template,
             from_template_id=entry_data.from_template_id,
             created_by=user_uuid,
-            encryption_iv=entry_data.encryption_iv,
-            encryption_tag=None,
+            # encryption_iv and encryption_tag removed - IV and tag are embedded in encrypted file
         )
         
         db.add(entry)
         await db.flush()
         await db.refresh(entry)
         
-        # Store encrypted content as Document with sort_order = 0 (main content)
-        await DiaryCRUDService._create_content_document(
-            db=db,
-            entry_uuid=entry.uuid,
-            user_uuid=user_uuid,
-            encrypted_blob=entry_data.encrypted_blob,
-            encryption_iv=entry_data.encryption_iv,
-            content_length=entry_data.content_length or 0
-        )
+        # Note: Content is now uploaded as a file separately via document upload service
+        # No need to create content document here - it's handled by file upload
         if entry_data.content_length is not None:
             entry.content_length = entry_data.content_length
         
@@ -1143,21 +1135,10 @@ class DiaryCRUDService:
         if updates.from_template_id is not None:
             entry.from_template_id = updates.from_template_id
         
-        # Update encrypted content if provided (frontend already encrypted it)
-        if updates.encrypted_blob and updates.encryption_iv:
-            # Update content document
-            await DiaryCRUDService._update_content_document(
-                db=db,
-                entry_uuid=entry.uuid,
-                user_uuid=entry.created_by,
-                encrypted_blob=updates.encrypted_blob,
-                encryption_iv=updates.encryption_iv,
-                content_length=updates.content_length or 0
-            )
-            
-            entry.encryption_iv = updates.encryption_iv
-            if updates.content_length is not None:
-                entry.content_length = updates.content_length
+        # Note: Content updates are now handled via file upload/replacement
+        # No need to update content document here - it's handled by file upload service
+        if updates.content_length is not None:
+            entry.content_length = updates.content_length
         
         # Update daily metadata if provided
         if (updates.daily_metrics is not None or 

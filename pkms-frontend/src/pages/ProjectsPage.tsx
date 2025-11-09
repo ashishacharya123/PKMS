@@ -10,7 +10,6 @@
 
 import { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LoadingState } from '../components/common/LoadingState';
 import { ErrorState } from '../components/common/ErrorState';
 import {
   Container,
@@ -34,7 +33,6 @@ import {
   IconAlertCircle
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { todosService } from '../services/todosService';
 import { projectsService, type Project } from '../services/projectsService';
 import { ActionMenu } from '../components/common/ActionMenu';
 import { ModuleHeader } from '../components/common/ModuleHeader';
@@ -53,7 +51,7 @@ export function ProjectsPage() {
 
   // Data loading with useDataLoader hook
   const {
-    data: projectsData = [],
+    data: projects = [],
     loading,
     isRefreshing,
     error,
@@ -67,8 +65,6 @@ export function ProjectsPage() {
       keepDataWhileLoading: true // Prevent flickering during refresh
     }
   );
-  
-  const projects = useMemo(() => projectsData ?? [], [projectsData]);
 
   // Modal management with useModal hook
   const createModal = useModal<Project>();
@@ -79,9 +75,15 @@ export function ProjectsPage() {
   // Modular components state
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState({
-    sortBy: 'name' as const,
-    sortOrder: 'asc' as const,
+  const [filters, setFilters] = useState<{
+    sortBy: 'name';
+    sortOrder: 'asc';
+    favorites: boolean;
+    showArchived: boolean;
+    status?: string;
+  }>({
+    sortBy: 'name',
+    sortOrder: 'asc',
     favorites: false,
     showArchived: false
   });
@@ -113,7 +115,7 @@ export function ProjectsPage() {
   const handleCreateModalOpen = useCallback(async () => {
     try {
       setIsCreatingProject(true);
-      const uuid = await reserveProjectUuid();
+      await reserveProjectUuid();
       createModal.openModal();
     } catch (error) {
       notifications.show({
@@ -161,7 +163,7 @@ export function ProjectsPage() {
     }
 
     try {
-      await todosService.createProject({
+      await projectsService.createProject({
         name: formData.name.trim(),
         description: formData.description.trim()
       });
@@ -205,7 +207,7 @@ export function ProjectsPage() {
     if (!editModal.selectedItem || !formData.name.trim()) return;
 
     try {
-      await todosService.updateProject(editModal.selectedItem.uuid!, {
+      await projectsService.updateProject(editModal.selectedItem.uuid!, {
         name: formData.name.trim(),
         description: formData.description.trim()
       });
@@ -233,7 +235,7 @@ export function ProjectsPage() {
     }
 
     try {
-      await todosService.deleteProject(project.uuid!);
+      await projectsService.deleteProject(project.uuid!);
       notifications.show({
         title: 'Success',
         message: 'Project deleted successfully',
@@ -251,7 +253,7 @@ export function ProjectsPage() {
 
   const handleArchiveToggle = useCallback(async (project: Project) => {
     try {
-      await todosService.updateProject(project.uuid!, {
+      await projectsService.updateProject(project.uuid!, {
         ...project,
         isArchived: !project.isArchived
       });
@@ -270,17 +272,12 @@ export function ProjectsPage() {
     }
   }, [refetch]);
 
-
-  const handleDuplicate = useCallback((project: Project) => {
-    duplicateModal.openModal(project);
-  }, [duplicateModal]);
-
-  const handleDuplicateConfirm = useCallback(async (data: any) => {
+  const handleDuplicateConfirm = useCallback(async (data: ProjectDuplicateRequest) => {
     if (!duplicateModal.selectedItem) return;
 
     try {
       const request: ProjectDuplicateRequest = {
-        newProjectName: data.newName,
+        newProjectName: data.newProjectName,
         description: data.description,
         duplicationMode: data.duplicationMode,
         includeTodos: data.includeTodos,
@@ -317,14 +314,43 @@ export function ProjectsPage() {
     return <ErrorState message={error} onRetry={refetch} />;
   }
 
-  const filteredProjects = (projects || []).filter(p =>
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.description && p.description.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const filteredProjects = useMemo(() => {
+    let result = [...(projects || [])];
+
+    // 1. Search filter (name + description)
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(p =>
+        p.name.toLowerCase().includes(query) ||
+        (p.description && p.description.toLowerCase().includes(query))
+      );
+    }
+
+    // 2. Favorites filter
+    if (filters.favorites) {
+      result = result.filter(p => p.isFavorite);
+    }
+
+    // 3. Archived filter (show/hide archived)
+    if (!filters.showArchived) {
+      result = result.filter(p => !p.isArchived);
+    }
+
+    // 4. Status filter (if implemented in filters state)
+    if (filters.status && filters.status !== 'all') {
+      result = result.filter(p => p.status === filters.status);
+    }
+
+    return result;
+  }, [projects, searchQuery, filters]);
 
   const getCompletionPercentage = (project: Project) => {
-    if (project.todoCount === 0) return 0;
-    return Math.round((project.completedCount / project.todoCount) * 100);
+    // Add undefined checks to prevent runtime errors
+    const todoCount = project.todoCount ?? 0;
+    const completedCount = project.completedCount ?? 0;
+    
+    if (todoCount === 0) return 0;
+    return Math.round((completedCount / todoCount) * 100);
   };
 
   return (
@@ -441,15 +467,15 @@ export function ProjectsPage() {
                           <Badge size="sm" variant="light" color="blue">
                             {project.todoCount} tasks
                           </Badge>
-                          {project.completedCount > 0 && (
+                          {(project.completedCount ?? 0) > 0 && (
                             <Badge size="sm" variant="light" color="green" leftSection={<IconCircleCheck size={12} />}>
-                              {project.completedCount} done
+                              {project.completedCount ?? 0} done
                             </Badge>
                           )}
                         </Group>
 
                         {/* Progress */}
-                        {project.todoCount > 0 && (
+                        {(project.todoCount ?? 0) > 0 && (
                           <Stack gap={4}>
                             <Group justify="space-between">
                               <Text size="xs" c="dimmed">Progress</Text>

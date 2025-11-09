@@ -8,6 +8,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Foreign
 from sqlalchemy.orm import relationship
 from uuid6 import uuid7
 from datetime import date
+import warnings
 
 from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
@@ -139,39 +140,35 @@ class Project(Base, SoftDeleteMixin):
         Use project_service.get_project_statistics() instead for accurate counts.
         
         This method returns partial statistics (only notes count is accurate).
-        Todo/document counts always return 0 because they require async queries
+        Todo/document counts are omitted because they require async queries
         via the project_items polymorphic table.
 
         Returns:
-            dict: Project summary with counts (todo_count, document_count, completed_todos always 0)
+            dict: Project summary with counts (todo/document counts OMITTED - use get_project_statistics)
         """
-
+        
+        # Emit runtime warning to prevent accidental use
+        warnings.warn(
+            "get_project_summary is deprecated and returns incomplete data. "
+            "Use project_service.get_project_statistics() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        
         # Only note_count is accurate (direct relationship, no async needed)
         note_count = len(self.notes) if self.notes else 0
-        
-        # These require async queries via project_items table
-        # Cannot be calculated in sync property - use project_service.get_project_statistics()
-        todo_count = 0  # Requires async query: project_items where item_type='Todo'
-        document_count = 0  # Requires async query: project_items where item_type='Document'
-        completed_todos = 0  # Requires async query: project_items + Todo.status == DONE
-        
-        # Progress calculation (will be 0 since todo_count is 0)
-        actual_progress = 0
 
         return {
             'uuid': self.uuid,
             'name': self.name,
             'status': self.status,
             'progress_percentage': self.progress_percentage,
-            'actual_progress': actual_progress,
-            'todo_count': todo_count,
-            'completed_todos': completed_todos,
-            'document_count': document_count,
             'note_count': note_count,
             'tag_count': len(self.tag_objs) if self.tag_objs else 0,
             'start_date': self.start_date,
             'due_date': self.due_date,
             'days_remaining': (self.due_date - date.today()).days if self.due_date and self.due_date > date.today() else None
+            # OMIT misleading zero values: todo_count, document_count, completed_todos, actual_progress
         }
 
     def __repr__(self):

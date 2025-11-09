@@ -18,3 +18,79 @@ Details
 - Fuzzy search accepts both `query` and `q` keys, consolidating previous implementations while keeping caching.
 - Swapped `NodeJS.Timeout` for `ReturnType<typeof setInterval>` in session timeout component for browser compatibility.
 
+---
+
+## Log Entry #106 - 2025-11-08 18:20:15 +05:45
+
+Summary
+- Fixed code quality issues from AI review: N+1 queries, deprecated method, duplicate route, confusing conditional, early date handling.
+- Extracted duplicate thumbnail serving logic into helper function.
+- Enhanced thumbnail build endpoint with DB queries and proper path handling.
+- Fixed critical bug where Document thumbnails generated but not saved to database.
+
+Files Affected
+- pkms-backend/app/routers/thumbnails.py
+- pkms-backend/app/models/project.py
+- pkms-backend/app/services/archive_item_service.py
+- pkms-backend/app/services/unified_upload_service.py
+- pkms-frontend/src/App.tsx
+- pkms-frontend/src/components/search/UnifiedSearchEmbedded.tsx
+- pkms-frontend/src/utils/nepaliDateConverter.ts
+- pkms-frontend/src/services/authService.tsx
+- pkms-frontend/src/pages/ProjectsPage.tsx
+
+Details
+- Extracted `_serve_thumbnail()` helper function to reduce duplication in thumbnail serving logic.
+- Replaced `== False` with `~` for boolean checks in SQLAlchemy queries.
+- Enhanced build_missing_thumbnails endpoint to query database for Documents and ArchiveItems, properly update thumbnail_path in DB, and handle subdirectory thumbnails for ArchiveItems.
+- Fixed thumbnail path storage consistency: Documents store relative to storage_dir, ArchiveItems store relative to file parent (e.g., "thumbnails/hash.jpg").
+- Updated get_thumbnail endpoint to correctly resolve ArchiveItem thumbnail paths relative to file parent.
+- Updated build_missing_thumbnails to check existing ArchiveItem thumbnails relative to file parent.
+- CRITICAL FIX: Updated unified_upload_service to return thumbnail path from _generate_thumbnails and store in Document.thumbnail_path (was generating thumbnails on disk but not updating DB).
+- Modified _generate_thumbnails to handle module-specific thumbnail directories (central for documents/notes/diary, subdirectory for archive handled separately).
+
+---
+
+## Log Entry #107 - 2025-11-09 14:30:00 +05:45
+
+Summary
+- Fixed all Phase 1 critical TypeScript errors (70 errors fixed).
+- Replaced mock data with real API calls in ProjectSelector.
+- Fixed property name typos, undefined checks, invalid properties, service calls, and type mismatches.
+
+Files Affected
+- pkms-frontend/src/components/diary/HistoricalEntries.tsx
+- pkms-frontend/src/components/dashboard/ActivityTimeline.tsx
+- pkms-frontend/src/pages/ProjectsPage.tsx
+- pkms-frontend/src/pages/DocumentsPage.tsx
+- pkms-frontend/src/stores/documentsStore.ts
+- pkms-frontend/src/components/todos/TodoForm.tsx
+- pkms-frontend/src/components/todos/KanbanBoard.tsx
+- pkms-frontend/src/components/todos/TodoCard.tsx
+- pkms-frontend/src/components/todos/SubtaskList.tsx
+- pkms-frontend/src/pages/TodosPage.tsx
+- pkms-frontend/src/pages/NotesPage.tsx
+- pkms-frontend/src/pages/ArchivePage.tsx
+- pkms-frontend/src/pages/DashboardPage.tsx
+- pkms-frontend/src/pages/SettingsPage.tsx
+- pkms-frontend/src/components/diary/DiaryMainTab.tsx
+- pkms-frontend/src/components/diary/DiaryEntryModal.tsx
+- pkms-frontend/src/components/common/ProjectSelector.tsx
+- pkms-frontend/src/stores/archiveStore.ts
+- pkms-frontend/src/services/deletionImpactService.ts
+- pkms-frontend/src/types/archive.ts
+
+Details
+- Fixed property name typos: weather_label→weatherLabel, content_length→contentLength, weatherCode→weather_code.
+- Added undefined checks: project.todoCount/completedCount (?? 0), document.tags (?? []).
+- Removed invalid properties: completionPercentage, type, projectIds, isExclusiveMode from TodoForm.
+- Fixed service calls: ArchivePage loadItems→loadFolders, TodosPage projectIds mapping, documentsStore uploadFile signature.
+- Fixed type mismatches: NotesPage null checks for preview/title, DiaryEntryModal encryption payload.
+- Replaced mock data in ProjectSelector with real API call (projectsService.listProjects).
+- Fixed DashboardPage: removed non-existent calculateCompletionPercentage/getStreakStatus methods.
+- Fixed SettingsPage: removed fullName property, fixed changePassword signature.
+- Fixed DiaryMainTab: removed content property access (DiaryEntrySummary doesn't include full content).
+- Fixed DocumentsPage: changed Document import to use types/document.ts (has projects property).
+- Fixed DiaryEntryModal: added encryption using diaryService.encryptContent before creating entry.
+
+---

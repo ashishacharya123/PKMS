@@ -65,12 +65,21 @@ async def list_projects(
     """List all projects for the current user with accurate statistics."""
     projects = await project_service.list_projects(db, current_user.uuid, archived, tag)
     
-    # Enrich each project with accurate statistics
+    # Batch load statistics for all projects (avoids N+1 query problem)
+    project_uuids = [p.uuid for p in projects]
+    stats_map = await project_service.batch_get_project_statistics(db, current_user.uuid, project_uuids)
+    
+    # Enrich each project with statistics in single pass
     enriched_projects = []
     for project in projects:
-        stats = await project_service.get_project_statistics(db, project.uuid, current_user.uuid)
-        
         project_dict = project.model_dump() if hasattr(project, 'model_dump') else project.dict()
+        stats = stats_map.get(project.uuid, {
+            'todo_count': 0,
+            'document_count': 0,
+            'note_count': 0,
+            'completed_todos': 0,
+            'progress_percentage': 0
+        })
         project_dict.update({
             'todo_count': stats['todo_count'],
             'document_count': stats['document_count'],
@@ -100,23 +109,9 @@ async def get_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get a specific project by UUID with accurate statistics."""
-    project = await project_service.get_project(db, current_user.uuid, project_uuid)
-    
-    # Get accurate statistics using async queries
-    stats = await project_service.get_project_statistics(db, project_uuid, current_user.uuid)
-    
-    # Merge statistics into response
-    project_dict = project.model_dump() if hasattr(project, 'model_dump') else project.dict()
-    project_dict.update({
-        'todo_count': stats['todo_count'],
-        'document_count': stats['document_count'],
-        'note_count': stats['note_count'],
-        'completed_count': stats['completed_todos'],
-        'actual_progress': stats['progress_percentage']
-    })
-    
-    return ProjectResponse(**project_dict)
+    """Get a specific project by UUID."""
+    # Service already returns ProjectResponse with statistics
+    return await project_service.get_project(db, current_user.uuid, project_uuid)
 
 
 @router.put("/{project_uuid}", response_model=ProjectResponse)

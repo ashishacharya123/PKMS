@@ -471,14 +471,19 @@ export function DashboardPage() {
                 </Badge>
               </Group>
             )}
-            {(moduleStats?.total || 0) > 0 && (
-              <Progress 
-                value={dashboardService.calculateCompletionPercentage(moduleStats?.done || moduleStats?.completed || 0, moduleStats?.total || 0)} 
-                size="sm" 
-                color="blue" 
-                mt="xs"
-              />
-            )}
+            {(moduleStats?.total || 0) > 0 && (() => {
+              const completed = moduleStats?.done || moduleStats?.completed || 0;
+              const total = moduleStats?.total || 0;
+              const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+              return (
+                <Progress 
+                  value={percentage} 
+                  size="sm" 
+                  color="blue" 
+                  mt="xs"
+                />
+              );
+            })()}
           </>
         )}
 
@@ -491,7 +496,7 @@ export function DashboardPage() {
             <Group justify="space-between">
               <Text size="sm">Current streak</Text>
               <Text size="sm" fw={500} c={(moduleStats?.streak || 0) > 0 ? 'purple' : undefined}>
-                {dashboardService.getStreakStatus(moduleStats?.streak || 0)}
+                {moduleStats?.streak || 0} {moduleStats?.streak === 1 ? 'day' : 'days'}
               </Text>
             </Group>
           </>

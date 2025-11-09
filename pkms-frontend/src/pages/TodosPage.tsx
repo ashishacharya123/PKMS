@@ -22,15 +22,18 @@ import { useViewPreferences } from '../hooks/useViewPreferences';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { TodosLayout } from '../components/todos/TodosLayout';
 import { TodoForm } from '../components/todos/TodoForm';
-import { ViewMenu } from '../components/common/ViewMenu';
+import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import { UnifiedSearchEmbedded } from '../components/search/UnifiedSearchEmbedded';
 import { ModuleFilters, getModuleFilterConfig } from '../components/common/ModuleFilters';
+import type { ModuleFilters as ModuleFiltersType } from '../types/common';
+import type { Project } from '../types/project';
 import { LoadingState } from '../components/common/LoadingState';
 import { ErrorState } from '../components/common/ErrorState';
 import { Todo, TodoStatus, TaskPriority } from '../types/todo';
+import { ProjectStatus } from '../types/enums';
 
 // Utility functions for todos
-const getTodoIcon = (todo: any): string => {
+const getTodoIcon = (todo: Todo): string => {
   if (todo.status === TodoStatus.DONE) return '✅';
   if (todo.status === TodoStatus.BLOCKED) return '🚫';
   if (todo.status === TodoStatus.IN_PROGRESS) return '🔄';
@@ -86,10 +89,22 @@ export function TodosPage() {
     });
   }, [location.pathname, location.search, projectId]);
 
-  // View preferences
+  // View preferences - TodosLayout only supports specific view modes
   const { preferences, updatePreference } = useViewPreferences();
-  const viewMode = preferences.todos || 'list';
-  const setViewMode = (mode: any) => updatePreference('todos', mode);
+  const todosViewMode = preferences.todos || 'list';
+  // Convert ViewMode to TodosLayout-compatible type
+  const viewMode: 'list' | 'kanban' | 'calendar' | 'timeline' = 
+    (todosViewMode === 'list' || todosViewMode === 'kanban' || todosViewMode === 'calendar' || todosViewMode === 'timeline')
+      ? todosViewMode
+      : 'list';
+  const setViewMode = (mode: ViewMode) => {
+    // Only allow TodosLayout-compatible modes
+    if (mode === 'list' || mode === 'kanban' || mode === 'calendar' || mode === 'timeline') {
+      updatePreference('todos', mode);
+    } else {
+      updatePreference('todos', 'list');
+    }
+  };
 
   // Sidebar filter state
   const [selectedProject, setSelectedProject] = useState<string | null>(projectId);
@@ -109,7 +124,32 @@ export function TodosPage() {
       keepDataWhileLoading: true // Prevent flickering during refresh
     }
   );
-  const projects = useMemo(() => projectsData ?? [], [projectsData]);
+  // Convert projectsService.Project[] to types/project.Project[] for TodoForm compatibility
+  const projects: Project[] = useMemo(() => {
+    return (projectsData ?? []).map(p => ({
+      uuid: p.uuid,
+      name: p.name,
+      description: p.description,
+      status: p.status as ProjectStatus,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+      createdBy: p.createdBy,
+      isDeleted: p.isDeleted,
+      // Required fields from types/project.Project
+      priority: TaskPriority.MEDIUM,
+      sortOrder: 0,
+      isArchived: false,
+      isFavorite: false,
+      progressPercentage: 0,
+      todoCount: 0,
+      completedCount: 0,
+      documentCount: p.documentCount || 0,
+      noteCount: 0,
+      tagCount: 0,
+      actualProgress: 0,
+      tags: []
+    }));
+  }, [projectsData]);
 
   // Stable load function to prevent infinite re-renders
   const loadTodos = useCallback(async () => {
@@ -153,11 +193,11 @@ export function TodosPage() {
   const searchModal = useModal();
 
   // Filter state using ModuleFilters
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useState<ModuleFiltersType>({
     sortBy: 'createdAt',
     sortOrder: 'desc',
     favorites: false,
-    showArchived: false
+    archived: false
   });
   const [filtersOpened, setFiltersOpened] = useState(false);
   const filterConfig = getModuleFilterConfig('todos');
@@ -181,11 +221,15 @@ export function TodosPage() {
 
     // Apply tab filter
     if (activeTab === 'ongoing') {
-      filtered = filtered.filter(t => t.status !== TodoStatus.DONE && !t.isArchived);
+      filtered = filtered.filter(
+        (t) => t.status !== TodoStatus.DONE && (showArchived || !t.isArchived)
+      );
     } else if (activeTab === 'completed') {
-      filtered = filtered.filter(t => t.status === TodoStatus.DONE && !t.isArchived);
+      filtered = filtered.filter(
+        (t) => t.status === TodoStatus.DONE && (showArchived || !t.isArchived)
+      );
     } else if (activeTab === 'archived') {
-      filtered = filtered.filter(t => t.isArchived);
+      filtered = filtered.filter((t) => t.isArchived);
     }
 
     // Apply sidebar filters
@@ -206,16 +250,6 @@ export function TodosPage() {
 
     if (showFavorites) {
       filtered = filtered.filter(t => t.isFavorite);
-    }
-
-    // Note: showArchived is handled by activeTab filter, but we can add explicit control if needed
-    // The activeTab already filters archived items, so showArchived toggle can override tab filter
-    if (showArchived && activeTab !== 'archived') {
-      // If showArchived is true but we're not on archived tab, include archived items
-      // This allows viewing archived items alongside active ones
-    } else if (!showArchived && activeTab !== 'archived') {
-      // If showArchived is false and we're not on archived tab, exclude archived items
-      filtered = filtered.filter(t => !t.isArchived);
     }
 
     // Apply additional filters from advanced modal
@@ -382,7 +416,7 @@ export function TodosPage() {
         priority: data.priority,
         startDate: data.startDate,
         dueDate: data.dueDate,
-        projectIds: data.projectIds,
+        projectIds: (data.projects || []).map(p => typeof p === 'string' ? p : p.uuid),
         tags: data.tags
       });
       notifications.show({

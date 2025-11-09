@@ -45,7 +45,6 @@ import { ModuleLayout } from '../components/common/ModuleLayout';
 import { ModuleHeader } from '../components/common/ModuleHeader';
 import { ModuleFilters } from '../components/common/ModuleFilters';
 import { useDataLoader } from '../hooks/useDataLoader';
-import { useModal } from '../hooks/useModal';
 
 // Type guards for discriminated unions
 type ExclusiveItem = { isExclusiveMode: boolean };
