@@ -654,13 +654,11 @@ async def get_wellness_score_analytics_unified(
     **Memory Usage:** ~120KB per user (last 10 calculations)
     """
     try:
-        from app.services.unified_analytics_service import unified_analytics_service
-
         # Get loading state info for frontend
-        loading_info = unified_analytics_service.get_loading_state_info(days)
+        loading_info = unified_habit_analytics_service.get_loading_state_info(days)
 
-        # Use unified analytics service
-        analytics_result = await unified_analytics_service.get_analytics_with_unified_timeframes(
+        # Use unified analytics wrapper (now part of unified_habit_analytics_service)
+        analytics_result = await unified_habit_analytics_service.get_analytics_with_unified_timeframes(
             db=db,
             user_uuid=current_user.uuid,
             analytics_function=unified_habit_analytics_service.get_wellness_stats,

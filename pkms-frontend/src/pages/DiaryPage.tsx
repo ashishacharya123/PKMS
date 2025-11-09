@@ -30,6 +30,9 @@ import {
   Tabs,
   Text,
   Badge,
+  Modal,
+  PasswordInput,
+  Center,
 } from '@mantine/core';
 import {
   IconBook,
@@ -51,8 +54,20 @@ import { dashboardService } from '../services/dashboardService';
 import { nepaliDateCache } from '../utils/nepaliDateCache';
 
 export const DiaryPage = React.memo(function DiaryPage() {
-  const { setOnDiaryPage, entries, error, isEncryptionSetup, isUnlocked } = useDiaryStore();
+  const {
+    setOnDiaryPage,
+    entries,
+    error,
+    isEncryptionSetup,
+    isUnlocked,
+    unlockSession
+  } = useDiaryStore();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // Password modal state
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [password, setPassword] = useState('');
+  const [isUnlocking, setIsUnlocking] = useState(false);
 
   // State
   const [activeTab, setActiveTab] = useState(() => {
@@ -90,6 +105,58 @@ export const DiaryPage = React.memo(function DiaryPage() {
   useEffect(() => {
     setEntryCount(entries.length);
   }, [entries]);
+
+  // Auto-show password modal when diary is locked
+  useEffect(() => {
+    if (isEncryptionSetup && !isUnlocked && !showPasswordModal) {
+      setShowPasswordModal(true);
+    }
+    // Hide modal if diary becomes unlocked
+    else if (isUnlocked && showPasswordModal) {
+      setShowPasswordModal(false);
+      setPassword('');
+    }
+  }, [isEncryptionSetup, isUnlocked, showPasswordModal]);
+
+  // Handle password unlock
+  const handleUnlock = async () => {
+    if (!password.trim()) {
+      notifications.show({
+        title: 'Error',
+        message: 'Please enter a password',
+        color: 'red'
+      });
+      return;
+    }
+
+    setIsUnlocking(true);
+    try {
+      const success = await unlockSession(password);
+      if (success) {
+        notifications.show({
+          title: 'Success',
+          message: 'Diary unlocked successfully',
+          color: 'green'
+        });
+        setShowPasswordModal(false);
+        setPassword('');
+      } else {
+        notifications.show({
+          title: 'Error',
+          message: 'Invalid password. Please try again.',
+          color: 'red'
+        });
+      }
+    } catch (error: any) {
+      notifications.show({
+        title: 'Error',
+        message: error.message || 'Failed to unlock diary',
+        color: 'red'
+      });
+    } finally {
+      setIsUnlocking(false);
+    }
+  };
 
   // Encryption status is now derived from store flags (line 64)
   // const hasEncryption = isEncryptionSetup; - no useEffect needed
@@ -146,64 +213,130 @@ export const DiaryPage = React.memo(function DiaryPage() {
 
   return (
     <Container size="xl" py="md">
-      <Stack gap="lg">
-        {/* Header */}
-        <Group justify="space-between" align="center">
-          <Group gap="md">
-            <Text size="xl" fw={700} c="blue">
-              📖 Personal Knowledge Management
-            </Text>
-            <Text c="dimmed" size="sm">
-              Your digital diary and wellness companion
-            </Text>
+      {/* Main Content - Only show when diary is unlocked */}
+      {!isLockedComputed ? (
+        <Stack gap="lg">
+          {/* Header */}
+          <Group justify="space-between" align="center">
+            <Group gap="md">
+              <Text size="xl" fw={700} c="blue">
+                📖 Personal Knowledge Management
+              </Text>
+              <Text c="dimmed" size="sm">
+                Your digital diary and wellness companion
+              </Text>
+            </Group>
+            <Group gap="sm">
+              {getEncryptionStatus()}
+              <Button
+                variant="light"
+                leftSection={<IconRefresh size={16} />}
+                onClick={handleRefresh}
+                loading={isLoading}
+                size="sm"
+              >
+                Refresh
+              </Button>
+            </Group>
           </Group>
+
+          {/* Stats Overview */}
+          <Group gap="md">
+            <Badge size="lg" variant="light" color="blue">
+              {entryCount} Entries
+            </Badge>
+            <Badge size="lg" variant="light" color="green">
+              {hasEncryption ? 'Encrypted' : 'Plain Text'}
+            </Badge>
+            <Badge size="lg" variant="light" color="purple">
+              {isLockedComputed ? 'Locked' : 'Unlocked'}
+            </Badge>
+          </Group>
+
+          {/* Main Content Tabs */}
+          <Tabs value={activeTab} onChange={handleTabChange}>
+            <Tabs.List>
+              <Tabs.Tab value="diary" leftSection={<IconBook size={16} />}>
+                Diary
+              </Tabs.Tab>
+              <Tabs.Tab value="analytics" leftSection={<IconChartLine size={16} />}>
+                Analytics
+              </Tabs.Tab>
+            </Tabs.List>
+
+            <Tabs.Panel value="diary" pt="md">
+              <DiaryMainTab />
+            </Tabs.Panel>
+
+            <Tabs.Panel value="analytics" pt="md">
+              <DiaryAnalyticsTab />
+            </Tabs.Panel>
+          </Tabs>
+        </Stack>
+      ) : (
+        /* Locked State - Show unlock prompt */
+        <Center style={{ minHeight: '60vh' }}>
+          <Stack align="center" gap="lg" maw={400}>
+            <IconLock size={80} color="var(--mantine-color-red-4)" />
+            <Text size="xxl" fw={900} c="red" ta="center">
+              🔒 Diary is Locked
+            </Text>
+            <Text c="dimmed" size="lg" ta="center">
+              Your diary is encrypted and protected with a password.<br />
+              Please unlock to access your personal entries and analytics.
+            </Text>
+            <Button
+              size="lg"
+              leftSection={<IconLock size={20} />}
+              onClick={() => setShowPasswordModal(true)}
+              variant="filled"
+              color="blue"
+            >
+              Unlock Diary
+            </Button>
+          </Stack>
+        </Center>
+      )}
+
+      {/* Password Modal */}
+      <Modal
+        opened={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        title={<Text fw={600}>🔓 Unlock Diary</Text>}
+        centered
+      >
+        <Stack gap="md">
+          <Text c="dimmed" size="sm">
+            Enter your diary password to access your encrypted entries.
+          </Text>
+
+          <PasswordInput
+            placeholder="Enter your diary password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleUnlock()}
+            autoFocus
+          />
+
           <Group gap="sm">
-            {getEncryptionStatus()}
+            <Button
+              onClick={handleUnlock}
+              loading={isUnlocking}
+              disabled={!password.trim()}
+              variant="filled"
+              color="blue"
+            >
+              Unlock
+            </Button>
             <Button
               variant="light"
-              leftSection={<IconRefresh size={16} />}
-              onClick={handleRefresh}
-              loading={isLoading}
-              size="sm"
+              onClick={() => setShowPasswordModal(false)}
             >
-              Refresh
+              Cancel
             </Button>
           </Group>
-        </Group>
-
-        {/* Stats Overview */}
-        <Group gap="md">
-          <Badge size="lg" variant="light" color="blue">
-            {entryCount} Entries
-          </Badge>
-          <Badge size="lg" variant="light" color="green">
-            {hasEncryption ? 'Encrypted' : 'Plain Text'}
-          </Badge>
-          <Badge size="lg" variant="light" color="purple">
-            {isLockedComputed ? 'Locked' : 'Unlocked'}
-          </Badge>
-        </Group>
-
-        {/* Main Content Tabs */}
-        <Tabs value={activeTab} onChange={handleTabChange}>
-          <Tabs.List>
-            <Tabs.Tab value="diary" leftSection={<IconBook size={16} />}>
-              Diary
-            </Tabs.Tab>
-            <Tabs.Tab value="analytics" leftSection={<IconChartLine size={16} />}>
-              Analytics
-            </Tabs.Tab>
-          </Tabs.List>
-
-          <Tabs.Panel value="diary" pt="md">
-            <DiaryMainTab />
-          </Tabs.Panel>
-
-          <Tabs.Panel value="analytics" pt="md">
-            <DiaryAnalyticsTab />
-          </Tabs.Panel>
-        </Tabs>
-      </Stack>
+        </Stack>
+      </Modal>
     </Container>
   );
 });

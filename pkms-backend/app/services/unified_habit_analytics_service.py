@@ -12,7 +12,7 @@ daily_insights_service.py, providing a single interface for all habit analytics.
 
 import logging
 import json
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Callable
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 from app.config import NEPAL_TZ
@@ -986,6 +986,103 @@ class UnifiedHabitAnalyticsService:
     def get_cache_stats() -> Dict[str, Any]:
         """Get analytics cache statistics"""
         return analytics_cache.get_stats()
+    
+    @staticmethod
+    def get_loading_state_info(days: int) -> Dict[str, Any]:
+        """
+        Get loading state information for frontend UX.
+        
+        Determines if analytics calculation will take time based on days requested.
+        
+        Args:
+            days: Number of days for analysis
+            
+        Returns:
+            Dictionary with loading state info:
+            - is_loading: Whether calculation will take noticeable time
+            - estimated_time: Human-readable time estimate
+            - days: Number of days requested
+        """
+        if days <= 30:
+            estimated_time = "< 2 seconds"
+            is_loading = False
+        elif days <= 180:
+            estimated_time = "< 15 seconds"
+            is_loading = True
+        else:
+            estimated_time = "< 30 seconds"
+            is_loading = True
+        
+        return {
+            "is_loading": is_loading,
+            "estimated_time": estimated_time,
+            "days": days
+        }
+    
+    @staticmethod
+    async def get_analytics_with_unified_timeframes(
+        db: AsyncSession,
+        user_uuid: str,
+        analytics_function: Callable,
+        analytics_type: str,
+        days: int,
+        include_chart_data: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Get analytics with unified timeframes wrapper.
+        
+        Wraps analytics function calls with caching, metadata, and unified structure.
+        This method provides a consistent interface for analytics endpoints that need
+        loading state info and unified formatting.
+        
+        Args:
+            db: Database session
+            user_uuid: User's UUID
+            analytics_function: The analytics function to call (e.g., get_wellness_stats)
+            analytics_type: Type identifier for caching (e.g., "wellness_stats")
+            days: Number of days for analysis
+            include_chart_data: Whether to include chart-ready data formatting
+            
+        Returns:
+            Dictionary with analytics results plus metadata:
+            - All fields from analytics_function result
+            - analytics_type: Type identifier
+            - days: Number of days analyzed
+            - generated_at: ISO timestamp
+        """
+        # Check cache first
+        cache_key = f"{analytics_type}_{user_uuid}_{days}_{include_chart_data}"
+        cached = analytics_cache.get(cache_key)
+        if cached:
+            logger.info(f"Using cached {analytics_type} for user {user_uuid}")
+            return cached
+        
+        # Call the analytics function
+        result = await analytics_function(db, user_uuid, days)
+        
+        # Convert WellnessStats schema to dict if needed
+        if hasattr(result, 'dict'):
+            result = result.dict()
+        elif hasattr(result, '__dict__'):
+            result = result.__dict__
+        elif not isinstance(result, dict):
+            # If it's already a dict, keep it
+            result = dict(result) if hasattr(result, 'items') else result
+        
+        # Ensure result is a dict
+        if not isinstance(result, dict):
+            logger.warning(f"Analytics function returned non-dict type: {type(result)}")
+            result = {"data": result}
+        
+        # Add metadata
+        result['analytics_type'] = analytics_type
+        result['days'] = days
+        result['generated_at'] = datetime.now(NEPAL_TZ).isoformat()
+        
+        # Cache the result
+        analytics_cache.set(cache_key, result, ttl=300)  # 5 minute cache
+        
+        return result
 
 
 # Global service instance
