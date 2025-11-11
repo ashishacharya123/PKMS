@@ -219,7 +219,11 @@ class UnifiedHabitAnalyticsService:
             for record in metadata_records:
                 if record.defined_habits_json:
                     try:
-                        habits = json.loads(record.defined_habits_json).get("habits", {})
+                        # Handle case where DB has '[]' but service expects object
+                        if record.defined_habits_json == '[]':
+                            habits = {}
+                        else:
+                            habits = json.loads(record.defined_habits_json or "{}").get("habits", {})
                         all_habits.update(habits.keys())
                     except json.JSONDecodeError:
                         continue
@@ -723,7 +727,11 @@ class UnifiedHabitAnalyticsService:
                     
                     # 3. If not, assume it's a defined (custom) habit
                     else:
-                        habits_json = json.loads(record.defined_habits_json or "{}")
+                        # Handle case where DB has '[]' but service expects object
+                        if record.defined_habits_json == '[]':
+                            habits_json = {}
+                        else:
+                            habits_json = json.loads(record.defined_habits_json or "{}")
                         value = habits_json.get("habits", {}).get(habit_key)
                     
                     if value is not None:
@@ -840,7 +848,11 @@ class UnifiedHabitAnalyticsService:
         for record in metadata_records:
             date_str = record.date.strftime("%Y-%m-%d")
             try:
-                metrics = json.loads(record.default_habits_json) if record.default_habits_json else {}
+                # Handle case where DB has '[]' but service expects object
+                if record.default_habits_json == '[]':
+                    metrics = {}
+                else:
+                    metrics = json.loads(record.default_habits_json or "{}")
             except json.JSONDecodeError:
                 metrics = {}
             
@@ -944,7 +956,35 @@ class UnifiedHabitAnalyticsService:
             wellness_score += min(average_meditation / 20, 1) * 20  # Meditation component (20%)
         if average_stress > 0:
             wellness_score += (1 - average_stress / 5) * 20  # Stress component (20%)
-        
+
+        # Process financial data
+        financial_trend = []
+        total_income = 0.0
+        total_expense = 0.0
+        income_values = []
+        expense_values = []
+
+        for date_str, data in daily_data.items():
+            income = data.get("income", 0)
+            expense = data.get("expense", 0)
+
+            total_income += income
+            total_expense += expense
+            income_values.append(income)
+            expense_values.append(expense)
+
+            financial_trend.append({
+                "date": date_str,
+                "income": income,
+                "expense": expense,
+                "net": income - expense
+            })
+
+        net_savings = total_income - total_expense
+        days_with_data = len(daily_data)
+        average_daily_income = sum(income_values) / days_with_data if days_with_data > 0 else None
+        average_daily_expense = sum(expense_values) / days_with_data if days_with_data > 0 else None
+
         # Create comprehensive wellness stats
         return WellnessStats(
             period_start=start_date.strftime("%Y-%m-%d"),
@@ -972,6 +1012,17 @@ class UnifiedHabitAnalyticsService:
             outdoor_trend=outdoor_trend,
             average_social=round(average_social, 2),
             social_trend=social_trend,
+            # Financial fields
+            financial_trend=financial_trend,
+            total_income=total_income,
+            total_expense=total_expense,
+            net_savings=net_savings,
+            average_daily_income=average_daily_income,
+            average_daily_expense=average_daily_expense,
+            average_daily_income_3m=None,
+            average_daily_expense_3m=None,
+            average_daily_income_6m=None,
+            average_daily_expense_6m=None,
             overall_wellness_score=round(wellness_score, 2),
             score_components={
                 "mood": round((average_mood / 5) * 20, 2) if average_mood > 0 else 0,
@@ -979,7 +1030,9 @@ class UnifiedHabitAnalyticsService:
                 "exercise": round(min(average_exercise / 30, 1) * 20, 2) if average_exercise > 0 else 0,
                 "meditation": round(min(average_meditation / 20, 1) * 20, 2) if average_meditation > 0 else 0,
                 "stress": round((1 - average_stress / 5) * 20, 2) if average_stress > 0 else 0,
-            }
+            },
+            defined_habits_summary={},  # Required field was missing
+            insights=[]               # Required field was missing
         )
 
     @staticmethod
@@ -1080,7 +1133,7 @@ class UnifiedHabitAnalyticsService:
         result['generated_at'] = datetime.now(NEPAL_TZ).isoformat()
         
         # Cache the result
-        analytics_cache.set(cache_key, result, ttl=300)  # 5 minute cache
+        analytics_cache.set(cache_key, result, ttl_minutes=5)  # 5 minute cache
         
         return result
 

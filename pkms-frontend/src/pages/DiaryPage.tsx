@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuthenticatedEffect } from '../hooks/useAuthenticatedEffect';
 import { useDiaryStore } from '../stores/diaryStore';
 import {
@@ -33,6 +33,7 @@ import {
   Modal,
   PasswordInput,
   Center,
+  Loader,
 } from '@mantine/core';
 import {
   IconBook,
@@ -54,6 +55,7 @@ import { dashboardService } from '../services/dashboardService';
 import { nepaliDateCache } from '../utils/nepaliDateCache';
 
 export const DiaryPage = React.memo(function DiaryPage() {
+  const navigate = useNavigate();
   const {
     setOnDiaryPage,
     entries,
@@ -69,6 +71,9 @@ export const DiaryPage = React.memo(function DiaryPage() {
   const [password, setPassword] = useState('');
   const [isUnlocking, setIsUnlocking] = useState(false);
 
+  // Store initialization state (SECURITY: Prevent access before verification)
+  const [isStoreInitialized, setIsStoreInitialized] = useState(false);
+
   // State
   const [activeTab, setActiveTab] = useState(() => {
     const tab = searchParams.get('tab');
@@ -76,20 +81,90 @@ export const DiaryPage = React.memo(function DiaryPage() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [entryCount, setEntryCount] = useState(0);
-  const hasEncryption = isEncryptionSetup;
-  const isLockedComputed = hasEncryption && !isUnlocked;
+  const hasEncryption = isEncryptionSetup ?? false;
+
+  // SECURITY: Lock if ANY of these conditions are true:
+  // 1. !isStoreInitialized - Store not initialized yet (prevents access during init)
+  // 2. isEncryptionSetup === false - Backend confirmed no encryption (should not happen with mandatory encryption)
+  // 3. !isUnlocked - Encrypted but not unlocked (password required)
+  // NOTE: We distinguish between undefined (still loading) vs false (backend confirmation)
+  const isLockedComputed = !isStoreInitialized || (isEncryptionSetup === false) || !isUnlocked;
+
+  
+  // Ensure diary store is initialized before components access its properties
+  useEffect(() => {
+    const initStore = async () => {
+      try {
+        const { init } = useDiaryStore.getState();
+        await init();
+        console.log('Diary store initialized successfully');
+      } catch (error) {
+        console.error('Failed to initialize diary store:', error);
+        // SECURITY: Keep locked on error - security first
+        notifications.show({
+          title: 'Security Error',
+          message: 'Failed to initialize diary security. Please refresh the page.',
+          color: 'red'
+        });
+      } finally {
+        setIsStoreInitialized(true); // Mark initialization as complete
+      }
+    };
+
+    initStore();
+  }, []);
+
+  // SECURITY MONITORING - Detect encryption setup issues
+  useEffect(() => {
+    // Only trigger error after store initialization AND when backend explicitly confirms no encryption
+    // (not when isEncryptionSetup is undefined, which means still loading)
+    if (isStoreInitialized && isEncryptionSetup === false) {
+      // CRITICAL: Encryption should be mandatory but backend confirmed it's not set up
+      const errorMsg = '🚨 SECURITY CRITICAL: Diary encryption not detected but should be mandatory.';
+
+      // Always log security critical errors (even in production)
+      console.error(errorMsg, {
+        timestamp: new Date().toISOString(),
+        userContext: 'DiaryPage initialization',
+        severity: 'CRITICAL',
+        isEncryptionSetup,
+        isStoreInitialized
+      });
+
+      // SECURITY: Diary remains locked due to isEncryptionSetup === false check in isLockedComputed
+      notifications.show({
+        title: 'Security Issue Detected',
+        message: 'Diary encryption could not be verified. Please refresh or contact support.',
+        color: 'red',
+        autoClose: false
+      });
+    }
+  }, [isStoreInitialized, isEncryptionSetup]);
+
+  // DEBUG: Log security state changes (development only) - This prevents excessive logging
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Diary Security State Changed:', {
+        isStoreInitialized,
+        hasEncryption,
+        isUnlocked,
+        isLockedComputed,
+        isEncryptionSetup
+      });
+    }
+  }, [isStoreInitialized, isEncryptionSetup, isUnlocked, isLockedComputed]);
 
   // Track when user is on diary page for session management
   useEffect(() => {
     setOnDiaryPage(true);
-    
+
     // Pre-cache Nepali dates for better performance
     try {
       nepaliDateCache.preCacheDashboard();
     } catch (_e) {
       // ignore cache pre-warm errors
     }
-    
+
     // Cleanup when component unmounts
     return () => {
       setOnDiaryPage(false);
@@ -106,9 +181,16 @@ export const DiaryPage = React.memo(function DiaryPage() {
     setEntryCount(entries.length);
   }, [entries]);
 
-  // Auto-show password modal when diary is locked
+  // Auto-show password modal AFTER initialization and only if encryption is properly set up
   useEffect(() => {
-    if (isEncryptionSetup && !isUnlocked && !showPasswordModal) {
+    // Only show modal after store initialization is complete
+    // AND only if encryption is explicitly detected (isEncryptionSetup === true, not undefined)
+    // AND only if diary is not unlocked
+    if (isStoreInitialized && isEncryptionSetup === true && !isUnlocked && !showPasswordModal) {
+      // Development logging only
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Showing password modal - diary is encrypted and locked');
+      }
       setShowPasswordModal(true);
     }
     // Hide modal if diary becomes unlocked
@@ -116,7 +198,15 @@ export const DiaryPage = React.memo(function DiaryPage() {
       setShowPasswordModal(false);
       setPassword('');
     }
-  }, [isEncryptionSetup, isUnlocked, showPasswordModal]);
+  }, [isStoreInitialized, isEncryptionSetup, isUnlocked, showPasswordModal]);
+
+  // Handle cancel password entry - redirect to dashboard
+  const handleCancelUnlock = () => {
+    setShowPasswordModal(false);
+    setPassword('');
+    // Navigate back to dashboard so user isn't stuck on diary page
+    navigate('/dashboard');
+  };
 
   // Handle password unlock
   const handleUnlock = async () => {
@@ -211,6 +301,28 @@ export const DiaryPage = React.memo(function DiaryPage() {
     return <ErrorState message={error} onRetry={handleRefresh} />;
   }
 
+  // SECURITY LOADING GUARD - Prevent access before initialization
+  if (!isStoreInitialized) {
+    return (
+      <Container size="xl" py="md">
+        <Center style={{ minHeight: '60vh' }}>
+          <Stack align="center" gap="lg" maw={400}>
+            <Loader size="lg" color="blue" />
+            <Text size="xl" fw={700} c="blue" ta="center">
+              🔒 Initializing Diary Security...
+            </Text>
+            <Text c="dimmed" size="sm" ta="center">
+              Please wait while we verify your diary encryption settings and security status.
+            </Text>
+            <Text c="blue" size="xs" ta="center" fs="italic">
+              This ensures your personal entries remain private and secure.
+            </Text>
+          </Stack>
+        </Center>
+      </Container>
+    );
+  }
+
   return (
     <Container size="xl" py="md">
       {/* Main Content - Only show when diary is unlocked */}
@@ -274,26 +386,67 @@ export const DiaryPage = React.memo(function DiaryPage() {
           </Tabs>
         </Stack>
       ) : (
-        /* Locked State - Show unlock prompt */
+        /* Enhanced Locked State - Differentiate between error and locked states */
         <Center style={{ minHeight: '60vh' }}>
           <Stack align="center" gap="lg" maw={400}>
             <IconLock size={80} color="var(--mantine-color-red-4)" />
-            <Text size="xxl" fw={900} c="red" ta="center">
-              🔒 Diary is Locked
-            </Text>
-            <Text c="dimmed" size="lg" ta="center">
-              Your diary is encrypted and protected with a password.<br />
-              Please unlock to access your personal entries and analytics.
-            </Text>
-            <Button
-              size="lg"
-              leftSection={<IconLock size={20} />}
-              onClick={() => setShowPasswordModal(true)}
-              variant="filled"
-              color="blue"
-            >
-              Unlock Diary
-            </Button>
+
+            {isEncryptionSetup === false ? (
+              // ERROR STATE: Encryption not detected (should never happen with mandatory encryption)
+              <>
+                <Text size="xxl" fw={900} c="red" ta="center">
+                  🚨 Security Issue Detected
+                </Text>
+                <Text c="dimmed" size="lg" ta="center">
+                  Your diary encryption could not be verified. This indicates a serious system issue.
+                  <br /><br />
+                  <strong>Possible causes:</strong><br />
+                  • Backend database connectivity issue<br />
+                  • Encryption setup failure during registration<br />
+                  • Data corruption or migration problem
+                </Text>
+                <Group gap="sm">
+                  <Button
+                    size="lg"
+                    leftSection={<IconRefresh size={20} />}
+                    onClick={handleRefresh}
+                    variant="light"
+                    color="blue"
+                  >
+                    Retry Security Check
+                  </Button>
+                  <Button
+                    size="lg"
+                    onClick={() => window.location.reload()}
+                    variant="outline"
+                    color="red"
+                  >
+                    Refresh Page
+                  </Button>
+                </Group>
+              </>
+            ) : (
+              // NORMAL LOCKED STATE: Encryption detected but diary is locked
+              <>
+                <Text size="xxl" fw={900} c="red" ta="center">
+                  🔒 Diary is Locked
+                </Text>
+                <Text c="dimmed" size="lg" ta="center">
+                  Your diary is encrypted and protected with a password.
+                  <br />
+                  Please unlock to access your personal entries and analytics.
+                </Text>
+                <Button
+                  size="lg"
+                  leftSection={<IconLock size={20} />}
+                  onClick={() => setShowPasswordModal(true)}
+                  variant="filled"
+                  color="blue"
+                >
+                  Unlock Diary
+                </Button>
+              </>
+            )}
           </Stack>
         </Center>
       )}
@@ -301,7 +454,7 @@ export const DiaryPage = React.memo(function DiaryPage() {
       {/* Password Modal */}
       <Modal
         opened={showPasswordModal}
-        onClose={() => setShowPasswordModal(false)}
+        onClose={handleCancelUnlock}
         title={<Text fw={600}>🔓 Unlock Diary</Text>}
         centered
       >
@@ -330,7 +483,7 @@ export const DiaryPage = React.memo(function DiaryPage() {
             </Button>
             <Button
               variant="light"
-              onClick={() => setShowPasswordModal(false)}
+              onClick={handleCancelUnlock}
             >
               Cancel
             </Button>

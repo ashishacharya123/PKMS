@@ -151,11 +151,21 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         
       } catch (error: any) {
         console.error('Failed to initialize diary:', error);
-        // Handle authentication errors gracefully
+
+        // SECURITY: Default to mandatory encryption on errors for safety
+        // Better to incorrectly show password prompt than expose unencrypted diary
         if (error?.response?.status === 401 || error?.message?.includes('authentication')) {
-          set({ error: null, isEncryptionSetup: true, isUnlocked: false, isLoading: false }); // Don't show error for auth issues
+          logger.warn('Authentication error - assuming encrypted but locked for security');
+          set({ error: null, isEncryptionSetup: true, isUnlocked: false, isLoading: false });
+        } else if (error?.response?.status >= 500) {
+          logger.error('Backend server error - assuming mandatory encryption for security');
+          set({ error: null, isEncryptionSetup: true, isUnlocked: false, isLoading: false });
+        } else if (error?.code === 'NETWORK_ERROR' || error?.message?.includes('fetch')) {
+          logger.error('Network error - assuming mandatory encryption for security');
+          set({ error: null, isEncryptionSetup: true, isUnlocked: false, isLoading: false });
         } else {
-          set({ error: 'Failed to initialize diary', isLoading: false });
+          logger.error('Unknown error initializing diary - defaulting to encrypted state for security');
+          set({ error: 'Failed to initialize diary', isEncryptionSetup: true, isUnlocked: false, isLoading: false });
         }
       }
     },

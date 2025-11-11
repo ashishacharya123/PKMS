@@ -14,7 +14,7 @@
  * - Streak tracking and goal progress
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   Stack, Group, NumberInput, Button, Badge, Card, LoadingOverlay, 
   Title, Select, Divider, Alert, Text
@@ -47,14 +47,9 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [currentHabitType, setCurrentHabitType] = useState<'default' | 'defined'>('default');
   
-  const dateKey = format(selectedDate, 'yyyy-MM-dd');
-  
-  // Load all data
-  useEffect(() => {
-    loadAllData();
-  }, [selectedDate]);
-  
-  const loadAllData = async () => {
+  // Load all data with proper dependency management - simpler and more efficient
+  const loadAllData = useCallback(async () => {
+    const dateKey = format(selectedDate, 'yyyy-MM-dd');
     setIsLoading(true);
     try {
       // Load both configs
@@ -64,20 +59,20 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
       ]);
       setDefaultConfig(defaultHabits);
       setDefinedConfig(definedHabits);
-      
+
       // Load existing data for this date
       const existing = await diaryService.getDailyMetadata(dateKey);
-      
+
       // Parse the JSON *objects* directly
       const defaultDataMap: Record<string, number> = JSON.parse(
         (existing as any)?.defaultHabitsJson || "{}"
       );
-      
+
       const definedHabitsJson = (existing as any)?.definedHabitsJson || "{}";
       const definedDataMap: Record<string, number> = JSON.parse(
         definedHabitsJson
       ).habits || {}; // Get the 'habits' sub-key
-      
+
       setDefaultData(defaultDataMap);
       setDefinedData(definedDataMap);
     } catch (error) {
@@ -85,9 +80,13 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
     } finally {
       setIsLoading(false);
     }
-  };
-  
-  
+  }, [selectedDate]); // Simple dependency - only selectedDate matters
+
+  // Load all data when selectedDate changes
+  useEffect(() => {
+    loadAllData();
+  }, [loadAllData]); // Only need loadAllData since it already depends on selectedDate
+
   const handleSave = async () => {
     setIsLoading(true);
     try {

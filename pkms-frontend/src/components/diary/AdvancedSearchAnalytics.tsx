@@ -4,6 +4,11 @@
  */
 
 import { useEffect, useState } from 'react';
+
+interface AdvancedSearchAnalyticsProps {
+  isActive?: boolean; // Only load data when tab is active
+}
+
 import {
   Container,
   Title,
@@ -109,7 +114,7 @@ interface CacheStats {
   last_cleanup: string;
 }
 
-export function AdvancedSearchAnalytics() {
+export function AdvancedSearchAnalytics({ isActive = false }: AdvancedSearchAnalyticsProps) {
   const [analytics, setAnalytics] = useState<SearchAnalytics | null>(null);
   const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
   const [recentSearches, setRecentSearches] = useState<SearchResult[]>([]);
@@ -186,9 +191,13 @@ export function AdvancedSearchAnalytics() {
     }
   };
 
+  // Only load analytics when component is actually visible/active
+  // This prevents unnecessary API calls when diary page loads
   useEffect(() => {
-    loadAnalytics();
-  }, []);
+    if (isActive) {
+      loadAnalytics();
+    }
+  }, [isActive]);
 
   const getModuleIcon = (module: string) => {
     switch (module) {
@@ -229,6 +238,20 @@ export function AdvancedSearchAnalytics() {
           <Alert color="blue" icon={<IconRefresh size={16} />}>
             Loading search analytics and performance metrics...
           </Alert>
+        </Stack>
+      </Container>
+    );
+  }
+
+  // Show loading state when actively loading data
+  if (loading && isActive) {
+    return (
+      <Container size="xl" py="md">
+        <Stack gap="lg" align="center">
+          <Title order={2}>🔍 Advanced Search Analytics</Title>
+          <Group>
+            <Text>Loading search analytics data...</Text>
+          </Group>
         </Stack>
       </Container>
     );

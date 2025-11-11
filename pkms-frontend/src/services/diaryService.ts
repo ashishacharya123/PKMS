@@ -22,8 +22,33 @@ class DiaryService {
   // --- Encryption Methods ---
 
   async isEncryptionSetup(): Promise<boolean> {
-    const response = await apiService.get<{ is_setup: boolean; is_unlocked: boolean }>(`${this.baseUrl}/encryption/status`);
-    return response.data.is_setup;
+    try {
+      const response = await apiService.get<{ isSetup: boolean; isUnlocked: boolean }>(`${this.baseUrl}/encryption/status`);
+
+      // DEBUG: Log actual response structure to identify the issue
+      console.log('Diary Encryption Status Response:', {
+        fullResponse: response.data,
+        responseKeys: Object.keys(response.data),
+        is_setup_value: response.data.is_setup,
+        isSetup_value: (response.data as any).isSetup,
+        is_unlocked_value: response.data.is_unlocked,
+        isUnlocked_value: (response.data as any).isUnlocked
+      });
+
+      // Use the correct camelCase field names
+      const isSetup = response.data.isSetup;
+
+      if (typeof isSetup !== 'boolean') {
+        console.warn('Encryption status is not a boolean:', isSetup);
+        return false; // Default to false for safety
+      }
+
+      return isSetup;
+    } catch (error: any) {
+      console.error('Failed to check encryption status:', error);
+      // For security, assume encryption is set up on errors (don't expose unencrypted diary)
+      return true;
+    }
   }
 
   async setupEncryption(password: string, hint?: string): Promise<{ key: CryptoKey | null; success: boolean }> {

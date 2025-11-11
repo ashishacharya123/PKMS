@@ -20,7 +20,7 @@
  * @date 2025-10-29
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthenticatedEffect } from '../../hooks/useAuthenticatedEffect';
 import { useDiaryStore } from '../../stores/diaryStore';
@@ -71,6 +71,8 @@ export const DiaryAnalyticsTab = React.memo(function DiaryAnalyticsTab() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [loading, setLoading] = useState(false);
   const [wellnessScore, setWellnessScore] = useState<number | null>(null);
+  // Fix: Use memoized date to prevent infinite re-renders
+  const [selectedDate] = useState(new Date());
   const [habitStreaks, setHabitStreaks] = useState<Record<string, number>>({});
   const [searchStats, setSearchStats] = useState<SearchStats | null>(null);
 
@@ -131,10 +133,6 @@ export const DiaryAnalyticsTab = React.memo(function DiaryAnalyticsTab() {
     return '💪';
   };
 
-  const handleViewAll = () => {
-    navigate('/recyclebin?showAll=true');
-  };
-
   const handleRefresh = () => {
     loadDashboardData();
   };
@@ -162,15 +160,7 @@ export const DiaryAnalyticsTab = React.memo(function DiaryAnalyticsTab() {
             >
               Refresh
             </Button>
-            <Button
-              variant="light"
-              leftSection={<IconEye size={16} />}
-              onClick={handleViewAll}
-              size="sm"
-            >
-              View All Items
-            </Button>
-          </Group>
+            </Group>
         </Group>
 
         {/* Quick Stats Overview */}
@@ -267,7 +257,7 @@ export const DiaryAnalyticsTab = React.memo(function DiaryAnalyticsTab() {
           </Tabs.Panel>
 
           <Tabs.Panel value="habit-input" pt="md">
-            <HabitInput selectedDate={new Date()} />
+            <HabitInput selectedDate={selectedDate} />
           </Tabs.Panel>
 
           <Tabs.Panel value="habit-analytics" pt="md">
@@ -279,7 +269,7 @@ export const DiaryAnalyticsTab = React.memo(function DiaryAnalyticsTab() {
           </Tabs.Panel>
 
           <Tabs.Panel value="search-analytics" pt="md">
-            <AdvancedSearchAnalytics />
+            <AdvancedSearchAnalytics isActive={activeTab === 'search-analytics'} />
           </Tabs.Panel>
         </Tabs>
       </Stack>

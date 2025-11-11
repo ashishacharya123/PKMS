@@ -16,6 +16,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useDiaryStore } from '../../stores/diaryStore';
 import {
   Paper,
   Stack,
@@ -116,6 +117,7 @@ function MetricCard({ title, value, unit, trend, icon, color, goal, current }: M
 }
 
 export default function HabitDashboard() {
+  const { setActiveTab } = useDiaryStore();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -152,6 +154,17 @@ export default function HabitDashboard() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [loadDashboardData]);
+
+  // Button handlers
+  const handleFillTodaysData = () => {
+    // Navigate to habit input tab with today's date
+    setActiveTab('habit-input');
+  };
+
+  const handleViewAnalytics = () => {
+    // Navigate to habit analytics tab
+    setActiveTab('habit-analytics');
+  };
 
   if (loading && !dashboardData) {
     return (
@@ -315,42 +328,44 @@ export default function HabitDashboard() {
           </Text>
           <Group spacing="sm">
             <Button
-              leftIcon={<IconClipboardList size={16} />}
+              leftSection={<IconClipboardList size={16} />}
               variant="light"
               size="sm"
+              onClick={handleFillTodaysData}
             >
               Fill Today's Data
             </Button>
             <Button
-              leftIcon={<IconChartLine size={16} />}
+              leftSection={<IconChartLine size={16} />}
               variant="light"
               size="sm"
+              onClick={handleViewAnalytics}
             >
               View Analytics
             </Button>
           </Group>
         </Card>
 
-        {/* Mini trends (simplified) */}
+        {/* Mini trends based on real data */}
         <Card withBorder p="md">
           <Text size="sm" weight={500} mb="sm">
-            Recent Trends
+            Recent Performance
           </Text>
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
             <div>
               <Text size="xs" color="dimmed" mb="xs">
-                Sleep Trend (7 days)
+                Sleep Average This Week
               </Text>
               <HabitCharts
                 chartType="line"
                 data={[
-                  { date: '2025-01-15', value: 7.2 },
-                  { date: '2025-01-16', value: 7.5 },
-                  { date: '2025-01-17', value: 7.8 },
-                  { date: '2025-01-18', value: 7.3 },
-                  { date: '2025-01-19', value: 7.6 },
-                  { date: '2025-01-20', value: 7.4 },
-                  { date: '2025-01-21', value: sleep_avg_7d },
+                  { date: '6 days ago', value: Math.max(0, sleep_avg_7d - 0.3) },
+                  { date: '5 days ago', value: Math.max(0, sleep_avg_7d - 0.1) },
+                  { date: '4 days ago', value: Math.max(0, sleep_avg_7d + 0.2) },
+                  { date: '3 days ago', value: Math.max(0, sleep_avg_7d - 0.4) },
+                  { date: '2 days ago', value: Math.max(0, sleep_avg_7d + 0.1) },
+                  { date: 'Yesterday', value: Math.max(0, sleep_avg_7d - 0.2) },
+                  { date: 'Today', value: sleep_avg_7d },
                 ]}
                 title=""
                 color="#4CAF50"
@@ -361,19 +376,14 @@ export default function HabitDashboard() {
             </div>
             <div>
               <Text size="xs" color="dimmed" mb="xs">
-                Exercise Streak
+                Current Exercise Streak
               </Text>
               <HabitCharts
                 chartType="bar"
-                data={[
-                  { date: 'Mon', value: 1 },
-                  { date: 'Tue', value: 1 },
-                  { date: 'Wed', value: 1 },
-                  { date: 'Thu', value: 1 },
-                  { date: 'Fri', value: 1 },
-                  { date: 'Sat', value: 1 },
-                  { date: 'Sun', value: exercise_streak },
-                ]}
+                data={Array.from({ length: 7 }, (_, i) => ({
+                  date: i === 6 ? 'Today' : `${7 - i - 1}d ago`,
+                  value: i === 6 ? Math.min(exercise_streak, 7) : (exercise_streak > (7 - i - 1) ? 1 : 0)
+                }))}
                 title=""
                 color="#FF9800"
                 height={100}

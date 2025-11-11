@@ -70,6 +70,7 @@ import {
   IconEye,
   IconSearch,
   IconCalendar,
+  IconDatabase,
   IconHistory,
   IconMoodHappy,
   IconMoodSad,
@@ -134,6 +135,7 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
     isLoading,        // ✅ Was: loading
     error,
     encryptionKey,
+    isEncryptionSetup, // ✅ Added: Missing import causing ReferenceError
     isUnlocked,       // ✅ Was: isLocked
     lockSession,      // ✅ Was: lockDiary
     unlockSession,    // ✅ Was: unlockDiary
@@ -567,6 +569,28 @@ export const DiaryMainTab = React.memo(function DiaryMainTab() {
                         {shortcut.label}
                       </Button>
                     ))}
+                  </Stack>
+                </Card>
+
+                {/* All Items Access */}
+                <Card withBorder p="md">
+                  <Text fw={600} size="lg" mb="md">
+                    <IconDatabase size={20} style={{ marginRight: 8 }} />
+                    System Access
+                  </Text>
+                  <Stack gap="xs">
+                    <Button
+                      variant="light"
+                      size="sm"
+                      justify="flex-start"
+                      leftSection={<IconEye size={16} />}
+                      onClick={() => navigate('/recyclebin?showAll=true')}
+                    >
+                      View All Items
+                    </Button>
+                    <Text size="xs" c="dimmed">
+                      Access all items from all modules (including deleted items)
+                    </Text>
                   </Stack>
                 </Card>
               </Stack>
