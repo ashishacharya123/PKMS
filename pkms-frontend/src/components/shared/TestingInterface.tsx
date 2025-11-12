@@ -82,14 +82,27 @@ import {
   IconCodeDots,
   IconGitBranch,
   IconCpu,
-  IconChartDots3
+  IconChartDots3,
+  IconLink
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { 
-  testingService, 
-  DatabaseStats, 
-  TableSchema
-} from '../../services/testingService';
+import {
+  databaseService,
+  systemService,
+  authTestingService,
+  crudTestingService,
+  DatabaseStats,
+  TableSchema,
+  FtsTablesData,
+  DetailedHealth,
+  ConsoleCommands,
+  SessionStatus,
+  UserDatabase,
+  HealthCheck,
+  DiaryEncryptionDetails,
+  CrudTestResult,
+  TestRunResult
+} from '../../services/testing';
 import { API_BASE_URL } from '../../config';
 
 interface TestingInterfaceProps {
@@ -135,11 +148,11 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   const [allTablesData, setAllTablesData] = useState<any>(null);
   const [allTablesModalOpen, setAllTablesModalOpen] = useState(false);
   
-  // FTS5 tables state (commented out - not currently used)
-  // const [ftsTablesData, setFtsTablesData] = useState<any>(null);
-  // const [selectedFtsTable, setSelectedFtsTable] = useState<string>('');
-  // const [ftsModalOpen, setFtsModalOpen] = useState(false);
-  // const [ftsTableSamples, setFtsTableSamples] = useState<any>(null);
+  // FTS5 tables state
+  const [ftsTablesData, setFtsTablesData] = useState<any>(null);
+  const [selectedFtsTable, setSelectedFtsTable] = useState<string>('');
+  const [ftsModalOpen, setFtsModalOpen] = useState(false);
+  const [ftsTableSamples, setFtsTableSamples] = useState<any>(null);
   
   // Diary testing state
   const [diaryPassword, setDiaryPassword] = useState('');
@@ -200,7 +213,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
       name: 'Diary & Privacy',
       icon: <IconLock size={16} />,
       color: 'orange',
-      tables: ['diary_entries', 'diary_media'],
+      tables: ['diary_entries', 'diary_daily_metadata'],
       description: 'Encrypted diary system'
     },
     {
@@ -211,11 +224,18 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
       description: 'Hierarchical file organization'
     },
     {
-      name: 'Organization',
+      name: 'Tag System',
       icon: <IconTag size={16} />,
       color: 'cyan',
-      tables: ['tags', 'links', 'note_tags', 'document_tags', 'todo_tags', 'archive_tags'],
-      description: 'Tags and cross-references'
+      tables: ['tags', 'note_tags', 'document_tags', 'todo_tags', 'project_tags', 'archive_item_tags', 'archive_folder_tags', 'diary_entry_tags'],
+      description: 'Universal tagging system for all content types'
+    },
+    {
+      name: 'Association Tables',
+      icon: <IconLink size={16} />,
+      color: 'pink',
+      tables: ['note_documents', 'document_diary', 'todo_dependencies', 'project_items'],
+      description: 'Polymorphic relationships and data linking'
     },
     {
       name: 'FTS5 Enhanced Search',
@@ -271,7 +291,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
       
       // Try to load commands if available
       try {
-        const commands = await testingService.getConsoleCommands();
+        const commands = await systemService.getConsoleCommands();
         setConsoleCommands(commands);
       } catch (error) {
         console.warn('Could not load console commands:', error);
@@ -341,23 +361,53 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
       addAuthLog('info', '🔍 Starting comprehensive authentication tests...');
       
       // Check authentication status
-      const authCheck = testingService.checkAuthentication();
+      const authCheck = await authTestingService.checkAuthentication();
       addAuthLog('info', `📱 Token Check: ${authCheck.hasToken ? 'Found' : 'Missing'}`, authCheck);
-      
-      if (authCheck.hasToken && authCheck.remainingTimeSeconds !== undefined) {
-        addAuthLog('info', `⏰ Token expires in ${authCheck.remainingTimeSeconds}s`, {
-          remainingTime: authCheck.remainingTimeSeconds,
-          expiresAt: authCheck.expiresAt
-        });
-      }
-      
-      if (authCheck.isExpired) {
-        addAuthLog('warning', '⚠️ Token is expired');
+
+      if (authCheck.hasToken) {
+        // Show user information
+        if (authCheck.username) {
+          addAuthLog('info', `👤 User: ${authCheck.username}`, {
+            userId: authCheck.userId,
+            username: authCheck.username
+          });
+        }
+
+        // Show token details
+        if (authCheck.tokenLength > 0) {
+          addAuthLog('info', `🔑 Token Length: ${authCheck.tokenLength} characters`);
+        }
+
+        // Show expiration information
+        if (authCheck.remainingTimeSeconds !== undefined && authCheck.expiresAt) {
+          const hours = Math.floor(authCheck.remainingTimeSeconds / 3600);
+          const minutes = Math.floor((authCheck.remainingTimeSeconds % 3600) / 60);
+          const seconds = authCheck.remainingTimeSeconds % 60;
+
+          let timeString = '';
+          if (hours > 0) timeString += `${hours}h `;
+          if (minutes > 0) timeString += `${minutes}m `;
+          timeString += `${seconds}s`;
+
+          addAuthLog('info', `⏰ Session expires in ${timeString}`, {
+            remainingTime: authCheck.remainingTimeSeconds,
+            expiresAt: authCheck.expiresAt,
+            timeString: timeString.trim()
+          });
+        }
+
+        if (authCheck.isExpired) {
+          addAuthLog('warning', '⚠️ Session is expired - please login again');
+        } else {
+          addAuthLog('success', '✅ Session is valid and active');
+        }
+      } else {
+        addAuthLog('warning', '⚠️ No active session found');
       }
       
       // Test API connectivity
       addAuthLog('info', '🌐 Testing API connectivity...');
-      const apiTest = await testingService.testAPIConnectivity();
+      const apiTest = await authTestingService.testAPIConnectivity();
 
       // Build a concise summary so the UI can reflect overall status consistently
       const summary = {
@@ -416,18 +466,21 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   const loadDatabaseStats = async () => {
     setIsLoading(true);
     try {
-      const stats = await testingService.getDatabaseStats();
+      console.log('Loading database statistics...');
+      const stats = await databaseService.getStats();
+      console.log('Database stats loaded:', stats);
       setDatabaseStats(stats);
-      
+
       notifications.show({
         title: 'Database Stats Loaded',
         message: `Database loaded successfully`,
         color: 'green'
       });
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Failed to load database stats:', error);
       notifications.show({
         title: 'Database Stats Failed',
-        message: 'Could not load database statistics',
+        message: `Error: ${error?.message || 'Unknown error'}`,
         color: 'red'
       });
     } finally {
@@ -443,7 +496,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
       
       for (const table of allTables) {
         try {
-          const schema = await testingService.getTableSchema(table);
+          const schema = await databaseService.getTableSchema(table);
           schemas[table] = schema;
         } catch (error) {
           console.warn(`Failed to load schema for table ${table}:`, error);
@@ -470,22 +523,32 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   };
 
   const loadSampleRows = async () => {
-    if (!selectedTable) return;
-    
+    if (!selectedTable) {
+      notifications.show({
+        title: 'No Table Selected',
+        message: 'Please select a table first',
+        color: 'yellow'
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const rows = await testingService.getSampleRows(selectedTable, rowLimit);
+      console.log(`Loading sample rows from table: ${selectedTable}, limit: ${rowLimit}`);
+      const rows = await databaseService.getSampleRows(selectedTable, rowLimit);
+      console.log('Sample rows loaded:', rows);
       setSampleRows(rows);
-      
+
       notifications.show({
         title: 'Sample Rows Loaded',
         message: `Loaded ${rows.row_count} rows from ${selectedTable}`,
         color: 'green'
       });
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Failed to load sample rows:', error);
       notifications.show({
         title: 'Sample Rows Failed',
-        message: 'Could not load sample rows',
+        message: `Error: ${error?.message || 'Unknown error'}`,
         color: 'red'
       });
     } finally {
@@ -511,7 +574,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
       addDiaryLog('info', '🔍 Starting diary encryption test...');
       addDiaryLog('info', '🔐 Validating encryption password...');
       
-      const result = await testingService.testDiaryEncryption(diaryPassword);
+      const result = await authTestingService.testDiaryEncryption(diaryPassword);
       setDiaryTestResult(result);
       
       if (result.encryption_test) {
@@ -554,7 +617,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   const loadSystemHealth = async () => {
     setIsLoading(true);
     try {
-      const health = await testingService.getDetailedHealth();
+      const health = await systemService.getHealthDetailed();
       setHealthData(health);
       
       notifications.show({
@@ -586,11 +649,11 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
     setAllTableSchemas(null);
     setAllTablesData(null);
     
-    // Clear FTS5 tables state (commented out - states not defined)
-    // setFtsTablesData(null);
-    // setSelectedFtsTable('');
-    // setFtsModalOpen(false);
-    // setFtsTableSamples(null);
+    // Clear FTS5 tables state
+    setFtsTablesData(null);
+    setSelectedFtsTable('');
+    setFtsModalOpen(false);
+    setFtsTableSamples(null);
     
     // Clear diary testing state
     setDiaryTestResult(null);
@@ -630,13 +693,16 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   const loadAllTablesData = async () => {
     try {
       setIsLoading(true);
-      const data = await testingService.getAllTables();
-      setAllTablesData(data);
+      // Load FTS5 analysis data instead of all tables
+      const data = await databaseService.getFtsTables();
+      setFtsTablesData(data);
+      // Open FTS modal after loading data
+      setFtsModalOpen(true);
     } catch (error) {
-      console.error('Failed to load all tables data:', error);
+      console.error('Failed to load FTS5 analysis data:', error);
       notifications.show({
         title: 'Error',
-        message: 'Failed to load all tables data',
+        message: 'Failed to load FTS5 analysis data',
         color: 'red'
       });
     } finally {
@@ -683,18 +749,24 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   const loadPerformanceMetrics = async () => {
     setIsLoading(true);
     try {
-      const metrics = await testingService.getPerformanceMetrics();
+      console.log('Loading performance metrics...');
+      const metrics = await systemService.getPerformanceMetrics();
+      console.log('Performance metrics loaded:', metrics);
       setPerformanceMetrics(metrics);
-      
+
+      const dbPerf = metrics.database_performance || {};
+      const resourceUsage = metrics.resource_usage || {};
+
       notifications.show({
         title: 'Performance Metrics Loaded',
-        message: `Query performance: ${metrics.performance_score}`,
-        color: metrics.performance_score === 'good' ? 'green' : metrics.performance_score === 'slow' ? 'orange' : 'red'
+        message: `DB queries: ${Object.keys(dbPerf).length}, CPU: ${resourceUsage.cpu_percent || 'N/A'}%`,
+        color: 'green'
       });
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Failed to load performance metrics:', error);
       notifications.show({
         title: 'Performance Test Failed',
-        message: 'Could not load performance metrics',
+        message: `Error: ${error?.message || 'Unknown error'}`,
         color: 'red'
       });
     } finally {
@@ -705,7 +777,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   const loadDataIntegrityResults = async () => {
     setIsLoading(true);
     try {
-      const results = await testingService.validateDataIntegrity();
+      const results = await systemService.validateDataIntegrity();
       setDataIntegrityResults(results);
       
       notifications.show({
@@ -727,7 +799,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   const loadResourceUsage = async () => {
     setIsLoading(true);
     try {
-      const usage = await testingService.getResourceUsage();
+      const usage = await systemService.getResourceUsage();
       setResourceUsage(usage);
       
       notifications.show({
@@ -749,7 +821,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   const runFileSanityCheck = async () => {
     setIsLoading(true);
     try {
-      const result = await testingService.runFileSanityCheck(fileSanityOptions);
+      const result = await systemService.runFileSanityCheck(fileSanityOptions);
       setFileSanityResult(result);
       
       notifications.show({
@@ -772,7 +844,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
   const runCrudTest = async () => {
     setIsLoading(true);
     try {
-      const result = await testingService.runCrudTest(crudTestOptions);
+      const result = await crudTestingService.runFullTest(crudTestOptions);
       setCrudTestResult(result);
       
       notifications.show({
@@ -808,7 +880,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
       timestamp: new Date().toISOString()
     };
     
-    testingService.downloadTestResults(allResults, `pkms-comprehensive-test-${new Date().toISOString().split('T')[0]}.json`);
+    crudTestingService.downloadResults(allResults, `pkms-comprehensive-test-${new Date().toISOString().split('T')[0]}.json`);
     
     notifications.show({
       title: 'Test Results Downloaded',
@@ -855,8 +927,8 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
             <Button
               variant="outline"
               leftSection={<IconRefresh size={16} />}
-              onClick={() => {
-                const quickCheck = testingService.checkAuthentication();
+              onClick={async () => {
+                const quickCheck = await authTestingService.checkAuthentication();
                 addAuthLog(
                   quickCheck.hasToken && !quickCheck.isExpired ? 'success' : 'warning',
                   `Quick check: ${quickCheck.hasToken && !quickCheck.isExpired ? 'Auth OK' : 'Auth Issues'}`
@@ -1118,24 +1190,92 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
             <Group justify="space-between">
               <Title order={5}>Database Overview</Title>
               <Badge color="blue" size="lg">
-                {testingService.formatBytes((databaseStats as any).database_size_bytes || 0)}
+                {databaseStats.statistics ? (() => {
+                  // Try database_file_size_mb first, then database_file_size_bytes, then calculated_db_size_bytes
+                  const dbFileSizeMB = (databaseStats.statistics as any).database_file_size_mb;
+                  const dbFileSizeBytes = (databaseStats.statistics as any).database_file_size_bytes;
+                  const calculatedSize = (databaseStats.statistics as any).calculated_db_size_bytes;
+
+                  if (dbFileSizeMB && dbFileSizeMB > 0.01) {
+                    return `${dbFileSizeMB} MB`;
+                  }
+                  if (dbFileSizeBytes && dbFileSizeBytes > 0) {
+                    return crudTestingService.formatBytes(dbFileSizeBytes);
+                  }
+                  if (calculatedSize && calculatedSize > 0) {
+                    return crudTestingService.formatBytes(calculatedSize);
+                  }
+                  // Fallback: Calculate total from all table estimates
+                  const totalSize = Object.entries(databaseStats.statistics)
+                    .filter(([key, _]) => key.includes('_estimated_size_bytes'))
+                    .reduce((sum, [_, size]) => sum + (Number(size) || 0), 0);
+                  return crudTestingService.formatBytes(totalSize);
+                })() : '0 Bytes'}
               </Badge>
             </Group>
             
             <SimpleGrid cols={3} spacing="md">
               <Paper withBorder p="md" ta="center">
-                <Text size="xl" fw={700} color="blue">{(databaseStats as any).user_id || 'N/A'}</Text>
-                <Text size="sm" c="dimmed">User ID</Text>
+                <Text size="xl" fw={700} color="blue">
+                  {(() => {
+                    try {
+                      console.log('Trying to decode JWT for username...');
+                      // Get JWT token from cookies
+                      const cookies = document.cookie.split(';');
+                      const pkmsToken = cookies.find(c => c.trim().startsWith('pkms_token='));
+                      console.log('Found pkms_token:', pkmsToken ? 'YES' : 'NO');
+
+                      if (pkmsToken) {
+                        const token = pkmsToken.split('=')[1];
+                        console.log('Token found, first part:', token.split('.')[0]);
+                        console.log('Token payload:', token.split('.')[1]);
+
+                        // Decode JWT payload (base64)
+                        const payload = JSON.parse(atob(token.split('.')[1]));
+                        console.log('Decoded payload:', payload);
+                        console.log('Username found:', payload.username);
+
+                        if (payload.username) {
+                          return payload.username;
+                        }
+                      }
+                    } catch (e) {
+                      console.error('JWT decode error:', e);
+                    }
+                    // Fallback to UUID if token parsing fails
+                    return (databaseStats as any).userUuid?.slice(0, 8) || 'N/A';
+                  })()}
+                </Text>
+                <Text size="sm" c="dimmed">Username</Text>
               </Paper>
               <Paper withBorder p="md" ta="center">
                 <Text size="xl" fw={700} color="green">
-                  {Object.keys(databaseStats.table_counts).length}
+                  {databaseStats.statistics ? Object.entries(databaseStats.statistics)
+                .filter(([table, value]) => {
+                  // Only count actual tables, not size measurements
+                  return typeof value === 'number' &&
+                         !table.includes('_estimated_') &&
+                         !table.includes('_size_') &&
+                         !table.includes('total_') &&
+                         // Check if table name is in any group
+                         tableGroups.some(group => group.tables.includes(table));
+                }).length : 0}
                 </Text>
                 <Text size="sm" c="dimmed">Tables</Text>
               </Paper>
               <Paper withBorder p="md" ta="center">
                 <Text size="xl" fw={700} color="orange">
-                  {databaseStats.table_counts ? Object.values(databaseStats.table_counts).reduce((a, b) => Number(a) + Number(b), 0) : 0}
+                  {databaseStats.statistics ? Object.entries(databaseStats.statistics)
+                .filter(([table, value]) => {
+                  // Only sum actual table row counts
+                  return typeof value === 'number' &&
+                         !table.includes('_estimated_') &&
+                         !table.includes('_size_') &&
+                         !table.includes('total_') &&
+                         // Check if table name is in any group
+                         tableGroups.some(group => group.tables.includes(table));
+                })
+                .reduce((a, [_, b]) => Number(a) + Number(b), 0) : 0}
                 </Text>
                 <Text size="sm" c="dimmed">Total Rows</Text>
               </Paper>
@@ -1145,8 +1285,21 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
             
             <Title order={6}>Table Row Counts & Storage Sizes</Title>
             <SimpleGrid cols={1} spacing="sm">
-              {databaseStats.table_counts && Object.entries(databaseStats.table_counts).map(([table, count]) => {
-                const tableSize = databaseStats.table_sizes?.[table];
+              {databaseStats.statistics && Object.entries(databaseStats.statistics)
+                .filter(([table, value]) => {
+                  // Only show actual table row counts, not size measurements or metadata
+                  return typeof value === 'number' &&
+                         !table.includes('_estimated_') &&
+                         !table.includes('_size_') &&
+                         !table.includes('total_') &&
+                         // Check if table name is in any group
+                         tableGroups.some(group => group.tables.includes(table));
+                })
+                .map(([table, count]) => {
+                  const tableSize = databaseStats.statistics?.[`${table}_estimated_size_bytes`] ? {
+                    estimated: true,
+                    size_bytes: databaseStats.statistics[`${table}_estimated_size_bytes`]
+                  } : null;
                 return (
                   <Group key={table} justify="space-between" p="xs" style={{ borderBottom: '1px solid #e9ecef' }}>
                     <Group gap="xs">
@@ -1160,7 +1313,7 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
                         <Badge size="sm" variant="light" color="blue">{count} rows</Badge>
                         {tableSize && !tableSize.error && (
                           <Badge size="sm" variant="light" color="green">
-                            {tableSize.size_mb > 0.01 ? `${tableSize.size_mb} MB` : `${tableSize.size_bytes} B`}
+                            {(tableSize.size_bytes / 1024).toFixed(2)} KB
                           </Badge>
                         )}
                         {tableSize?.error && (
@@ -1172,6 +1325,48 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
                 );
               })}
             </SimpleGrid>
+
+            {/* Database Metadata */}
+            {databaseStats.statistics && (databaseStats.statistics as any).journal_mode && (
+              <>
+                <Divider />
+                <Title order={6}>Database Configuration & Storage</Title>
+                <SimpleGrid cols={2} spacing="sm">
+                  <Group justify="space-between" p="xs">
+                    <Text size="sm">Database Size</Text>
+                    <Badge size="sm" variant="light" color="blue">
+                      {(databaseStats.statistics as any).database_file_size_mb > 0.01
+                        ? `${(databaseStats.statistics as any).database_file_size_mb} MB`
+                        : (databaseStats.statistics as any).database_file_size_kb > 0
+                        ? `${(databaseStats.statistics as any).database_file_size_kb} KB`
+                        : (databaseStats.statistics as any).calculated_db_size_mb > 0.01
+                        ? `${(databaseStats.statistics as any).calculated_db_size_mb} MB`
+                        : `${(databaseStats.statistics as any).calculated_db_size_kb} KB`}
+                    </Badge>
+                  </Group>
+                  <Group justify="space-between" p="xs">
+                    <Text size="sm">Journal Mode</Text>
+                    <Badge size="sm" variant="light" color="orange">
+                      {(databaseStats.statistics as any).journal_mode?.toUpperCase() || 'N/A'}
+                    </Badge>
+                  </Group>
+                  {(databaseStats.statistics as any).wal_checkpoint_info && (
+                    <>
+                      <Group justify="space-between" p="xs">
+                        <Text size="sm">WAL Size</Text>
+                        <Badge size="sm" variant="light" color="cyan">
+                          {(((databaseStats.statistics as any).wal_checkpoint_info.wal_size_bytes || 0) / 1024).toFixed(2)} KB
+                        </Badge>
+                      </Group>
+                      <Group justify="space-between" p="xs">
+                        <Text size="sm">Checkpointed Frames</Text>
+                        <Badge size="sm" variant="light">{(databaseStats.statistics as any).wal_checkpoint_info.checkpointed_frames || 0}</Badge>
+                      </Group>
+                    </>
+                  )}
+                </SimpleGrid>
+              </>
+            )}
           </Stack>
         </Card>
       )}
@@ -2498,6 +2693,100 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
           </Tabs>
         </Stack>
       </Container>
+
+      {/* FTS5 Analysis Modal */}
+      <Modal
+        opened={ftsModalOpen}
+        onClose={() => setFtsModalOpen(false)}
+        title="FTS5 Full-Text Search Analysis"
+        size="xl"
+      >
+        {ftsTablesData && (
+          <Stack gap="lg">
+            <Alert color="blue" icon={<IconSearch size={16} />}>
+              <Stack gap="xs">
+                <Text fw={500}>FTS5 Tables: {ftsTablesData.total_fts_tables}</Text>
+                <Text size="sm">
+                  Full-Text Search (FTS5) enables fast content searching across notes, documents, todos, and diary entries.
+                </Text>
+              </Stack>
+            </Alert>
+
+            <SimpleGrid cols={1} spacing="md">
+              {ftsTablesData.fts_tables?.map((ftsTable: any, index: number) => (
+                <Card key={index} withBorder p="md">
+                  <Stack gap="sm">
+                    <Group justify="space-between">
+                      <Text fw={600} size="lg">{ftsTable.table_name}</Text>
+                      <Badge color="blue" variant="light">
+                        {ftsTable.row_count} rows
+                      </Badge>
+                    </Group>
+
+                    {ftsTable.content_table && (
+                      <Text size="sm" c="dimmed">
+                        Content: {ftsTable.content_table}
+                      </Text>
+                    )}
+
+                    {ftsTable.create_sql && (
+                      <Code block language="sql" size="xs">
+                        {ftsTable.create_sql}
+                      </Code>
+                    )}
+
+                    {ftsTable.columns && ftsTable.columns.length > 0 && (
+                      <div>
+                        <Text fw={500} size="sm" mb="xs">Columns:</Text>
+                        <Table striped highlightOnHover size="sm">
+                          <Table.Thead>
+                            <Table.Tr>
+                              <Table.Th>Name</Table.Th>
+                              <Table.Th>Type</Table.Th>
+                              <Table.Th>Not Null</Table.Th>
+                              <Table.Th>Primary Key</Table.Th>
+                            </Table.Tr>
+                          </Table.Thead>
+                          <Table.Tbody>
+                            {ftsTable.columns.map((col: any, colIndex: number) => (
+                              <Table.Tr key={colIndex}>
+                                <Table.Td>{col.name}</Table.Td>
+                                <Table.Td>{col.type || 'TEXT'}</Table.Td>
+                                <Table.Td>{col.not_null ? 'Yes' : 'No'}</Table.Td>
+                                <Table.Td>{col.primary_key ? 'Yes' : 'No'}</Table.Td>
+                              </Table.Tr>
+                            ))}
+                          </Table.Tbody>
+                        </Table>
+                      </div>
+                    )}
+                  </Stack>
+                </Card>
+              ))}
+            </SimpleGrid>
+
+            {ftsTablesData.ftsExplanation && (
+              <Card withBorder p="md" bg="gray.0">
+                <Title order={5} mb="md">FTS5 Explanation</Title>
+                <Stack gap="xs">
+                  <div>
+                    <Text fw={500} size="sm">What is FTS5?</Text>
+                    <Text size="sm">{ftsTablesData.ftsExplanation.whatIsFts5}</Text>
+                  </div>
+                  <div>
+                    <Text fw={500} size="sm">Performance Benefits:</Text>
+                    <Text size="sm">{ftsTablesData.ftsExplanation.performanceBenefit}</Text>
+                  </div>
+                  <div>
+                    <Text fw={500} size="sm">Storage Overhead:</Text>
+                    <Text size="sm">{ftsTablesData.ftsExplanation.storageOverhead}</Text>
+                  </div>
+                </Stack>
+              </Card>
+            )}
+          </Stack>
+        )}
+      </Modal>
     </Modal>
   );
 } 

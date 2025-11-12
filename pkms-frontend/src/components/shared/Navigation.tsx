@@ -31,10 +31,12 @@ import {
   IconRefresh,
   IconRotateClockwise,
   IconTrash,
+  IconBug,
 } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
 import { dashboardService } from '../../services/dashboardService';
 import { BackupRestoreModal } from './BackupRestoreModal';
+import { TestingInterface } from './TestingInterface';
 import RecoveryViewModal from '../auth/RecoveryViewModal';
 import { apiService } from '../../services/api';
 import { notifications } from '@mantine/notifications';
@@ -108,6 +110,7 @@ export function Navigation({ collapsed = false }: NavigationProps) {
   const navigate = useNavigate();
   const [userMenuOpened, setUserMenuOpened] = useState(false);
     const [backupModalOpened, setBackupModalOpened] = useState(false);
+  const [testingModalOpened, setTestingModalOpened] = useState(false);
   const [recoveryViewModalOpened, setRecoveryViewModalOpened] = useState(false);
   const [reindexing, setReindexing] = useState(false);
   const { user, logout } = useAuthStore();
@@ -300,7 +303,14 @@ export function Navigation({ collapsed = false }: NavigationProps) {
             >
               Backup & Restore
             </Menu.Item>
-            
+
+            <Menu.Item
+              leftSection={<IconBug size={14} />}
+              onClick={() => { setTestingModalOpened(true); setUserMenuOpened(false); }}
+            >
+              Testing & Performance
+            </Menu.Item>
+
             <Menu.Divider />
             <Menu.Label>Search Tools</Menu.Label>
             <Menu.Item
@@ -377,6 +387,12 @@ export function Navigation({ collapsed = false }: NavigationProps) {
       <RecoveryViewModal
         opened={recoveryViewModalOpened}
         onClose={() => setRecoveryViewModalOpened(false)}
+      />
+
+      {/* Testing Interface Modal */}
+      <TestingInterface
+        opened={testingModalOpened}
+        onClose={() => setTestingModalOpened(false)}
       />
     </AppShell.Navbar>
   );

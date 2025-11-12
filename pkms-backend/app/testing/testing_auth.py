@@ -57,19 +57,32 @@ async def get_session_status(
             }
 
         now = datetime.now(NEPAL_TZ)
-        time_until_expiry = session.expires_at - now
-        time_since_created = now - session.created_at
-        time_since_activity = now - session.last_activity if session.last_activity else None
+
+        # Ensure session datetime fields are timezone-aware by adding NEPAL_TZ if needed
+        def make_timezone_aware(dt):
+            if dt is None:
+                return None
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=NEPAL_TZ)
+            return dt
+
+        expires_at_aware = make_timezone_aware(session.expires_at)
+        created_at_aware = make_timezone_aware(session.created_at)
+        last_activity_aware = make_timezone_aware(session.last_activity)
+
+        time_until_expiry = expires_at_aware - now
+        time_since_created = now - created_at_aware
+        time_since_activity = now - last_activity_aware if last_activity_aware else None
 
         # Calculate if session was recently extended (within last 10 seconds)
         recently_extended = False
-        if session.last_activity:
+        if last_activity_aware:
             recent_threshold = timedelta(seconds=10)
-            recently_extended = (now - session.last_activity) < recent_threshold
+            recently_extended = (now - last_activity_aware) < recent_threshold
 
         # Session health metrics
         session_health = {
-            "is_valid": session.expires_at > now,
+            "is_valid": expires_at_aware > now,
             "expires_in_seconds": int(time_until_expiry.total_seconds()),
             "age_seconds": int(time_since_created.total_seconds()),
             "idle_seconds": int(time_since_activity.total_seconds()) if time_since_activity else 0,

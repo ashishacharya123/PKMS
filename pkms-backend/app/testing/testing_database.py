@@ -284,11 +284,26 @@ async def get_table_schema(
 ):
     """Get detailed schema information for a specific table including size information."""
     try:
-        # Validate table name to prevent SQL injection
+        # Validate table name to prevent SQL injection - COMPLETE TABLE LIST
         allowed_tables = [
-            'users', 'notes', 'documents', 'todos', 'projects', 'diary_entries',
-            'diary_daily_metadata', 'archive_folders', 'archive_items', 'tags',
-            'document_diary', 'project_tags', 'note_tags', 'todo_tags', 'recovery_keys', 'sessions'
+            # Core System Tables
+            'users', 'sessions', 'recovery_keys',
+
+            # Content Module Tables
+            'notes', 'documents', 'todos', 'projects',
+
+            # Diary & Privacy Tables
+            'diary_entries', 'diary_daily_metadata',
+
+            # Archive & Organization Tables
+            'archive_folders', 'archive_items', 'tags',
+
+            # Association Tables
+            'note_documents', 'document_diary', 'todo_dependencies', 'project_items',
+
+            # Tag Association Tables
+            'note_tags', 'document_tags', 'todo_tags', 'project_tags',
+            'archive_item_tags', 'archive_folder_tags', 'diary_entry_tags'
         ]
 
         # Also allow FTS and mapping tables
@@ -433,6 +448,7 @@ async def get_sample_rows(
     try:
         # Validate table access for security
         allowed_tables = {
+            "users": User,
             "notes": Note,
             "documents": Document,
             "todos": Todo,
@@ -450,13 +466,18 @@ async def get_sample_rows(
         if table not in allowed_tables and table not in system_tables:
             raise HTTPException(status_code=400, detail=f"Table '{table}' not allowed for sampling")
 
-        # Build query with user filtering, special-case system tables
+        # Build query with user filtering, special-case system tables and users table
         if table in system_tables:
             result = await db.execute(
                 text(f"SELECT * FROM {table} WHERE created_by = :uid LIMIT :limit"),
                 {"uid": current_user.uuid, "limit": limit}
             )
             rows = result.fetchall()
+        elif table == "users":
+            # For users table, don't filter by created_by, just get limited results
+            query = select(User).limit(limit)
+            result = await db.execute(query)
+            rows = result.scalars().all()
         else:
             query = (
                 select(allowed_tables[table])

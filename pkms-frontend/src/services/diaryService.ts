@@ -66,16 +66,22 @@ class DiaryService {
   }
 
   async unlockSession(password: string): Promise<{ key: CryptoKey | null; success: boolean }> {
-    const response = await apiService.post<{ success: boolean }>(`${this.baseUrl}/encryption/unlock`, {
-      password,
-    });
+    try {
+      const response = await apiService.post<{ success: boolean }>(`${this.baseUrl}/encryption/unlock`, {
+        password,
+      });
 
-    if (response.data.success) {
-      const key = await this.generateEncryptionKey(password);
-      return { key, success: true };
+      if (response.data.success) {
+        const key = await this.generateEncryptionKey(password);
+        return { key, success: true };
+      }
+
+      return { key: null, success: false };
+    } catch (error: any) {
+      // Handle HTTP errors (like 401 for wrong password)
+      console.log('Diary unlock failed:', error?.response?.status, error?.response?.data?.detail || error.message);
+      return { key: null, success: false };
     }
-
-    return { key: null, success: false };
   }
 
   async generateEncryptionKey(password: string): Promise<CryptoKey> {

@@ -445,6 +445,91 @@ async def get_database_performance_metrics(
         raise HTTPException(status_code=500, detail=f"Failed to get database metrics: {str(e)}")
 
 
+@router.get("/performance")
+async def get_system_performance_metrics(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get comprehensive system performance metrics including database and resource usage."""
+    try:
+        performance_data = {
+            "status": "success",
+            "database_performance": {},
+            "resource_usage": {},
+            "system_metrics": {},
+            "timestamp": datetime.now(NEPAL_TZ).isoformat(),
+            "user_uuid": current_user.uuid
+        }
+
+        # Database Performance (reuse existing database-metrics logic)
+        try:
+            test_queries = [
+                ("simple_count", "SELECT COUNT(*) FROM sqlite_master"),
+                ("table_list", "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"),
+                ("pragma_info", "PRAGMA table_info(users)"),
+                ("index_list", "PRAGMA index_list(users)"),
+            ]
+
+            query_performance = {}
+            for query_name, query_sql in test_queries:
+                start_time = datetime.now()
+                try:
+                    result = await db.execute(text(query_sql))
+                    end_time = datetime.now()
+                    execution_time = (end_time - start_time).total_seconds() * 1000
+
+                    query_performance[query_name] = {
+                        "execution_time_ms": round(execution_time, 3),
+                        "status": "success",
+                        "result_count": len(result.fetchall()) if hasattr(result, 'fetchall') else 1
+                    }
+                except Exception as e:
+                    end_time = datetime.now()
+                    execution_time = (end_time - start_time).total_seconds() * 1000
+                    query_performance[query_name] = {
+                        "execution_time_ms": round(execution_time, 3),
+                        "status": "error",
+                        "error": str(e)
+                    }
+
+            performance_data["database_performance"] = query_performance
+        except Exception as e:
+            performance_data["database_performance"] = {"error": str(e)}
+
+        # Basic System Information
+        try:
+            import psutil
+            import platform
+
+            performance_data["resource_usage"] = {
+                "cpu_percent": psutil.cpu_percent(interval=1),
+                "memory_percent": psutil.virtual_memory().percent,
+                "disk_usage_percent": psutil.disk_usage('/').percent if platform.system() != 'Windows' else psutil.disk_usage('C:').percent,
+                "load_average": list(psutil.getloadavg()) if hasattr(psutil, 'getloadavg') else [0, 0, 0]
+            }
+
+            performance_data["system_metrics"] = {
+                "platform": platform.system(),
+                "platform_release": platform.release(),
+                "platform_version": platform.version(),
+                "architecture": platform.machine(),
+                "processor": platform.processor(),
+                "python_version": platform.python_version()
+            }
+        except ImportError:
+            performance_data["resource_usage"] = {"error": "psutil not available"}
+            performance_data["system_metrics"] = {"error": "platform module not available"}
+        except Exception as e:
+            performance_data["resource_usage"] = {"error": str(e)}
+            performance_data["system_metrics"] = {"error": str(e)}
+
+        return performance_data
+
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail=f"Failed to get performance metrics: {str(e)}")
+
+
 @router.get("/data-integrity")
 async def perform_data_integrity_validation(
     current_user: User = Depends(get_current_user),

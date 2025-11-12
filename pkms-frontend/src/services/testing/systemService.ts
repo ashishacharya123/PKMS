@@ -43,7 +43,40 @@ export const systemService = {
   },
 
   async getPerformanceMetrics(): Promise<any> {
-    const response = await apiService.get('/testing/system/performance');
+    try {
+      // Try the dedicated performance endpoint first (if it exists)
+      const response = await apiService.get('/testing/system/performance');
+      return response.data;
+    } catch (error) {
+      // Fallback: Combine resource usage and database metrics
+      const [resourceResponse, dbResponse] = await Promise.all([
+        apiService.get('/testing/system/resource-usage'),
+        apiService.get('/testing/system/database-metrics')
+      ]);
+
+      return {
+        performance: {
+          ...resourceResponse.data,
+          ...dbResponse.data,
+          combined: true,
+          note: 'Combined from resource usage and database metrics'
+        }
+      };
+    }
+  },
+
+  async validateDataIntegrity(): Promise<any> {
+    const response = await apiService.get('/testing/system/validate-data-integrity');
+    return response.data;
+  },
+
+  async getResourceUsage(): Promise<any> {
+    const response = await apiService.get('/testing/system/resource-usage');
+    return response.data;
+  },
+
+  async runFileSanityCheck(options: any): Promise<any> {
+    const response = await apiService.post('/testing/system/file-sanity-check', options);
     return response.data;
   }
 };

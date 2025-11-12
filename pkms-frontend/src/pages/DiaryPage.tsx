@@ -34,6 +34,9 @@ import {
   PasswordInput,
   Center,
   Loader,
+  Alert,
+  ActionIcon,
+  Tooltip,
 } from '@mantine/core';
 import {
   IconBook,
@@ -41,6 +44,8 @@ import {
   IconLock,
   IconEye,
   IconRefresh,
+  IconEyeOff,
+  IconHelp,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import { LoadingState } from '../components/common/LoadingState';
@@ -52,6 +57,7 @@ import DiaryAnalyticsTab from '../components/diary/DiaryAnalyticsTab';
 
 // Import services
 import { dashboardService } from '../services/dashboardService';
+import { diaryService } from '../services/diaryService';
 import { nepaliDateCache } from '../utils/nepaliDateCache';
 
 export const DiaryPage = React.memo(function DiaryPage() {
@@ -70,6 +76,9 @@ export const DiaryPage = React.memo(function DiaryPage() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [password, setPassword] = useState('');
   const [isUnlocking, setIsUnlocking] = useState(false);
+  const [passwordHint, setPasswordHint] = useState<string>('');
+  const [showPasswordHint, setShowPasswordHint] = useState(false);
+  const [passwordError, setPasswordError] = useState<string>('');
 
   // Store initialization state (SECURITY: Prevent access before verification)
   const [isStoreInitialized, setIsStoreInitialized] = useState(false);
@@ -181,6 +190,17 @@ export const DiaryPage = React.memo(function DiaryPage() {
     setEntryCount(entries.length);
   }, [entries]);
 
+  // Fetch password hint when modal is opened
+  const fetchPasswordHint = async () => {
+    try {
+      const hint = await diaryService.getPasswordHint();
+      setPasswordHint(hint);
+    } catch (error: any) {
+      console.warn('Could not fetch password hint:', error);
+      setPasswordHint('');
+    }
+  };
+
   // Auto-show password modal AFTER initialization and only if encryption is properly set up
   useEffect(() => {
     // Only show modal after store initialization is complete
@@ -191,12 +211,16 @@ export const DiaryPage = React.memo(function DiaryPage() {
       if (process.env.NODE_ENV === 'development') {
         console.log('Showing password modal - diary is encrypted and locked');
       }
+      // Fetch password hint when showing modal
+      fetchPasswordHint();
       setShowPasswordModal(true);
     }
     // Hide modal if diary becomes unlocked
     else if (isUnlocked && showPasswordModal) {
       setShowPasswordModal(false);
       setPassword('');
+      setPasswordError('');
+      setShowPasswordHint(false);
     }
   }, [isStoreInitialized, isEncryptionSetup, isUnlocked, showPasswordModal]);
 
@@ -204,6 +228,8 @@ export const DiaryPage = React.memo(function DiaryPage() {
   const handleCancelUnlock = () => {
     setShowPasswordModal(false);
     setPassword('');
+    setPasswordError('');
+    setShowPasswordHint(false);
     // Navigate back to dashboard so user isn't stuck on diary page
     navigate('/dashboard');
   };
@@ -211,15 +237,14 @@ export const DiaryPage = React.memo(function DiaryPage() {
   // Handle password unlock
   const handleUnlock = async () => {
     if (!password.trim()) {
-      notifications.show({
-        title: 'Error',
-        message: 'Please enter a password',
-        color: 'red'
-      });
+      setPasswordError('Please enter a password');
       return;
     }
 
+    // Clear previous errors when trying again
+    setPasswordError('');
     setIsUnlocking(true);
+
     try {
       const success = await unlockSession(password);
       if (success) {
@@ -230,19 +255,21 @@ export const DiaryPage = React.memo(function DiaryPage() {
         });
         setShowPasswordModal(false);
         setPassword('');
+        setPasswordError('');
+        setShowPasswordHint(false);
       } else {
-        notifications.show({
-          title: 'Error',
-          message: 'Invalid password. Please try again.',
-          color: 'red'
-        });
+        setPasswordError('Invalid password. Please check your hint and try again.');
+        // Show password hint after failed attempt
+        if (!showPasswordHint) {
+          setShowPasswordHint(true);
+        }
       }
     } catch (error: any) {
-      notifications.show({
-        title: 'Error',
-        message: error.message || 'Failed to unlock diary',
-        color: 'red'
-      });
+      setPasswordError(error.message || 'Failed to unlock diary. Please try again.');
+      // Show password hint on error
+      if (!showPasswordHint) {
+        setShowPasswordHint(true);
+      }
     } finally {
       setIsUnlocking(false);
     }
@@ -451,7 +478,7 @@ export const DiaryPage = React.memo(function DiaryPage() {
         </Center>
       )}
 
-      {/* Password Modal */}
+      {/* Enhanced Password Modal */}
       <Modal
         opened={showPasswordModal}
         onClose={handleCancelUnlock}
@@ -463,14 +490,55 @@ export const DiaryPage = React.memo(function DiaryPage() {
             Enter your diary password to access your encrypted entries.
           </Text>
 
-          <PasswordInput
-            placeholder="Enter your diary password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleUnlock()}
-            autoFocus
-          />
+          {/* Password Error Alert */}
+          {passwordError && (
+            <Alert color="red" variant="light">
+              <Text size="sm">{passwordError}</Text>
+            </Alert>
+          )}
 
+          {/* Password Input with Hint Toggle */}
+          <Group gap="sm">
+            <PasswordInput
+              style={{ flex: 1 }}
+              placeholder="Enter your diary password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                // Clear error when user starts typing
+                if (passwordError) {
+                  setPasswordError('');
+                }
+              }}
+              onKeyPress={(e) => e.key === 'Enter' && handleUnlock()}
+              autoFocus
+              error={passwordError}
+            />
+
+            {/* Password Hint Toggle */}
+            {passwordHint && (
+              <Tooltip label={showPasswordHint ? "Hide hint" : "Show hint"}>
+                <ActionIcon
+                  variant="light"
+                  color="blue"
+                  onClick={() => setShowPasswordHint(!showPasswordHint)}
+                  size="input-height"
+                >
+                  {showPasswordHint ? <IconEyeOff size={16} /> : <IconHelp size={16} />}
+                </ActionIcon>
+              </Tooltip>
+            )}
+          </Group>
+
+          {/* Password Hint Display */}
+          {showPasswordHint && passwordHint && (
+            <Alert color="blue" variant="light" icon={<IconHelp size={16} />}>
+              <Text size="sm" fw={500}>Password Hint:</Text>
+              <Text size="sm">{passwordHint}</Text>
+            </Alert>
+          )}
+
+          {/* Action Buttons */}
           <Group gap="sm">
             <Button
               onClick={handleUnlock}
@@ -478,15 +546,35 @@ export const DiaryPage = React.memo(function DiaryPage() {
               disabled={!password.trim()}
               variant="filled"
               color="blue"
+              style={{ flex: 1 }}
             >
               Unlock
             </Button>
             <Button
               variant="light"
               onClick={handleCancelUnlock}
+              style={{ flex: 1 }}
             >
               Cancel
             </Button>
+          </Group>
+
+          {/* Additional Options */}
+          <Group justify="space-between">
+            <Text size="xs" c="dimmed">
+              Forgotten your password? Contact support for assistance.
+            </Text>
+            {passwordHint && !showPasswordHint && (
+              <Button
+                variant="subtle"
+                size="compact-xs"
+                color="blue"
+                onClick={() => setShowPasswordHint(true)}
+                leftSection={<IconHelp size={12} />}
+              >
+                Need a hint?
+              </Button>
+            )}
           </Group>
         </Stack>
       </Modal>
