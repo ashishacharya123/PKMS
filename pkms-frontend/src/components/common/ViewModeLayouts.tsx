@@ -2,6 +2,7 @@ import { SimpleGrid, Card, Stack, Title, Text, Badge, Group } from '@mantine/cor
 import { ViewMode } from './ViewMenu';
 import { LoadingSkeleton } from './LoadingSkeleton';
 import classes from './ViewModeLayouts.module.css';
+import { formatFileSize } from '../../utils/fileUtils';
 
 interface BaseItem {
   uuid: string;
@@ -206,15 +207,5 @@ export function formatDate(dateString: string | undefined): string {
   }
 }
 
-// Utility function for formatting file sizes
-export function formatFileSize(bytes: number | undefined): string {
-  if (bytes === undefined || bytes === null || !Number.isFinite(bytes) || bytes < 0) return 'N/A';
-  if (bytes === 0) return '0 B';
-
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  const clampedIndex = Math.min(i, sizes.length - 1);
-  return `${(bytes / Math.pow(1024, clampedIndex)).toFixed(1)} ${sizes[clampedIndex]}`;
-}
 
 export default ViewModeLayouts;

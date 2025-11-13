@@ -4,8 +4,7 @@
  */
 
 import React from 'react';
-import { Paper, Stack, Text, Button, Group } from '@mantine/core';
-import { Icon } from '@tabler/icons-react';
+import { Paper, Stack, Text, Button } from '@mantine/core';
 
 interface EmptyStateProps {
   icon: React.ComponentType<{ size?: number; stroke?: number; color?: string }>;

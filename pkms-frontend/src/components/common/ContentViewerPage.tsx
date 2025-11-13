@@ -37,6 +37,10 @@ export function ContentViewerPage<T>({ id, config }: { id: string; config: Conte
   }, { dependencies: [id] });
 
   const { data: files } = useDataLoader(async () => {
+    if (config.module === 'todos') {
+      // Todos don't have file attachments
+      return [];
+    }
     const raw = await config.service.getItemFiles(id);
     return transformFilesToUnifiedItems(raw, config.module, id, config.fileTransformOptions);
   }, { dependencies: [id] });

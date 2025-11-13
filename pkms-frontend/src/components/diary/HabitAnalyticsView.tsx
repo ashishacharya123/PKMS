@@ -52,6 +52,7 @@ type AnalyticsState = {
     default: any[];
     defined: any[];
   };
+  habitConfigsLoaded: boolean;
 };
 
 // Actions for useReducer
@@ -80,6 +81,7 @@ const initialState: AnalyticsState = {
     default: [],
     defined: []
   },
+  habitConfigsLoaded: false,
 };
 
 // Dropdown options based on type
@@ -130,7 +132,8 @@ function analyticsReducer(state: AnalyticsState, action: AnalyticsAction): Analy
           default: defaultConfigs,
           defined: definedConfigs
         },
-        selectedAnalysis: defaultAnalysis || state.selectedAnalysis
+        selectedAnalysis: defaultAnalysis || state.selectedAnalysis,
+        habitConfigsLoaded: true
       };
     default:
       return state;
@@ -506,7 +509,7 @@ export default function HabitAnalyticsView() {
   };
 
   // Show loading state while configs are loading
-  if (state.habitConfigs.default.length === 0 && state.habitConfigs.defined.length === 0 && !state.error) {
+  if (!state.habitConfigsLoaded && !state.error) {
     return (
       <Paper p="md">
         <Center style={{ minHeight: 400 }}>

@@ -1,6 +1,6 @@
 /**
  * Enhanced Testing Interface Component for PKMS
- * 
+ *
  * Provides comprehensive testing capabilities including:
  * - Authentication testing with detailed logs
  * - Database diagnostics with grouped table schemas
@@ -8,6 +8,13 @@
  * - Console commands for debugging
  * - System health checks with detailed metrics
  */
+
+// Extend window interface for caching username
+declare global {
+  interface Window {
+    __cachedUsername?: string;
+  }
+}
 
 import React, { useState, useEffect } from 'react';
 import {
@@ -1218,32 +1225,33 @@ export function TestingInterface({ opened, onClose }: TestingInterfaceProps) {
               <Paper withBorder p="md" ta="center">
                 <Text size="xl" fw={700} color="blue">
                   {(() => {
+                    // Only run this logic once and cache the result to avoid render loops
+                    if (window.__cachedUsername) {
+                      return window.__cachedUsername;
+                    }
+
                     try {
-                      console.log('Trying to decode JWT for username...');
-                      // Get JWT token from cookies
-                      const cookies = document.cookie.split(';');
-                      const pkmsToken = cookies.find(c => c.trim().startsWith('pkms_token='));
-                      console.log('Found pkms_token:', pkmsToken ? 'YES' : 'NO');
+                      // Try HttpOnly cookies first (they won't be accessible via JS, but API calls will work)
+                      // Fall back to localStorage tokens for testing interface display
+                      const token = localStorage.getItem('pkms_token') ||
+                                   localStorage.getItem('jwt_token') ||
+                                   localStorage.getItem('token');
 
-                      if (pkmsToken) {
-                        const token = pkmsToken.split('=')[1];
-                        console.log('Token found, first part:', token.split('.')[0]);
-                        console.log('Token payload:', token.split('.')[1]);
-
+                      if (token) {
                         // Decode JWT payload (base64)
                         const payload = JSON.parse(atob(token.split('.')[1]));
-                        console.log('Decoded payload:', payload);
-                        console.log('Username found:', payload.username);
-
-                        if (payload.username) {
-                          return payload.username;
-                        }
+                        window.__cachedUsername = payload.username || (databaseStats as any).userUuid?.slice(0, 8) || 'N/A';
+                        return window.__cachedUsername;
                       }
                     } catch (e) {
                       console.error('JWT decode error:', e);
                     }
-                    // Fallback to UUID if token parsing fails
-                    return (databaseStats as any).userUuid?.slice(0, 8) || 'N/A';
+
+                    // Fallback to UUID or data from database stats
+                    window.__cachedUsername = (databaseStats as any).userUuid?.slice(0, 8) ||
+                                            (databaseStats as any).username ||
+                                            'N/A';
+                    return window.__cachedUsername;
                   })()}
                 </Text>
                 <Text size="sm" c="dimmed">Username</Text>

@@ -3,10 +3,12 @@
  * Provides consistent file upload experience across all modules
  */
 
-import { Modal, Stack, Text, Group, Button, TextInput, Textarea, Divider, TagsInput } from '@mantine/core';
-import { IconUpload, IconX } from '@tabler/icons-react';
+import { Modal, Stack, Text, Group, Button, TextInput, Textarea, Divider, TagsInput, ScrollArea } from '@mantine/core';
+import { IconUpload, IconX, IconInfoCircle } from '@tabler/icons-react';
 import { FileUploadZone } from './FileUploadZone';
-import { useState } from 'react';
+import { MetadataPreview } from './MetadataPreview';
+import { useMetadataExtraction } from '../../hooks/useMetadataExtraction';
+import { useState, useEffect, useMemo } from 'react';
 
 interface FileMetadata {
   title?: string;
@@ -44,15 +46,41 @@ export function FileUploadModal({
     tags: []
   });
 
-  const handleFilesSelected = (files: File[]) => {
+  // Initialize metadata extraction
+  const metadataExtraction = useMetadataExtraction({
+    autoExtract: true,
+    processingOptions: {
+      includeContentAnalysis: true,
+      generateTags: true,
+      maxContentLength: 3000
+    },
+    onExtracted: (file, extractedMetadata) => {
+      // Auto-populate form fields with extracted metadata
+      if (selectedFiles.length === 1 && selectedFiles[0] === file) {
+        setMetadata(prev => ({
+          title: prev.title || extractedMetadata.title || '',
+          description: prev.description || extractedMetadata.description || '',
+          tags: prev.tags.length > 0 ? prev.tags : (extractedMetadata.tags || [])
+        }));
+      }
+    }
+  });
+
+  const handleFilesSelected = async (files: File[]) => {
     setSelectedFiles(files);
-    
-    // Auto-generate title from first file if not provided
-    if (!metadata.title && files.length > 0) {
-      setMetadata(prev => ({
-        ...prev,
-        title: files[0].name.split('.')[0] // Remove extension
-      }));
+
+    // Extract metadata for new files
+    await metadataExtraction.processFiles(files);
+
+    // Auto-generate title from first file if not provided and metadata not extracted
+    if (!metadata.title && files.length === 1) {
+      const extractedState = metadataExtraction.getExtractionState(files[0]);
+      if (!extractedState.metadata?.title) {
+        setMetadata(prev => ({
+          ...prev,
+          title: files[0].name.split('.')[0] // Remove extension
+        }));
+      }
     }
   };
 
@@ -70,18 +98,30 @@ export function FileUploadModal({
   const handleClose = () => {
     setSelectedFiles([]);
     setMetadata({ title: '', description: '', tags: [] });
+    metadataExtraction.clearMetadata(); // Clear extracted metadata
     onClose();
   };
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  const handleFileRemove = (index: number) => {
+    const newFiles = selectedFiles.filter((_, i) => i !== index);
+    setSelectedFiles(newFiles);
+
+    // Clear metadata for removed file
+    if (selectedFiles[index]) {
+      metadataExtraction.clearMetadata(selectedFiles[index]);
+    }
+
+    // Reset metadata form if no files left
+    if (newFiles.length === 0) {
+      setMetadata({ title: '', description: '', tags: [] });
+    }
   };
 
-  const totalSize = selectedFiles.reduce((sum, file) => sum + file.size, 0);
+  
+  const totalSize = useMemo(
+    () => selectedFiles.reduce((sum, file) => sum + file.size, 0),
+    [selectedFiles]
+  );
 
   return (
     <Modal
@@ -97,44 +137,40 @@ export function FileUploadModal({
       padding="md"
     >
       <Stack gap="md">
-        {/* File Upload Zone */}
+        {/* File Upload Zone with Enhanced UI */}
         <FileUploadZone
           accept={accept}
           multiple={multiple}
           maxFiles={maxFiles}
           maxSize={maxSize}
           onFilesSelected={handleFilesSelected}
+          selectedFiles={selectedFiles}
+          onRemoveFile={handleFileRemove}
           disabled={loading}
+          showSelectedFiles={true}
         />
 
-        {/* Selected Files Summary */}
-        {selectedFiles.length > 0 && (
-          <div>
-            <Text size="sm" fw={500} mb="xs">
-              Selected Files ({selectedFiles.length})
-            </Text>
-            <Stack gap="xs">
-              {selectedFiles.map((file, index) => (
-                <Group key={index} justify="space-between" p="xs" style={{ 
-                  border: '1px solid var(--mantine-color-gray-3)', 
-                  borderRadius: '4px' 
-                }}>
-                  <Text size="sm" style={{ flex: 1 }} truncate>
-                    {file.name}
-                  </Text>
-                  <Text size="xs" c="dimmed">
-                    {formatFileSize(file.size)}
-                  </Text>
-                </Group>
-              ))}
-              <Text size="xs" c="dimmed">
-                Total size: {formatFileSize(totalSize)}
-              </Text>
-            </Stack>
-          </div>
-        )}
+        {selectedFiles.length > 0 && <Divider />}
 
-        <Divider />
+        {/* Extracted Metadata Preview */}
+        {selectedFiles.length > 0 && selectedFiles.length === 1 && (
+          <Stack gap="md">
+            <Group gap="sm" align="center">
+              <IconInfoCircle size={16} c="blue" />
+              <Text size="sm" fw={500}>Auto-extracted Metadata</Text>
+              {metadataExtraction.isFileLoading(selectedFiles[0]) && (
+                <Text size="xs" c="blue">(Processing...)</Text>
+              )}
+            </Group>
+            <ScrollArea.Autosize mah={300}>
+              <MetadataPreview
+                metadata={metadataExtraction.getExtractionState(selectedFiles[0]).metadata}
+                loading={metadataExtraction.isFileLoading(selectedFiles[0])}
+                error={metadataExtraction.getFileError(selectedFiles[0])}
+              />
+            </ScrollArea.Autosize>
+          </Stack>
+        )}
 
         {/* Metadata Form */}
         <Stack gap="sm">

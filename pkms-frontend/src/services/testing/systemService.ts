@@ -66,7 +66,7 @@ export const systemService = {
   },
 
   async validateDataIntegrity(): Promise<any> {
-    const response = await apiService.get('/testing/system/validate-data-integrity');
+    const response = await apiService.get('/testing/system/data-integrity');
     return response.data;
   },
 
@@ -76,7 +76,7 @@ export const systemService = {
   },
 
   async runFileSanityCheck(options: any): Promise<any> {
-    const response = await apiService.post('/testing/system/file-sanity-check', options);
+    const response = await apiService.post('/testing/system/files/sanity-check', options);
     return response.data;
   }
 };

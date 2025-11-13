@@ -8,9 +8,6 @@ Includes entry creation, reading, updating, deletion, and file operations.
 import logging
 import json
 from uuid6 import uuid7
-import base64
-import hashlib
-import aiofiles
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +20,8 @@ from app.models.diary import DiaryEntry, DiaryDailyMetadata
 from app.models.tag import Tag
 from app.models.tag_associations import diary_entry_tags
 from app.models.enums import ModuleType
-# Note: Diary encryption is handled client-side. Backend receives fully-formed encrypted blobs.
+# Note: Diary content files are handled via the document upload service.
+# Frontend encrypts content in PKMS format before uploading, and backend stores files as-is.
 from app.services.tag_service import tag_service
 from app.services.search_service import search_service
 from app.schemas.diary import (
@@ -39,162 +37,12 @@ logger = logging.getLogger(__name__)
 class DiaryCRUDService:
     """
     Service for diary CRUD operations including entry management and file operations.
+    
+    Note: Diary content files are stored via the document upload service (unified_upload_service),
+    not directly by this service. When a diary entry is created, content is uploaded separately
+    as a document file, which is then linked to the diary entry via the document_diary association.
     """
     
-    @staticmethod
-    async def _create_content_document(
-        db: AsyncSession,
-        entry_uuid: str,
-        user_uuid: str,
-        encrypted_blob: str,
-        encryption_iv: str,
-        content_length: int
-    ) -> None:
-        """
-        Create a Document for diary content with sort_order = 0.
-        Stores encrypted content in /documents/diary/ folder.
-        """
-        from app.models.document import Document
-        from app.models.associations import document_diary
-        from app.services.unified_upload_service import get_user_storage_path
-        
-        # Generate content document UUID
-        content_doc_uuid = str(uuid7())
-        
-        # Create diary folder structure: /documents/diary/{user_uuid}/
-        diary_storage_dir = get_user_storage_path(user_uuid, "documents") / "diary"
-        diary_storage_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Generate filename: {entry_uuid}_content.dat
-        content_filename = f"{entry_uuid}_content.dat"
-        content_file_path = diary_storage_dir / content_filename
-        
-        # Write encrypted content to file
-        encrypted_data = base64.b64decode(encrypted_blob)
-        async with aiofiles.open(content_file_path, 'wb') as f:
-            await f.write(encrypted_data)
-        
-        # Calculate file hash
-        file_hash = hashlib.sha256(encrypted_data).hexdigest()
-        
-        # Create Document record
-        content_document = Document(
-            uuid=content_doc_uuid,
-            title=f"Diary Content - {entry_uuid}",
-            original_name=content_filename,
-            filename=content_filename,
-            file_path=str(content_file_path.relative_to(get_file_storage_dir())),
-            file_size=len(encrypted_data),
-            file_hash=file_hash,
-            mime_type="application/octet-stream",  # Encrypted content
-            description="Diary entry content",
-            is_favorite=False,
-            is_archived=False,
-            created_by=user_uuid
-        )
-        
-        db.add(content_document)
-        await db.flush()
-        
-        # Create document_diary association with sort_order = 0 (main content)
-        await db.execute(
-            document_diary.insert().values(
-                document_uuid=content_doc_uuid,
-                diary_entry_uuid=entry_uuid,
-                sort_order=0,  # Main content
-                is_exclusive=True,  # Diary content is always exclusive
-                is_encrypted=True,  # Content is encrypted
-                created_at=datetime.now(),
-                updated_at=datetime.now()
-            )
-        )
-        
-        # Update file count
-        await db.execute(
-            DiaryEntry.__table__.update()
-            .where(DiaryEntry.uuid == entry_uuid)
-            .values(file_count=DiaryEntry.file_count + 1)
-        )
-
-    @staticmethod
-    async def _update_content_document(
-        db: AsyncSession,
-        entry_uuid: str,
-        user_uuid: str,
-        encrypted_blob: str,
-        encryption_iv: str,
-        content_length: int
-    ) -> None:
-        """
-        Update the content document for a diary entry.
-        """
-        from app.models.document import Document
-        from app.models.associations import document_diary
-        from app.services.unified_upload_service import get_user_storage_path
-        
-        # Find existing content document (sort_order = 0)
-        content_doc_result = await db.execute(
-            select(Document.uuid, Document.file_path)
-            .join(document_diary, Document.uuid == document_diary.c.document_uuid)
-            .where(
-                and_(
-                    document_diary.c.diary_entry_uuid == entry_uuid,
-                    document_diary.c.sort_order == 0
-                )
-            )
-        )
-        content_doc = content_doc_result.first()
-        
-        if not content_doc:
-            # Create new content document if none exists
-            await DiaryCRUDService._create_content_document(
-                db=db,
-                entry_uuid=entry_uuid,
-                user_uuid=user_uuid,
-                encrypted_blob=encrypted_blob,
-                encryption_iv=encryption_iv,
-                content_length=content_length
-            )
-            return
-        
-        # Update existing content document
-        content_doc_uuid = content_doc.uuid
-        old_file_path = get_file_storage_dir() / content_doc.file_path
-        
-        # Create new file with updated content
-        diary_storage_dir = get_user_storage_path(user_uuid, "documents") / "diary"
-        diary_storage_dir.mkdir(parents=True, exist_ok=True)
-        
-        content_filename = f"{entry_uuid}_content.dat"
-        new_file_path = diary_storage_dir / content_filename
-        
-        # Write new encrypted content
-        encrypted_data = base64.b64decode(encrypted_blob)
-        async with aiofiles.open(new_file_path, 'wb') as f:
-            await f.write(encrypted_data)
-        
-        # Calculate new file hash
-        file_hash = hashlib.sha256(encrypted_data).hexdigest()
-        
-        # Update Document record
-        await db.execute(
-            Document.__table__.update()
-            .where(Document.uuid == content_doc_uuid)
-            .values(
-                file_path=str(new_file_path.relative_to(get_file_storage_dir())),
-                file_size=len(encrypted_data),
-                file_hash=file_hash,
-                updated_at=datetime.now()
-            )
-        )
-        
-        # Remove old file
-        try:
-            if old_file_path.exists():
-                old_file_path.unlink()
-        except OSError as e:
-            logger.warning(f"Could not delete old diary content file {old_file_path}: {e}")
-
     @staticmethod
     async def check_duplicate_hash(
         db: AsyncSession,

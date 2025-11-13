@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
-from urllib.parse import unquote
 import logging
 import json
 import os
@@ -1084,30 +1083,17 @@ async def get_default_habits_analytics(
     request: Request,
     days: int = Query(30, ge=7, le=365),
     include_sma: bool = Query(False),
-    sma_windows: Optional[str] = Query(None, description="Comma-separated SMA window sizes (e.g., '7,14,30')"),
+    sma_windows: Optional[List[int]] = Query([7, 14, 30], description="SMA window sizes (can be provided multiple times: ?sma_windows=7&sma_windows=14&sma_windows=30)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Get analytics for 9 default habits with optional SMA overlays.
 
-    Defensive URL parameter parsing added to handle %2C encoding issues.
+    Uses FastAPI's automatic List[int] query parameter handling.
     """
-    # Parse sma_windows parameter from string to list
-    if sma_windows is None:
-        sma_windows = "7,14,30"
-
-    try:
-        # Handle URL-encoded commas (%2C -> ,)
-        decoded_param = unquote(sma_windows)
-        # Parse comma-separated values into list of integers
-        sma_windows_list = [int(x.strip()) for x in decoded_param.split(',') if x.strip().isdigit()]
-    except (ValueError, AttributeError):
-        # Fallback to defaults if parsing fails
-        sma_windows_list = [7, 14, 30]
-
     # Validate sma_windows values
-    sma_windows_list = [w for w in sma_windows_list if 1 <= w <= 365]  # Ensure reasonable window sizes
+    sma_windows_list = [w for w in (sma_windows or []) if 1 <= w <= 365]  # Ensure reasonable window sizes
     if not sma_windows_list:
         sma_windows_list = [7, 14, 30]  # Final fallback
 

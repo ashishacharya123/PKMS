@@ -28,7 +28,8 @@ import {
   Tooltip
 } from '@mantine/core';
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
-import ViewModeLayouts, { formatDate, formatFileSize } from '../components/common/ViewModeLayouts';
+import ViewModeLayouts, { formatDate } from '../components/common/ViewModeLayouts';
+import { formatFileSize } from '../utils/fileUtils';
 import { useViewPreferences } from '../hooks/useViewPreferences';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { ProjectBadges } from '../components/common/ProjectBadges';

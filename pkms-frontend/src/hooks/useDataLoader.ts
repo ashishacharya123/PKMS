@@ -39,8 +39,11 @@ export function useDataLoader<T>(
   // Note: loadFn should be stable (useCallback in parent) to avoid infinite loops
   // Note: onSuccess and onError should be wrapped in useCallback in parent component
   const loadData = useCallback(async (isManualRefresh = false) => {
+    // Check hasData inline to avoid unnecessary dependency
+    const currentHasData = data !== null;
+
     // If keepDataWhileLoading is true and we have data, show refresh state instead of full loading
-    if (keepDataWhileLoading && hasData && isManualRefresh) {
+    if (keepDataWhileLoading && currentHasData && isManualRefresh) {
       setIsRefreshing(true);
     } else {
       setLoading(true);
@@ -61,13 +64,13 @@ export function useDataLoader<T>(
       setIsRefreshing(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadFn, depsKey, hasData, keepDataWhileLoading]);
+  }, [loadFn, depsKey, keepDataWhileLoading, onSuccess, onError]); // Removed hasData dependency
 
   useEffect(() => {
     if (autoLoad) {
       loadData(false);
     }
-  }, [autoLoad, loadData]);
+  }, [autoLoad, depsKey]); // Use depsKey instead of loadData to break circular dependency
 
   // Wrapper for manual refresh that sets the isManualRefresh flag
   const refetch = useCallback(() => loadData(true), [loadData]);

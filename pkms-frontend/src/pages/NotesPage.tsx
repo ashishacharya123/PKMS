@@ -135,7 +135,7 @@ export function NotesPage() {
     });
   }, []);
 
-  // Stable load function to prevent infinite re-renders
+  // Stable load function - useDataLoader handles dependency tracking
   const loadNotes = useCallback(async () => {
     return await notesService.listNotes({
       tag: currentTag || undefined,
@@ -144,7 +144,7 @@ export function NotesPage() {
       limit: itemsPerPage,
       offset: (currentPage - 1) * itemsPerPage,
     });
-  }, [currentTag, debouncedSearch, showArchived, currentPage, itemsPerPage]);
+  }, []); // Empty deps - useDataLoader tracks dependencies via depsKey
 
   // Data loading with useDataLoader hook
   const {

@@ -90,6 +90,9 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
   const handleSave = async () => {
     setIsLoading(true);
     try {
+      // Calculate dateKey for the save operation
+      const dateKey = format(selectedDate, 'yyyy-MM-dd');
+
       // Create the single payload object the backend expects
       const payload = {
         default_habits: defaultData,

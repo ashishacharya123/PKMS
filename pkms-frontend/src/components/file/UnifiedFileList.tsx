@@ -41,6 +41,7 @@ import { TodoCard } from '../todos/TodoCard';
 import { Todo } from '../../types/todo';
 import { UnifiedContentModal } from './UnifiedContentModal';
 import { useModal } from '../../hooks/useModal';
+import { formatFileSize } from '../../utils/fileUtils';
 
 // Utility function for getting cache module
 const getCacheModule = (module: string): 'documents' | 'archive' | 'diary' => {
@@ -148,14 +149,6 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
       }
     };
   }, []);
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
 
   const isAudioFile = (mimeType: string, mediaType?: string) =>
     mimeType.startsWith('audio/') || mediaType === 'audio';

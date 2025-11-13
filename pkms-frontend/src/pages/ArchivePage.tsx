@@ -37,7 +37,8 @@ import {
 } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
-import { formatDate, formatFileSize } from '../components/common/ViewModeLayouts';
+import { formatDate } from '../components/common/ViewModeLayouts';
+import { formatFileSize } from '../utils/fileUtils';
 import { useViewPreferences } from '../hooks/useViewPreferences';
 import ModuleFilters, { getModuleFilterConfig } from '../components/common/ModuleFilters';
 import {

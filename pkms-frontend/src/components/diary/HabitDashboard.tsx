@@ -16,7 +16,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useDiaryStore } from '../../stores/diaryStore';
+import { useNavigate } from 'react-router-dom';
 import {
   Paper,
   Stack,
@@ -117,7 +117,7 @@ function MetricCard({ title, value, unit, trend, icon, color, goal, current }: M
 }
 
 export default function HabitDashboard() {
-  const { setActiveTab } = useDiaryStore();
+  const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -157,13 +157,13 @@ export default function HabitDashboard() {
 
   // Button handlers
   const handleFillTodaysData = () => {
-    // Navigate to habit input tab with today's date
-    setActiveTab('habit-input');
+    // Navigate to diary tab with today's date
+    navigate('/diary?tab=diary');
   };
 
   const handleViewAnalytics = () => {
-    // Navigate to habit analytics tab
-    setActiveTab('habit-analytics');
+    // Navigate to analytics tab
+    navigate('/diary?tab=analytics');
   };
 
   if (loading && !dashboardData) {

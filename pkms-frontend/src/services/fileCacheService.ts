@@ -9,6 +9,8 @@
  * - Performance monitoring
  */
 
+import { formatFileSize } from '../utils/fileUtils';
+
 interface FileCacheEntry {
   blob: Blob;
   timestamp: number;
@@ -251,7 +253,7 @@ class FileCacheService {
       const blob = await response.blob();
       await this.cacheFile(cacheKey, blob, undefined, generateThumbnail);
       
-      console.log(`✅ CACHED: ${url} (${this.formatFileSize(blob.size)})`);
+      console.log(`✅ CACHED: ${url} (${formatFileSize(blob.size)})`);
       return blob;
     } catch (error) {
       console.error(`❌ DOWNLOAD FAILED: ${url}`, error);
@@ -339,8 +341,8 @@ class FileCacheService {
       'Cache Hits': stats.hits,
       'Cache Misses': stats.misses,
       'Evictions': stats.evictions,
-      'Total Size': this.formatFileSize(stats.totalSize),
-      'Max Size': this.formatFileSize(stats.maxSize),
+      'Total Size': formatFileSize(stats.totalSize),
+      'Max Size': formatFileSize(stats.maxSize),
       'Cache Files': this.cache.size,
       'Avg Response Time': `${Math.round(stats.averageResponseTime)}ms`
     });
@@ -430,17 +432,9 @@ class FileCacheService {
     }
   }
 
-  private formatFileSize(bytes: number): string {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  }
-
   private logCacheHit(key: string, source: 'memory' | 'indexeddb', size: number): void {
     if (this.config.enablePerformanceMonitoring) {
-      console.log(`🎯 FILE CACHE HIT [${source}]: ${key} (${this.formatFileSize(size)})`);
+      console.log(`🎯 FILE CACHE HIT [${source}]: ${key} (${formatFileSize(size)})`);
     }
   }
 
@@ -453,7 +447,7 @@ class FileCacheService {
   private logCacheSet(key: string, size: number, isThumbnail: boolean): void {
     if (this.config.enablePerformanceMonitoring) {
       const type = isThumbnail ? 'thumbnail' : 'file';
-      console.log(`✅ FILE CACHE SET [${type}]: ${key} (${this.formatFileSize(size)})`);
+      console.log(`✅ FILE CACHE SET [${type}]: ${key} (${formatFileSize(size)})`);
     }
   }
 
@@ -602,7 +596,7 @@ class FileService {
     // Check if already cached
     const cached = await cache.getFile(key);
     if (cached) {
-      console.log(`🎯 FILE CACHE HIT: ${url} (${this.formatFileSize(cached.size)})`);
+      console.log(`🎯 FILE CACHE HIT: ${url} (${formatFileSize(cached.size)})`);
       return cached;
     }
 
@@ -614,7 +608,7 @@ class FileService {
       const contentLength = headResponse.headers.get('content-length');
       
       if (contentLength && parseInt(contentLength) > maxSizeBytes) {
-        console.warn(`❌ FILE TOO LARGE: ${url} (${this.formatFileSize(parseInt(contentLength))} > ${maxSize}MB)`);
+        console.warn(`❌ FILE TOO LARGE: ${url} (${formatFileSize(parseInt(contentLength))} > ${maxSize}MB)`);
         return null;
       }
 
@@ -627,14 +621,14 @@ class FileService {
       
       // Check actual file size
       if (blob.size > maxSizeBytes) {
-        console.warn(`❌ FILE TOO LARGE: ${url} (${this.formatFileSize(blob.size)} > ${maxSize}MB)`);
+        console.warn(`❌ FILE TOO LARGE: ${url} (${formatFileSize(blob.size)} > ${maxSize}MB)`);
         return null;
       }
 
       // Cache the file
       await cache.cacheFile(key, blob, undefined, generateThumbnail);
       
-      console.log(`✅ FILE CACHED: ${url} (${this.formatFileSize(blob.size)})`);
+      console.log(`✅ FILE CACHED: ${url} (${formatFileSize(blob.size)})`);
       return blob;
       
     } catch (error) {
@@ -679,17 +673,6 @@ class FileService {
       default:
         throw new Error(`Unknown module: ${module}`);
     }
-  }
-
-  /**
-   * Format file size for display
-   */
-  private formatFileSize(bytes: number): string {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 }
 

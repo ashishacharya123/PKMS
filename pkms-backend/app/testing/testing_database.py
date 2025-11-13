@@ -59,8 +59,10 @@ async def get_database_stats(
         for table_name, model in tables_to_check:
             try:
                 if table_name == "users":
-                    # For users table, don't filter by created_by
-                    result = await db.execute(select(func.count()).select_from(model))
+                    # For users table, filter by current user's UUID (CRITICAL SECURITY)
+                    result = await db.execute(
+                        select(func.count()).select_from(model).where(model.uuid == current_user.uuid)
+                    )
                 else:
                     # For other tables, filter by current user
                     result = await db.execute(
@@ -392,12 +394,23 @@ async def get_table_schema(
             try:
                 # Build SELECT query with column names
                 column_names = [col["name"] for col in columns]
-                sample_query = text(f"""
-                    SELECT {', '.join(column_names)}
-                    FROM {table_name}
-                    LIMIT {sample_limit}
-                """)
-                sample_result = await db.execute(sample_query)
+
+                # Special case for users table - add user filtering (CRITICAL SECURITY)
+                if table_name == "users":
+                    sample_query = text(f"""
+                        SELECT {', '.join(column_names)}
+                        FROM {table_name}
+                        WHERE uuid = :user_uuid
+                        LIMIT {sample_limit}
+                    """)
+                    sample_result = await db.execute(sample_query, {"user_uuid": current_user.uuid})
+                else:
+                    sample_query = text(f"""
+                        SELECT {', '.join(column_names)}
+                        FROM {table_name}
+                        LIMIT {sample_limit}
+                    """)
+                    sample_result = await db.execute(sample_query)
 
                 for row in sample_result:
                     row_data = {}
@@ -474,8 +487,8 @@ async def get_sample_rows(
             )
             rows = result.fetchall()
         elif table == "users":
-            # For users table, don't filter by created_by, just get limited results
-            query = select(User).limit(limit)
+            # For users table, only return current user's own record (CRITICAL SECURITY)
+            query = select(User).where(User.uuid == current_user.uuid).limit(1)
             result = await db.execute(query)
             rows = result.scalars().all()
         else:
