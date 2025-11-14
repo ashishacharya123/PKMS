@@ -786,8 +786,12 @@ export function DocumentsPage() {
         onUpload={async (files, metadata) => {
           try {
             for (const file of files) {
-              // Note: FileMetadata doesn't include projectIds/isExclusive - using defaults
-              await uploadDocument(file, metadata.tags || [], [], false);
+              await uploadDocument(file, {
+                description: metadata.description || '',
+                tags: metadata.tags || [],
+                // Note: projectIds and isExclusive not available in FileMetadata interface
+                // If needed, extend FileMetadata interface to include these fields
+              });
             }
             uploadModal.closeModal();
             notifications.show({

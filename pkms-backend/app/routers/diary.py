@@ -5,7 +5,7 @@ Refactored to use service layer for business logic.
 Router now contains only HTTP endpoint definitions and thin wrappers.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, Body, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Form, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
@@ -541,7 +541,6 @@ async def get_daily_metadata(
     db: AsyncSession = Depends(get_db)
 ):
     """Get daily metadata for a specific date."""
-    from datetime import datetime
     try:
         # Convert string path param to date object
         try:
@@ -561,7 +560,6 @@ async def get_daily_metadata(
 
         if result is None:
             # Return empty daily metadata instead of raising exception
-            from app.schemas.diary import DiaryDailyMetadataResponse
             return DiaryDailyMetadataResponse(
                 date=date_obj,
                 nepali_date="",
@@ -1080,7 +1078,6 @@ async def get_daily_habits(
 
 @router.get("/habits/analytics/default")
 async def get_default_habits_analytics(
-    request: Request,
     days: int = Query(30, ge=7, le=365),
     include_sma: bool = Query(False),
     sma_windows: Optional[List[int]] = Query([7, 14, 30], description="SMA window sizes (can be provided multiple times: ?sma_windows=7&sma_windows=14&sma_windows=30)"),

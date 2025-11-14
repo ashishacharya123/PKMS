@@ -121,7 +121,7 @@ function analyticsReducer(state: AnalyticsState, action: AnalyticsAction): Analy
       return { ...state, dashboardSummary: action.payload };
     case 'MISSING_TODAY_LOADED':
       return { ...state, missingToday: action.payload };
-    case 'HABIT_CONFIGS_LOADED':
+    case 'HABIT_CONFIGS_LOADED': {
       const { default: defaultConfigs, defined: definedConfigs } = action.payload;
       // Set default analysis when configs load (if not already set)
       const defaultAnalysis = state.selectedAnalysis ||
@@ -135,6 +135,7 @@ function analyticsReducer(state: AnalyticsState, action: AnalyticsAction): Analy
         selectedAnalysis: defaultAnalysis || state.selectedAnalysis,
         habitConfigsLoaded: true
       };
+    }
     default:
       return state;
   }
@@ -167,7 +168,7 @@ function getDropdownOptions(
           { value: 'correlations', label: 'Habit Correlations' }
         ]);
 
-    case 'defined':
+    case 'defined': {
       // Generate from defined habit configs
       const definedOptions = habitConfigs.defined
         .filter(habit => habit.isActive !== false)
@@ -181,6 +182,7 @@ function getDropdownOptions(
             { value: 'correlations', label: 'Custom Habit Correlations' }
           ])
         : [{ value: 'correlations', label: 'Custom Habit Correlations' }];
+    }
 
     case 'comprehensive':
       // Comprehensive options remain static
@@ -573,7 +575,7 @@ export default function HabitAnalyticsView() {
               onChange={handleAnalysisChange}
               data={getDropdownOptions(state.selectedType, state.habitConfigs)}
               icon={<IconTarget size={16} />}
-              disabled={state.habitConfigs.default.length === 0 && state.habitConfigs.defined.length === 0}
+              disabled={!state.habitConfigsLoaded || (state.habitConfigs.default.length === 0 && state.habitConfigs.defined.length === 0)}
             />
 
             {/* Period selector */}

@@ -217,7 +217,7 @@ export default function ArchivePageNew() {
     if (!newFolderName.trim()) return;
     
     try {
-      await createFolder(newFolderName.trim(), currentFolder?.uuid);
+      await createFolder(newFolderName.trim(), currentFolder?.uuid, newFolderDescription.trim() || undefined);
       setNewFolderName('');
       setNewFolderDescription('');
       closeCreateFolder();

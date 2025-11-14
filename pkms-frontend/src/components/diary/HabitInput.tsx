@@ -42,7 +42,7 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
   const [definedConfig, setDefinedConfig] = useState<HabitConfig[]>([]);
   const [defaultData, setDefaultData] = useState<Record<string, number>>({});
   const [definedData, setDefinedData] = useState<Record<string, number>>({});
-  const [defaultStreaks] = useState<Record<string, number>>({});
+  const defaultStreaks: Record<string, number> = {};
   const [definedStreaks, setDefinedStreaks] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [currentHabitType, setCurrentHabitType] = useState<'default' | 'defined'>('default');
@@ -63,15 +63,36 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
       // Load existing data for this date
       const existing = await diaryService.getDailyMetadata(dateKey);
 
-      // Parse the JSON *objects* directly
-      const defaultDataMap: Record<string, number> = JSON.parse(
-        (existing as any)?.defaultHabitsJson || "{}"
-      );
+      // Parse metrics from response - backend returns metrics.default_habits and metrics.defined_habits
+      let defaultDataMap: Record<string, number> = {};
+      let definedDataMap: Record<string, number> = {};
 
-      const definedHabitsJson = (existing as any)?.definedHabitsJson || "{}";
-      const definedDataMap: Record<string, number> = JSON.parse(
-        definedHabitsJson
-      ).habits || {}; // Get the 'habits' sub-key
+      try {
+        // Access default_habits from metrics object
+        const defaultHabits = existing?.metrics?.default_habits;
+        if (defaultHabits && typeof defaultHabits === 'object') {
+          defaultDataMap = defaultHabits as Record<string, number>;
+        }
+      } catch (error) {
+        console.warn('Failed to parse default habits, using empty object:', error);
+      }
+
+      try {
+        // Access defined_habits from metrics object
+        // Backend may return defined_habits.habits nested structure
+        const definedHabits = existing?.metrics?.defined_habits;
+        if (definedHabits && typeof definedHabits === 'object') {
+          // Check if it has a nested 'habits' key
+          if ('habits' in definedHabits && typeof definedHabits.habits === 'object') {
+            definedDataMap = definedHabits.habits as Record<string, number>;
+          } else {
+            // Otherwise use the object directly
+            definedDataMap = definedHabits as Record<string, number>;
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to parse defined habits, using empty object:', error);
+      }
 
       setDefaultData(defaultDataMap);
       setDefinedData(definedDataMap);

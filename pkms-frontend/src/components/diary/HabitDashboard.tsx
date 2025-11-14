@@ -119,6 +119,7 @@ function MetricCard({ title, value, unit, trend, icon, color, goal, current }: M
 export default function HabitDashboard() {
   const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
@@ -128,8 +129,12 @@ export default function HabitDashboard() {
     setError(null);
     
     try {
-      const data = await diaryService.getHabitsDashboardSummary();
-      setDashboardData(data);
+      const [dashboard, analytics] = await Promise.all([
+        diaryService.getHabitsDashboardSummary(),
+        diaryService.getDefaultHabitsAnalytics(7, false, [])
+      ]);
+      setDashboardData(dashboard);
+      setAnalyticsData(analytics);
       setLastRefresh(new Date());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
@@ -155,14 +160,11 @@ export default function HabitDashboard() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [loadDashboardData]);
 
-  // Button handlers
   const handleFillTodaysData = () => {
-    // Navigate to diary tab with today's date
     navigate('/diary?tab=diary');
   };
 
   const handleViewAnalytics = () => {
-    // Navigate to analytics tab
     navigate('/diary?tab=analytics');
   };
 
@@ -346,7 +348,7 @@ export default function HabitDashboard() {
           </Group>
         </Card>
 
-        {/* Mini trends based on real data */}
+        {/* Mini trends based on actual historical data from your diary entries */}
         <Card withBorder p="md">
           <Text size="sm" weight={500} mb="sm">
             Recent Performance
@@ -356,40 +358,69 @@ export default function HabitDashboard() {
               <Text size="xs" color="dimmed" mb="xs">
                 Sleep Average This Week
               </Text>
-              <HabitCharts
-                chartType="line"
-                data={[
-                  { date: '6 days ago', value: Math.max(0, sleep_avg_7d - 0.3) },
-                  { date: '5 days ago', value: Math.max(0, sleep_avg_7d - 0.1) },
-                  { date: '4 days ago', value: Math.max(0, sleep_avg_7d + 0.2) },
-                  { date: '3 days ago', value: Math.max(0, sleep_avg_7d - 0.4) },
-                  { date: '2 days ago', value: Math.max(0, sleep_avg_7d + 0.1) },
-                  { date: 'Yesterday', value: Math.max(0, sleep_avg_7d - 0.2) },
-                  { date: 'Today', value: sleep_avg_7d },
-                ]}
-                title=""
-                color="#4CAF50"
-                height={100}
-                showSMA={false}
-                unit="h"
-              />
+              {analyticsData?.habits?.sleep?.trend && analyticsData.habits.sleep.trend.length > 0 ? (
+                <HabitCharts
+                  chartType="line"
+                  data={analyticsData.habits.sleep.trend.slice(-7).map((point: any, index: number) => {
+                    let dateLabel: string;
+                    if (index === 6) {
+                      dateLabel = 'Today';
+                    } else if (index === 5) {
+                      dateLabel = 'Yesterday';
+                    } else {
+                      const daysAgo = 6 - index;
+                      dateLabel = `${daysAgo} day${daysAgo === 1 ? '' : 's'} ago`;
+                    }
+                    return {
+                      date: dateLabel,
+                      value: point.value
+                    };
+                  })}
+                  title=""
+                  color="#4CAF50"
+                  height={100}
+                  showSMA={false}
+                  unit="h"
+                />
+              ) : (
+                <Text size="xs" color="dimmed" style={{ height: 100, display: 'flex', alignItems: 'center' }}>
+                  No sleep data available for the last 7 days
+                </Text>
+              )}
             </div>
             <div>
               <Text size="xs" color="dimmed" mb="xs">
-                Current Exercise Streak
+                Exercise This Week
               </Text>
-              <HabitCharts
-                chartType="bar"
-                data={Array.from({ length: 7 }, (_, i) => ({
-                  date: i === 6 ? 'Today' : `${7 - i - 1}d ago`,
-                  value: i === 6 ? Math.min(exercise_streak, 7) : (exercise_streak > (7 - i - 1) ? 1 : 0)
-                }))}
-                title=""
-                color="#FF9800"
-                height={100}
-                showSMA={false}
-                unit=""
-              />
+              {analyticsData?.habits?.exercise?.trend && analyticsData.habits.exercise.trend.length > 0 ? (
+                <HabitCharts
+                  chartType="bar"
+                  data={analyticsData.habits.exercise.trend.slice(-7).map((point: any, index: number) => {
+                    let dateLabel: string;
+                    if (index === 6) {
+                      dateLabel = 'Today';
+                    } else if (index === 5) {
+                      dateLabel = 'Yesterday';
+                    } else {
+                      const daysAgo = 6 - index;
+                      dateLabel = `${daysAgo} day${daysAgo === 1 ? '' : 's'} ago`;
+                    }
+                    return {
+                      date: dateLabel,
+                      value: point.value
+                    };
+                  })}
+                  title=""
+                  color="#FF9800"
+                  height={100}
+                  showSMA={false}
+                  unit=""
+                />
+              ) : (
+                <Text size="xs" color="dimmed" style={{ height: 100, display: 'flex', alignItems: 'center' }}>
+                  No exercise data available for the last 7 days
+                </Text>
+              )}
             </div>
           </SimpleGrid>
         </Card>

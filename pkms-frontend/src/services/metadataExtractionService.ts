@@ -166,7 +166,7 @@ class MetadataExtractionService {
     try {
       // Basic simulation - in real implementation, use EXIF library
       metadata.customProperties = {
-        ...metadata.customProperties,
+        ...(metadata.customProperties || {}),
         colorSpace: 'RGB', // Placeholder
         hasAlpha: file.type === 'image/png' // Placeholder
       };
@@ -202,7 +202,7 @@ class MetadataExtractionService {
       }
 
       metadata.customProperties = {
-        ...metadata.customProperties,
+        ...(metadata.customProperties || {}),
         isPDF: true,
         isEncrypted: false, // Would need actual PDF library to determine
         hasForms: false // Would need actual PDF library to determine
@@ -250,7 +250,7 @@ class MetadataExtractionService {
       }
 
       metadata.customProperties = {
-        ...metadata.customProperties,
+        ...(metadata.customProperties || {}),
         encoding: 'UTF-8', // Would need actual detection
         lineBreakStyle: '\n' // Would need actual detection
       };
@@ -286,7 +286,7 @@ class MetadataExtractionService {
     try {
       // In production, use libraries like mammoth.js for Word docs, xlsx for Excel, etc.
       metadata.customProperties = {
-        ...metadata.customProperties,
+        ...(metadata.customProperties || {}),
         isOfficeDocument: true,
         application: this.getOfficeApplication(file.type)
       };

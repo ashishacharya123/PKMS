@@ -123,10 +123,6 @@ export function NotesPage() {
   const filterModal = useModal();
 
   // Stable callbacks to prevent infinite re-renders
-  const handleLoadSuccess = useCallback((data: any) => {
-    // Success callback - no logging needed for normal operation
-  }, []);
-
   const handleLoadError = useCallback((error: Error) => {
     console.error('[NotesPage] Failed to load notes:', {
       error: error.message,
@@ -144,7 +140,7 @@ export function NotesPage() {
       limit: itemsPerPage,
       offset: (currentPage - 1) * itemsPerPage,
     });
-  }, []); // Empty deps - useDataLoader tracks dependencies via depsKey
+  }, [currentTag, debouncedSearch, showArchived, currentPage, itemsPerPage, notesService]);
 
   // Data loading with useDataLoader hook
   const {
@@ -157,7 +153,6 @@ export function NotesPage() {
     loadNotes,
     {
       dependencies: [currentTag, debouncedSearch, showArchived, currentPage, itemsPerPage],
-      onSuccess: handleLoadSuccess,
       onError: handleLoadError,
       keepDataWhileLoading: true // Prevent flickering during refresh
     }
@@ -678,7 +673,7 @@ export function NotesPage() {
                     } catch {}
                   } : undefined}
                   onEdit={() => navigate(`/notes/${note.uuid}`)}
-                  onDelete={() => handleDeleteNote(note.uuid, note.title)}
+                  onDelete={() => handleDeleteNote(note.uuid, note.title || 'Untitled')}
                   isFavorite={note.isFavorite}
                   isArchived={note.isArchived}
                   variant="subtle"

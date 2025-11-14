@@ -92,7 +92,8 @@ export function FileUploadZone({
       }
 
       // Check max files
-      if (validFiles.length + existingFiles.length >= maxFiles) {
+      const totalCount = selectedFiles.length + existingFiles.length + validFiles.length;
+      if (totalCount > maxFiles) {
         errors.push(`Maximum ${maxFiles} files allowed`);
         return;
       }
@@ -151,7 +152,7 @@ export function FileUploadZone({
         }
       }
     }
-  }, [accept, maxFiles, maxSize, onFilesSelected, onFileUpload, existingFiles, disabled, loading]);
+  }, [accept, maxFiles, maxSize, onFilesSelected, onFileUpload, existingFiles, selectedFiles, disabled, loading]);
 
   // Removed unused getAcceptString function
 
