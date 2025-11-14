@@ -1,5 +1,60 @@
 ## 2025-01-08
 
+- Legacy Code Cleanup + Critical Bug Fixes (Assistant: Claude Sonnet 4.5)
+  - **Fixed (CRITICAL)**:
+    - **Thumbnail Endpoint**: Implemented proper UUID lookup (was returning 501 error)
+      - Queries Document and ArchiveItem tables for file lookup
+      - Returns thumbnail FileResponse with proper media types or 404
+      - Fixes image thumbnail display in UI
+      - **File**: `pkms-backend/app/routers/thumbnails.py` (+90 lines)
+    - **Project Statistics**: Implemented async queries for accurate counts (was always returning 0)
+      - Added `project_service.get_project_statistics()` method with proper async DB queries
+      - Queries project_items polymorphic table for todo/document counts
+      - Fixes todo/document counts and progress percentage display
+      - **File**: `pkms-backend/app/services/project_service.py` (+84 lines)
+  - **Removed (Legacy Code)**:
+    - **Migration Endpoint**: Deleted `/diary-migration` endpoint (114 lines)
+      - Referenced non-existent `encrypted_blob` field
+      - Virgin database doesn't need blob-to-file migration
+      - **File**: `pkms-backend/app/testing/testing_database.py`
+    - **FTS Migration Script**: Deleted entire file
+      - Virgin database starts with unified FTS
+      - Old multi-table FTS never existed
+      - **File**: `pkms-backend/migrations/fts_migration.py` (deleted)
+    - **Deprecated Schema**: Removed `ArchiveDocumentRequest` class
+      - All fields marked "Deprecated", zero actual usage
+      - **Files**: `pkms-backend/app/schemas/document.py`, `schemas/__init__.py`
+    - **Disabled Test Endpoint**: Deleted `/encryption/stress-test` endpoint (85 lines)
+      - Always returned "skipped" status, backend encryption moved to frontend
+      - **File**: `pkms-backend/app/testing/testing_auth.py`
+  - **Fixed (Comments & Documentation)**:
+    - **SearchResult Schema**: Clarified fields handle tag-only matches (not "backward compatibility")
+      - Explained when `snippet` is None but `description` shows model's actual description
+      - **File**: `pkms-backend/app/schemas/search.py` (lines 32-37)
+    - **Project Model**: Deprecated `get_project_summary()` property with clear notice
+      - Directs developers to use new service method for accurate async queries
+      - **File**: `pkms-backend/app/models/project.py` (lines 135-159)
+    - **TODO Comments**: Removed 2 misleading TODOs
+      - Todo file cleanup comment (todos don't have documents)
+      - Diary session cleanup comment (already handled automatically)
+      - **Files**: `pkms-backend/app/services/todo_crud_service.py`, `app/routers/auth.py`
+    - **Router Docstrings**: Fixed fuzzy search docstring (service layer pattern, not compatibility)
+      - **File**: `pkms-backend/app/routers/advanced_fuzzy.py`
+    - **Migration References**: Removed outdated migration file references
+      - Virgin DB never had migrations to run, comments now explain current state
+      - **File**: `pkms-backend/app/models/associations.py`
+  - **Impact**:
+    - **Code Reduction**: ~205 lines removed + 1 file deleted
+    - **Code Addition**: ~175 lines added (thumbnail lookup + project stats)
+    - **Bug Fixes**: 2 critical features now work correctly (thumbnails, project stats)
+    - **Clarity**: 6 misleading comments corrected
+    - **Maintainability**: Cleaner codebase without legacy/migration code
+  - **Testing**:
+    - Thumbnail endpoint returns proper images (not 501 errors)
+    - Project statistics show actual counts (not 0)
+    - Backend startup verified
+    - No import errors
+
 - Virgin Database Optimizations (Assistant: Claude Sonnet 4.5)
   - **UUIDv7 Migration**: Migrated all 8 models from UUIDv4 to UUIDv7 for time-ordered primary keys
     - **Performance**: Reduced B-tree index fragmentation for better query performance

@@ -257,6 +257,9 @@ export function ArchiveLayout({
                 });
                 setArchiveFiles(convertedFiles);
               }}
+              showUpload={true}
+              showAudioRecorder={false}
+              enableDragDrop={true}
               className="archive-file-section"
             />
           </Paper>

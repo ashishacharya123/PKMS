@@ -35,8 +35,7 @@ class DiaryEntry(Base, SoftDeleteMixin):
     file_count = Column(Integer, nullable=False, default=0)  # Count of associated files (documents)
     content_length = Column(Integer, nullable=False, default=0)
     # content_file_path, file_hash removed - now stored via Document service
-    encryption_tag = Column(String(255), nullable=True)  # For main content document
-    encryption_iv = Column(String(255), nullable=True)   # For main content document
+    # encryption_tag and encryption_iv removed - IV and tag are embedded in encrypted file (PKMS format)
     is_favorite = Column(Boolean, default=False, index=True)
     is_template = Column(Boolean, default=False, index=True)  # Template flag for reusable entries
     from_template_id = Column(String(36), nullable=True, index=True)  # Source template UUID/ID
@@ -106,8 +105,8 @@ class DiaryDailyMetadata(Base):
     daily_income = Column(Integer, nullable=True, default=0)
     daily_expense = Column(Integer, nullable=True, default=0)
     is_office_day = Column(Boolean, nullable=True, default=False)
-    default_habits_json = Column(Text, nullable=False, default='[]')  # RENAMED from metrics_json
-    defined_habits_json = Column(Text, nullable=False, default='[]')  # RENAMED from habits_json
+    default_habits_json = Column(Text, nullable=False, default='{}')  # RENAMED from metrics_json - fixed default to object
+    defined_habits_json = Column(Text, nullable=False, default='{}')  # RENAMED from habits_json - fixed default to object
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
 

@@ -303,16 +303,14 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                           </Badge>
                         )}
                         
-                        {todo.type && todo.type !== 'task' && (
+                        {/* Type determined by subtasks - checklist if subtasks exist */}
+                        {todo.subtasks && todo.subtasks.length > 0 && (
                           <Badge 
                             size="xs" 
                             variant="light" 
-                            color={
-                              todo.type === 'checklist' ? 'blue' :
-                              todo.type === 'subtask' ? 'gray' : 'default'
-                            }
+                            color="blue"
                           >
-                            {todo.type}
+                            Checklist ({todo.subtasks.length})
                           </Badge>
                         )}
                         
@@ -353,44 +351,48 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                         </Group>
                       )}
 
-                      {/* NEW: Completion Progress */}
-                      {todo.completionPercentage !== undefined && todo.completionPercentage > 0 && (
-                        <Box>
-                          <Group justify="space-between" mb={2}>
-                            <Text size="xs" c="dimmed">Progress</Text>
-                            <Text size="xs" c="dimmed">{todo.completionPercentage}%</Text>
-                          </Group>
-                          <Progress 
-                            value={todo.completionPercentage} 
-                            size="xs" 
-                            color={todo.completionPercentage === 100 ? 'green' : 'blue'}
-                          />
-                        </Box>
-                      )}
+                      {/* Completion Progress - calculated from subtasks */}
+                      {todo.subtasks && todo.subtasks.length > 0 && (() => {
+                        const completed = todo.subtasks.filter(s => s.status === TodoStatus.DONE).length;
+                        const percentage = Math.round((completed / todo.subtasks.length) * 100);
+                        return percentage > 0 && (
+                          <Box>
+                            <Group justify="space-between" mb={2}>
+                              <Text size="xs" c="dimmed">Progress</Text>
+                              <Text size="xs" c="dimmed">{percentage}%</Text>
+                            </Group>
+                            <Progress 
+                              value={percentage} 
+                              size="xs" 
+                              color={percentage === 100 ? 'green' : 'blue'}
+                            />
+                          </Box>
+                        );
+                      })()}
 
                       {/* Time tracking removed - backend no longer supports estimate_minutes */}
 
-                      {/* NEW: Checklist Items */}
-                      {todo.type === 'checklist' && todo.checklistItems && todo.checklistItems.length > 0 && (
+                      {/* Checklist Items - using subtasks */}
+                      {todo.subtasks && todo.subtasks.length > 0 && (
                         <Box>
                           <Text size="xs" c="dimmed" mb={2}>Checklist:</Text>
                           <Stack gap={2}>
-                            {todo.checklistItems.slice(0, 3).map((item, index) => (
-                              <Group key={index} gap="xs" align="center">
+                            {todo.subtasks.slice(0, 3).map((subtask, index) => (
+                              <Group key={subtask.uuid || index} gap="xs" align="center">
                                 <Text size="xs" style={{ 
-                                  textDecoration: item.completed ? 'line-through' : 'none',
-                                  opacity: item.completed ? 0.6 : 1
+                                  textDecoration: subtask.status === TodoStatus.DONE ? 'line-through' : 'none',
+                                  opacity: subtask.status === TodoStatus.DONE ? 0.6 : 1
                                 }}>
-                                  {item.text}
+                                  {subtask.title}
                                 </Text>
-                                {item.completed && (
+                                {subtask.status === TodoStatus.DONE && (
                                   <Text size="xs" c="green">✓</Text>
                                 )}
                               </Group>
                             ))}
-                            {todo.checklistItems.length > 3 && (
+                            {todo.subtasks.length > 3 && (
                               <Text size="xs" c="dimmed">
-                                +{todo.checklistItems.length - 3} more items
+                                +{todo.subtasks.length - 3} more items
                               </Text>
                             )}
                           </Stack>

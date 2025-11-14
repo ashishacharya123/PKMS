@@ -3,11 +3,11 @@ Archive Item Service
 Handles item CRUD operations, file operations, and metadata extraction
 """
 
-import uuid
 import json
 import os
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+from uuid6 import uuid7
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, update
 from sqlalchemy.orm import selectinload
@@ -115,7 +115,8 @@ class ArchiveItemService:
                     )
                     
                     if thumbnail_result:
-                        thumbnail_path = str(thumbnail_result)
+                        # Store relative to file parent for clean subdirectory structure
+                        thumbnail_path = str(thumbnail_result.relative_to(file_path_obj.parent))
                         logger.info(f"Generated thumbnail for archive item: {thumbnail_path}")
         except Exception as e:
             logger.error(f"Failed to generate thumbnail for {file_path}: {e}")
@@ -123,7 +124,7 @@ class ArchiveItemService:
         
         # Create item
         item = ArchiveItem(
-            uuid=str(uuid.uuid4()),
+            uuid=str(uuid7()),
             name=name,
             description=description,
             original_filename=original_filename,

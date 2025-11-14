@@ -457,8 +457,8 @@ class TodoCRUDService:
                     logger.info(f"Todo '{todo.title}' is linked to {project_count} project(s)")
                     # Project associations will be automatically removed by cascade
             
-            # TODO: Add file cleanup for associated documents
-            # Check if todo has associated documents and clean up files
+            # Note: Todos have subtasks only, not documents (projects have documents)
+            # No file cleanup needed when deleting todos
             
             # Remove from search index
             await search_service.remove_item(db, todo_uuid)

@@ -62,8 +62,34 @@ async def list_projects(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """List all projects for the current user."""
-    return await project_service.list_projects(db, current_user.uuid, archived, tag)
+    """List all projects for the current user with accurate statistics."""
+    projects = await project_service.list_projects(db, current_user.uuid, archived, tag)
+    
+    # Batch load statistics for all projects (avoids N+1 query problem)
+    project_uuids = [p.uuid for p in projects]
+    stats_map = await project_service.batch_get_project_statistics(db, current_user.uuid, project_uuids)
+    
+    # Enrich each project with statistics in single pass
+    enriched_projects = []
+    for project in projects:
+        project_dict = project.model_dump() if hasattr(project, 'model_dump') else project.dict()
+        stats = stats_map.get(project.uuid, {
+            'todo_count': 0,
+            'document_count': 0,
+            'note_count': 0,
+            'completed_todos': 0,
+            'progress_percentage': 0
+        })
+        project_dict.update({
+            'todo_count': stats['todo_count'],
+            'document_count': stats['document_count'],
+            'note_count': stats['note_count'],
+            'completed_count': stats['completed_todos'],
+            'actual_progress': stats['progress_percentage']
+        })
+        enriched_projects.append(ProjectResponse(**project_dict))
+    
+    return enriched_projects
 
 
 @router.get("/deleted", response_model=List[ProjectResponse])
@@ -84,6 +110,7 @@ async def get_project(
     db: AsyncSession = Depends(get_db)
 ):
     """Get a specific project by UUID."""
+    # Service already returns ProjectResponse with statistics
     return await project_service.get_project(db, current_user.uuid, project_uuid)
 
 

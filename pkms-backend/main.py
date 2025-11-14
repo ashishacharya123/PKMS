@@ -214,13 +214,14 @@ app.include_router(thumbnails_router, prefix="/api/v1")  # Thumbnails serving
 app.include_router(backup.router, prefix="/api/v1/backup")
 app.include_router(tags.router, prefix="/api/v1/tags")
 app.include_router(unified_uploads.router)
-# Include testing routers
-app.include_router(testing_router.router, prefix="/api/v1/testing")
-app.include_router(testing_database.router, prefix="/api/v1")
-app.include_router(testing_database_enhanced.router, prefix="/api/v1")  # Enhanced database testing
-app.include_router(testing_auth.router, prefix="/api/v1")
-app.include_router(testing_system.router, prefix="/api/v1")
-app.include_router(testing_crud.router, prefix="/api/v1")
+# Include testing routers only in development/staging environments (CRITICAL SECURITY)
+if settings.environment in ["development", "staging"]:
+    app.include_router(testing_router.router, prefix="/api/v1/testing")
+    app.include_router(testing_database.router, prefix="/api/v1")
+    app.include_router(testing_database_enhanced.router, prefix="/api/v1")  # Enhanced database testing
+    app.include_router(testing_auth.router, prefix="/api/v1")
+    app.include_router(testing_system.router, prefix="/api/v1")
+    app.include_router(testing_crud.router, prefix="/api/v1")
 app.include_router(advanced_fuzzy.router, prefix="/api/v1")  # Re-enabled for hybrid search
 app.include_router(deletion_impact.router, prefix="/api/v1/deletion-impact")  # Unified deletion impact analysis
 app.include_router(recyclebin.router, prefix="/api/v1/recycle-bin", tags=["recycle-bin"])  # Recycle bin operations

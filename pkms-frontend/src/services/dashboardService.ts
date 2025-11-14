@@ -26,11 +26,14 @@ export interface DashboardStats {
     active: number;
   };
   diary: {
-    entries: number;
-    streak: number;
+    total: number;
+    recent: number;
+    streak: number;  // Diary streak (consecutive days with entries)
   };
   archive: {
-    items: number;
+    total: number;
+    recent: number;
+    folders: number;  // Archive folders count
   };
   last_updated: string;
 }
@@ -128,8 +131,8 @@ class DashboardService {
       const { data } = await apiService.get<DashboardStats>('/dashboard/stats');
       const responseTime = performance.now() - startTime;
       
-      // Cache with tags for easy invalidation
-      await dashboardCache.set(cacheKey, data, 120000, ['dashboard', 'stats']);
+      // Cache with tags for easy invalidation (5 min TTL - we invalidate on mutations anyway)
+      await dashboardCache.set(cacheKey, data, 300000, ['dashboard', 'stats']);
       
       console.log(`✅ CACHE SET: Main dashboard data cached (${responseTime.toFixed(0)}ms)`);
       
@@ -145,8 +148,8 @@ class DashboardService {
         documents: { total: 0, recent: 0 },
         todos: { total: 0, pending: 0, completed: 0, overdue: 0 },
         projects: { total: 0, active: 0 },
-        diary: { entries: 0, streak: 0 },
-        archive: { items: 0 },
+        diary: { total: 0, recent: 0, streak: 0 },
+        archive: { total: 0, recent: 0, folders: 0 },
         last_updated: new Date().toISOString()
       };
     }
@@ -172,8 +175,8 @@ class DashboardService {
       const { data } = await apiService.get<ModuleActivity>(`/dashboard/activity?days=${days}`);
       const responseTime = performance.now() - startTime;
       
-      // Cache with tags
-      await dashboardCache.set(cacheKey, data, 120000, ['dashboard', 'activity']);
+      // Cache with tags (5 min TTL - we invalidate on mutations anyway)
+      await dashboardCache.set(cacheKey, data, 300000, ['dashboard', 'activity']);
       
       console.log(`✅ CACHE SET: Activity data cached (${responseTime.toFixed(0)}ms)`);
       
@@ -213,8 +216,8 @@ class DashboardService {
       const { data } = await apiService.get<QuickStats>('/dashboard/quick-stats');
       const responseTime = performance.now() - startTime;
       
-      // Cache with tags
-      await dashboardCache.set(cacheKey, data, 120000, ['dashboard', 'stats']);
+      // Cache with tags (5 min TTL - we invalidate on mutations anyway)
+      await dashboardCache.set(cacheKey, data, 300000, ['dashboard', 'stats']);
       
       console.log(`✅ CACHE SET: Quick stats cached (${responseTime.toFixed(0)}ms)`);
       
@@ -282,8 +285,8 @@ class DashboardService {
       const { data } = await apiService.get<RecentActivityTimeline>(`/dashboard/timeline?days=${days}&limit=${limit}`);
       const responseTime = performance.now() - startTime;
       
-      // Cache with tags
-      await dashboardCache.set(cacheKey, data, 120000, ['dashboard', 'timeline']);
+      // Cache with tags (5 min TTL - we invalidate on mutations anyway)
+      await dashboardCache.set(cacheKey, data, 300000, ['dashboard', 'timeline']);
       
       console.log(`✅ CACHE SET: Activity timeline cached (${responseTime.toFixed(0)}ms)`);
       
@@ -299,6 +302,15 @@ class DashboardService {
         cutoffDays: days
       };
     }
+  }
+
+  /**
+   * Invalidate all dashboard caches
+   * Called by components when they need to force refresh
+   */
+  async invalidateCache(): Promise<void> {
+    await dashboardCache.invalidatePattern('dashboard');
+    console.log('✅ Dashboard caches invalidated');
   }
 
   /**

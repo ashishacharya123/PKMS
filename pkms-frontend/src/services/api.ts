@@ -18,7 +18,7 @@ class ApiService {
   constructor() {
     this.instance = axios.create({
       baseURL: `${API_BASE_URL}/api/v1`,
-      timeout: 10000,
+      timeout: 10000, // Default timeout for most requests
       headers: {
         'Content-Type': 'application/json',
       },
@@ -188,7 +188,7 @@ class ApiService {
    */
   async isTokenExpiringSoon(): Promise<boolean> {
     try {
-      const response = await this.instance.get('/api/v1/auth/session-status');
+      const response = await this.instance.get('/auth/session-status');
       return response.data.is_expiring_soon || false;
     } catch (error) {
       console.warn('Failed to check token expiry status:', error);
@@ -202,7 +202,7 @@ class ApiService {
    */
   async isTokenCriticallyExpiring(): Promise<boolean> {
     try {
-      const response = await this.instance.get('/api/v1/auth/session-status');
+      const response = await this.instance.get('/auth/session-status');
       return response.data.is_critically_expiring || false;
     } catch (error) {
       console.warn('Failed to check token expiry status:', error);
@@ -449,7 +449,13 @@ class ApiService {
   }
 
   async get<T>(url: string, config = {}): Promise<ApiResponse<T>> {
-    const response = await this.instance.get<T>(url, config);
+    // Use shorter timeout for auth endpoints to fail faster when backend is down
+    const isAuthEndpoint = url.includes('/auth/');
+    const requestConfig = isAuthEndpoint 
+      ? { ...config, timeout: 3000 } // 3 second timeout for auth checks
+      : config;
+    
+    const response = await this.instance.get<T>(url, requestConfig);
     // FastAPI returns data directly, so we wrap it in our ApiResponse format
     return {
       data: response.data,

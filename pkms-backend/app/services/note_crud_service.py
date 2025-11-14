@@ -7,7 +7,7 @@ file operations integration, and search indexing.
 
 import logging
 import re
-import uuid as uuid_lib
+from uuid6 import uuid7
 from typing import List, Optional
 from datetime import datetime
 from pathlib import Path
@@ -43,7 +43,7 @@ class NoteCRUDService:
     async def reserve_note(self, db: AsyncSession, user_uuid: str) -> str:
         """Reserve a minimal note row and return its UUID (owner-scoped)."""
         async def reserve_operation():
-            new_uuid = str(uuid_lib.uuid4())
+            new_uuid = str(uuid7())
             note = Note(
                 uuid=new_uuid,
                 title="",
@@ -116,11 +116,11 @@ class NoteCRUDService:
                 )
 
             # Create note with large content handling
-            MAX_DB_CONTENT_SIZE = 5120  # 5KB threshold - keep it short and sweet
+            MAX_DB_CONTENT_SIZE = 2048  # 2KB threshold - keep it short and sweet
             content_size_bytes = len(sanitized_content.encode('utf-8'))
 
             note = Note(
-                uuid=str(uuid_lib.uuid4()),
+                uuid=str(uuid7()),
                 title=sanitized_title,
                 is_favorite=bool(getattr(note_data, "is_favorite", False)),
                 created_by=user_uuid,
@@ -391,7 +391,7 @@ class NoteCRUDService:
                 content_size_bytes = len(sanitized_content.encode('utf-8'))
                 note.size_bytes = content_size_bytes
 
-                MAX_DB_CONTENT_SIZE = 5120  # 5KB threshold - keep it short and sweet
+                MAX_DB_CONTENT_SIZE = 2048  # 2KB threshold - keep it short and sweet
 
                 if content_size_bytes > MAX_DB_CONTENT_SIZE or update_data.force_file_storage:
                     # Content is large OR user wants file storage: save to file

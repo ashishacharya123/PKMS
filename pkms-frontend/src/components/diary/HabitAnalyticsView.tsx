@@ -48,6 +48,11 @@ type AnalyticsState = {
   analyticsData: any;
   missingToday: string[];
   dashboardSummary: any;
+  habitConfigs: {
+    default: any[];
+    defined: any[];
+  };
+  habitConfigsLoaded: boolean;
 };
 
 // Actions for useReducer
@@ -59,44 +64,27 @@ type AnalyticsAction =
   | { type: 'ERROR'; payload: string }
   | { type: 'DATA_LOADED'; payload: any }
   | { type: 'DASHBOARD_LOADED'; payload: any }
-  | { type: 'MISSING_TODAY_LOADED'; payload: string[] };
+  | { type: 'MISSING_TODAY_LOADED'; payload: string[] }
+  | { type: 'HABIT_CONFIGS_LOADED'; payload: { default: any[]; defined: any[] } };
 
 // Initial state
 const initialState: AnalyticsState = {
   selectedType: 'default',
-  selectedAnalysis: 'sleep',
+  selectedAnalysis: '', // Will be set when configs load
   selectedPeriod: 30,
   isLoading: false,
   error: null,
   analyticsData: null,
   missingToday: [],
   dashboardSummary: null,
+  habitConfigs: {
+    default: [],
+    defined: []
+  },
+  habitConfigsLoaded: false,
 };
 
 // Dropdown options based on type
-const DROPDOWN_OPTIONS = {
-  default: [
-    { value: 'sleep', label: 'Sleep Analysis' },
-    { value: 'stress', label: 'Stress Tracking' },
-    { value: 'exercise', label: 'Exercise Frequency' },
-    { value: 'meditation', label: 'Meditation Progress' },
-    { value: 'screen_time', label: 'Screen Time Analysis' },
-    { value: 'steps', label: 'Steps Tracking' },
-    { value: 'learning', label: 'Learning Progress' },
-    { value: 'outdoor', label: 'Outdoor Time' },
-    { value: 'social', label: 'Social Connection' },
-    { value: 'correlations', label: 'Habit Correlations' },
-  ],
-  defined: [
-    { value: 'correlations', label: 'Custom Habit Correlations' },
-  ],
-  comprehensive: [
-    { value: 'overview', label: 'Overview Dashboard' },
-    { value: 'financial', label: 'Financial Analysis' },
-    { value: 'all_metrics', label: 'All Metrics' },
-    { value: 'insights', label: 'AI Insights' },
-  ],
-};
 
 // Time period options
 const PERIOD_OPTIONS = [
@@ -114,7 +102,7 @@ function analyticsReducer(state: AnalyticsState, action: AnalyticsAction): Analy
       return {
         ...state,
         selectedType: action.payload,
-        selectedAnalysis: getDefaultAnalysis(action.payload),
+        selectedAnalysis: getDefaultAnalysis(action.payload, state.habitConfigs),
         isLoading: false,
         error: null,
         analyticsData: null,
@@ -133,14 +121,80 @@ function analyticsReducer(state: AnalyticsState, action: AnalyticsAction): Analy
       return { ...state, dashboardSummary: action.payload };
     case 'MISSING_TODAY_LOADED':
       return { ...state, missingToday: action.payload };
+    case 'HABIT_CONFIGS_LOADED': {
+      const { default: defaultConfigs, defined: definedConfigs } = action.payload;
+      // Set default analysis when configs load (if not already set)
+      const defaultAnalysis = state.selectedAnalysis ||
+        (defaultConfigs.length > 0 ? defaultConfigs[0].habitId : '');
+      return {
+        ...state,
+        habitConfigs: {
+          default: defaultConfigs,
+          defined: definedConfigs
+        },
+        selectedAnalysis: defaultAnalysis || state.selectedAnalysis,
+        habitConfigsLoaded: true
+      };
+    }
     default:
       return state;
   }
 }
 
 // Helper function to get default analysis for a type
-function getDefaultAnalysis(type: string): string {
-  return DROPDOWN_OPTIONS[type as keyof typeof DROPDOWN_OPTIONS][0].value;
+function getDefaultAnalysis(type: string, habitConfigs: { default: any[]; defined: any[] }): string {
+  const options = getDropdownOptions(
+    type as 'default' | 'defined' | 'comprehensive',
+    habitConfigs
+  );
+  return options.length > 0 ? options[0].value : '';
+}
+
+// Generate dropdown options dynamically from habit configs
+function getDropdownOptions(
+  type: 'default' | 'defined' | 'comprehensive',
+  habitConfigs: { default: any[]; defined: any[] }
+): Array<{ value: string; label: string }> {
+  switch (type) {
+    case 'default':
+      // Generate from default habit configs
+      return habitConfigs.default
+        .filter(habit => habit.isActive !== false) // Only active habits
+        .map(habit => ({
+          value: habit.habitId,
+          label: `${habit.name} Analysis`
+        }))
+        .concat([
+          { value: 'correlations', label: 'Habit Correlations' }
+        ]);
+
+    case 'defined': {
+      // Generate from defined habit configs
+      const definedOptions = habitConfigs.defined
+        .filter(habit => habit.isActive !== false)
+        .map(habit => ({
+          value: habit.habitId,
+          label: `${habit.name} Analysis`
+        }));
+
+      return definedOptions.length > 0
+        ? definedOptions.concat([
+            { value: 'correlations', label: 'Custom Habit Correlations' }
+          ])
+        : [{ value: 'correlations', label: 'Custom Habit Correlations' }];
+    }
+
+    case 'comprehensive':
+      // Comprehensive options remain static
+      return [
+        { value: 'overview', label: 'Overview Dashboard' },
+        { value: 'financial', label: 'Financial Analysis' },
+        { value: 'all_metrics', label: 'All Metrics' },
+      ];
+
+    default:
+      return [];
+  }
 }
 
 export default function HabitAnalyticsView() {
@@ -154,6 +208,31 @@ export default function HabitAnalyticsView() {
       dispatch({ type: 'MISSING_TODAY_LOADED', payload: dashboard.missing_today || [] });
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
+    }
+  }, []);
+
+  // Load habit configurations
+  const loadHabitConfigs = useCallback(async () => {
+    try {
+      const [defaultConfigs, definedConfigs] = await Promise.all([
+        diaryService.getHabitConfig('default'),
+        diaryService.getHabitConfig('defined')
+      ]);
+
+      dispatch({
+        type: 'HABIT_CONFIGS_LOADED',
+        payload: {
+          default: defaultConfigs || [],
+          defined: definedConfigs || []
+        }
+      });
+    } catch (error) {
+      console.error('Failed to load habit configs:', error);
+      // Set empty configs on error to prevent crashes
+      dispatch({
+        type: 'HABIT_CONFIGS_LOADED',
+        payload: { default: [], defined: [] }
+      });
     }
   }, []);
 
@@ -193,6 +272,11 @@ export default function HabitAnalyticsView() {
       });
     }
   }, [state.selectedType, state.selectedAnalysis, state.selectedPeriod]);
+
+  // Load habit configs on component mount (critical first step)
+  useEffect(() => {
+    loadHabitConfigs();
+  }, [loadHabitConfigs]);
 
   // Load data on component mount and when selections change
   useEffect(() => {
@@ -407,34 +491,38 @@ export default function HabitAnalyticsView() {
     );
   };
 
-  // Helper functions
-  const getGoalForHabit = (habit: string): number => {
-    const goals: Record<string, number> = {
-      sleep: 8,
-      exercise: 30,
-      meditation: 15,
-      screen_time: 2,
-      steps: 8000,
-      learning: 60,
-      outdoor: 60,
-      social: 3,
-    };
-    return goals[habit] || 0;
+  // Helper functions - using real habit config data
+  const getGoalForHabit = (habitId: string): number => {
+    const allConfigs = [...state.habitConfigs.default, ...state.habitConfigs.defined];
+    const habit = allConfigs.find(h => h.habitId === habitId);
+    return habit?.targetQuantity || 0;
   };
 
-  const getUnitForHabit = (habit: string): string => {
-    const units: Record<string, string> = {
-      sleep: 'h',
-      exercise: 'min',
-      meditation: 'min',
-      screen_time: 'h',
-      steps: ' steps',
-      learning: 'min',
-      outdoor: 'min',
-      social: '/5',
-    };
-    return units[habit] || '';
+  const getUnitForHabit = (habitId: string): string => {
+    const allConfigs = [...state.habitConfigs.default, ...state.habitConfigs.defined];
+    const habit = allConfigs.find(h => h.habitId === habitId);
+    return habit?.unit || '';
   };
+
+  const getHabitName = (habitId: string): string => {
+    const allConfigs = [...state.habitConfigs.default, ...state.habitConfigs.defined];
+    const habit = allConfigs.find(h => h.habitId === habitId);
+    return habit?.name || habitId;
+  };
+
+  // Show loading state while configs are loading
+  if (!state.habitConfigsLoaded && !state.error) {
+    return (
+      <Paper p="md">
+        <Center style={{ minHeight: 400 }}>
+          <Stack align="center" gap="sm">
+            <Loader size="md" />
+            <Text size="sm" color="dimmed">Loading habit configurations...</Text>
+          </Stack>
+        </Center>
+      </Paper>
+    );
+  }
 
   return (
     <Paper p="md">
@@ -485,8 +573,9 @@ export default function HabitAnalyticsView() {
               placeholder="Select analysis"
               value={state.selectedAnalysis}
               onChange={handleAnalysisChange}
-              data={DROPDOWN_OPTIONS[state.selectedType]}
+              data={getDropdownOptions(state.selectedType, state.habitConfigs)}
               icon={<IconTarget size={16} />}
+              disabled={!state.habitConfigsLoaded || (state.habitConfigs.default.length === 0 && state.habitConfigs.defined.length === 0)}
             />
 
             {/* Period selector */}

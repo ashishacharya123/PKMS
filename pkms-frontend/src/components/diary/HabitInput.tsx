@@ -14,7 +14,7 @@
  * - Streak tracking and goal progress
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   Stack, Group, NumberInput, Button, Badge, Card, LoadingOverlay, 
   Title, Select, Divider, Alert, Text
@@ -42,19 +42,14 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
   const [definedConfig, setDefinedConfig] = useState<HabitConfig[]>([]);
   const [defaultData, setDefaultData] = useState<Record<string, number>>({});
   const [definedData, setDefinedData] = useState<Record<string, number>>({});
-  const [defaultStreaks] = useState<Record<string, number>>({});
+  const defaultStreaks: Record<string, number> = {};
   const [definedStreaks, setDefinedStreaks] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [currentHabitType, setCurrentHabitType] = useState<'default' | 'defined'>('default');
   
-  const dateKey = format(selectedDate, 'yyyy-MM-dd');
-  
-  // Load all data
-  useEffect(() => {
-    loadAllData();
-  }, [selectedDate]);
-  
-  const loadAllData = async () => {
+  // Load all data with proper dependency management - simpler and more efficient
+  const loadAllData = useCallback(async () => {
+    const dateKey = format(selectedDate, 'yyyy-MM-dd');
     setIsLoading(true);
     try {
       // Load both configs
@@ -64,20 +59,41 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
       ]);
       setDefaultConfig(defaultHabits);
       setDefinedConfig(definedHabits);
-      
+
       // Load existing data for this date
       const existing = await diaryService.getDailyMetadata(dateKey);
-      
-      // Parse the JSON *objects* directly
-      const defaultDataMap: Record<string, number> = JSON.parse(
-        (existing as any)?.defaultHabitsJson || "{}"
-      );
-      
-      const definedHabitsJson = (existing as any)?.definedHabitsJson || "{}";
-      const definedDataMap: Record<string, number> = JSON.parse(
-        definedHabitsJson
-      ).habits || {}; // Get the 'habits' sub-key
-      
+
+      // Parse metrics from response - backend returns metrics.default_habits and metrics.defined_habits
+      let defaultDataMap: Record<string, number> = {};
+      let definedDataMap: Record<string, number> = {};
+
+      try {
+        // Access default_habits from metrics object
+        const defaultHabits = existing?.metrics?.default_habits;
+        if (defaultHabits && typeof defaultHabits === 'object') {
+          defaultDataMap = defaultHabits as Record<string, number>;
+        }
+      } catch (error) {
+        console.warn('Failed to parse default habits, using empty object:', error);
+      }
+
+      try {
+        // Access defined_habits from metrics object
+        // Backend may return defined_habits.habits nested structure
+        const definedHabits = existing?.metrics?.defined_habits;
+        if (definedHabits && typeof definedHabits === 'object') {
+          // Check if it has a nested 'habits' key
+          if ('habits' in definedHabits && typeof definedHabits.habits === 'object') {
+            definedDataMap = definedHabits.habits as Record<string, number>;
+          } else {
+            // Otherwise use the object directly
+            definedDataMap = definedHabits as Record<string, number>;
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to parse defined habits, using empty object:', error);
+      }
+
       setDefaultData(defaultDataMap);
       setDefinedData(definedDataMap);
     } catch (error) {
@@ -85,12 +101,19 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
     } finally {
       setIsLoading(false);
     }
-  };
-  
-  
+  }, [selectedDate]); // Simple dependency - only selectedDate matters
+
+  // Load all data when selectedDate changes
+  useEffect(() => {
+    loadAllData();
+  }, [loadAllData]); // Only need loadAllData since it already depends on selectedDate
+
   const handleSave = async () => {
     setIsLoading(true);
     try {
+      // Calculate dateKey for the save operation
+      const dateKey = format(selectedDate, 'yyyy-MM-dd');
+
       // Create the single payload object the backend expects
       const payload = {
         default_habits: defaultData,

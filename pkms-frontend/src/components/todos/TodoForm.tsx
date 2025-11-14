@@ -45,12 +45,9 @@ export function TodoForm({
     description: '',
     status: TodoStatus.PENDING,
     priority: TaskPriority.MEDIUM,
-    type: TodoType.TASK,
     startDate: '',
     dueDate: '',
-    completionPercentage: 0,
-    projectIds: [],
-    isExclusiveMode: false,
+    projects: [],
     ...initialData
   });
 
@@ -65,12 +62,9 @@ export function TodoForm({
         description: '',
         status: TodoStatus.PENDING,
         priority: TaskPriority.MEDIUM,
-        type: TodoType.TASK,
         startDate: '',
         dueDate: '',
-        completionPercentage: 0,
-        projectIds: [],
-        isExclusiveMode: false
+        projects: []
       });
     }
     setErrors({});
@@ -91,10 +85,7 @@ export function TodoForm({
       }
     }
 
-    if (formData.completionPercentage !== undefined && 
-        (formData.completionPercentage < 0 || formData.completionPercentage > 100)) {
-      newErrors.completionPercentage = 'Completion percentage must be between 0 and 100';
-    }
+    // Note: completionPercentage is not part of Todo type - calculated from subtasks instead
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -181,27 +172,9 @@ export function TodoForm({
             />
           </Group>
 
-          <Group grow>
-            <Select
-              label="Type"
-              value={formData.type}
-              onChange={(value) => handleFieldChange('type', value)}
-              data={[
-                { value: TodoType.TASK, label: 'Task' },
-                { value: TodoType.CHECKLIST, label: 'Checklist' },
-                { value: TodoType.SUBTASK, label: 'Subtask' }
-              ]}
-            />
-
-            <NumberInput
-              label="Completion %"
-              value={formData.completionPercentage || 0}
-              onChange={(value) => handleFieldChange('completionPercentage', value)}
-              min={0}
-              max={100}
-              error={errors.completionPercentage}
-            />
-          </Group>
+          {/* Note: Type and completionPercentage removed - not part of Todo type
+              Type is determined by subtasks.length > 0 (checklist) vs 0 (task)
+              Completion percentage is calculated from subtasks */}
 
           <DateRangePicker
             startDate={formData.startDate ? new Date(formData.startDate) : null}
@@ -211,10 +184,14 @@ export function TodoForm({
           />
 
           <MultiProjectSelector
-            value={formData.projectIds || []}
-            onChange={(ids) => handleFieldChange('projectIds', ids)}
-            isExclusive={formData.isExclusiveMode || false}
-            onExclusiveChange={(exclusive) => handleFieldChange('isExclusiveMode', exclusive)}
+            value={(formData.projects || []).map(p => typeof p === 'string' ? p : p.uuid)}
+            onChange={(ids) => {
+              // Convert projectIds to projects array format
+              const projectBadges = ids.map(id => ({ uuid: id, name: '', color: '#228be6', isExclusive: false, isDeleted: false }));
+              handleFieldChange('projects', projectBadges);
+            }}
+            isExclusive={false}
+            onExclusiveChange={() => {}}
             description="Link this todo to one or more projects"
             disabled={loading}
           />

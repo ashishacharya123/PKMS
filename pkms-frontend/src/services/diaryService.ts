@@ -22,8 +22,33 @@ class DiaryService {
   // --- Encryption Methods ---
 
   async isEncryptionSetup(): Promise<boolean> {
-    const response = await apiService.get<{ is_setup: boolean; is_unlocked: boolean }>(`${this.baseUrl}/encryption/status`);
-    return response.data.is_setup;
+    try {
+      const response = await apiService.get<{ isSetup: boolean; isUnlocked: boolean }>(`${this.baseUrl}/encryption/status`);
+
+      // DEBUG: Log actual response structure to identify the issue
+      console.log('Diary Encryption Status Response:', {
+        fullResponse: response.data,
+        responseKeys: Object.keys(response.data),
+        is_setup_value: response.data.is_setup,
+        isSetup_value: (response.data as any).isSetup,
+        is_unlocked_value: response.data.is_unlocked,
+        isUnlocked_value: (response.data as any).isUnlocked
+      });
+
+      // Use the correct camelCase field names
+      const isSetup = response.data.isSetup;
+
+      if (typeof isSetup !== 'boolean') {
+        console.warn('Encryption status is not a boolean:', isSetup);
+        return false; // Default to false for safety
+      }
+
+      return isSetup;
+    } catch (error: any) {
+      console.error('Failed to check encryption status:', error);
+      // For security, assume encryption is set up on errors (don't expose unencrypted diary)
+      return true;
+    }
   }
 
   async setupEncryption(password: string, hint?: string): Promise<{ key: CryptoKey | null; success: boolean }> {
@@ -41,16 +66,22 @@ class DiaryService {
   }
 
   async unlockSession(password: string): Promise<{ key: CryptoKey | null; success: boolean }> {
-    const response = await apiService.post<{ success: boolean }>(`${this.baseUrl}/encryption/unlock`, {
-      password,
-    });
+    try {
+      const response = await apiService.post<{ success: boolean }>(`${this.baseUrl}/encryption/unlock`, {
+        password,
+      });
 
-    if (response.data.success) {
-      const key = await this.generateEncryptionKey(password);
-      return { key, success: true };
+      if (response.data.success) {
+        const key = await this.generateEncryptionKey(password);
+        return { key, success: true };
+      }
+
+      return { key: null, success: false };
+    } catch (error: any) {
+      // Handle HTTP errors (like 401 for wrong password)
+      console.log('Diary unlock failed:', error?.response?.status, error?.response?.data?.detail || error.message);
+      return { key: null, success: false };
     }
-
-    return { key: null, success: false };
   }
 
   async generateEncryptionKey(password: string): Promise<CryptoKey> {

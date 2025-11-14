@@ -194,9 +194,9 @@ export function HistoricalEntries({ onViewEntry, selectedDate }: { onViewEntry: 
           )}
 
           <Group gap="xs" wrap="wrap">
-            {entry.weather_label && (
+            {entry.weatherLabel && (
               <Badge size="xs" variant="dot" color="blue">
-                {entry.weather_label}
+                {entry.weatherLabel}
               </Badge>
             )}
             {entry.location && (
@@ -219,7 +219,7 @@ export function HistoricalEntries({ onViewEntry, selectedDate }: { onViewEntry: 
           </Group>
 
           <Text size="xs" c="dimmed">
-            {entry.content_length ? `${entry.content_length} characters` : 'No content'}
+            {entry.contentLength ? `${entry.contentLength} characters` : 'No content'}
           </Text>
         </Stack>
       </Card>

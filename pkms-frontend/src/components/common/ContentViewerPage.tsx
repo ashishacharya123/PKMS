@@ -20,7 +20,7 @@ export interface ContentViewerPageConfig<T> {
   itemToContentProps: (item: T, files: UnifiedFileItem[]) => Omit<ContentViewerProps, 'onEdit' | 'onBack' | 'onArchive' | 'onToggleArchive' | 'onDelete'>;
   editPath: (id: string) => string;
   listPath: string;
-  module: 'notes' | 'diary' | 'documents' | 'archive' | 'projects';
+  module: 'notes' | 'diary' | 'documents' | 'archive' | 'projects' | 'todos';
   itemTypeName: string;
   fileTransformOptions?: {
     isEncrypted?: boolean;
@@ -37,6 +37,10 @@ export function ContentViewerPage<T>({ id, config }: { id: string; config: Conte
   }, { dependencies: [id] });
 
   const { data: files } = useDataLoader(async () => {
+    if (config.module === 'todos') {
+      // Todos don't have file attachments
+      return [];
+    }
     const raw = await config.service.getItemFiles(id);
     return transformFilesToUnifiedItems(raw, config.module, id, config.fileTransformOptions);
   }, { dependencies: [id] });

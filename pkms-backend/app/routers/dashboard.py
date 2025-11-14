@@ -57,13 +57,28 @@ async def get_dashboard_stats(
         notes = {ModuleStatsKey.TOTAL: raw.notes.get("total", 0), ModuleStatsKey.RECENT: raw.notes.get("recent", 0)}
         documents = {ModuleStatsKey.TOTAL: raw.documents.get("total", 0), ModuleStatsKey.RECENT: raw.documents.get("recent", 0)}
         todos = raw.todos  # passthrough (mixed keys are allowed)
-        diary = {ModuleStatsKey.TOTAL: raw.diary.get("entries", raw.diary.get("total", 0)), ModuleStatsKey.RECENT: raw.diary.get("recent", 0)}
-        archive = {ModuleStatsKey.TOTAL: raw.archive.get("items", raw.archive.get("total", 0)), ModuleStatsKey.RECENT: raw.archive.get("recent", 0)}
+        
+        # Diary: preserve all fields including streak
+        diary = {
+            ModuleStatsKey.TOTAL: raw.diary.get("total", 0),
+            ModuleStatsKey.RECENT: raw.diary.get("recent", 0),
+            "streak": raw.diary.get("streak", 0)  # Keep streak for backwards compatibility
+        }
+        
+        # Archive: preserve all fields including folders if present
+        archive = {
+            ModuleStatsKey.TOTAL: raw.archive.get("total", 0),
+            ModuleStatsKey.RECENT: raw.archive.get("recent", 0),
+            "folders": raw.archive.get("folders", 0)  # Keep folders for backwards compatibility
+        }
+        
         projects = {
             ProjectStatsKey.TOTAL: raw.projects.get("total", 0),
             ProjectStatsKey.ACTIVE: raw.projects.get("active", 0),
         }
-        result = DashboardStats(
+        # Use model_construct() to bypass Pydantic validation for mixed string keys
+        # This allows diary and archive to have 'streak' and 'folders' keys alongside enum keys
+        result = DashboardStats.model_construct(
             notes=notes,
             documents=documents,
             todos=todos,

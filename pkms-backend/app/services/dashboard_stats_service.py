@@ -5,7 +5,7 @@ Centralized service for all dashboard statistics to avoid duplication.
 All modules should use this service instead of duplicating queries.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select, and_
@@ -189,8 +189,20 @@ class DashboardStatsService:
         # Calculate diary streak (consecutive days with entries)
         diary_streak = await DashboardStatsService._calculate_diary_streak(db, created_by)
         
+        # Calculate recent diary entries (last 7 days)
+        diary_recent = await db.scalar(
+            select(func.count(DiaryEntry.uuid)).where(
+                and_(
+                    DiaryEntry.created_by == created_by,
+                    DiaryEntry.is_deleted.is_(False),
+                    DiaryEntry.created_at >= datetime.now(timezone.utc) - timedelta(days=7)
+                )
+            )
+        )
+        
         return {
-            "entries": diary_total or 0,
+            "total": diary_total or 0,
+            "recent": diary_recent or 0,
             "streak": diary_streak
         }
     
@@ -215,9 +227,21 @@ class DashboardStatsService:
             )
         )
         
+        # Calculate recent archive items (last 7 days)
+        archive_recent = await db.scalar(
+            select(func.count(ArchiveItem.uuid)).where(
+                and_(
+                    ArchiveItem.created_by == created_by,
+                    ArchiveItem.is_deleted.is_(False),
+                    ArchiveItem.created_at >= datetime.now(timezone.utc) - timedelta(days=7)
+                )
+            )
+        )
+        
         return {
-            "folders": archive_folders or 0,
-            "items": archive_items or 0
+            "total": archive_items or 0,
+            "recent": archive_recent or 0,
+            "folders": archive_folders or 0
         }
     
     @staticmethod

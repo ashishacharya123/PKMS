@@ -76,18 +76,20 @@ class DeletionImpactService {
    * Get a detailed breakdown of what will be affected
    */
   getDetailedImpact(impact: DeletionImpact): {
-    willBeDeleted: Array<{ type: string; title: string }>;
-    willBePreserved: Array<{ type: string; title: string }>;
+    willBeDeleted: Array<{ type: string; title: string; uuid?: string }>;
+    willBePreserved: Array<{ type: string; title: string; uuid?: string }>;
     warnings: string[];
   } {
     return {
       willBeDeleted: impact.orphanItems.map(item => ({
         type: item.type,
-        title: item.title || `${item.type} (${item.uuid.slice(0, 8)}...)`
+        title: item.title || `${item.type} (${item.uuid.slice(0, 8)}...)`,
+        uuid: item.uuid
       })),
       willBePreserved: impact.preservedItems.map(item => ({
         type: item.type,
-        title: item.title || `${item.type} (${item.uuid.slice(0, 8)}...)`
+        title: item.title || `${item.type} (${item.uuid.slice(0, 8)}...)`,
+        uuid: item.uuid
       })),
       warnings: impact.warnings
     };

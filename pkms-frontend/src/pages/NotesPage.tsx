@@ -15,7 +15,8 @@ import {
   Paper,
   Modal,
   // ThemeIcon,
-  Tooltip
+  Tooltip,
+  TextInput
 } from '@mantine/core';
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import ViewModeLayouts, { formatDate } from '../components/common/ViewModeLayouts';
@@ -31,13 +32,14 @@ import {
   // IconNotes,
   IconAlertTriangle,
   IconFileText,
-  IconHistory
+  IconHistory,
+  IconSearch,
+  IconRefresh
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { useNotesStore } from '../stores/notesStore';
-import { UnifiedSearchEmbedded } from '../components/search/UnifiedSearchEmbedded';
 import { ActionMenu } from '../components/common/ActionMenu';
 import { notesService } from '../services/notesService';
 import { PopularTagsWidget } from '../components/common/PopularTagsWidget';
@@ -73,8 +75,24 @@ export function NotesPage() {
   const navigate = useNavigate();
   const location = useLocation() as { state?: { highlightNoteId?: number } };
 
+  // Component mount/unmount logging
+  useEffect(() => {
+    console.log('[NotesPage] Component mounted');
+    return () => {
+      console.log('[NotesPage] Component unmounting');
+    };
+  }, []);
+
+  // Location changes logging
+  useEffect(() => {
+    console.log('[NotesPage] Location changed:', {
+      pathname: location.pathname,
+      state: location.state
+    });
+  }, [location]);
+
   // Local state
-  const [searchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch] = useDebouncedValue(searchQuery, 300);
   const [sortField, setSortField] = useState<SortField>('updatedAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -104,31 +122,45 @@ export function NotesPage() {
   // Modal management with useModal hook
   const filterModal = useModal();
 
+  // Stable callbacks to prevent infinite re-renders
+  const handleLoadError = useCallback((error: Error) => {
+    console.error('[NotesPage] Failed to load notes:', {
+      error: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString()
+    });
+  }, []);
+
+  // Stable load function - useDataLoader handles dependency tracking
+  const loadNotes = useCallback(async () => {
+    return await notesService.listNotes({
+      tag: currentTag || undefined,
+      search: debouncedSearch || undefined,
+      archived: showArchived,
+      limit: itemsPerPage,
+      offset: (currentPage - 1) * itemsPerPage,
+    });
+  }, [currentTag, debouncedSearch, showArchived, currentPage, itemsPerPage, notesService]);
+
   // Data loading with useDataLoader hook
   const {
-    data: notes = [],
+    data: notesData,
     loading,
+    isRefreshing,
     error,
     refetch
   } = useDataLoader(
-    async () => {
-      return await notesService.listNotes({
-        tag: currentTag || undefined,
-        search: debouncedSearch || undefined,
-        archived: showArchived,
-        limit: itemsPerPage,
-        offset: (currentPage - 1) * itemsPerPage,
-      });
-    },
+    loadNotes,
     {
       dependencies: [currentTag, debouncedSearch, showArchived, currentPage, itemsPerPage],
-      onError: (error) => {
-        console.error('Failed to load notes:', error);
-      }
+      onError: handleLoadError,
+      keepDataWhileLoading: true // Prevent flickering during refresh
     }
   );
 
-  
+  // Memoize notes with stable empty array reference
+  const notes = useMemo(() => notesData ?? [], [notesData]);
+
   // Separate filtering and sorting logic for better performance and clarity
   const filteredNotes = useMemo(() => {
     if (!Array.isArray(notes)) return [];
@@ -257,25 +289,19 @@ export function NotesPage() {
               New Note
             </Button>
 
-            {/* Unified Search */}
-            <UnifiedSearchEmbedded
-              initialQuery={searchQuery}
-              defaultModules={['notes']}
-              includeDiary={false}
-              showModuleSelector={false}
-              showSearchTypeToggle={false}
-              onResultClick={(result) => {
-                // Navigate to note or show in modal
-                notifications.show({
-                  title: 'Note Found',
-                  message: `Found note: ${result.title}`,
-                  color: 'blue'
-                });
-              }}
-              emptyMessage="No notes found. Try different search terms."
-              resultsPerPage={10}
-              showPagination={false}
-            />
+            {/* Search */}
+            <Paper p="md" withBorder>
+              <Group mb="xs">
+                <IconSearch size={16} />
+                <Text fw={600} size="sm">Search Notes</Text>
+              </Group>
+              <TextInput
+                placeholder="Search Notes"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.currentTarget.value)}
+                leftSection={<IconSearch size={14} />}
+              />
+            </Paper>
 
             {/* Filters */}
             <Paper p="md" withBorder>
@@ -320,6 +346,16 @@ export function NotesPage() {
                   }}
                   disabled={loading}
                 />
+                
+                <Button
+                  variant="light"
+                  size="sm"
+                  leftSection={<IconRefresh size={16} />}
+                  onClick={refetch}
+                  loading={isRefreshing}
+                >
+                  Refresh
+                </Button>
                 
                 <Button
                   variant="light"
@@ -408,7 +444,7 @@ export function NotesPage() {
                         sessionStorage.setItem('notesScrollY', String(window.scrollY));
                         navigate(`/notes/${note.uuid}`);
                       }}
-                      onDelete={() => handleDeleteNote(note.uuid, note.title)}
+                      onDelete={() => handleDeleteNote(note.uuid, note.title || 'Untitled')}
                       isFavorite={note.isFavorite}
                       isArchived={note.isArchived}
                       variant="subtle"
@@ -419,7 +455,7 @@ export function NotesPage() {
                   <Text size="xl">{getNoteIcon(note)}</Text>
                   <Group gap={4}>
                     <Badge size="xs" variant="light" color="blue">
-                      {getWordCount(note.preview)} words
+                      {getWordCount(note.preview || '')} words
                     </Badge>
                     {note.isArchived && (
                       <Badge size="xs" color="gray" variant="light">
@@ -435,9 +471,9 @@ export function NotesPage() {
                     <Text size="lg">{getNoteIcon(note)}</Text>
                     <Stack gap={2}>
                       <Group gap="xs">
-                        <Text 
-                          fw={600} 
-                          size="sm" 
+                        <Text
+                          fw={600}
+                          size="sm"
                           style={{ cursor: 'pointer', color: '#228be6' }}
                           onClick={() => {
                             sessionStorage.setItem('notesScrollY', String(window.scrollY));
@@ -459,7 +495,7 @@ export function NotesPage() {
                       </Group>
                       <Group gap="xs">
                         <Badge size="xs" variant="light" color="blue">
-                          {getWordCount(note.preview)} words
+                          {getWordCount(note.preview || '')} words
                         </Badge>
                         {note.fileCount > 0 && (
                           <Badge size="xs" variant="light" color="teal">
@@ -471,11 +507,11 @@ export function NotesPage() {
                         </Text>
                         <ProjectBadges projects={note.projects || []} size="xs" maxVisible={2} />
                         {(note.tags || []).slice(0, 2).map((tag: string) => (
-                          <Badge 
-                            key={tag} 
-                            size="xs" 
-                            variant="dot" 
-                            style={{ cursor: 'pointer' }} 
+                          <Badge
+                            key={tag}
+                            size="xs"
+                            variant="dot"
+                            style={{ cursor: 'pointer' }}
                             onClick={(e) => {
                               e.stopPropagation();
                               setTag(tag);
@@ -485,35 +521,16 @@ export function NotesPage() {
                           </Badge>
                         ))}
                       </Group>
-                      
-                      {/* NEW: Note Type and Versioning */}
-                      <Group gap="xs">
-                        {note.note_type && note.note_type !== 'general' && (
-                          <Tooltip label={`Note type: ${note.note_type}`}>
-                            <Badge size="xs" variant="outline" color="blue">
-                              <IconFileText size={10} style={{ marginRight: 4 }} />
-                              {note.note_type}
-                            </Badge>
-                          </Tooltip>
-                        )}
-                        {note.version && note.version > 1 && (
-                          <Tooltip label={`Version ${note.version}`}>
-                            <Badge size="xs" variant="outline" color="gray">
-                              <IconHistory size={10} style={{ marginRight: 4 }} />
-                              v{note.version}
-                            </Badge>
-                          </Tooltip>
-                        )}
-                      </Group>
-
-                {/* NEW: Tag Count */}
-                <Group gap="xs">
-                  {(note.tags?.length || 0) > 2 && (
-                    <Badge size="xs" variant="outline">+{(note.tags?.length || 0) - 2}</Badge>
-                  )}
-                </Group>
+                      {note.version && note.version > 1 && (
+                        <Tooltip label={`Version ${note.version}`}>
+                          <Badge size="xs" variant="outline" color="gray">
+                            <IconHistory size={10} style={{ marginRight: 4 }} />
+                            v{note.version}
+                          </Badge>
+                        </Tooltip>
+                      )}
                       <Text size="xs" c="dimmed" lineClamp={1}>
-                        {truncateText(note.preview, 100)}
+                        {truncateText(note.preview || '', 100)}
                       </Text>
                     </Stack>
                   </Group>
@@ -521,10 +538,10 @@ export function NotesPage() {
                     onToggleFavorite={async () => {
                       try {
                         await useNotesStore.getState().updateNote(note.uuid, { isFavorite: !note.isFavorite });
-                        notifications.show({ 
-                          title: note.isFavorite ? 'Removed from Favorites' : 'Added to Favorites', 
-                          message: '', 
-                          color: 'pink' 
+                        notifications.show({
+                          title: note.isFavorite ? 'Removed from Favorites' : 'Added to Favorites',
+                          message: '',
+                          color: 'pink'
                         });
                       } catch (err) {
                         notifications.show({ title: 'Action Failed', message: 'Could not update favorite', color: 'red' });
@@ -557,7 +574,7 @@ export function NotesPage() {
                       }
                     } : undefined}
                     onEdit={() => navigate(`/notes/${note.uuid}`)}
-                    onDelete={() => handleDeleteNote(note.uuid, note.title)}
+                    onDelete={() => handleDeleteNote(note.uuid, note.title || 'Untitled')}
                     isFavorite={note.isFavorite}
                     isArchived={note.isArchived}
                     variant="subtle"
@@ -592,11 +609,11 @@ export function NotesPage() {
                   </Stack>
                 </Group>,
                 <Text key="preview" size="xs" c="dimmed" lineClamp={2}>
-                  {truncateText(note.preview, 150)}
+                  {truncateText(note.preview || '', 150)}
                 </Text>,
                 <Group key="wordcount" gap="xs">
                   <Badge size="xs" variant="light" color="blue">
-                    {getWordCount(note.preview)} words
+                    {getWordCount(note.preview || '')} words
                   </Badge>
                 </Group>,
                 <Group key="tags" gap={4}>
@@ -656,7 +673,7 @@ export function NotesPage() {
                     } catch {}
                   } : undefined}
                   onEdit={() => navigate(`/notes/${note.uuid}`)}
-                  onDelete={() => handleDeleteNote(note.uuid, note.title)}
+                  onDelete={() => handleDeleteNote(note.uuid, note.title || 'Untitled')}
                   isFavorite={note.isFavorite}
                   isArchived={note.isArchived}
                   variant="subtle"

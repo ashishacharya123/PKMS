@@ -16,12 +16,13 @@ export default function ActivityTimelinePage() {
   }, [days, limit]);
 
   // Use the established useDataLoader pattern instead of manual state management
-  const { data: timeline, loading, error, refetch } = useDataLoader(
+  const { data: timeline, loading, isRefreshing, error, refetch } = useDataLoader(
     loadTimeline,
     {
       initialData: { items: [], totalCount: 0, cutoffDays: 7 },
       dependencies: [days, limit],
-      autoLoad: true
+      autoLoad: true,
+      keepDataWhileLoading: true // Prevent flickering during refresh
     }
   );
 
@@ -54,7 +55,7 @@ export default function ActivityTimelinePage() {
               max={200}
               step={10}
             />
-            <Button variant="light" onClick={refetch}>Refresh</Button>
+            <Button variant="light" onClick={refetch} loading={isRefreshing}>Refresh</Button>
           </Group>
         </Group>
 

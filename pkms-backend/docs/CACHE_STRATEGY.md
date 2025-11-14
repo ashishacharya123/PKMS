@@ -85,17 +85,18 @@ Database + Computation
 3. **Module-Specific Data**
    - Notes: 5 minutes TTL
    - Todos: 3 minutes TTL  
-   - Diary: 1 minute TTL (frequently updated)
-   - Dashboard: 2 minutes TTL
+   - Diary: 5 minutes TTL (only individual entries change, invalidated on mutations)
+   - Dashboard: 5 minutes TTL (invalidated on mutations)
+   - Documents: 10 minutes TTL (rarely changes)
 
 ## Cache Coordination Rules
 
 ### Rule 1: Frontend TTL ≤ Backend TTL
 ```
-Frontend Dashboard TTL: 2 minutes (120s)
+Frontend Dashboard TTL: 5 minutes (300s)
 Backend Analytics TTL: 10 minutes (600s)
 ```
-**Rationale:** Frontend expires first, ensures data freshness
+**Rationale:** Frontend expires first, ensures data freshness. TTL is a safety net - we invalidate on mutations anyway.
 
 ### Rule 2: Backend Only for Expensive Ops
 ```python

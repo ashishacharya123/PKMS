@@ -94,7 +94,7 @@ export function SubtaskList({
         <Stack gap="xs" ml="lg">
           {orderedSubtasks.map((subtask, index) => (
             <Group
-              key={subtask.id}
+              key={subtask.uuid || index}
               gap="xs"
               wrap="nowrap"
               p="xs"

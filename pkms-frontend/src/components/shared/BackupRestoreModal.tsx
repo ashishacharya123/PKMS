@@ -37,10 +37,11 @@ import {
   IconFileDatabase,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
-import { 
+import {
   backupService,
-  type BackupFile 
+  type BackupFile
 } from '../../services/backupService';
+import { formatFileSize } from '../../utils/fileUtils';
 
 interface BackupOperation {
   status: 'success' | 'error';
@@ -363,8 +364,7 @@ export function BackupRestoreModal({ opened, onClose }: BackupRestoreModalProps)
     }
   };
 
-  const formatFileSize = backupService.formatBytes;
-  const formatDateTime = backupService.formatDateTime;
+    const formatDateTime = backupService.formatDateTime;
 
   const BackupTab = () => (
     <Stack gap="md">

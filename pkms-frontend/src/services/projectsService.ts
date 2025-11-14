@@ -6,7 +6,7 @@
  * Follows architectural rules with proper naming and UX patterns
  */
 
-import { BaseService } from './BaseService';
+import { CacheAwareBaseService } from './BaseService';
 import { projectsCache } from './unifiedCacheService';
 import { apiService } from './api';
 import { documentsService } from './documentsService';
@@ -25,8 +25,12 @@ export interface Project {
   updatedAt: string;
   createdBy: string;
   isDeleted: boolean;
+  isArchived: boolean;
   documentCount: number;
   lastActivityAt?: string;
+  todoCount?: number;
+  completedCount?: number;
+  isFavorite?: boolean;
 }
 
 export interface ProjectCreateRequest {
@@ -39,6 +43,7 @@ export interface ProjectUpdateRequest {
   name?: string;
   description?: string;
   status?: string;
+  isArchived?: boolean;
 }
 
 export interface ProjectDocumentReorderRequest {

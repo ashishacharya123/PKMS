@@ -59,6 +59,8 @@ class DocumentCRUDService:
                     "tags": payload.tags,
                     "project_uuids": payload.project_uuids,
                     "are_projects_exclusive": payload.are_projects_exclusive,
+                    "diary_entry_uuid": payload.diary_entry_uuid,  # Link to diary entry if provided
+                    "is_encrypted": payload.is_encrypted,  # Track encryption status
                 }
             )
 

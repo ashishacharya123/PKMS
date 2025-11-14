@@ -40,7 +40,13 @@ export const testingService = {
   getDatabaseStats: databaseService.getStats,
   getTableSchema: databaseService.getTableSchema,
   getSampleRows: databaseService.getSampleRows,
-  getAllTables: databaseService.getAllTables,
+  getAllTables: databaseService.getFtsTables, // Fixed: use FTS tables instead of non-existent method
+  getFtsTables: databaseService.getFtsTables, // Added: explicit FTS method
+  getFtsAnalysis: databaseService.getFtsAnalysis, // Added: FTS analysis method
+  getFtsTableDetails: databaseService.getFtsAnalysis, // Added: alias for FTS table details
+  loadFtsTableSample: async (tableName: string, limit: number) => { // Added: FTS sample loader
+    return await databaseService.getSampleData(tableName, limit);
+  },
 
   // System methods
   getDetailedHealth: systemService.getHealthDetailed,

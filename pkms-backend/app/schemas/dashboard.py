@@ -9,8 +9,8 @@ class DashboardStats(CamelCaseModel):
     notes: Dict[ModuleStatsKey, int]
     documents: Dict[ModuleStatsKey, int] 
     todos: Dict[str, int]  # Mixed: status enums + computed string keys
-    diary: Dict[ModuleStatsKey, int]
-    archive: Dict[ModuleStatsKey, int]
+    diary: Dict[str, int]  # Mixed: includes 'total', 'recent', and 'streak'
+    archive: Dict[str, int]  # Mixed: includes 'total', 'recent', and potentially 'folders'
     # Projects expose total and active; keep enum for stability
     projects: Dict[ProjectStatsKey, int] = Field(default_factory=dict)
     last_updated: datetime

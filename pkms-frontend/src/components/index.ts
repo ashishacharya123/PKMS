@@ -322,7 +322,7 @@ export { default as FavoritesCard } from './dashboard/FavoritesCard';
 export { default as StorageBreakdownCard } from './dashboard/StorageBreakdownCard';
 
 // Diary Components
-export { default as DiaryPage } from './diary/DiaryPage';
+export { default as DiaryPage } from '../pages/DiaryPage';
 export { default as HabitAnalyticsView } from './diary/HabitAnalyticsView';
 export { default as EncryptionStatus } from './diary/EncryptionStatus';
 

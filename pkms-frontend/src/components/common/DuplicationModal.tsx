@@ -3,9 +3,9 @@
  * Handles both project and todo duplication with advanced options
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Modal, Stack, Text, Group, Button, TextInput, Textarea, Switch, Divider, Alert, LoadingOverlay } from '@mantine/core';
-import { IconCopy, IconAlertTriangle, IconCheck, IconX } from '@tabler/icons-react';
+import { IconCopy, IconAlertTriangle, IconX } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 
 interface DuplicationModalProps {

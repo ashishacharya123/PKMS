@@ -5,6 +5,7 @@
 
 import { Card, Text, Group, Stack, Button, Badge, Image, Alert } from '@mantine/core';
 import { IconFile, IconPhoto, IconMusic, IconVideo, IconFileText, IconDownload, IconTrash, IconEye } from '@tabler/icons-react';
+import { formatFileSize } from '../../utils/fileUtils';
 
 interface FilePreviewCardProps {
   file: File;
@@ -33,14 +34,6 @@ const getFileTypeColor = (mimeType: string) => {
   if (mimeType.includes('document')) return 'blue';
   if (mimeType.includes('text')) return 'gray';
   return 'gray';
-};
-
-const formatFileSize = (bytes: number) => {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
 export function FilePreviewCard({

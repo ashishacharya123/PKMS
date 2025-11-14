@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button, Group, Title, Progress, Alert, Stack } from '@mantine/core';
-import { IconUpload, IconLink } from '@tabler/icons-react';
+import { IconPlus, IconMicrophone } from '@tabler/icons-react';
 import { FileUploadModal } from './FileUploadModal';
 import { AudioRecorderModal } from './AudioRecorderModal';
 import { UnifiedFileList } from './UnifiedFileList';
@@ -365,7 +365,7 @@ export const UnifiedFileSection: React.FC<UnifiedFileSectionProps> = ({
             <Button
               variant="light"
               size="sm"
-              leftSection={<IconLink size={16} />}
+              leftSection={<IconMicrophone size={16} />}
               onClick={() => setAudioRecorderOpen(true)}
             >
               Record Audio
@@ -375,7 +375,7 @@ export const UnifiedFileSection: React.FC<UnifiedFileSectionProps> = ({
             <Button
               variant="light"
               size="sm"
-              leftSection={<IconUpload size={16} />}
+              leftSection={<IconPlus size={16} />}
               onClick={() => setUploadModalOpen(true)}
             >
               Upload Files

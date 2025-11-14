@@ -1,0 +1,859 @@
+﻿src/components/common/ContentViewerPage.tsx(41,46): error TS2345: Argument of type '"notes" | "documents" | "todos" | "projects" | "diary" | "archive"' is not assignable to parameter of type '"notes" | "documents" | "projects" | "diary" | "archive"'.
+  Type '"todos"' is not assignable to type '"notes" | "documents" | "projects" | "diary" | "archive"'.
+src/components/common/DeletionImpactDialog.tsx(1,8): error TS6133: 'React' is declared but its value is never read.
+src/components/common/DeletionImpactDialog.tsx(17,3): error TS6133: 'IconRestore' is declared but its value is never read.
+src/components/common/DuplicationModal.tsx(6,8): error TS6133: 'React' is declared but its value is never read.
+src/components/common/DuplicationModal.tsx(8,39): error TS6133: 'IconCheck' is declared but its value is never read.
+src/components/common/EmptyState.tsx(7,38): error TS6133: 'Group' is declared but its value is never read.
+src/components/common/EmptyState.tsx(8,1): error TS6133: 'Icon' is declared but its value is never read.
+src/components/common/ErrorBoundary.tsx(7,8): error TS6133: 'React' is declared but its value is never read.
+src/components/common/ErrorBoundary.tsx(8,38): error TS6133: 'Title' is declared but its value is never read.
+src/components/common/ErrorState.tsx(1,1): error TS6133: 'React' is declared but its value is never read.
+src/components/common/ImageViewer.tsx(6,8): error TS6133: 'React' is declared but its value is never read.
+src/components/common/ItemActionMenu.tsx(6,1): error TS6133: 'React' is declared but its value is never read.
+src/components/common/LoadingState.tsx(1,1): error TS6133: 'React' is declared but its value is never read.
+src/components/common/ModuleFilters.tsx(26,3): error TS6133: 'IconStar' is declared but its value is never read.
+src/components/common/ModuleFilters.tsx(27,3): error TS6133: 'IconArchive' is declared but its value is never read.
+src/components/common/ModuleFilters.tsx(28,3): error TS6133: 'IconTag' is declared but its value is never read.
+src/components/common/ModuleFilters.tsx(29,3): error TS6133: 'IconClock' is declared but its value is never read.
+src/components/common/ModuleFilters.tsx(30,3): error TS6133: 'IconCode' is declared but its value is never read.
+src/components/common/ModuleFilters.tsx(31,3): error TS6133: 'IconChecklist' is declared but its value is never read.
+src/components/common/ModuleHeader.tsx(6,1): error TS6133: 'React' is declared but its value is never read.
+src/components/common/ModuleLayout.tsx(6,1): error TS6133: 'React' is declared but its value is never read.
+src/components/common/ModuleLayout.tsx(70,7): error TS2322: Type '(item: T) => void' is not assignable to type '(item: BaseItem) => void'.
+  Types of parameters 'item' and 'item' are incompatible.
+    Type 'BaseItem' is not assignable to type 'T'.
+      'T' could be instantiated with an arbitrary type which could be unrelated to 'BaseItem'.
+src/components/common/ModuleLayout.tsx(73,23): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/components/common/ModuleLayout.tsx(82,13): error TS2322: Type '((item: T) => void) | undefined' is not assignable to type '((item: BaseItem) => void) | undefined'.
+  Type '(item: T) => void' is not assignable to type '(item: BaseItem) => void'.
+    Types of parameters 'item' and 'item' are incompatible.
+      Type 'BaseItem' is not assignable to type 'T'.
+        'BaseItem' is assignable to the constraint of type 'T', but 'T' could be instantiated with a different subtype of constraint '{ uuid: string; name: string; title?: string | undefined; isFavorite: boolean; isArchived: boolean; createdBy: string; createdAt: string; updatedAt: string; }'.
+src/components/common/ModuleLayout.tsx(83,13): error TS2322: Type '((item: T) => void) | undefined' is not assignable to type '((item: BaseItem) => void) | undefined'.
+  Type '(item: T) => void' is not assignable to type '(item: BaseItem) => void'.
+    Types of parameters 'item' and 'item' are incompatible.
+      Type 'BaseItem' is not assignable to type 'T'.
+        'BaseItem' is assignable to the constraint of type 'T', but 'T' could be instantiated with a different subtype of constraint '{ uuid: string; name: string; title?: string | undefined; isFavorite: boolean; isArchived: boolean; createdBy: string; createdAt: string; updatedAt: string; }'.
+src/components/common/ModuleLayout.tsx(84,13): error TS2322: Type '((item: T) => void) | undefined' is not assignable to type '((item: BaseItem) => void) | undefined'.
+  Type '(item: T) => void' is not assignable to type '(item: BaseItem) => void'.
+    Types of parameters 'item' and 'item' are incompatible.
+      Type 'BaseItem' is not assignable to type 'T'.
+        'BaseItem' is assignable to the constraint of type 'T', but 'T' could be instantiated with a different subtype of constraint '{ uuid: string; name: string; title?: string | undefined; isFavorite: boolean; isArchived: boolean; createdBy: string; createdAt: string; updatedAt: string; }'.
+src/components/common/ModuleLayout.tsx(85,13): error TS2322: Type '((item: T) => void) | undefined' is not assignable to type '((item: BaseItem) => void) | undefined'.
+  Type '(item: T) => void' is not assignable to type '(item: BaseItem) => void'.
+    Types of parameters 'item' and 'item' are incompatible.
+      Type 'BaseItem' is not assignable to type 'T'.
+        'BaseItem' is assignable to the constraint of type 'T', but 'T' could be instantiated with a different subtype of constraint '{ uuid: string; name: string; title?: string | undefined; isFavorite: boolean; isArchived: boolean; createdBy: string; createdAt: string; updatedAt: string; }'.
+src/components/common/ModuleLayout.tsx(86,13): error TS2322: Type '((item: T) => void) | undefined' is not assignable to type '((item: BaseItem) => void) | undefined'.
+  Type '(item: T) => void' is not assignable to type '(item: BaseItem) => void'.
+    Types of parameters 'item' and 'item' are incompatible.
+      Type 'BaseItem' is not assignable to type 'T'.
+        'BaseItem' is assignable to the constraint of type 'T', but 'T' could be instantiated with a different subtype of constraint '{ uuid: string; name: string; title?: string | undefined; isFavorite: boolean; isArchived: boolean; createdBy: string; createdAt: string; updatedAt: string; }'.
+src/components/common/ModuleLayout.tsx(87,13): error TS2322: Type '((item: T) => void) | undefined' is not assignable to type '((item: BaseItem) => void) | undefined'.
+  Type '(item: T) => void' is not assignable to type '(item: BaseItem) => void'.
+    Types of parameters 'item' and 'item' are incompatible.
+      Type 'BaseItem' is not assignable to type 'T'.
+        'BaseItem' is assignable to the constraint of type 'T', but 'T' could be instantiated with a different subtype of constraint '{ uuid: string; name: string; title?: string | undefined; isFavorite: boolean; isArchived: boolean; createdBy: string; createdAt: string; updatedAt: string; }'.
+src/components/common/PermanentDeleteDialog.tsx(1,8): error TS6133: 'React' is declared but its value is never read.
+src/components/common/PermanentDeleteDialog.tsx(136,38): error TS2339: Property 'uuid' does not exist on type '{ type: string; title: string; }'.
+src/components/common/PermanentDeleteDialog.tsx(154,38): error TS2339: Property 'uuid' does not exist on type '{ type: string; title: string; }'.
+src/components/common/ProgressIndicator.tsx(6,1): error TS6133: 'React' is declared but its value is never read.
+src/components/common/ProjectSelector.tsx(54,11): error TS2740: Type '{ uuid: string; title: string; name: string; description: string; status: ProjectStatus.IS_RUNNING; priority: TaskPriority.HIGH; dueDate: string; progressPercentage: number; ... 5 more ...; isFavorite: true; }' is missing the following properties from type 'ProjectSummary': sortOrder, documentCount, noteCount, tagCount, and 3 more.
+src/components/common/ProjectSelector.tsx(70,11): error TS2740: Type '{ uuid: string; title: string; name: string; description: string; status: ProjectStatus.ON_HOLD; priority: TaskPriority.MEDIUM; dueDate: string; progressPercentage: number; ... 5 more ...; isFavorite: false; }' is missing the following properties from type 'ProjectSummary': sortOrder, documentCount, noteCount, tagCount, and 3 more.
+src/components/common/ProjectSelector.tsx(86,11): error TS2740: Type '{ uuid: string; title: string; name: string; description: string; status: ProjectStatus.COMPLETED; priority: TaskPriority.URGENT; dueDate: string; progressPercentage: number; ... 5 more ...; isFavorite: false; }' is missing the following properties from type 'ProjectSummary': sortOrder, documentCount, noteCount, tagCount, and 3 more.
+src/components/common/QuickActions.tsx(8,1): error TS6133: 'Icon' is declared but its value is never read.
+src/components/common/QuickActions.tsx(47,9): error TS2322: Type '{ children: string | undefined; key: number; variant: "light" | "filled" | "outline" | "subtle"; size: "lg" | "xs" | "sm" | "md"; color: string | undefined; leftSection: Element | undefined; onClick: () => void; disabled: boolean | undefined; loading: boolean | undefined; compact: boolean; }' is not assignable to type 'IntrinsicAttributes & ButtonProps & ComponentProp<"button"> & Omit<Omit<DetailedHTMLProps<ButtonHTMLAttributes<HTMLButtonElement>, HTMLButtonElement>, "ref">, "component" | keyof ButtonProps> & { ...; }'.
+  Property 'compact' does not exist on type 'IntrinsicAttributes & ButtonProps & ComponentProp<"button"> & Omit<Omit<DetailedHTMLProps<ButtonHTMLAttributes<HTMLButtonElement>, HTMLButtonElement>, "ref">, "component" | keyof ButtonProps> & { ...; }'.
+src/components/common/QuickActions.tsx(67,7): error TS2322: Type '{ children: Element[]; gap: "xs" | "sm"; direction: string; align: "center"; }' is not assignable to type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'direction' does not exist on type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/common/StatusBadge.tsx(8,1): error TS6133: 'Icon' is declared but its value is never read.
+src/components/dashboard/ActivityTimeline.tsx(14,3): error TS6133: 'Button' is declared but its value is never read.
+src/components/dashboard/ActivityTimeline.tsx(20,3): error TS6133: 'IconFolder' is declared but its value is never read.
+src/components/dashboard/ActivityTimeline.tsx(25,3): error TS6133: 'IconPlus' is declared but its value is never read.
+src/components/dashboard/ActivityTimeline.tsx(28,3): error TS6133: 'IconClock' is declared but its value is never read.
+src/components/dashboard/ActivityTimeline.tsx(278,55): error TS2551: Property 'weatherCode' does not exist on type '{ status?: string | undefined; priority?: string | undefined; mood?: number | undefined; weather_code?: number | undefined; mime_type?: string | undefined; item_type?: string | undefined; }'. Did you mean 'weather_code'?
+src/components/dashboard/ActivityTimeline.tsx(280,51): error TS2551: Property 'weatherCode' does not exist on type '{ status?: string | undefined; priority?: string | undefined; mood?: number | undefined; weather_code?: number | undefined; mime_type?: string | undefined; item_type?: string | undefined; }'. Did you mean 'weather_code'?
+src/components/dashboard/FavoritesCard.tsx(4,28): error TS2614: Module '"../../services/dashboardService"' has no exported member 'FavoritesData'. Did you mean to use 'import FavoritesData from "../../services/dashboardService"' instead?
+src/components/dashboard/FavoritesCard.tsx(39,8): error TS2339: Property 'getFavorites' does not exist on type 'DashboardService'.
+src/components/dashboard/FavoritesCard.tsx(40,14): error TS7006: Parameter 'res' implicitly has an 'any' type.
+src/components/dashboard/FavoritesCard.tsx(44,15): error TS7006: Parameter 'err' implicitly has an 'any' type.
+src/components/dashboard/FavoritesCard.tsx(51,81): error TS18046: 'items' is of type 'unknown'.
+src/components/dashboard/FavoritesCard.tsx(65,15): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'.
+src/components/dashboard/FavoritesCard.tsx(88,19): error TS18046: 'items' is of type 'unknown'.
+src/components/dashboard/FavoritesCard.tsx(91,36): error TS18046: 'items' is of type 'unknown'.
+src/components/dashboard/FavoritesCard.tsx(94,26): error TS18046: 'items' is of type 'unknown'.
+src/components/dashboard/FavoritesCard.tsx(94,37): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/components/dashboard/MainDashboard.tsx(21,3): error TS6133: 'Anchor' is declared but its value is never read.
+src/components/dashboard/MainDashboard.tsx(29,3): error TS6133: 'IconTrendingUp' is declared but its value is never read.
+src/components/dashboard/ModuleDashboard.tsx(71,38): error TS2554: Expected 0 arguments, but got 1.
+src/components/diary/AdvancedSearchAnalytics.tsx(23,3): error TS6133: 'Divider' is declared but its value is never read.
+src/components/diary/AdvancedSearchAnalytics.tsx(24,3): error TS6133: 'ThemeIcon' is declared but its value is never read.
+src/components/diary/AdvancedSearchAnalytics.tsx(25,3): error TS6133: 'Timeline' is declared but its value is never read.
+src/components/diary/AdvancedSearchAnalytics.tsx(29,3): error TS6133: 'Tooltip' is declared but its value is never read.
+src/components/diary/AdvancedSearchAnalytics.tsx(31,21): error TS6133: 'BarChart' is declared but its value is never read.
+src/components/diary/AdvancedSearchAnalytics.tsx(35,3): error TS6133: 'IconBrain' is declared but its value is never read.
+src/components/diary/AdvancedSearchAnalytics.tsx(37,3): error TS6133: 'IconTrendingUp' is declared but its value is never read.
+src/components/diary/AdvancedSearchAnalytics.tsx(41,3): error TS6133: 'IconFilter' is declared but its value is never read.
+src/components/diary/AdvancedSearchAnalytics.tsx(42,3): error TS6133: 'IconSortAscending' is declared but its value is never read.
+src/components/diary/AdvancedSearchAnalytics.tsx(43,3): error TS6133: 'IconSortDescending' is declared but its value is never read.
+src/components/diary/AdvancedSearchAnalytics.tsx(45,3): error TS6133: 'IconDownload' is declared but its value is never read.
+src/components/diary/AdvancedSearchAnalytics.tsx(47,3): error TS6133: 'IconCheck' is declared but its value is never read.
+src/components/diary/AdvancedSearchAnalytics.tsx(48,3): error TS6133: 'IconX' is declared but its value is never read.
+src/components/diary/AdvancedSearchAnalytics.tsx(177,24): error TS2345: Argument of type 'SearchResult[]' is not assignable to parameter of type 'SetStateAction<SearchResult[]>'.
+  Type 'import("D:/Coding/PKMS/pkms-frontend/src/services/searchService").SearchResult[]' is not assignable to type 'SearchResult[]'.
+    Type 'import("D:/Coding/PKMS/pkms-frontend/src/services/searchService").SearchResult' is not assignable to type 'SearchResult'.
+      Types of property 'preview' are incompatible.
+        Type 'string | undefined' is not assignable to type 'string'.
+          Type 'undefined' is not assignable to type 'string'.
+src/components/diary/DiaryAnalyticsTab.tsx(36,3): error TS6133: 'Alert' is declared but its value is never read.
+src/components/diary/DiaryEntryModal.tsx(117,25): error TS2345: Argument of type '{ title: string; content: string; tags: string[]; mood: number | undefined; weatherCode: number | undefined; location: string | undefined; date: Date; }' is not assignable to parameter of type 'DiaryEntryCreatePayload'.
+  Type '{ title: string; content: string; tags: string[]; mood: number | undefined; weatherCode: number | undefined; location: string | undefined; date: Date; }' is missing the following properties from type 'DiaryEntryCreatePayload': encryptedBlob, encryptionIv
+src/components/diary/DiaryEntryModal.tsx(229,9): error TS2322: Type '(data: { title: string; content: string; tags: string[]; mood?: number; weatherCode?: number; location?: string; }) => Promise<void>' is not assignable to type '() => void'.
+  Target signature provides too few arguments. Expected 1 or more, but got 0.
+src/components/diary/DiaryLayout.tsx(7,57): error TS2305: Module '"@mantine/core"' has no exported member 'Calendar'.
+src/components/diary/DiaryLayout.tsx(7,67): error TS6133: 'Badge' is declared but its value is never read.
+src/components/diary/DiaryLayout.tsx(11,10): error TS2305: Module '"../../types/common"' has no exported member 'DiaryItem'.
+src/components/diary/DiaryLayout.tsx(186,28): error TS6133: 'mode' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(31,3): error TS6133: 'Title' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(38,3): error TS6133: 'Paper' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(40,3): error TS6133: 'Textarea' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(41,3): error TS6133: 'Rating' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(46,3): error TS6133: 'TagsInput' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(48,3): error TS6133: 'Checkbox' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(49,3): error TS6133: 'Divider' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(50,3): error TS6133: 'Accordion' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(51,3): error TS6133: 'SimpleGrid' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(52,3): error TS6133: 'ScrollArea' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(53,3): error TS6133: 'Tooltip' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(55,3): error TS6133: 'FileInput' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(56,3): error TS6133: 'Tabs' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(67,3): error TS6133: 'IconDots' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(70,3): error TS6133: 'IconEye' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(74,3): error TS6133: 'IconMoodHappy' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(75,3): error TS6133: 'IconMoodSad' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(76,3): error TS6133: 'IconPhoto' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(77,3): error TS6133: 'IconMicrophone' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(78,3): error TS6133: 'IconX' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(79,3): error TS6133: 'IconCheck' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(83,37): error TS6133: 'isYesterday' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(83,63): error TS6133: 'endOfWeek' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(88,1): error TS6133: 'HistoricalEntries' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(92,1): error TS6133: 'diaryService' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(93,1): error TS6133: 'searchService' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(97,3): error TS6133: 'DiaryEntrySummary' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(98,3): error TS6133: 'DiaryFormValues' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(99,3): error TS6133: 'DiaryDailyMetrics' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(102,3): error TS6133: 'DiaryEntryCreatePayload' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(105,3): error TS6133: 'DiaryDailyMetadata' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(109,26): error TS6133: 'convertToNepaliDate' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(128,9): error TS6133: 'navigate' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(130,9): error TS6133: 'colorScheme' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(141,5): error TS6133: 'createEntry' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(143,5): error TS6133: 'calendarData' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(151,57): error TS2345: Argument of type '"createdAt"' is not assignable to parameter of type 'SortField | (() => SortField)'.
+src/components/diary/DiaryMainTab.tsx(189,15): error TS2339: Property 'content' does not exist on type 'DiaryEntrySummary'.
+src/components/diary/DiaryMainTab.tsx(195,24): error TS2551: Property 'created_at' does not exist on type 'DiaryEntrySummary'. Did you mean 'createdAt'?
+src/components/diary/DiaryMainTab.tsx(196,24): error TS2551: Property 'created_at' does not exist on type 'DiaryEntrySummary'. Did you mean 'createdAt'?
+src/components/diary/DiaryMainTab.tsx(262,11): error TS6133: 'mood' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(264,11): error TS6133: 'isLocked' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(365,9): error TS6133: 'handleEntryCreated' is declared but its value is never read.
+src/components/diary/DiaryMainTab.tsx(496,17): error TS2322: Type '(date: Date) => void' is not assignable to type 'FormEventHandler<HTMLDivElement>'.
+  Types of parameters 'date' and 'event' are incompatible.
+    Type 'FormEvent<HTMLDivElement>' is missing the following properties from type 'Date': toDateString, toTimeString, toLocaleDateString, toLocaleTimeString, and 37 more.
+src/components/diary/DiaryMainTab.tsx(497,17): error TS2322: Type '(date: Date) => JSX.Element | null' is not assignable to type 'RenderDay'.
+  Types of parameters 'date' and 'date' are incompatible.
+    Type 'string' is not assignable to type 'Date'.
+src/components/diary/DiaryMainTab.tsx(544,21): error TS2322: Type '(date: Date) => void' is not assignable to type 'FormEventHandler<HTMLDivElement>'.
+  Types of parameters 'date' and 'event' are incompatible.
+    Type 'FormEvent<HTMLDivElement>' is missing the following properties from type 'Date': toDateString, toTimeString, toLocaleDateString, toLocaleTimeString, and 37 more.
+src/components/diary/DiaryMainTab.tsx(545,21): error TS2322: Type '(date: Date) => JSX.Element | null' is not assignable to type 'RenderDay'.
+  Types of parameters 'date' and 'date' are incompatible.
+    Type 'string' is not assignable to type 'Date'.
+src/components/diary/DiaryMainTab.tsx(689,34): error TS2339: Property 'content' does not exist on type 'DiaryEntrySummary'.
+src/components/diary/DiaryMainTab.tsx(691,38): error TS2339: Property 'content' does not exist on type 'DiaryEntrySummary'.
+src/components/diary/DiarySearch.tsx(45,5): error TS2353: Object literal may only specify known properties, and 'exclude_diary' does not exist in type 'SearchFilters | (() => SearchFilters)'.
+src/components/diary/DiarySearch.tsx(272,59): error TS2353: Object literal may only specify known properties, and 'exclude_diary' does not exist in type 'SetStateAction<SearchFilters>'.
+src/components/diary/HabitAnalyticsView.tsx(371,50): error TS18046: 'data' is of type 'unknown'.
+src/components/diary/HabitAnalyticsView.tsx(372,51): error TS18046: 'data' is of type 'unknown'.
+src/components/diary/HabitAnalyticsView.tsx(385,50): error TS18046: 'data' is of type 'unknown'.
+src/components/diary/HabitAnalyticsView.tsx(386,53): error TS18046: 'data' is of type 'unknown'.
+src/components/diary/HabitAnalyticsView.tsx(443,16): error TS2322: Type '{ children: Element[]; position: string; }' is not assignable to type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'position' does not exist on type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/diary/HabitAnalyticsView.tsx(467,49): error TS2322: Type '{ children: Element[]; cols: { base: number; md: number; }; gap: string; }' is not assignable to type 'IntrinsicAttributes & SimpleGridProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<...>) => ReactNode) | undefined; }'.
+  Property 'gap' does not exist on type 'IntrinsicAttributes & SimpleGridProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<...>) => ReactNode) | undefined; }'.
+src/components/diary/HabitAnalyticsView.tsx(473,15): error TS2322: Type '(value: string) => void' is not assignable to type '(value: string | null, option: ComboboxItem) => void'.
+  Types of parameters 'value' and 'value' are incompatible.
+    Type 'string | null' is not assignable to type 'string'.
+      Type 'null' is not assignable to type 'string'.
+src/components/diary/HabitAnalyticsView.tsx(487,15): error TS2322: Type '(value: string) => void' is not assignable to type '(value: string | null, option: ComboboxItem) => void'.
+  Types of parameters 'value' and 'value' are incompatible.
+    Type 'string | null' is not assignable to type 'string'.
+      Type 'null' is not assignable to type 'string'.
+src/components/diary/HabitAnalyticsView.tsx(497,15): error TS2322: Type '(value: string) => void' is not assignable to type '(value: string | null, option: ComboboxItem) => void'.
+  Types of parameters 'value' and 'value' are incompatible.
+    Type 'string | null' is not assignable to type 'string'.
+      Type 'null' is not assignable to type 'string'.
+src/components/diary/HabitCharts.tsx(17,1): error TS6133: 'React' is declared but its value is never read.
+src/components/diary/HabitCharts.tsx(47,3): error TS6133: 'Cell' is declared but its value is never read.
+src/components/diary/HabitCharts.tsx(110,33): error TS2322: Type '{ children: Element[]; align: "center"; spacing: string; }' is not assignable to type 'IntrinsicAttributes & StackProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'spacing' does not exist on type 'IntrinsicAttributes & StackProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/diary/HabitCharts.tsx(176,45): error TS6133: 'index' is declared but its value is never read.
+src/components/diary/HabitCharts.tsx(196,70): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: Props): ReferenceLine', gave the following error.
+    Type '"topRight"' is not assignable to type 'LabelPosition | undefined'.
+  Overload 2 of 2, '(props: Props, context: any): ReferenceLine', gave the following error.
+    Type '"topRight"' is not assignable to type 'LabelPosition | undefined'.
+src/components/diary/HabitCharts.tsx(230,70): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: Props): ReferenceLine', gave the following error.
+    Type '"topRight"' is not assignable to type 'LabelPosition | undefined'.
+  Overload 2 of 2, '(props: Props, context: any): ReferenceLine', gave the following error.
+    Type '"topRight"' is not assignable to type 'LabelPosition | undefined'.
+src/components/diary/HabitCharts.tsx(313,14): error TS2322: Type '{ children: (false | Element)[]; spacing: string; }' is not assignable to type 'IntrinsicAttributes & StackProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'spacing' does not exist on type 'IntrinsicAttributes & StackProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/diary/HabitCharts.tsx(315,27): error TS2322: Type '{ children: string; size: "lg"; weight: number; mb: "xs"; }' is not assignable to type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+  Property 'weight' does not exist on type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+src/components/diary/HabitDashboard.tsx(25,3): error TS6133: 'Badge' is declared but its value is never read.
+src/components/diary/HabitDashboard.tsx(89,14): error TS2322: Type '{ children: Element[]; spacing: string; }' is not assignable to type 'IntrinsicAttributes & StackProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'spacing' does not exist on type 'IntrinsicAttributes & StackProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/diary/HabitDashboard.tsx(90,16): error TS2322: Type '{ children: Element[]; position: string; }' is not assignable to type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'position' does not exist on type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/diary/HabitDashboard.tsx(91,18): error TS2322: Type '{ children: (ReactNode | Element)[]; spacing: string; }' is not assignable to type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'spacing' does not exist on type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/diary/HabitDashboard.tsx(93,29): error TS2322: Type '{ children: string; size: "sm"; weight: number; color: "dimmed"; }' is not assignable to type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+  Property 'weight' does not exist on type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+src/components/diary/HabitDashboard.tsx(101,27): error TS2322: Type '{ children: (string | number)[]; size: "xl"; weight: number; color: string; }' is not assignable to type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+  Property 'weight' does not exist on type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+src/components/diary/HabitDashboard.tsx(106,15): error TS2322: Type 'number | undefined' is not assignable to type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+src/components/diary/HabitDashboard.tsx(160,33): error TS2322: Type '{ children: Element[]; align: "center"; spacing: string; }' is not assignable to type 'IntrinsicAttributes & StackProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'spacing' does not exist on type 'IntrinsicAttributes & StackProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/diary/HabitDashboard.tsx(216,14): error TS2322: Type '{ children: (false | Element)[]; spacing: string; }' is not assignable to type 'IntrinsicAttributes & StackProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'spacing' does not exist on type 'IntrinsicAttributes & StackProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/diary/HabitDashboard.tsx(218,16): error TS2322: Type '{ children: Element[]; position: string; }' is not assignable to type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'position' does not exist on type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/diary/HabitDashboard.tsx(220,29): error TS2322: Type '{ children: string; size: "xl"; weight: number; }' is not assignable to type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+  Property 'weight' does not exist on type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+src/components/diary/HabitDashboard.tsx(227,18): error TS2322: Type '{ children: Element[]; spacing: string; }' is not assignable to type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'spacing' does not exist on type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/diary/HabitDashboard.tsx(295,20): error TS2322: Type '{ children: Element[]; spacing: string; mb: "sm"; }' is not assignable to type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'spacing' does not exist on type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/diary/HabitDashboard.tsx(297,31): error TS2322: Type '{ children: string; size: "sm"; weight: number; }' is not assignable to type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+  Property 'weight' does not exist on type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+src/components/diary/HabitDashboard.tsx(301,20): error TS2322: Type '{ children: Element[]; spacing: string; }' is not assignable to type 'IntrinsicAttributes & StackProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'spacing' does not exist on type 'IntrinsicAttributes & StackProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/diary/HabitDashboard.tsx(313,27): error TS2322: Type '{ children: string; size: "sm"; weight: number; mb: "sm"; }' is not assignable to type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+  Property 'weight' does not exist on type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+src/components/diary/HabitDashboard.tsx(316,18): error TS2322: Type '{ children: Element[]; spacing: string; }' is not assignable to type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+  Property 'spacing' does not exist on type 'IntrinsicAttributes & GroupProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<string, any>) => ReactNode) | undefined; }'.
+src/components/diary/HabitDashboard.tsx(318,15): error TS2322: Type '{ children: string; leftIcon: Element; variant: "light"; size: "sm"; }' is not assignable to type 'IntrinsicAttributes & ButtonProps & ComponentProp<"button"> & Omit<Omit<DetailedHTMLProps<ButtonHTMLAttributes<HTMLButtonElement>, HTMLButtonElement>, "ref">, "component" | keyof ButtonProps> & { ...; }'.
+  Property 'leftIcon' does not exist on type 'IntrinsicAttributes & ButtonProps & ComponentProp<"button"> & Omit<Omit<DetailedHTMLProps<ButtonHTMLAttributes<HTMLButtonElement>, HTMLButtonElement>, "ref">, "component" | keyof ButtonProps> & { ...; }'.
+src/components/diary/HabitDashboard.tsx(325,15): error TS2322: Type '{ children: string; leftIcon: Element; variant: "light"; size: "sm"; }' is not assignable to type 'IntrinsicAttributes & ButtonProps & ComponentProp<"button"> & Omit<Omit<DetailedHTMLProps<ButtonHTMLAttributes<HTMLButtonElement>, HTMLButtonElement>, "ref">, "component" | keyof ButtonProps> & { ...; }'.
+  Property 'leftIcon' does not exist on type 'IntrinsicAttributes & ButtonProps & ComponentProp<"button"> & Omit<Omit<DetailedHTMLProps<ButtonHTMLAttributes<HTMLButtonElement>, HTMLButtonElement>, "ref">, "component" | keyof ButtonProps> & { ...; }'.
+src/components/diary/HabitDashboard.tsx(336,27): error TS2322: Type '{ children: string; size: "sm"; weight: number; mb: "sm"; }' is not assignable to type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+  Property 'weight' does not exist on type 'IntrinsicAttributes & TextProps & ComponentProp<"p"> & Omit<Omit<DetailedHTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>, "ref">, "component" | keyof TextProps> & { ...; }'.
+src/components/diary/HabitInput.tsx(20,27): error TS6133: 'Alert' is declared but its value is never read.
+src/components/diary/HabitInput.tsx(20,34): error TS6133: 'Text' is declared but its value is never read.
+src/components/diary/HabitInput.tsx(24,1): error TS6192: All imports in import declaration are unused.
+src/components/diary/HistoricalEntries.tsx(197,20): error TS2551: Property 'weather_label' does not exist on type 'DiaryEntrySummary'. Did you mean 'weatherLabel'?
+src/components/diary/HistoricalEntries.tsx(199,24): error TS2551: Property 'weather_label' does not exist on type 'DiaryEntrySummary'. Did you mean 'weatherLabel'?
+src/components/diary/HistoricalEntries.tsx(222,20): error TS2551: Property 'content_length' does not exist on type 'DiaryEntrySummary'. Did you mean 'contentLength'?
+src/components/diary/HistoricalEntries.tsx(222,46): error TS2551: Property 'content_length' does not exist on type 'DiaryEntrySummary'. Did you mean 'contentLength'?
+src/components/diary/HistoricalEntries.tsx(265,28): error TS2304: Cannot find name 'entries'.
+src/components/diary/KeyboardShortcutsHelp.tsx(1,1): error TS6133: 'useState' is declared but its value is never read.
+src/components/file/AudioRecorderModal.tsx(38,7): error TS2322: Type 'Timeout' is not assignable to type 'number'.
+src/components/file/UnifiedContentModal.tsx(96,3): error TS6133: 'encryptionKey' is declared but its value is never read.
+src/components/file/UnifiedFileList.tsx(137,10): error TS6133: 'isContentLoading' is declared but its value is never read.
+src/components/file/UnifiedFileList.tsx(138,10): error TS6133: 'contentError' is declared but its value is never read.
+src/components/file/UnifiedFileList.tsx(626,15): error TS2322: Type '{ todo: Todo; onEdit: () => void; onDelete: () => void; onArchive: () => void; onUnarchive: () => void; onComplete: () => void; onAddSubtask: () => void; showArchived: false; onClose: () => void; }' is not assignable to type 'IntrinsicAttributes & TodoCardProps'.
+  Property 'onClose' does not exist on type 'IntrinsicAttributes & TodoCardProps'.
+src/components/file/UnifiedFileList.tsx(641,11): error TS2322: Type '{}' is not assignable to type 'string'.
+src/components/file/UnifiedFileList.tsx(644,9): error TS2322: Type '(UnifiedFileItem | undefined)[]' is not assignable to type 'UnifiedFileItem[]'.
+  Type 'UnifiedFileItem | undefined' is not assignable to type 'UnifiedFileItem'.
+    Type 'undefined' is not assignable to type 'UnifiedFileItem'.
+src/components/file/UnifiedFileSection.tsx(394,42): error TS2322: Type '{ value: number; label: string; }' is not assignable to type 'IntrinsicAttributes & ProgressProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<...>) => ReactNode) | undefined; }'.
+  Property 'label' does not exist on type 'IntrinsicAttributes & ProgressProps & RefAttributes<HTMLDivElement> & { component?: any; renderRoot?: ((props: Record<...>) => ReactNode) | undefined; }'.
+src/components/file/UnifiedFileSection.tsx(397,8): error TS2739: Type '{ files: UnifiedFileItem[]; onDelete: (fileId: string) => Promise<void>; onUnlink: ((fileId: string) => Promise<void>) | undefined; onReorder: ((reorderedFiles: UnifiedFileItem[]) => Promise<...>) | undefined; onReplace: (oldFileId: string, newFile: File) => Promise<...>; showUnlink: boolean; enableDragDrop: boolean...' is missing the following properties from type 'UnifiedFileListProps': module, entityId
+src/components/index.ts(305,10): error TS2305: Module '"./archive/FolderTree"' has no exported member 'default'.
+src/components/index.ts(308,10): error TS2305: Module '"./auth/LoginForm"' has no exported member 'default'.
+src/components/index.ts(309,10): error TS2305: Module '"./auth/AuthReadyWrapper"' has no exported member 'default'.
+src/components/index.ts(313,10): error TS2305: Module '"./common/ItemCard"' has no exported member 'default'.
+src/components/index.ts(314,10): error TS2305: Module '"./common/ActionMenu"' has no exported member 'default'.
+src/components/index.ts(316,10): error TS2305: Module '"./common/LoadingSkeleton"' has no exported member 'default'.
+src/components/index.ts(317,10): error TS2305: Module '"./common/ProjectSelector"' has no exported member 'default'.
+src/components/index.ts(325,38): error TS2307: Cannot find module './diary/DiaryPage' or its corresponding type declarations.
+src/components/index.ts(330,10): error TS2305: Module '"./file/FileUploadZone"' has no exported member 'default'.
+src/components/index.ts(331,10): error TS2305: Module '"./file/FileUploadModal"' has no exported member 'default'.
+src/components/index.ts(335,39): error TS2307: Cannot find module './notes/NoteEditor' or its corresponding type declarations.
+src/components/index.ts(336,37): error TS2307: Cannot find module './notes/NoteCard' or its corresponding type declarations.
+src/components/index.ts(339,10): error TS2305: Module '"./projects/ProjectCard"' has no exported member 'default'.
+src/components/index.ts(340,10): error TS2305: Module '"./projects/ProjectForm"' has no exported member 'default'.
+src/components/index.ts(343,10): error TS2305: Module '"./search/SearchTypeToggle"' has no exported member 'default'.
+src/components/index.ts(347,10): error TS2305: Module '"./shared/Layout"' has no exported member 'default'.
+src/components/index.ts(348,10): error TS2305: Module '"./shared/BackupRestoreModal"' has no exported member 'default'.
+src/components/index.ts(351,10): error TS2305: Module '"./todos/TodoForm"' has no exported member 'default'.
+src/components/index.ts(352,10): error TS2305: Module '"./todos/TodoList"' has no exported member 'default'.
+src/components/index.ts(353,10): error TS2305: Module '"./todos/TodoStats"' has no exported member 'default'.
+src/components/projects/ProjectCard.tsx(9,19): error TS6133: 'ProjectStatus' is declared but its value is never read.
+src/components/projects/ProjectCard.tsx(29,3): error TS6133: 'onUnarchive' is declared but its value is never read.
+src/components/projects/ProjectCard.tsx(31,3): error TS6133: 'showArchived' is declared but its value is never read.
+src/components/projects/ProjectForm.tsx(42,5): error TS2322: Type 'null' is not assignable to type 'string | undefined'.
+src/components/projects/ProjectForm.tsx(43,5): error TS2322: Type 'null' is not assignable to type 'string | undefined'.
+src/components/projects/ProjectForm.tsx(57,9): error TS2322: Type 'null' is not assignable to type 'string | undefined'.
+src/components/projects/ProjectForm.tsx(58,9): error TS2322: Type 'null' is not assignable to type 'string | undefined'.
+src/components/search/UnifiedSearch.tsx(55,5): error TS2353: Object literal may only specify known properties, and 'include_tags' does not exist in type 'SearchFilters | (() => SearchFilters)'.
+src/components/search/UnifiedSearch.tsx(404,15): error TS2353: Object literal may only specify known properties, and 'include_tags' does not exist in type 'SetStateAction<SearchFilters>'.
+src/components/search/UnifiedSearchEmbedded.tsx(9,3): error TS6133: 'Container' is declared but its value is never read.
+src/components/search/UnifiedSearchEmbedded.tsx(33,3): error TS6133: 'IconBolt' is declared but its value is never read.
+src/components/search/UnifiedSearchEmbedded.tsx(105,10): error TS6133: 'availableTags' is declared but its value is never read.
+src/components/search/UnifiedSearchEmbedded.tsx(105,25): error TS6133: 'setAvailableTags' is declared but its value is never read.
+src/components/search/UnifiedSearchEmbedded.tsx(125,9): error TS2561: Object literal may only specify known properties, but 'include_tags' does not exist in type 'SearchFilters'. Did you mean to write 'includeTags'?
+src/components/search/UnifiedSearchFilters.tsx(162,34): error TS2551: Property 'include_tags' does not exist on type 'SearchFilters'. Did you mean 'includeTags'?
+src/components/search/UnifiedSearchFilters.tsx(163,53): error TS2345: Argument of type '"include_tags"' is not assignable to parameter of type 'keyof SearchFilters'.
+src/components/search/UnifiedSearchFilters.tsx(170,34): error TS2551: Property 'exclude_tags' does not exist on type 'SearchFilters'. Did you mean 'excludeTags'?
+src/components/search/UnifiedSearchFilters.tsx(171,53): error TS2345: Argument of type '"exclude_tags"' is not assignable to parameter of type 'keyof SearchFilters'.
+src/components/search/UnifiedSearchFilters.tsx(191,34): error TS2551: Property 'sort_by' does not exist on type 'SearchFilters'. Did you mean 'sortBy'?
+src/components/search/UnifiedSearchFilters.tsx(192,53): error TS2345: Argument of type '"sort_by"' is not assignable to parameter of type 'keyof SearchFilters'.
+src/components/search/UnifiedSearchFilters.tsx(200,34): error TS2551: Property 'sort_order' does not exist on type 'SearchFilters'. Did you mean 'sortOrder'?
+src/components/search/UnifiedSearchFilters.tsx(201,53): error TS2345: Argument of type '"sort_order"' is not assignable to parameter of type 'keyof SearchFilters'.
+src/components/search/UnifiedSearchFilters.tsx(213,36): error TS2551: Property 'favorites_only' does not exist on type 'SearchFilters'. Did you mean 'favoritesOnly'?
+src/components/search/UnifiedSearchFilters.tsx(214,53): error TS2345: Argument of type '"favorites_only"' is not assignable to parameter of type 'keyof SearchFilters'.
+src/components/search/UnifiedSearchFilters.tsx(218,36): error TS2551: Property 'include_archived' does not exist on type 'SearchFilters'. Did you mean 'includeArchived'?
+src/components/search/UnifiedSearchFilters.tsx(219,53): error TS2345: Argument of type '"include_archived"' is not assignable to parameter of type 'keyof SearchFilters'.
+src/components/search/UnifiedSearchFilters.tsx(223,36): error TS2551: Property 'exclude_diary' does not exist on type 'SearchFilters'. Did you mean 'excludeDiary'?
+src/components/search/UnifiedSearchFilters.tsx(224,53): error TS2345: Argument of type '"exclude_diary"' is not assignable to parameter of type 'keyof SearchFilters'.
+src/components/search/UnifiedSearchFilters.tsx(247,20): error TS2551: Property 'favorites_only' does not exist on type 'SearchFilters'. Did you mean 'favoritesOnly'?
+src/components/search/UnifiedSearchFilters.tsx(248,20): error TS2551: Property 'include_archived' does not exist on type 'SearchFilters'. Did you mean 'includeArchived'?
+src/components/search/UnifiedSearchFilters.tsx(249,20): error TS2551: Property 'exclude_diary' does not exist on type 'SearchFilters'. Did you mean 'excludeDiary'?
+src/components/search/UnifiedSearchFilters.tsx(250,21): error TS2551: Property 'include_tags' does not exist on type 'SearchFilters'. Did you mean 'includeTags'?
+src/components/search/UnifiedSearchFilters.tsx(250,46): error TS7006: Parameter 'tag' implicitly has an 'any' type.
+src/components/search/UnifiedSearchFilters.tsx(255,21): error TS2551: Property 'exclude_tags' does not exist on type 'SearchFilters'. Did you mean 'excludeTags'?
+src/components/search/UnifiedSearchFilters.tsx(255,46): error TS7006: Parameter 'tag' implicitly has an 'any' type.
+src/components/shared/BackupRestoreModal.tsx(1,8): error TS6133: 'React' is declared but its value is never read.
+src/components/shared/BackupRestoreModal.tsx(133,11): error TS2353: Object literal may only specify known properties, and 'message' does not exist in type 'WalStatus | ((prevState: WalStatus | null) => WalStatus | null)'.
+src/components/shared/BackupRestoreModal.tsx(153,9): error TS2353: Object literal may only specify known properties, and 'message' does not exist in type 'WalStatus | ((prevState: WalStatus | null) => WalStatus | null)'.
+src/components/shared/BackupRestoreModal.tsx(239,24): error TS2345: Argument of type 'BackupCreateResponse' is not assignable to parameter of type 'SetStateAction<BackupOperation | null>'.
+  Type 'BackupCreateResponse' is not assignable to type 'BackupOperation'.
+    Types of property 'status' are incompatible.
+      Type 'string' is not assignable to type '"error" | "success"'.
+src/components/shared/BackupRestoreModal.tsx(298,24): error TS2345: Argument of type 'BackupRestoreResponse' is not assignable to parameter of type 'SetStateAction<BackupOperation | null>'.
+  Type 'BackupRestoreResponse' is not assignable to type 'BackupOperation'.
+    Types of property 'status' are incompatible.
+      Type 'string' is not assignable to type '"error" | "success"'.
+src/components/shared/BackupRestoreModal.tsx(749,31): error TS2551: Property 'is_recent' does not exist on type 'BackupFile'. Did you mean 'isRecent'?
+src/components/shared/Navigation.tsx(36,1): error TS6133: 'dashboardService' is declared but its value is never read.
+src/components/shared/TestingInterface.tsx(482,33): error TS2551: Property 'row_count' does not exist on type 'SampleRowsResponse'. Did you mean 'rowCount'?
+src/components/shared/TestingInterface.tsx(775,55): error TS2554: Expected 0 arguments, but got 1.
+src/components/shared/TestingInterface.tsx(780,28): error TS2339: Property 'test_counts' does not exist on type 'CrudTestResult'.
+src/components/shared/TestingInterface.tsx(780,63): error TS2339: Property 'test_counts' does not exist on type 'CrudTestResult'.
+src/components/shared/TestingInterface.tsx(781,23): error TS2551: Property 'overall_status' does not exist on type 'CrudTestResult'. Did you mean 'overallStatus'?
+src/components/shared/TestingInterface.tsx(1132,46): error TS2339: Property 'table_counts' does not exist on type 'DatabaseStats'.
+src/components/shared/TestingInterface.tsx(1138,19): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'.
+src/components/shared/TestingInterface.tsx(1138,34): error TS2339: Property 'table_counts' does not exist on type 'DatabaseStats'.
+src/components/shared/TestingInterface.tsx(1138,77): error TS2339: Property 'table_counts' does not exist on type 'DatabaseStats'.
+src/components/shared/TestingInterface.tsx(1148,30): error TS2339: Property 'table_counts' does not exist on type 'DatabaseStats'.
+src/components/shared/TestingInterface.tsx(1148,75): error TS2339: Property 'table_counts' does not exist on type 'DatabaseStats'.
+src/components/shared/TestingInterface.tsx(1149,49): error TS2339: Property 'table_sizes' does not exist on type 'DatabaseStats'.
+src/components/shared/TestingInterface.tsx(1160,71): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'.
+src/components/todos/CalendarView.tsx(185,63): error TS2345: Argument of type 'import("D:/Coding/PKMS/pkms-frontend/src/types/enums").TaskPriority' is not assignable to parameter of type 'number'.
+src/components/todos/CalendarView.tsx(201,27): error TS2551: Property 'project_name' does not exist on type 'TodoSummary'. Did you mean 'projectName'?
+src/components/todos/CalendarView.tsx(203,31): error TS2551: Property 'project_name' does not exist on type 'TodoSummary'. Did you mean 'projectName'?
+src/components/todos/CalendarView.tsx(230,80): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/components/todos/KanbanBoard.tsx(306,31): error TS2339: Property 'type' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(306,44): error TS2339: Property 'type' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(311,36): error TS2339: Property 'type' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(312,36): error TS2339: Property 'type' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(315,35): error TS2339: Property 'type' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(357,29): error TS2339: Property 'completionPercentage' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(357,72): error TS2339: Property 'completionPercentage' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(361,62): error TS2339: Property 'completionPercentage' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(364,41): error TS2339: Property 'completionPercentage' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(366,41): error TS2339: Property 'completionPercentage' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(374,29): error TS2339: Property 'type' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(374,58): error TS2339: Property 'checklistItems' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(374,81): error TS2339: Property 'checklistItems' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(378,35): error TS2339: Property 'checklistItems' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(378,67): error TS7006: Parameter 'item' implicitly has an 'any' type.
+src/components/todos/KanbanBoard.tsx(378,73): error TS7006: Parameter 'index' implicitly has an 'any' type.
+src/components/todos/KanbanBoard.tsx(391,35): error TS2339: Property 'checklistItems' does not exist on type 'Todo'.
+src/components/todos/KanbanBoard.tsx(393,40): error TS2339: Property 'checklistItems' does not exist on type 'Todo'.
+src/components/todos/SubtaskItem.tsx(4,10): error TS2459: Module '"../../services/todosService"' declares 'Todo' locally, but it is not exported.
+src/components/todos/SubtaskList.tsx(97,28): error TS2339: Property 'id' does not exist on type 'TodoSummary'.
+src/components/todos/SubtaskList.tsx(132,19): error TS2367: This comparison appears to be unintentional because the types 'TaskPriority' and 'number' have no overlap.
+src/components/todos/SubtaskList.tsx(133,19): error TS2367: This comparison appears to be unintentional because the types 'TaskPriority' and 'number' have no overlap.
+src/components/todos/SubtaskList.tsx(134,19): error TS2367: This comparison appears to be unintentional because the types 'TaskPriority' and 'number' have no overlap.
+src/components/todos/SubtaskList.tsx(137,20): error TS2367: This comparison appears to be unintentional because the types 'TaskPriority' and 'number' have no overlap.
+src/components/todos/SubtaskList.tsx(138,20): error TS2367: This comparison appears to be unintentional because the types 'TaskPriority' and 'number' have no overlap.
+src/components/todos/SubtaskList.tsx(139,20): error TS2367: This comparison appears to be unintentional because the types 'TaskPriority' and 'number' have no overlap.
+src/components/todos/TimelineView.tsx(2,93): error TS6133: 'Tooltip' is declared but its value is never read.
+src/components/todos/TimelineView.tsx(3,54): error TS6133: 'IconClock' is declared but its value is never read.
+src/components/todos/TimelineView.tsx(3,65): error TS6133: 'IconUsers' is declared but its value is never read.
+src/components/todos/TimelineView.tsx(3,76): error TS6133: 'IconWorld' is declared but its value is never read.
+src/components/todos/TimelineView.tsx(4,10): error TS2459: Module '"../../services/todosService"' declares 'Todo' locally, but it is not exported.
+src/components/todos/TodoCard.tsx(43,3): error TS6133: 'showArchived' is declared but its value is never read.
+src/components/todos/TodoCard.tsx(191,17): error TS2339: Property 'completionPercentage' does not exist on type 'Todo'.
+src/components/todos/TodoCard.tsx(191,60): error TS2339: Property 'completionPercentage' does not exist on type 'Todo'.
+src/components/todos/TodoCard.tsx(195,50): error TS2339: Property 'completionPercentage' does not exist on type 'Todo'.
+src/components/todos/TodoCard.tsx(198,29): error TS2339: Property 'completionPercentage' does not exist on type 'Todo'.
+src/components/todos/TodoCard.tsx(200,29): error TS2339: Property 'completionPercentage' does not exist on type 'Todo'.
+src/components/todos/TodoForm.tsx(39,3): error TS6133: 'projects' is declared but its value is never read.
+src/components/todos/TodoForm.tsx(48,5): error TS2353: Object literal may only specify known properties, and 'type' does not exist in type 'Partial<Todo> | (() => Partial<Todo>)'.
+src/components/todos/TodoForm.tsx(68,9): error TS2353: Object literal may only specify known properties, and 'type' does not exist in type 'SetStateAction<Partial<Todo>>'.
+src/components/todos/TodoForm.tsx(94,18): error TS2339: Property 'completionPercentage' does not exist on type 'Partial<Todo>'.
+src/components/todos/TodoForm.tsx(95,19): error TS2339: Property 'completionPercentage' does not exist on type 'Partial<Todo>'.
+src/components/todos/TodoForm.tsx(95,56): error TS2339: Property 'completionPercentage' does not exist on type 'Partial<Todo>'.
+src/components/todos/TodoForm.tsx(187,31): error TS2339: Property 'type' does not exist on type 'Partial<Todo>'.
+src/components/todos/TodoForm.tsx(188,54): error TS2345: Argument of type '"type"' is not assignable to parameter of type 'keyof Todo'.
+src/components/todos/TodoForm.tsx(198,31): error TS2339: Property 'completionPercentage' does not exist on type 'Partial<Todo>'.
+src/components/todos/TodoForm.tsx(199,54): error TS2345: Argument of type '"completionPercentage"' is not assignable to parameter of type 'keyof Todo'.
+src/components/todos/TodoForm.tsx(214,29): error TS2551: Property 'projectIds' does not exist on type 'Partial<Todo>'. Did you mean 'projects'?
+src/components/todos/TodoForm.tsx(215,50): error TS2345: Argument of type '"projectIds"' is not assignable to parameter of type 'keyof Todo'.
+src/components/todos/TodoForm.tsx(216,35): error TS2339: Property 'isExclusiveMode' does not exist on type 'Partial<Todo>'.
+src/components/todos/TodoForm.tsx(217,65): error TS2345: Argument of type '"isExclusiveMode"' is not assignable to parameter of type 'keyof Todo'.
+src/components/todos/TodoList.tsx(37,3): error TS6133: 'projects' is declared but its value is never read.
+src/components/todos/TodosLayout.tsx(10,10): error TS2305: Module '"../../types/common"' has no exported member 'TodoItem'.
+src/components/todos/TodosLayout.tsx(66,3): error TS6133: 'onToggleFavorite' is declared but its value is never read.
+src/components/todos/TodosLayout.tsx(77,3): error TS6133: 'projects' is declared but its value is never read.
+src/components/todos/TodosLayout.tsx(78,3): error TS6133: 'onProjectSelect' is declared but its value is never read.
+src/components/todos/TodosLayout.tsx(79,3): error TS6133: 'selectedProjectId' is declared but its value is never read.
+src/components/todos/TodosLayout.tsx(117,13): error TS2322: Type '{ todos: TodoItem[]; onTodoClick: (item: TodoItem) => void; onTodoComplete: (item: TodoItem) => void; onTodoEdit: (item: TodoItem) => void; onTodoDelete: (item: TodoItem) => void; onTodoArchive: (item: TodoItem) => void; isLoading: boolean; }' is not assignable to type 'IntrinsicAttributes & KanbanBoardProps'.
+  Property 'onTodoClick' does not exist on type 'IntrinsicAttributes & KanbanBoardProps'.
+src/components/todos/TodosLayout.tsx(130,13): error TS2322: Type '{ todos: TodoItem[]; onTodoClick: (item: TodoItem) => void; onTodoComplete: (item: TodoItem) => void; onTodoEdit: (item: TodoItem) => void; onTodoDelete: (item: TodoItem) => void; onTodoArchive: (item: TodoItem) => void; isLoading: boolean; }' is not assignable to type 'IntrinsicAttributes & CalendarViewProps'.
+  Property 'onTodoClick' does not exist on type 'IntrinsicAttributes & CalendarViewProps'.
+src/components/todos/TodosLayout.tsx(143,13): error TS2322: Type '{ todos: TodoItem[]; onTodoClick: (item: TodoItem) => void; onTodoComplete: (item: TodoItem) => void; onTodoEdit: (item: TodoItem) => void; onTodoDelete: (item: TodoItem) => void; onTodoArchive: (item: TodoItem) => void; isLoading: boolean; }' is not assignable to type 'IntrinsicAttributes & TimelineViewProps'.
+  Property 'onTodoClick' does not exist on type 'IntrinsicAttributes & TimelineViewProps'.
+src/components/todos/TodosLayout.tsx(168,29): error TS2322: Type '((title: string) => void) | undefined' is not assignable to type '(parentUuid: string) => void'.
+  Type 'undefined' is not assignable to type '(parentUuid: string) => void'.
+src/components/todos/TodosLayout.tsx(169,65): error TS7006: Parameter 'subtaskId' implicitly has an 'any' type.
+src/components/todos/TodosLayout.tsx(170,65): error TS7006: Parameter 'subtaskId' implicitly has an 'any' type.
+src/components/todos/TodosLayout.tsx(171,61): error TS7006: Parameter 'subtaskId' implicitly has an 'any' type.
+src/components/todos/TodosLayout.tsx(171,72): error TS7006: Parameter 'newTitle' implicitly has an 'any' type.
+src/components/todos/TodosLayout.tsx(233,26): error TS6133: 'mode' is declared but its value is never read.
+src/hooks/useForm.ts(28,15): error TS2345: Argument of type '(prev: Partial<Record<keyof T, string>>) => Partial<Record<keyof T, string>> | null' is not assignable to parameter of type 'SetStateAction<Partial<Record<keyof T, string>>>'.
+  Type '(prev: Partial<Record<keyof T, string>>) => Partial<Record<keyof T, string>> | null' is not assignable to type '(prevState: Partial<Record<keyof T, string>>) => Partial<Record<keyof T, string>>'.
+    Type 'Partial<Record<keyof T, string>> | null' is not assignable to type 'Partial<Record<keyof T, string>>'.
+      Type 'null' is not assignable to type 'Partial<Record<keyof T, string>>'.
+src/pages/ActivityTimelinePage.tsx(4,33): error TS6133: 'RecentActivityTimeline' is declared but its value is never read.
+src/pages/ActivityTimelinePage.tsx(47,15): error TS2322: Type '{ label: string; placeholder: string; data: { value: string; label: string; }[]; value: string | null; onChange: Dispatch<SetStateAction<string | null>>; allowDeselect: false; withinPortal: true; }' is not assignable to type 'IntrinsicAttributes & SelectProps & RefAttributes<HTMLInputElement> & { component?: any; renderRoot?: ((props: Record<...>) => ReactNode) | undefined; }'.
+  Property 'withinPortal' does not exist on type 'IntrinsicAttributes & SelectProps & RefAttributes<HTMLInputElement> & { component?: any; renderRoot?: ((props: Record<...>) => ReactNode) | undefined; }'.
+src/pages/ActivityTimelinePage.tsx(53,15): error TS2322: Type 'Dispatch<SetStateAction<number | "">>' is not assignable to type '(value: string | number) => void'.
+  Types of parameters 'value' and 'value' are incompatible.
+    Type 'string | number' is not assignable to type 'SetStateAction<number | "">'.
+      Type 'string' is not assignable to type 'SetStateAction<number | "">'.
+src/pages/ActivityTimelinePage.tsx(79,20): error TS18047: 'timeline' is possibly 'null'.
+src/pages/ActivityTimelinePage.tsx(80,25): error TS18047: 'timeline' is possibly 'null'.
+src/pages/ActivityTimelinePage.tsx(81,25): error TS18047: 'timeline' is possibly 'null'.
+src/pages/ArchivePage.tsx(21,3): error TS6133: 'IconFiles' is declared but its value is never read.
+src/pages/ArchivePage.tsx(22,3): error TS6133: 'IconDownload' is declared but its value is never read.
+src/pages/ArchivePage.tsx(23,3): error TS6133: 'IconTrash' is declared but its value is never read.
+src/pages/ArchivePage.tsx(24,3): error TS6133: 'IconEdit' is declared but its value is never read.
+src/pages/ArchivePage.tsx(34,3): error TS6133: 'IconStar' is declared but its value is never read.
+src/pages/ArchivePage.tsx(35,3): error TS6133: 'IconStarFilled' is declared but its value is never read.
+src/pages/ArchivePage.tsx(40,1): error TS6192: All imports in import declaration are unused.
+src/pages/ArchivePage.tsx(183,42): error TS2554: Expected 1 arguments, but got 0.
+src/pages/ArchivePage.tsx(204,42): error TS2554: Expected 1 arguments, but got 0.
+src/pages/ArchivePage.tsx(219,69): error TS2554: Expected 1-2 arguments, but got 3.
+src/pages/ArchivePage.tsx(241,24): error TS2339: Property 'itemType' does not exist on type 'ArchiveSelectedItem'.
+src/pages/ArchivePage.tsx(255,42): error TS2554: Expected 1 arguments, but got 0.
+src/pages/ArchivePage.tsx(276,24): error TS2339: Property 'itemType' does not exist on type 'ArchiveSelectedItem'.
+src/pages/ArchivePage.tsx(289,42): error TS2554: Expected 1 arguments, but got 0.
+src/pages/ArchivePage.tsx(324,42): error TS2554: Expected 1 arguments, but got 0.
+src/pages/ArchivePage.tsx(352,9): error TS6133: 'handleDownloadFolder' is declared but its value is never read.
+src/pages/ArchivePage.tsx(376,9): error TS2322: Type '(folderId: string | null) => Promise<void>' is not assignable to type '(folder: ArchiveFolder | null) => void'.
+  Types of parameters 'folderId' and 'folder' are incompatible.
+    Type 'ArchiveFolder | null' is not assignable to type 'string | null'.
+      Type 'ArchiveFolder' is not assignable to type 'string'.
+src/pages/ArchivePage.tsx(392,9): error TS2322: Type 'File[]' is not assignable to type 'ArchiveItem[]'.
+  Type 'File' is missing the following properties from type 'ArchiveItem': itemType, folderUuid, originalFilename, storedFilename, and 10 more.
+src/pages/ArchivePage.tsx(393,9): error TS2322: Type 'Dispatch<SetStateAction<File[]>>' is not assignable to type 'Dispatch<SetStateAction<ArchiveItem[]>>'.
+  Type 'SetStateAction<ArchiveItem[]>' is not assignable to type 'SetStateAction<File[]>'.
+    Type 'ArchiveItem[]' is not assignable to type 'SetStateAction<File[]>'.
+      Type 'ArchiveItem[]' is not assignable to type 'File[]'.
+        Type 'ArchiveItem' is missing the following properties from type 'File': lastModified, webkitRelativePath, size, type, and 5 more.
+src/pages/ArchivePage.tsx(420,27): error TS6133: 'item' is declared but its value is never read.
+src/pages/ArchivePage.tsx(425,63): error TS2353: Object literal may only specify known properties, and 'itemType' does not exist in type 'ArchiveSelectedItem | ((prevState: ArchiveSelectedItem | null) => ArchiveSelectedItem | null)'.
+src/pages/ArchivePage.tsx(429,63): error TS2353: Object literal may only specify known properties, and 'itemType' does not exist in type 'ArchiveSelectedItem | ((prevState: ArchiveSelectedItem | null) => ArchiveSelectedItem | null)'.
+src/pages/ArchivePage.tsx(582,39): error TS2339: Property 'showMimeTypes' does not exist on type '{ showFavorites: boolean; showArchived: boolean; showMimeTypes: boolean; showDateRange: boolean; showSorting: boolean; customFilters: ({ key: string; label: string; type: "select"; options: { ...; }[]; placeholder: string; } | { ...; })[]; sortOptions: { ...; }[]; } | { ...; } | { ...; } | { ...; } | { ...; }'.
+  Property 'showMimeTypes' does not exist on type '{ showFavorites: boolean; showArchived: boolean; showDateRange: boolean; showSorting: boolean; customFilters: { key: string; label: string; type: "multiselect"; options: { value: string; label: string; }[]; placeholder: string; }[]; sortOptions: { ...; }[]; }'.
+src/pages/DashboardPage.tsx(6,3): error TS6133: 'Container' is declared but its value is never read.
+src/pages/DashboardPage.tsx(8,3): error TS6133: 'Title' is declared but its value is never read.
+src/pages/DashboardPage.tsx(17,3): error TS6133: 'Alert' is declared but its value is never read.
+src/pages/DashboardPage.tsx(19,3): error TS6133: 'Tooltip' is declared but its value is never read.
+src/pages/DashboardPage.tsx(21,3): error TS6133: 'TextInput' is declared but its value is never read.
+src/pages/DashboardPage.tsx(32,3): error TS6133: 'IconRefresh' is declared but its value is never read.
+src/pages/DashboardPage.tsx(33,3): error TS6133: 'IconAlertCircle' is declared but its value is never read.
+src/pages/DashboardPage.tsx(34,3): error TS6133: 'IconTrendingUp' is declared but its value is never read.
+src/pages/DashboardPage.tsx(35,3): error TS6133: 'IconSearch' is declared but its value is never read.
+src/pages/DashboardPage.tsx(42,29): error TS2305: Module '"../services/todosService"' has no exported member 'LegacyProject'.
+src/pages/DashboardPage.tsx(42,29): error TS6133: 'LegacyProject' is declared but its value is never read.
+src/pages/DashboardPage.tsx(44,1): error TS6133: 'ActivityTimeline' is declared but its value is never read.
+src/pages/DashboardPage.tsx(49,11): error TS6196: 'ModuleStats' is declared but never used.
+src/pages/DashboardPage.tsx(86,7): error TS6133: 'quickActions' is declared but its value is never read.
+src/pages/DashboardPage.tsx(118,7): error TS6133: 'modules' is declared but its value is never read.
+src/pages/DashboardPage.tsx(157,7): error TS6133: 'ProjectCardsSection' is declared but its value is never read.
+src/pages/DashboardPage.tsx(159,44): error TS2304: Cannot find name 'Project'.
+src/pages/DashboardPage.tsx(269,9): error TS6133: 'user' is declared but its value is never read.
+src/pages/DashboardPage.tsx(270,10): error TS6133: 'stats' is declared but its value is never read.
+src/pages/DashboardPage.tsx(272,10): error TS6133: 'isRefreshing' is declared but its value is never read.
+src/pages/DashboardPage.tsx(275,10): error TS6133: 'activityTimeline' is declared but its value is never read.
+src/pages/DashboardPage.tsx(319,18): error TS2353: Object literal may only specify known properties, and 'entries' does not exist in type '{ total: number; recent: number; streak: number; }'.
+src/pages/DashboardPage.tsx(320,32): error TS2353: Object literal may only specify known properties, and 'items' does not exist in type '{ total: number; recent: number; folders: number; }'.
+src/pages/DashboardPage.tsx(321,9): error TS2741: Property 'total' is missing in type '{ active: number; }' but required in type '{ total: number; active: number; }'.
+src/pages/DashboardPage.tsx(334,9): error TS6133: 'getGreeting' is declared but its value is never read.
+src/pages/DashboardPage.tsx(341,9): error TS6133: 'ModuleCard' is declared but its value is never read.
+src/pages/DashboardPage.tsx(476,41): error TS2339: Property 'calculateCompletionPercentage' does not exist on type 'DashboardService'.
+src/pages/DashboardPage.tsx(494,35): error TS2339: Property 'getStreakStatus' does not exist on type 'DashboardService'.
+src/pages/DashboardPage.tsx(516,9): error TS6133: 'QuickActionButton' is declared but its value is never read.
+src/pages/DiaryViewPage.tsx(37,7): error TS6133: 'isValidBase64' is declared but its value is never read.
+src/pages/DiaryViewPage.tsx(56,7): error TS6133: 'isValidHex' is declared but its value is never read.
+src/pages/DocumentsPage.tsx(39,3): error TS6133: 'IconSortAscending' is declared but its value is never read.
+src/pages/DocumentsPage.tsx(40,3): error TS6133: 'IconSortDescending' is declared but its value is never read.
+src/pages/DocumentsPage.tsx(54,1): error TS6192: All imports in import declaration are unused.
+src/pages/DocumentsPage.tsx(57,1): error TS6133: 'ModuleLayout' is declared but its value is never read.
+src/pages/DocumentsPage.tsx(58,1): error TS6133: 'ModuleHeader' is declared but its value is never read.
+src/pages/DocumentsPage.tsx(60,1): error TS6133: 'useDataLoader' is declared but its value is never read.
+src/pages/DocumentsPage.tsx(131,10): error TS6133: 'tagSuggestions' is declared but its value is never read.
+src/pages/DocumentsPage.tsx(140,5): error TS6133: 'isUploading' is declared but its value is never read.
+src/pages/DocumentsPage.tsx(141,5): error TS6133: 'uploadProgress' is declared but its value is never read.
+src/pages/DocumentsPage.tsx(177,9): error TS6133: 'handleImagePreview' is declared but its value is never read.
+src/pages/DocumentsPage.tsx(247,9): error TS6133: 'handleTagSearch' is declared but its value is never read.
+src/pages/DocumentsPage.tsx(344,9): error TS6133: 'handleSort' is declared but its value is never read.
+src/pages/DocumentsPage.tsx(393,33): error TS2358: The left-hand side of an 'instanceof' expression must be of type 'any', an object type or a type parameter.
+src/pages/DocumentsPage.tsx(639,59): error TS2339: Property 'projects' does not exist on type 'UnifiedFileItem'.
+src/pages/DocumentsPage.tsx(640,26): error TS18048: 'document.tags' is possibly 'undefined'.
+src/pages/DocumentsPage.tsx(645,26): error TS18048: 'document.tags' is possibly 'undefined'.
+src/pages/DocumentsPage.tsx(646,64): error TS18048: 'document.tags' is possibly 'undefined'.
+src/pages/DocumentsPage.tsx(681,53): error TS2339: Property 'projects' does not exist on type 'UnifiedFileItem'.
+src/pages/DocumentsPage.tsx(682,20): error TS18048: 'document.tags' is possibly 'undefined'.
+src/pages/DocumentsPage.tsx(687,20): error TS18048: 'document.tags' is possibly 'undefined'.
+src/pages/DocumentsPage.tsx(688,40): error TS18048: 'document.tags' is possibly 'undefined'.
+src/pages/DocumentsPage.tsx(689,60): error TS18048: 'document.tags' is possibly 'undefined'.
+src/pages/DocumentsPage.tsx(787,72): error TS2339: Property 'projectIds' does not exist on type 'FileMetadata'.
+src/pages/DocumentsPage.tsx(787,99): error TS2339: Property 'isExclusive' does not exist on type 'FileMetadata'.
+src/pages/DocumentsPage.tsx(814,11): error TS2322: Type '{ sortBy: string; sortOrder: string; favorites: boolean; showArchived: boolean; }' is not assignable to type 'ModuleFilters'.
+  Types of property 'sortOrder' are incompatible.
+    Type 'string' is not assignable to type '"desc" | "asc" | undefined'.
+src/pages/DocumentsPage.tsx(815,11): error TS2322: Type 'Dispatch<SetStateAction<{ sortBy: string; sortOrder: string; favorites: boolean; showArchived: boolean; }>>' is not assignable to type '(filters: ModuleFilters) => void'.
+  Types of parameters 'value' and 'filters' are incompatible.
+    Type 'ModuleFilters' is not assignable to type 'SetStateAction<{ sortBy: string; sortOrder: string; favorites: boolean; showArchived: boolean; }>'.
+      Type 'ModuleFilters' is not assignable to type '{ sortBy: string; sortOrder: string; favorites: boolean; showArchived: boolean; }'.
+        Types of property 'sortBy' are incompatible.
+          Type 'string | undefined' is not assignable to type 'string'.
+            Type 'undefined' is not assignable to type 'string'.
+src/pages/DocumentsPage.tsx(818,39): error TS2339: Property 'showMimeTypes' does not exist on type '{ showFavorites: boolean; showArchived: boolean; showMimeTypes: boolean; showDateRange: boolean; showSorting: boolean; customFilters: ({ key: string; label: string; type: "select"; options: { ...; }[]; placeholder: string; } | { ...; })[]; sortOptions: { ...; }[]; } | { ...; } | { ...; } | { ...; } | { ...; }'.
+  Property 'showMimeTypes' does not exist on type '{ showFavorites: boolean; showArchived: boolean; showDateRange: boolean; showSorting: boolean; customFilters: { key: string; label: string; type: "multiselect"; options: { value: string; label: string; }[]; placeholder: string; }[]; sortOptions: { ...; }[]; }'.
+src/pages/FuzzySearchPage.tsx(1,20): error TS6133: 'useEffect' is declared but its value is never read.
+src/pages/FuzzySearchPage.tsx(76,42): error TS2552: Cannot find name 'SearchResult'. Did you mean 'BaseSearchResult'?
+src/pages/FuzzySearchPage.tsx(424,23): error TS2322: Type 'Dispatch<SetStateAction<Date | null>>' is not assignable to type '(value: string | null) => void'.
+  Types of parameters 'value' and 'value' are incompatible.
+    Type 'string | null' is not assignable to type 'SetStateAction<Date | null>'.
+      Type 'string' is not assignable to type 'SetStateAction<Date | null>'.
+src/pages/FuzzySearchPage.tsx(430,23): error TS2322: Type 'Dispatch<SetStateAction<Date | null>>' is not assignable to type '(value: string | null) => void'.
+  Types of parameters 'value' and 'value' are incompatible.
+    Type 'string | null' is not assignable to type 'SetStateAction<Date | null>'.
+      Type 'string' is not assignable to type 'SetStateAction<Date | null>'.
+src/pages/FuzzySearchPage.tsx(512,58): error TS7006: Parameter 'tag' implicitly has an 'any' type.
+src/pages/FuzzySearchPage.tsx(560,98): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'number'.
+src/pages/FuzzySearchPage.tsx(561,41): error TS18046: 'score' is of type 'unknown'.
+src/pages/NotesPage.tsx(29,3): error TS6133: 'IconSortAscending' is declared but its value is never read.
+src/pages/NotesPage.tsx(30,3): error TS6133: 'IconSortDescending' is declared but its value is never read.
+src/pages/NotesPage.tsx(46,1): error TS6133: 'ModuleLayout' is declared but its value is never read.
+src/pages/NotesPage.tsx(47,1): error TS6133: 'ModuleHeader' is declared but its value is never read.
+src/pages/NotesPage.tsx(89,26): error TS2339: Property 'pathname' does not exist on type '{ state?: { highlightNoteId?: number | undefined; } | undefined; }'.
+src/pages/NotesPage.tsx(126,42): error TS6133: 'data' is declared but its value is never read.
+src/pages/NotesPage.tsx(272,9): error TS6133: 'handleSort' is declared but its value is never read.
+src/pages/NotesPage.tsx(392,18): error TS2358: The left-hand side of an 'instanceof' expression must be of type 'any', an object type or a type parameter.
+src/pages/NotesPage.tsx(463,37): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/pages/NotesPage.tsx(503,41): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/pages/NotesPage.tsx(532,31): error TS2339: Property 'note_type' does not exist on type 'NoteSummary'.
+src/pages/NotesPage.tsx(532,49): error TS2339: Property 'note_type' does not exist on type 'NoteSummary'.
+src/pages/NotesPage.tsx(533,62): error TS2339: Property 'note_type' does not exist on type 'NoteSummary'.
+src/pages/NotesPage.tsx(536,37): error TS2339: Property 'note_type' does not exist on type 'NoteSummary'.
+src/pages/NotesPage.tsx(557,39): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/pages/NotesPage.tsx(636,33): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/pages/NotesPage.tsx(640,35): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/pages/NotesPage.tsx(755,11): error TS2322: Type '{ sortBy: string; sortOrder: string; favorites: boolean; showArchived: boolean; }' is not assignable to type 'ModuleFilters'.
+  Types of property 'sortOrder' are incompatible.
+    Type 'string' is not assignable to type '"desc" | "asc" | undefined'.
+src/pages/NotesPage.tsx(756,11): error TS2322: Type 'Dispatch<SetStateAction<{ sortBy: string; sortOrder: string; favorites: boolean; showArchived: boolean; }>>' is not assignable to type '(filters: ModuleFilters) => void'.
+  Types of parameters 'value' and 'filters' are incompatible.
+    Type 'ModuleFilters' is not assignable to type 'SetStateAction<{ sortBy: string; sortOrder: string; favorites: boolean; showArchived: boolean; }>'.
+      Type 'ModuleFilters' is not assignable to type '{ sortBy: string; sortOrder: string; favorites: boolean; showArchived: boolean; }'.
+        Types of property 'sortBy' are incompatible.
+          Type 'string | undefined' is not assignable to type 'string'.
+            Type 'undefined' is not assignable to type 'string'.
+src/pages/NotesPage.tsx(759,39): error TS2339: Property 'showMimeTypes' does not exist on type '{ showFavorites: boolean; showArchived: boolean; showMimeTypes: boolean; showDateRange: boolean; showSorting: boolean; customFilters: ({ key: string; label: string; type: "select"; options: { ...; }[]; placeholder: string; } | { ...; })[]; sortOptions: { ...; }[]; } | { ...; } | { ...; } | { ...; } | { ...; }'.
+  Property 'showMimeTypes' does not exist on type '{ showFavorites: boolean; showArchived: boolean; showDateRange: boolean; showSorting: boolean; customFilters: { key: string; label: string; type: "multiselect"; options: { value: string; label: string; }[]; placeholder: string; }[]; sortOptions: { ...; }[]; }'.
+src/pages/NoteViewPage.tsx(20,1): error TS6133: 'useState' is declared but its value is never read.
+src/pages/NoteViewPage.tsx(27,9): error TS6133: 'navigate' is declared but its value is never read.
+src/pages/ProjectDashboardPage.tsx(2,1): error TS6133: 'useAuthenticatedEffect' is declared but its value is never read.
+src/pages/ProjectDashboardPage.tsx(38,24): error TS6133: 'Project' is declared but its value is never read.
+src/pages/ProjectDashboardPage.tsx(42,10): error TS6133: 'reorderArray' is declared but its value is never read.
+src/pages/ProjectDashboardPage.tsx(45,1): error TS6133: 'ModuleHeader' is declared but its value is never read.
+src/pages/ProjectDashboardPage.tsx(46,1): error TS6133: 'ModuleFilters' is declared but its value is never read.
+src/pages/ProjectDashboardPage.tsx(78,5): error TS6133: 'isRefreshing' is declared but its value is never read.
+src/pages/ProjectDashboardPage.tsx(101,19): error TS6133: 'itemsRefreshing' is declared but its value is never read.
+src/pages/ProjectDashboardPage.tsx(136,17): error TS18047: 'itemsData' is possibly 'null'.
+src/pages/ProjectDashboardPage.tsx(137,21): error TS18047: 'itemsData' is possibly 'null'.
+src/pages/ProjectDashboardPage.tsx(138,17): error TS18047: 'itemsData' is possibly 'null'.
+src/pages/ProjectDashboardPage.tsx(556,21): error TS2551: Property 'start_date' does not exist on type 'Project'. Did you mean 'startDate'?
+src/pages/ProjectDashboardPage.tsx(556,43): error TS2551: Property 'end_date' does not exist on type 'Project'. Did you mean 'endDate'?
+src/pages/ProjectDashboardPage.tsx(564,28): error TS2551: Property 'start_date' does not exist on type 'Project'. Did you mean 'startDate'?
+src/pages/ProjectDashboardPage.tsx(564,69): error TS2551: Property 'start_date' does not exist on type 'Project'. Did you mean 'startDate'?
+src/pages/ProjectDashboardPage.tsx(565,28): error TS2551: Property 'start_date' does not exist on type 'Project'. Did you mean 'startDate'?
+src/pages/ProjectDashboardPage.tsx(565,50): error TS2551: Property 'end_date' does not exist on type 'Project'. Did you mean 'endDate'?
+src/pages/ProjectDashboardPage.tsx(566,28): error TS2551: Property 'end_date' does not exist on type 'Project'. Did you mean 'endDate'?
+src/pages/ProjectDashboardPage.tsx(566,65): error TS2551: Property 'end_date' does not exist on type 'Project'. Did you mean 'endDate'?
+src/pages/ProjectDashboardPage.tsx(573,20): error TS2551: Property 'progress_percentage' does not exist on type 'Project'. Did you mean 'progressPercentage'?
+src/pages/ProjectDashboardPage.tsx(580,60): error TS2551: Property 'progress_percentage' does not exist on type 'Project'. Did you mean 'progressPercentage'?
+src/pages/ProjectDashboardPage.tsx(749,34): error TS2339: Property 'uuid' does not exist on type 'ExclusiveItem'.
+src/pages/ProjectDashboardPage.tsx(751,64): error TS2345: Argument of type 'ExclusiveItem' is not assignable to parameter of type 'UnifiedFileItem'.
+  Type 'ExclusiveItem' is missing the following properties from type 'UnifiedFileItem': uuid, name, isFavorite, isArchived, and 9 more.
+src/pages/ProjectDashboardPage.tsx(757,81): error TS2339: Property 'uuid' does not exist on type 'ExclusiveItem'.
+src/pages/ProjectDashboardPage.tsx(780,29): error TS2322: Type 'ExclusiveItem' is not assignable to type 'TodoSummary | NoteSummary | UnifiedFileItem'.
+  Type 'ExclusiveItem' is missing the following properties from type 'NoteSummary': uuid, name, title, fileCount, and 6 more.
+src/pages/ProjectDashboardPage.tsx(782,78): error TS2339: Property 'uuid' does not exist on type 'ExclusiveItem'.
+src/pages/ProjectDashboardPage.tsx(952,28): error TS6133: 'item' is declared but its value is never read.
+src/pages/ProjectDashboardPage.tsx(961,26): error TS2739: Type 'Project' is missing the following properties from type 'ProjectBadge': isProjectExclusive, isDeleted
+src/pages/ProjectDashboardPage.tsx(968,15): error TS2322: Type '{ uuid: string; title: string; description: string | undefined; isFavorite: boolean; isArchived: boolean; tags: string[]; createdAt: string; updatedAt: string; }[]' is not assignable to type '{ uuid: string; name: string; title?: string | undefined; isFavorite: boolean; isArchived: boolean; createdBy: string; createdAt: string; updatedAt: string; }[]'.
+  Type '{ uuid: string; title: string; description: string | undefined; isFavorite: boolean; isArchived: boolean; tags: string[]; createdAt: string; updatedAt: string; }' is missing the following properties from type '{ uuid: string; name: string; title?: string | undefined; isFavorite: boolean; isArchived: boolean; createdBy: string; createdAt: string; updatedAt: string; }': name, createdBy
+src/pages/ProjectDashboardPage.tsx(981,28): error TS6133: 'item' is declared but its value is never read.
+src/pages/ProjectDashboardPage.tsx(985,66): error TS2339: Property 'description' does not exist on type '{ uuid: string; name: string; title?: string | undefined; isFavorite: boolean; isArchived: boolean; createdBy: string; createdAt: string; updatedAt: string; }'.
+src/pages/ProjectDashboardPage.tsx(994,15): error TS2322: Type '{ uuid: any; title: any; description: any; isFavorite: any; isArchived: any; tags: any; createdAt: any; updatedAt: any; }[]' is not assignable to type '{ uuid: string; name: string; title?: string | undefined; isFavorite: boolean; isArchived: boolean; createdBy: string; createdAt: string; updatedAt: string; }[]'.
+  Type '{ uuid: any; title: any; description: any; isFavorite: any; isArchived: any; tags: any; createdAt: any; updatedAt: any; }' is missing the following properties from type '{ uuid: string; name: string; title?: string | undefined; isFavorite: boolean; isArchived: boolean; createdBy: string; createdAt: string; updatedAt: string; }': name, createdBy
+src/pages/ProjectDashboardPage.tsx(1007,28): error TS6133: 'item' is declared but its value is never read.
+src/pages/ProjectDashboardPage.tsx(1011,66): error TS2339: Property 'description' does not exist on type '{ uuid: string; name: string; title?: string | undefined; isFavorite: boolean; isArchived: boolean; createdBy: string; createdAt: string; updatedAt: string; }'.
+src/pages/ProjectsPage.tsx(349,24): error TS18048: 'project.completedCount' is possibly 'undefined'.
+src/pages/ProjectsPage.tsx(349,49): error TS18048: 'project.todoCount' is possibly 'undefined'.
+src/pages/ProjectsPage.tsx(466,28): error TS18048: 'project.completedCount' is possibly 'undefined'.
+src/pages/ProjectsPage.tsx(474,26): error TS18048: 'project.todoCount' is possibly 'undefined'.
+src/pages/ProjectsPage.tsx(609,9): error TS2322: Type '(data: ProjectDuplicateRequest) => Promise<void>' is not assignable to type '(data: DuplicationData) => Promise<void>'.
+  Types of parameters 'data' and 'data' are incompatible.
+    Property 'newProjectName' is missing in type 'DuplicationData' but required in type 'ProjectDuplicateRequest'.
+src/pages/SettingsPage.tsx(18,3): error TS6133: 'Divider' is declared but its value is never read.
+src/pages/SettingsPage.tsx(27,3): error TS6133: 'IconPalette' is declared but its value is never read.
+src/pages/SettingsPage.tsx(28,3): error TS6133: 'IconBell' is declared but its value is never read.
+src/pages/SettingsPage.tsx(39,17): error TS2339: Property 'updateProfile' does not exist on type 'AuthState & AuthActions'.
+src/pages/SettingsPage.tsx(44,21): error TS2339: Property 'fullName' does not exist on type 'User'.
+src/pages/SettingsPage.tsx(77,24): error TS2339: Property 'fullName' does not exist on type 'User'.
+src/pages/SettingsPage.tsx(111,58): error TS2554: Expected 1 arguments, but got 2.
+src/pages/TodosPage.tsx(17,24): error TS6133: 'TodoSummary' is declared but its value is never read.
+src/pages/TodosPage.tsx(26,1): error TS6133: 'UnifiedSearchEmbedded' is declared but its value is never read.
+src/pages/TodosPage.tsx(40,7): error TS2365: Operator '>=' cannot be applied to types 'string' and 'number'.
+src/pages/TodosPage.tsx(41,7): error TS2365: Operator '>=' cannot be applied to types 'string' and 'number'.
+src/pages/TodosPage.tsx(42,7): error TS2365: Operator '>=' cannot be applied to types 'string' and 'number'.
+src/pages/TodosPage.tsx(97,34): error TS2367: This comparison appears to be unintentional because the types '"details" | "small-icons" | "medium-icons"' and '"kanban"' have no overlap.
+src/pages/TodosPage.tsx(97,64): error TS2367: This comparison appears to be unintentional because the types '"details" | "small-icons" | "medium-icons"' and '"calendar"' have no overlap.
+src/pages/TodosPage.tsx(97,96): error TS2367: This comparison appears to be unintentional because the types '"details" | "small-icons" | "medium-icons"' and '"timeline"' have no overlap.
+src/pages/TodosPage.tsx(102,28): error TS2367: This comparison appears to be unintentional because the types '"details" | "small-icons" | "medium-icons"' and '"kanban"' have no overlap.
+src/pages/TodosPage.tsx(102,49): error TS2367: This comparison appears to be unintentional because the types '"details" | "small-icons" | "medium-icons"' and '"calendar"' have no overlap.
+src/pages/TodosPage.tsx(102,72): error TS2367: This comparison appears to be unintentional because the types '"details" | "small-icons" | "medium-icons"' and '"timeline"' have no overlap.
+src/pages/TodosPage.tsx(120,14): error TS6133: 'projectsLoading' is declared but its value is never read.
+src/pages/TodosPage.tsx(193,9): error TS6133: 'searchModal' is declared but its value is never read.
+src/pages/TodosPage.tsx(310,19): error TS2353: Object literal may only specify known properties, and 'ctrlKey' does not exist in type 'KeyboardShortcut'.
+src/pages/TodosPage.tsx(412,37): error TS2345: Argument of type '{ title: string; description: string | undefined; status: TodoStatus | undefined; priority: TaskPriority | undefined; startDate: string | undefined; dueDate: string | undefined; projectIds: any; tags: string[] | undefined; }' is not assignable to parameter of type 'CreateTodoRequest'.
+  Property 'name' is missing in type '{ title: string; description: string | undefined; status: TodoStatus | undefined; priority: TaskPriority | undefined; startDate: string | undefined; dueDate: string | undefined; projectIds: any; tags: string[] | undefined; }' but required in type 'CreateTodoRequest'.
+src/pages/TodosPage.tsx(419,26): error TS2551: Property 'projectIds' does not exist on type 'Partial<Todo>'. Did you mean 'projects'?
+src/pages/TodosPage.tsx(498,9): error TS2322: Type '{ title: string; description: string; onRetry: () => Promise<TodoSummary[] | null>; }' is not assignable to type 'IntrinsicAttributes & ErrorStateProps'.
+  Property 'title' does not exist on type 'IntrinsicAttributes & ErrorStateProps'.
+src/pages/TodoViewPage.tsx(26,9): error TS6133: 'navigate' is declared but its value is never read.
+src/pages/TodoViewPage.tsx(42,9): error TS2322: Type '(todo: any) => { title: any; content: any; tags: any; createdAt: any; updatedAt: any; isArchived: any; projectBadges: any; files: never[]; module: "todos"; entityId: any; showProjects: true; showDiaryFields: false; enableDragDrop: false; onFilesUpdate: () => void; }' is not assignable to type '(item: any, files: UnifiedFileItem[]) => Omit<ContentViewerProps, "onEdit" | "onDelete" | "onArchive" | "onToggleArchive" | "onBack">'.
+  Call signature return types '{ title: any; content: any; tags: any; createdAt: any; updatedAt: any; isArchived: any; projectBadges: any; files: never[]; module: "todos"; entityId: any; showProjects: true; showDiaryFields: false; enableDragDrop: false; onFilesUpdate: () => void; }' and 'Omit<ContentViewerProps, "onEdit" | "onDelete" | "onArchive" | "onToggleArchive" | "onBack">' are incompatible.
+    The types of 'module' are incompatible between these types.
+      Type '"todos"' is not assignable to type '"notes" | "documents" | "projects" | "diary" | "archive"'.
+src/pages/TodoViewPage.tsx(58,20): error TS6133: 'todoId' is declared but its value is never read.
+src/services/BaseService.ts(94,85): error TS2339: Property 'NoteSummaryResponseSchema' does not exist on type 'typeof ResponseValidator'.
+src/services/BaseService.ts(104,85): error TS2339: Property 'TodoResponseSchema' does not exist on type 'typeof ResponseValidator'.
+src/services/BaseService.ts(114,85): error TS2339: Property 'ProjectResponseSchema' does not exist on type 'typeof ResponseValidator'.
+src/services/BaseService.ts(138,77): error TS2339: Property 'NoteResponseSchema' does not exist on type 'typeof ResponseValidator'.
+src/services/BaseService.ts(146,37): error TS2322: Type 'unknown' is not assignable to type 'T'.
+  'T' could be instantiated with an arbitrary type which could be unrelated to 'unknown'.
+src/services/BaseService.ts(149,77): error TS2339: Property 'TodoResponseSchema' does not exist on type 'typeof ResponseValidator'.
+src/services/BaseService.ts(156,37): error TS2322: Type 'unknown' is not assignable to type 'T'.
+  'T' could be instantiated with an arbitrary type which could be unrelated to 'unknown'.
+src/services/BaseService.ts(159,77): error TS2339: Property 'ProjectResponseSchema' does not exist on type 'typeof ResponseValidator'.
+src/services/BaseService.ts(166,37): error TS2322: Type 'unknown' is not assignable to type 'T'.
+  'T' could be instantiated with an arbitrary type which could be unrelated to 'unknown'.
+src/services/bulkOperations.ts(48,11): error TS2322: Type '{ uuid: any; type: "diary" | "document" | "note" | "todo" | "folder" | "archive"; title: any; module: string; tags: any; selected: false; }[]' is not assignable to type 'BulkOperationItem[]'.
+  Property 'id' is missing in type '{ uuid: any; type: "diary" | "document" | "note" | "todo" | "folder" | "archive"; title: any; module: string; tags: any; selected: false; }' but required in type 'BulkOperationItem'.
+src/services/bulkOperations.ts(67,48): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(158,9): error TS2322: Type '{ uuid: any; success: false; error: string; }[]' is not assignable to type '{ id: string; success: boolean; error?: string | undefined; }[]'.
+  Property 'id' is missing in type '{ uuid: any; success: false; error: string; }' but required in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(159,22): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(177,24): error TS2353: Object literal may only specify known properties, and 'uuid' does not exist in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(177,35): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(181,11): error TS2353: Object literal may only specify known properties, and 'uuid' does not exist in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(181,22): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(213,24): error TS2353: Object literal may only specify known properties, and 'uuid' does not exist in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(213,35): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(217,11): error TS2353: Object literal may only specify known properties, and 'uuid' does not exist in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(217,22): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(260,24): error TS2353: Object literal may only specify known properties, and 'uuid' does not exist in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(260,35): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(264,11): error TS2353: Object literal may only specify known properties, and 'uuid' does not exist in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(264,22): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(296,24): error TS2353: Object literal may only specify known properties, and 'uuid' does not exist in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(296,35): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(300,11): error TS2353: Object literal may only specify known properties, and 'uuid' does not exist in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(300,22): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(332,24): error TS2353: Object literal may only specify known properties, and 'uuid' does not exist in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(332,35): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(336,11): error TS2353: Object literal may only specify known properties, and 'uuid' does not exist in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(336,22): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(369,24): error TS2353: Object literal may only specify known properties, and 'uuid' does not exist in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(369,35): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(373,11): error TS2353: Object literal may only specify known properties, and 'uuid' does not exist in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(373,22): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(401,20): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(427,9): error TS2322: Type '{ uuid: any; success: true; }[]' is not assignable to type '{ id: string; success: boolean; error?: string | undefined; }[]'.
+  Property 'id' is missing in type '{ uuid: any; success: true; }' but required in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(427,50): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(435,9): error TS2322: Type '{ uuid: any; success: false; error: string; }[]' is not assignable to type '{ id: string; success: boolean; error?: string | undefined; }[]'.
+  Property 'id' is missing in type '{ uuid: any; success: false; error: string; }' but required in type '{ id: string; success: boolean; error?: string | undefined; }'.
+src/services/bulkOperations.ts(435,50): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(443,72): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(453,76): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(458,47): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(463,45): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(468,48): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/bulkOperations.ts(473,46): error TS2339: Property 'uuid' does not exist on type 'BulkOperationItem'.
+src/services/cacheAwareService.ts(70,65): error TS18046: 'error' is of type 'unknown'.
+src/services/cacheAwareService.ts(93,76): error TS18046: 'error' is of type 'unknown'.
+src/services/cacheAwareService.ts(241,75): error TS2341: Property 'getDocumentFiles' is private and only accessible within class 'UnifiedFileService'.
+src/services/cacheAwareService.ts(259,59): error TS2339: Property 'getProjects' does not exist on type 'typeof ProjectApiService'.
+src/services/cacheAwareService.ts(277,74): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type '{ year?: number | undefined; month?: number | undefined; mood?: number | undefined; templates?: boolean | undefined; searchTitle?: string | undefined; dayOfWeek?: number | undefined; limit?: number | undefined; offset?: number | undefined; isDeleted?: boolean | undefined; } | undefined'.
+  Type 'string' has no properties in common with type '{ year?: number | undefined; month?: number | undefined; mood?: number | undefined; templates?: boolean | undefined; searchTitle?: string | undefined; dayOfWeek?: number | undefined; limit?: number | undefined; offset?: number | undefined; isDeleted?: boolean | undefined; }'.
+src/services/deletionImpactService.ts(39,7): error TS2322: Type 'unknown' is not assignable to type 'DeletionImpact'.
+src/services/diaryService.ts(93,9): error TS2345: Argument of type '{ onProgress: (progress: DownloadProgress) => void; }' is not assignable to parameter of type 'DownloadOptions'.
+  Property 'fileId' is missing in type '{ onProgress: (progress: DownloadProgress) => void; }' but required in type 'DownloadOptions'.
+src/services/diaryService.ts(94,24): error TS6133: 'progress' is declared but its value is never read.
+src/services/documentsService.ts(9,1): error TS6133: 'BaseService' is declared but its value is never read.
+src/services/documentsService.ts(11,1): error TS6133: 'apiService' is declared but its value is never read.
+src/services/documentsService.ts(14,1): error TS6133: 'notifications' is declared but its value is never read.
+src/services/documentsService.ts(60,39): error TS2304: Cannot find name 'CacheAwareBaseService'.
+src/services/documentsService.ts(72,17): error TS2339: Property 'getCachedData' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(74,18): error TS2339: Property 'apiGet' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(87,17): error TS2339: Property 'getCachedData' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(89,18): error TS2339: Property 'apiGet' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(122,41): error TS2339: Property 'apiPost' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(131,12): error TS2339: Property 'invalidateCache' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(152,33): error TS2339: Property 'apiPut' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(155,12): error TS2339: Property 'invalidateCache' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(156,12): error TS2339: Property 'invalidateCache' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(173,18): error TS2339: Property 'apiDelete' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(176,12): error TS2339: Property 'invalidateCache' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(177,12): error TS2339: Property 'invalidateCache' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(227,19): error TS2339: Property 'getCachedData' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(229,20): error TS2339: Property 'apiGet' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(230,9): error TS2352: Conversion of type 'never[]' to type 'Document' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'never[]' is missing the following properties from type 'Document': uuid, name, fileName, fileSize, and 6 more.
+src/services/documentsService.ts(260,19): error TS2339: Property 'getCachedData' does not exist on type 'DocumentsService'.
+src/services/documentsService.ts(262,20): error TS2339: Property 'apiGet' does not exist on type 'DocumentsService'.
+src/services/entityReserveService.tsx(1,1): error TS6133: 'React' is declared but its value is never read.
+src/services/entityReserveService.tsx(74,11): error TS2740: Type '{}' is missing the following properties from type 'any[]': length, pop, push, concat, and 28 more.
+src/services/entityReserveService.tsx(80,11): error TS2740: Type '{}' is missing the following properties from type 'any[]': length, pop, push, concat, and 28 more.
+src/services/entityReserveService.tsx(85,11): error TS2740: Type '{}' is missing the following properties from type 'any[]': length, pop, push, concat, and 28 more.
+src/services/fileCacheService.ts(422,23): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/services/index.ts(24,10): error TS2614: Module '"./unifiedCacheService"' has no exported member 'unifiedCacheService'. Did you mean to use 'import unifiedCacheService from "./unifiedCacheService"' instead?
+src/services/index.ts(53,15): error TS2305: Module '"../types/project"' has no exported member 'DeletionImpactResponse'.
+src/services/index.ts(58,3): error TS2459: Module '"./todosService"' declares 'Todo' locally, but it is not exported.
+src/services/index.ts(59,3): error TS2305: Module '"./todosService"' has no exported member 'TodoCreateRequest'.
+src/services/index.ts(60,3): error TS2305: Module '"./todosService"' has no exported member 'TodoUpdateRequest'.
+src/services/index.ts(61,3): error TS2305: Module '"./todosService"' has no exported member 'TodoStatistics'.
+src/services/index.ts(70,3): error TS2459: Module '"./archiveService"' declares 'ArchiveFolder' locally, but it is not exported.
+src/services/index.ts(71,3): error TS2459: Module '"./archiveService"' declares 'FolderTree' locally, but it is not exported.
+src/services/index.ts(72,3): error TS2459: Module '"./archiveService"' declares 'FolderCreate' locally, but it is not exported.
+src/services/index.ts(73,3): error TS2305: Module '"./archiveService"' has no exported member 'ArchiveFolderSearchRequest'.
+src/services/index.ts(113,10): error TS2304: Cannot find name 'notesService'.
+src/services/index.ts(114,10): error TS2304: Cannot find name 'diaryService'.
+src/services/index.ts(115,14): error TS2304: Cannot find name 'documentsService'.
+src/services/index.ts(116,10): error TS2304: Cannot find name 'todosService'.
+src/services/index.ts(117,13): error TS2304: Cannot find name 'projectsService'.
+src/services/index.ts(118,12): error TS2304: Cannot find name 'archiveService'.
+src/services/index.ts(119,9): error TS2304: Cannot find name 'tagsService'.
+src/services/index.ts(120,14): error TS2304: Cannot find name 'dashboardService'.
+src/services/index.ts(121,11): error TS2304: Cannot find name 'backupService'.
+src/services/index.ts(122,13): error TS2304: Cannot find name 'templateService'.
+src/services/index.ts(123,19): error TS2304: Cannot find name 'deletionImpactService'.
+src/services/index.ts(125,11): error TS2304: Cannot find name 'unifiedFileService'.
+src/services/index.ts(126,12): error TS2304: Cannot find name 'unifiedCacheService'.
+src/services/index.ts(141,3): error TS18004: No value exists in scope for the shorthand property 'BaseService'. Either declare one or provide an initializer.
+src/services/index.ts(142,3): error TS18004: No value exists in scope for the shorthand property 'BaseCRUDService'. Either declare one or provide an initializer.
+src/services/index.ts(143,3): error TS18004: No value exists in scope for the shorthand property 'backupService'. Either declare one or provide an initializer.
+src/services/index.ts(144,3): error TS18004: No value exists in scope for the shorthand property 'templateService'. Either declare one or provide an initializer.
+src/services/projectsService.ts(11,1): error TS6133: 'apiService' is declared but its value is never read.
+src/services/projectsService.ts(12,1): error TS6133: 'documentsService' is declared but its value is never read.
+src/services/projectsService.ts(256,9): error TS2554: Expected 2 arguments, but got 3.
+src/services/testing/authService.ts(47,5): error TS2322: Type 'unknown' is not assignable to type 'SessionStatus'.
+src/services/testing/authService.ts(52,5): error TS2322: Type 'unknown' is not assignable to type 'UserDatabase'.
+src/services/testing/authService.ts(57,5): error TS2322: Type 'unknown' is not assignable to type 'HealthCheck'.
+src/services/testing/authService.ts(62,5): error TS2322: Type 'unknown' is not assignable to type 'DiaryEncryptionDetails'.
+src/services/testing/crudService.ts(27,5): error TS2322: Type 'unknown' is not assignable to type 'CrudTestResult'.
+src/services/testing/databaseService.ts(142,5): error TS2322: Type 'unknown' is not assignable to type 'DatabaseStats'.
+src/services/testing/databaseService.ts(153,5): error TS2322: Type 'unknown' is not assignable to type 'TableSchema'.
+src/services/testing/databaseService.ts(159,5): error TS2322: Type 'unknown' is not assignable to type 'FtsTablesData'.
+src/services/testing/databaseService.ts(165,5): error TS2322: Type 'unknown' is not assignable to type 'SampleRowsResponse'.
+src/services/testing/systemService.ts(37,5): error TS2322: Type 'unknown' is not assignable to type 'DetailedHealth'.
+src/services/testing/systemService.ts(42,5): error TS2322: Type 'unknown' is not assignable to type 'ConsoleCommands'.
+src/services/testingService.ts(49,40): error TS2339: Property 'validateDataIntegrity' does not exist on type '{ getHealthDetailed(): Promise<DetailedHealth>; getConsoleCommands(): Promise<ConsoleCommands>; getPerformanceMetrics(): Promise<...>; }'.
+src/services/testingService.ts(50,35): error TS2339: Property 'getResourceUsage' does not exist on type '{ getHealthDetailed(): Promise<DetailedHealth>; getConsoleCommands(): Promise<ConsoleCommands>; getPerformanceMetrics(): Promise<...>; }'.
+src/services/testingService.ts(51,37): error TS2339: Property 'runFileSanityCheck' does not exist on type '{ getHealthDetailed(): Promise<DetailedHealth>; getConsoleCommands(): Promise<ConsoleCommands>; getPerformanceMetrics(): Promise<...>; }'.
+src/services/testingService.ts(54,43): error TS2339: Property 'checkAuthentication' does not exist on type '{ getSessionStatus(): Promise<SessionStatus>; checkUserDatabase(): Promise<UserDatabase>; basicHealthCheck(): Promise<HealthCheck>; checkDiaryEncryption(): Promise<...>; }'.
+src/services/testingService.ts(55,43): error TS2339: Property 'testAPIConnectivity' does not exist on type '{ getSessionStatus(): Promise<SessionStatus>; checkUserDatabase(): Promise<UserDatabase>; basicHealthCheck(): Promise<HealthCheck>; checkDiaryEncryption(): Promise<...>; }'.
+src/services/testingService.ts(56,43): error TS2551: Property 'testDiaryEncryption' does not exist on type '{ getSessionStatus(): Promise<SessionStatus>; checkUserDatabase(): Promise<UserDatabase>; basicHealthCheck(): Promise<HealthCheck>; checkDiaryEncryption(): Promise<...>; }'. Did you mean 'checkDiaryEncryption'?
+src/services/testingService.ts(62,43): error TS2339: Property 'downloadResults' does not exist on type '{ runFullTest(): Promise<CrudTestResult>; runModuleTest(module: CrudModule): Promise<any>; cleanupTestData(testId: string): Promise<...>; createTestDocument(fileSize: number, contentType: string, filename: string): Promise<...>; }'.
+src/services/testingService.ts(63,35): error TS2339: Property 'formatBytes' does not exist on type '{ runFullTest(): Promise<CrudTestResult>; runModuleTest(module: CrudModule): Promise<any>; cleanupTestData(testId: string): Promise<...>; createTestDocument(fileSize: number, contentType: string, filename: string): Promise<...>; }'.
+src/services/todosService.ts(13,22): error TS6133: 'TaskPriority' is declared but its value is never read.
+src/services/todosService.ts(13,36): error TS6133: 'TodoType' is declared but its value is never read.
+src/services/todosService.ts(57,78): error TS2304: Cannot find name 'LegacyProject'.
+src/services/todosService.ts(65,43): error TS2304: Cannot find name 'LegacyProject'.
+src/stores/archiveStore.ts(7,1): error TS6133: 'logger' is declared but its value is never read.
+src/stores/backupStore.ts(44,18): error TS2339: Property 'success' does not exist on type 'BackupCreateResponse'.
+src/stores/backupStore.ts(72,18): error TS2339: Property 'success' does not exist on type 'BackupRestoreResponse'.
+src/stores/backupStore.ts(96,9): error TS2740: Type 'BackupListResponse' is missing the following properties from type 'string[]': length, pop, push, concat, and 28 more.
+src/stores/backupStore.ts(111,18): error TS2339: Property 'success' does not exist on type 'BackupDeleteResponse'.
+src/stores/backupStore.ts(135,27): error TS2339: Property 'downloadBackup' does not exist on type 'BackupService'.
+src/stores/diaryStore.ts(221,51): error TS2339: Property 'nepaliDateCache' does not exist on type 'Window & typeof globalThis'.
+src/stores/diaryStore.ts(222,16): error TS2339: Property 'nepaliDateCache' does not exist on type 'Window & typeof globalThis'.
+src/stores/diaryStore.ts(234,25): error TS6133: 'opts' is declared but its value is never read.
+src/stores/documentsStore.ts(10,8): error TS2305: Module '"../types/document"' has no exported member 'DocumentsListParams'.
+src/stores/documentsStore.ts(179,3): error TS2322: Type '(file: File, tags?: string[], projectIds?: string[], isExclusive?: boolean) => Promise<UnifiedFileItem | null>' is not assignable to type '(file: File, tags?: string[] | undefined, projectIds?: string[] | undefined, isExclusive?: boolean | undefined) => Promise<Document | null>'.
+  Type 'Promise<UnifiedFileItem | null>' is not assignable to type 'Promise<Document | null>'.
+    Type 'UnifiedFileItem | null' is not assignable to type 'Document | null'.
+      Property 'projects' is missing in type 'UnifiedFileItem' but required in type 'Document'.
+src/stores/documentsStore.ts(186,10): error TS7006: Parameter 'progress' implicitly has an 'any' type.
+src/stores/documentsStore.ts(188,9): error TS2554: Expected 3-4 arguments, but got 5.
+src/stores/documentsStore.ts(197,9): error TS2353: Object literal may only specify known properties, and 'filePath' does not exist in type 'DocumentSummary'.
+src/stores/documentsStore.ts(215,47): error TS18048: 'document.tags' is possibly 'undefined'.
+src/stores/documentsStore.ts(227,9): error TS2322: Type '(UnifiedFileItem | DocumentSummary)[]' is not assignable to type 'UnifiedFileItem[]'.
+  Type 'UnifiedFileItem | DocumentSummary' is not assignable to type 'UnifiedFileItem'.
+    Type 'DocumentSummary' is missing the following properties from type 'UnifiedFileItem': module, entityId
+src/stores/documentsStore.ts(273,9): error TS2353: Object literal may only specify known properties, and 'filePath' does not exist in type 'DocumentSummary'.
+src/stores/documentsStore.ts(287,11): error TS2345: Argument of type '(state: DocumentsState) => { documents: (UnifiedFileItem | DocumentSummary)[]; currentDocument: any; isUpdating: false; }' is not assignable to parameter of type 'DocumentsState | Partial<DocumentsState> | ((state: DocumentsState) => DocumentsState | Partial<DocumentsState>)'.
+  Type '(state: DocumentsState) => { documents: (UnifiedFileItem | DocumentSummary)[]; currentDocument: any; isUpdating: false; }' is not assignable to type '(state: DocumentsState) => DocumentsState | Partial<DocumentsState>'.
+    Type '{ documents: (UnifiedFileItem | DocumentSummary)[]; currentDocument: any; isUpdating: false; }' is not assignable to type 'DocumentsState | Partial<DocumentsState>'.
+      Type '{ documents: (UnifiedFileItem | DocumentSummary)[]; currentDocument: any; isUpdating: false; }' is not assignable to type 'Partial<DocumentsState>'.
+        Types of property 'documents' are incompatible.
+          Type '(UnifiedFileItem | DocumentSummary)[]' is not assignable to type 'UnifiedFileItem[]'.
+            Type 'UnifiedFileItem | DocumentSummary' is not assignable to type 'UnifiedFileItem'.
+              Type 'DocumentSummary' is missing the following properties from type 'UnifiedFileItem': module, entityId
+src/stores/documentsStore.ts(343,9): error TS2353: Object literal may only specify known properties, and 'filePath' does not exist in type 'DocumentSummary'.
+src/stores/documentsStore.ts(398,37): error TS2339: Property 'results' does not exist on type 'any[]'.
+src/stores/todosStore.ts(381,46): error TS2339: Property 'getProjects' does not exist on type '{ getTodos(): Promise<TodoSummary[]>; getTodoStats(): Promise<TodoStats>; invalidateAll(): Promise<void>; }'.
+src/stores/todosStore.ts(396,13): error TS2740: Type 'Project' is missing the following properties from type 'Project': priority, sortOrder, isFavorite, isDeleted, and 6 more.
+src/stores/todosStore.ts(409,45): error TS2339: Property 'createProject' does not exist on type '{ getTodos(): Promise<TodoSummary[]>; getTodoStats(): Promise<TodoStats>; invalidateAll(): Promise<void>; }'.
+src/stores/todosStore.ts(431,52): error TS2339: Property 'updateProject' does not exist on type '{ getTodos(): Promise<TodoSummary[]>; getTodoStats(): Promise<TodoStats>; invalidateAll(): Promise<void>; }'.
+src/utils/save_discard_verification.ts(49,20): error TS2532: Object is possibly 'undefined'.
+src/utils/save_discard_verification.ts(50,22): error TS2532: Object is possibly 'undefined'.
+src/utils/save_discard_verification.ts(62,20): error TS2532: Object is possibly 'undefined'.
+src/utils/save_discard_verification.ts(63,22): error TS2532: Object is possibly 'undefined'.
+src/utils/save_discard_verification.ts(76,20): error TS2532: Object is possibly 'undefined'.
+src/utils/save_discard_verification.ts(77,26): error TS2532: Object is possibly 'undefined'.
+src/utils/validation.ts(11,36): error TS6133: 'TodoType' is declared but its value is never read.

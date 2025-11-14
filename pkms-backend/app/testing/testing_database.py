@@ -59,8 +59,10 @@ async def get_database_stats(
         for table_name, model in tables_to_check:
             try:
                 if table_name == "users":
-                    # For users table, don't filter by created_by
-                    result = await db.execute(select(func.count()).select_from(model))
+                    # For users table, filter by current user's UUID (CRITICAL SECURITY)
+                    result = await db.execute(
+                        select(func.count()).select_from(model).where(model.uuid == current_user.uuid)
+                    )
                 else:
                     # For other tables, filter by current user
                     result = await db.execute(
@@ -284,11 +286,26 @@ async def get_table_schema(
 ):
     """Get detailed schema information for a specific table including size information."""
     try:
-        # Validate table name to prevent SQL injection
+        # Validate table name to prevent SQL injection - COMPLETE TABLE LIST
         allowed_tables = [
-            'users', 'notes', 'documents', 'todos', 'projects', 'diary_entries',
-            'diary_daily_metadata', 'archive_folders', 'archive_items', 'tags',
-            'document_diary', 'project_tags', 'note_tags', 'todo_tags', 'recovery_keys', 'sessions'
+            # Core System Tables
+            'users', 'sessions', 'recovery_keys',
+
+            # Content Module Tables
+            'notes', 'documents', 'todos', 'projects',
+
+            # Diary & Privacy Tables
+            'diary_entries', 'diary_daily_metadata',
+
+            # Archive & Organization Tables
+            'archive_folders', 'archive_items', 'tags',
+
+            # Association Tables
+            'note_documents', 'document_diary', 'todo_dependencies', 'project_items',
+
+            # Tag Association Tables
+            'note_tags', 'document_tags', 'todo_tags', 'project_tags',
+            'archive_item_tags', 'archive_folder_tags', 'diary_entry_tags'
         ]
 
         # Also allow FTS and mapping tables
@@ -377,12 +394,23 @@ async def get_table_schema(
             try:
                 # Build SELECT query with column names
                 column_names = [col["name"] for col in columns]
-                sample_query = text(f"""
-                    SELECT {', '.join(column_names)}
-                    FROM {table_name}
-                    LIMIT {sample_limit}
-                """)
-                sample_result = await db.execute(sample_query)
+
+                # Special case for users table - add user filtering (CRITICAL SECURITY)
+                if table_name == "users":
+                    sample_query = text(f"""
+                        SELECT {', '.join(column_names)}
+                        FROM {table_name}
+                        WHERE uuid = :user_uuid
+                        LIMIT {sample_limit}
+                    """)
+                    sample_result = await db.execute(sample_query, {"user_uuid": current_user.uuid})
+                else:
+                    sample_query = text(f"""
+                        SELECT {', '.join(column_names)}
+                        FROM {table_name}
+                        LIMIT {sample_limit}
+                    """)
+                    sample_result = await db.execute(sample_query)
 
                 for row in sample_result:
                     row_data = {}
@@ -433,6 +461,7 @@ async def get_sample_rows(
     try:
         # Validate table access for security
         allowed_tables = {
+            "users": User,
             "notes": Note,
             "documents": Document,
             "todos": Todo,
@@ -450,13 +479,18 @@ async def get_sample_rows(
         if table not in allowed_tables and table not in system_tables:
             raise HTTPException(status_code=400, detail=f"Table '{table}' not allowed for sampling")
 
-        # Build query with user filtering, special-case system tables
+        # Build query with user filtering, special-case system tables and users table
         if table in system_tables:
             result = await db.execute(
                 text(f"SELECT * FROM {table} WHERE created_by = :uid LIMIT :limit"),
                 {"uid": current_user.uuid, "limit": limit}
             )
             rows = result.fetchall()
+        elif table == "users":
+            # For users table, only return current user's own record (CRITICAL SECURITY)
+            query = select(User).where(User.uuid == current_user.uuid).limit(1)
+            result = await db.execute(query)
+            rows = result.scalars().all()
         else:
             query = (
                 select(allowed_tables[table])
@@ -782,118 +816,3 @@ async def get_diary_tables_info(
         logger.error(f"Error getting diary tables info: {type(e).__name__}")
         raise HTTPException(status_code=500, detail=f"Failed to get diary tables info: {str(e)}")
 
-
-@router.post("/diary-migration")
-async def run_diary_migration(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Run the diary schema migration to convert from blob-based to file-based storage."""
-    try:
-        # This is a simplified version of the migration logic
-        # In production, this would be more comprehensive
-
-        migration_log = []
-
-        def add_message(level: str, msg: str):
-            migration_log.append({"timestamp": datetime.now(NEPAL_TZ).isoformat(), "level": level, "message": msg})
-            logger.info(f"DIARY_MIGRATION: [{level}] {msg}")
-
-        add_message("INFO", f"Starting diary migration for user {current_user.uuid}")
-
-        # Check if migration is needed
-        entries_with_blobs_query = text("""
-            SELECT COUNT(*)
-            FROM diary_entries
-            WHERE created_by = :user_uuid AND encrypted_blob IS NOT NULL
-        """)
-        result = await db.execute(entries_with_blobs_query, {"user_uuid": current_user.uuid})
-        entries_with_blobs = result.scalar()
-
-        if entries_with_blobs == 0:
-            add_message("SUCCESS", "No entries with blob data found - migration not needed")
-            return {
-                "status": "success",
-                "message": "Migration not needed - no blob data found",
-                "entries_processed": 0,
-                "log": migration_log,
-                "user_uuid": current_user.uuid,
-                "timestamp": datetime.now(NEPAL_TZ).isoformat()
-            }
-
-        add_message("INFO", f"Found {entries_with_blobs} entries with blob data to migrate")
-
-        # Check if secure directory exists
-        secure_dir = get_data_dir() / "secure" / "entries" / "text"
-        if not secure_dir.exists():
-            secure_dir.mkdir(parents=True, exist_ok=True)
-            add_message("INFO", f"Created secure directory: {secure_dir}")
-
-        # Get entries that need migration
-        migration_query = text("""
-            SELECT uuid, date, encrypted_blob, encryption_iv, encryption_tag
-            FROM diary_entries
-            WHERE created_by = :user_uuid
-              AND encrypted_blob IS NOT NULL
-              AND content_file_path IS NULL
-            ORDER BY date
-            LIMIT 5  -- Process in small batches
-        """)
-
-        result = await db.execute(migration_query, {"user_uuid": current_user.uuid})
-        entries_to_migrate = result.fetchall()
-
-        add_message("INFO", f"Processing batch of {len(entries_to_migrate)} entries")
-
-        processed_count = 0
-        for entry in entries_to_migrate:
-            entry_uuid, entry_date, encrypted_blob, iv, tag = entry
-
-            try:
-                # Generate filename
-                date_str = entry_date.strftime("%Y-%m-%d") if entry_date else "unknown"
-                filename = f"{date_str}_diary_{entry_uuid[:8]}.dat"
-                file_path = secure_dir / filename
-
-                # In a real migration, we would decrypt and re-encrypt here
-                # For this test, we'll just simulate the file creation
-                with open(file_path, 'w') as f:
-                    f.write(f"MIGRATED: {entry_uuid} - {entry_date}")
-
-                # Update database record
-                update_query = text("""
-                    UPDATE diary_entries
-                    SET content_file_path = :path,
-                        encrypted_blob = NULL
-                    WHERE uuid = :uuid
-                """)
-                await db.execute(update_query, {
-                    "path": str(file_path),
-                    "uuid": entry_uuid
-                })
-
-                processed_count += 1
-                add_message("SUCCESS", f"Migrated entry {entry_uuid[:8]} to {filename}")
-
-            except Exception as e:
-                add_message("ERROR", f"Failed to migrate entry {entry_uuid[:8]}: {str(e)}")
-
-        # Commit the changes
-        await db.commit()
-
-        add_message("SUCCESS", f"Migration completed. Processed {processed_count} entries.")
-
-        return {
-            "status": "success",
-            "message": "Diary migration completed successfully",
-            "entries_processed": processed_count,
-            "entries_remaining": max(0, entries_with_blobs - processed_count),
-            "log": migration_log,
-            "user_uuid": current_user.uuid,
-            "timestamp": datetime.now(NEPAL_TZ).isoformat()
-        }
-
-    except Exception as e:
-        logger.error(f"Error during diary migration: {type(e).__name__}")
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Diary migration failed: {str(e)}")

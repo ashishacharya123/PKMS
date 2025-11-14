@@ -157,7 +157,7 @@ async def setup_diary_encryption(
         
         logger.info(f"Diary encryption setup completed for user {current_user.uuid}")
         
-        return {"message": "Diary encryption setup successfully"}
+        return {"success": True, "message": "Diary encryption setup successfully"}
         
     except HTTPException:
         raise
@@ -198,7 +198,7 @@ async def unlock_diary(
         
         logger.info(f"Diary unlocked for user {current_user.uuid}")
         
-        return {"message": "Diary unlocked successfully"}
+        return {"success": True, "message": "Diary unlocked successfully"}
         
     except HTTPException:
         raise
@@ -552,11 +552,24 @@ async def get_daily_metadata(
             )
         
         # Call service with date object
-        return await habit_data_service.get_daily_metadata(
+        result = await habit_data_service.get_daily_metadata(
             db=db,
             user_uuid=current_user.uuid,
             target_date=date_obj
         )
+
+        if result is None:
+            # Return empty daily metadata instead of raising exception
+            return DiaryDailyMetadataResponse(
+                date=date_obj,
+                nepali_date="",
+                day_of_week=None,
+                metrics={},
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+
+        return result
         
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -654,13 +667,11 @@ async def get_wellness_score_analytics_unified(
     **Memory Usage:** ~120KB per user (last 10 calculations)
     """
     try:
-        from app.services.unified_analytics_service import unified_analytics_service
-
         # Get loading state info for frontend
-        loading_info = unified_analytics_service.get_loading_state_info(days)
+        loading_info = unified_habit_analytics_service.get_loading_state_info(days)
 
-        # Use unified analytics service
-        analytics_result = await unified_analytics_service.get_analytics_with_unified_timeframes(
+        # Use unified analytics wrapper (now part of unified_habit_analytics_service)
+        analytics_result = await unified_habit_analytics_service.get_analytics_with_unified_timeframes(
             db=db,
             user_uuid=current_user.uuid,
             analytics_function=unified_habit_analytics_service.get_wellness_stats,
@@ -675,10 +686,14 @@ async def get_wellness_score_analytics_unified(
         return analytics_result
 
     except Exception as e:
-        logger.error(f"Error getting unified wellness score analytics for user {current_user.uuid}: {type(e).__name__}")
+        import traceback
+        error_details = traceback.format_exc()
+        logger.error(
+            f"Error getting unified wellness score analytics for user {current_user.uuid}: {type(e).__name__}: {str(e)}\n{error_details}"
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get wellness score analytics"
+            detail=f"Failed to get wellness score analytics: {str(e)}"
         )
 
 
@@ -1065,32 +1080,20 @@ async def get_daily_habits(
 async def get_default_habits_analytics(
     days: int = Query(30, ge=7, le=365),
     include_sma: bool = Query(False),
-    sma_windows: List[int] = Query([7, 14, 30]),
+    sma_windows: Optional[List[int]] = Query([7, 14, 30], description="SMA window sizes (can be provided multiple times: ?sma_windows=7&sma_windows=14&sma_windows=30)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get analytics for 9 default habits (sleep, stress, exercise, meditation,
-    screen_time, steps, learning, outdoor, social) with optional SMA overlays.
-    
-    **Features:**
-    - 📊 9 core wellness habits with trend analysis
-    - 📈 Optional Simple Moving Average overlays (7, 14, 30 day windows)
-    - 🎯 Goal tracking and completion rates
-    - 📅 Flexible time periods (7-365 days)
-    - ⚡ Smart caching for performance
-    
-    **Default Habits:**
-    - Sleep (hours)
-    - Stress (1-5 scale)
-    - Exercise (minutes)
-    - Meditation (minutes)
-    - Screen Time (hours)
-    - Steps (count)
-    - Learning (minutes)
-    - Outdoor Time (minutes)
-    - Social Connection (1-5 scale)
+    Get analytics for 9 default habits with optional SMA overlays.
+
+    Uses FastAPI's automatic List[int] query parameter handling.
     """
+    # Validate sma_windows values
+    sma_windows_list = [w for w in (sma_windows or []) if 1 <= w <= 365]  # Ensure reasonable window sizes
+    if not sma_windows_list:
+        sma_windows_list = [7, 14, 30]  # Final fallback
+
     try:
         from app.services.unified_habit_analytics_service import unified_habit_analytics_service
         
@@ -1099,7 +1102,7 @@ async def get_default_habits_analytics(
             user_uuid=current_user.uuid,
             days=days,
             include_sma=include_sma,
-            sma_windows=sma_windows
+            sma_windows=sma_windows_list
         )
         
         return analytics

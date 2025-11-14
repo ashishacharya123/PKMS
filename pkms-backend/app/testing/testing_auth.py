@@ -57,19 +57,32 @@ async def get_session_status(
             }
 
         now = datetime.now(NEPAL_TZ)
-        time_until_expiry = session.expires_at - now
-        time_since_created = now - session.created_at
-        time_since_activity = now - session.last_activity if session.last_activity else None
+
+        # Ensure session datetime fields are timezone-aware by adding NEPAL_TZ if needed
+        def make_timezone_aware(dt):
+            if dt is None:
+                return None
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=NEPAL_TZ)
+            return dt
+
+        expires_at_aware = make_timezone_aware(session.expires_at)
+        created_at_aware = make_timezone_aware(session.created_at)
+        last_activity_aware = make_timezone_aware(session.last_activity)
+
+        time_until_expiry = expires_at_aware - now
+        time_since_created = now - created_at_aware
+        time_since_activity = now - last_activity_aware if last_activity_aware else None
 
         # Calculate if session was recently extended (within last 10 seconds)
         recently_extended = False
-        if session.last_activity:
+        if last_activity_aware:
             recent_threshold = timedelta(seconds=10)
-            recently_extended = (now - session.last_activity) < recent_threshold
+            recently_extended = (now - last_activity_aware) < recent_threshold
 
         # Session health metrics
         session_health = {
-            "is_valid": session.expires_at > now,
+            "is_valid": expires_at_aware > now,
             "expires_in_seconds": int(time_until_expiry.total_seconds()),
             "age_seconds": int(time_since_created.total_seconds()),
             "idle_seconds": int(time_since_activity.total_seconds()) if time_since_activity else 0,
@@ -409,93 +422,6 @@ async def check_diary_entries_encryption(
     except Exception as e:
         logger.error(f"Error checking diary entries encryption: {type(e).__name__}")
         raise HTTPException(status_code=500, detail=f"Failed to check diary entries encryption: {str(e)}")
-
-
-@router.post("/encryption/stress-test")
-async def encryption_stress_test(
-    test_iterations: int = 10,
-    content_size: int = 1000,
-    current_user: User = Depends(get_current_user)
-):
-    """Perform stress testing of the encryption system."""
-    try:
-        import time
-        import random
-        import string
-
-        # crypto_service = DiaryCryptoService()  # Encryption handled in frontend
-
-        # Generate test content
-        def generate_test_content(size):
-            chars = string.ascii_letters + string.digits + string.punctuation + ' \n'
-            return ''.join(random.choice(chars) for _ in range(size))
-
-        results = {
-            "status": "success",
-            "test_parameters": {
-                "iterations": test_iterations,
-                "content_size_bytes": content_size,
-                "user_uuid": current_user.uuid
-            },
-            "performance_metrics": {
-                "encryption_times": [],
-                "decryption_times": [],
-                "average_encryption_time_ms": 0,
-                "average_decryption_time_ms": 0,
-                "min_encryption_time_ms": 0,
-                "max_encryption_time_ms": 0,
-                "min_decryption_time_ms": 0,
-                "max_decryption_time_ms": 0,
-                "total_time_seconds": 0
-            },
-            "encryption_integrity": {
-                "successful_encryptions": 0,
-                "successful_decryptions": 0,
-                "integrity_checks_passed": 0,
-                "integrity_checks_failed": 0
-            },
-            "timestamp": datetime.now(NEPAL_TZ).isoformat()
-        }
-
-        _test_content = generate_test_content(content_size)  # Unused - encryption testing disabled
-        start_time = time.time()
-
-        # Run encryption tests
-        # Note: Encryption is now handled in frontend, not backend
-        # crypto_service was removed - DiaryCryptoService no longer exists
-        # This test endpoint is kept for compatibility but encryption testing is disabled
-        results["performance_metrics"]["encryption_times"] = []
-        results["performance_metrics"]["decryption_times"] = []
-        results["status"] = "skipped"
-        results["message"] = "Encryption is handled in frontend - backend encryption testing disabled"
-
-        end_time = time.time()
-
-        # Calculate performance metrics
-        if results["performance_metrics"]["encryption_times"]:
-            enc_times = results["performance_metrics"]["encryption_times"]
-            dec_times = results["performance_metrics"]["decryption_times"]
-
-            results["performance_metrics"]["average_encryption_time_ms"] = round(sum(enc_times) / len(enc_times), 3)
-            results["performance_metrics"]["average_decryption_time_ms"] = round(sum(dec_times) / len(dec_times), 3)
-            results["performance_metrics"]["min_encryption_time_ms"] = round(min(enc_times), 3)
-            results["performance_metrics"]["max_encryption_time_ms"] = round(max(enc_times), 3)
-            results["performance_metrics"]["min_decryption_time_ms"] = round(min(dec_times), 3)
-            results["performance_metrics"]["max_decryption_time_ms"] = round(max(dec_times), 3)
-
-        results["performance_metrics"]["total_time_seconds"] = round(end_time - start_time, 3)
-
-        # Determine overall status
-        if results["encryption_integrity"]["integrity_checks_failed"] == 0:
-            results["overall_status"] = "all_tests_passed"
-        else:
-            results["overall_status"] = "some_tests_failed"
-
-        return results
-
-    except Exception as e:
-        logger.error(f"Error in encryption stress test: {type(e).__name__}")
-        raise HTTPException(status_code=500, detail=f"Encryption stress test failed: {str(e)}")
 
 
 @router.get("/system/time-verification")

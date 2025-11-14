@@ -5,6 +5,7 @@ from .base import CamelCaseModel
 
 from app.models.enums import TodoStatus, TaskPriority
 from app.schemas.project import ProjectBadge
+from app.utils.validation import validate_uuid_list
 
 
 class BlockingTodoSummary(CamelCaseModel):
@@ -32,15 +33,8 @@ class TodoCreate(CamelCaseModel):
     )
     
     @field_validator('project_uuids')
-    def validate_project_uuids_are_uuid4(cls, v: Optional[List[str]]):
-        if not v:
-            return v
-        import re
-        uuid4 = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
-        for pid in v:
-            if not isinstance(pid, str) or not uuid4.match(pid):
-                raise ValueError("project_uuids must contain valid UUID4 strings")
-        return v
+    def validate_project_uuids(cls, v: Optional[List[str]]):
+        return validate_uuid_list(v)
     start_date: Optional[date] = None
     due_date: Optional[date] = None
     priority: TaskPriority = TaskPriority.MEDIUM
@@ -66,15 +60,8 @@ class TodoUpdate(CamelCaseModel):
     )
     
     @field_validator('project_uuids')
-    def validate_project_uuids_are_uuid4_update(cls, v: Optional[List[str]]):
-        if v is None:
-            return v
-        import re
-        uuid4 = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
-        for pid in v:
-            if not isinstance(pid, str) or not uuid4.match(pid):
-                raise ValueError("project_uuids must contain valid UUID4 strings")
-        return v
+    def validate_project_uuids_update(cls, v: Optional[List[str]]):
+        return validate_uuid_list(v)
     start_date: Optional[date] = None
     due_date: Optional[date] = None
     priority: Optional[TaskPriority] = None

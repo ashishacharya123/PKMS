@@ -28,7 +28,8 @@ import {
   Tooltip
 } from '@mantine/core';
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
-import ViewModeLayouts, { formatDate, formatFileSize } from '../components/common/ViewModeLayouts';
+import ViewModeLayouts, { formatDate } from '../components/common/ViewModeLayouts';
+import { formatFileSize } from '../utils/fileUtils';
 import { useViewPreferences } from '../hooks/useViewPreferences';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { ProjectBadges } from '../components/common/ProjectBadges';
@@ -41,14 +42,18 @@ import {
   IconEye,
   IconFolder,
   IconArchive,
-  IconStar
+  IconStar,
+  IconRefresh
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { notifications } from '@mantine/notifications';
 import { searchService } from '../services/searchService';
 import { useDocumentsStore } from '../stores/documentsStore';
-import { documentsService, Document } from '../services/documentsService';
+import { LoadingState } from '../components/common/LoadingState';
+import { ErrorState } from '../components/common/ErrorState';
+import { documentsService } from '../services/documentsService';
+import { Document } from '../types/document';
 import { ActionMenu } from '../components/common/ActionMenu';
 import { FileUploadModal } from '../components/file/FileUploadModal';
 import { ModuleLayout } from '../components/common/ModuleLayout';
@@ -381,7 +386,7 @@ export function DocumentsPage() {
   const totalPages = Math.ceil(sortedDocuments.length / itemsPerPage);
 
   // Loading state for initial data load
-  if (loading && documents.length === 0) {
+  if (isLoading && documents.length === 0) {
     return <LoadingState message="Loading documents..." />;
   }
 
@@ -527,6 +532,16 @@ export function DocumentsPage() {
                 <Button
                   variant="light"
                   size="sm"
+                  leftSection={<IconRefresh size={16} />}
+                  onClick={loadDocuments}
+                  loading={isLoading}
+                >
+                  Refresh
+                </Button>
+                
+                <Button
+                  variant="light"
+                  size="sm"
                   leftSection={<IconFilter size={16} />}
                   onClick={handleOpenFilterModal}
                 >
@@ -624,13 +639,13 @@ export function DocumentsPage() {
                           {formatDate(document.updatedAt)}
                         </Text>
                         <ProjectBadges projects={document.projects || []} size="xs" maxVisible={2} />
-                        {document.tags.slice(0, 2).map((tag) => (
+                        {(document.tags ?? []).slice(0, 2).map((tag) => (
                           <Badge key={tag} size="xs" variant="dot" style={{ cursor: 'pointer' }} onClick={() => setTag(tag)}>
                             {tag}
                           </Badge>
                         ))}
-                        {document.tags.length > 2 && (
-                          <Badge size="xs" variant="outline">+{document.tags.length - 2}</Badge>
+                        {(document.tags ?? []).length > 2 && (
+                          <Badge size="xs" variant="outline">+{(document.tags ?? []).length - 2}</Badge>
                         )}
                       </Group>
                     </Stack>
@@ -666,14 +681,14 @@ export function DocumentsPage() {
                 </Group>,
                 <Group key="tags" gap={4}>
                   <ProjectBadges projects={document.projects || []} size="xs" maxVisible={3} />
-                  {document.tags.slice(0, 3).map((tag) => (
+                  {(document.tags ?? []).slice(0, 3).map((tag) => (
                     <Badge key={tag} size="xs" variant="dot" style={{ cursor: 'pointer' }} onClick={() => setTag(tag)}>
                       {tag}
                     </Badge>
                   ))}
-                  {document.tags.length > 3 && (
-                    <Tooltip label={`${document.tags.length - 3} more tags`}>
-                      <Badge size="xs" variant="outline">+{document.tags.length - 3}</Badge>
+                  {(document.tags ?? []).length > 3 && (
+                    <Tooltip label={`${(document.tags ?? []).length - 3} more tags`}>
+                      <Badge size="xs" variant="outline">+{(document.tags ?? []).length - 3}</Badge>
                     </Tooltip>
                   )}
                 </Group>,
@@ -771,7 +786,12 @@ export function DocumentsPage() {
         onUpload={async (files, metadata) => {
           try {
             for (const file of files) {
-              await uploadDocument(file, metadata.tags || [], metadata.projectIds || [], metadata.isExclusive || false);
+              await uploadDocument(file, {
+                description: metadata.description || '',
+                tags: metadata.tags || [],
+                // Note: projectIds and isExclusive not available in FileMetadata interface
+                // If needed, extend FileMetadata interface to include these fields
+              });
             }
             uploadModal.closeModal();
             notifications.show({

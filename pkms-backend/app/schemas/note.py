@@ -1,18 +1,15 @@
 from pydantic import Field, field_validator
 from typing import Optional, List
 from datetime import datetime
-import re
 from .base import CamelCaseModel
 from app.schemas.project import ProjectBadge
-
-# UUID4 regex pattern - hoisted to module scope for performance
-UUID4_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
+from app.utils.validation import validate_uuid_list
 
 
 class NoteCreate(CamelCaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=500)  # Brief description for FTS5 search
-    content: str = Field(..., min_length=0, max_length=50000)
+    content: str = Field(..., min_length=0, max_length=50000)  # Character limit - actual 2KB byte limit enforced in service
     tags: Optional[list[str]] = Field(default_factory=list, max_items=20)
     project_uuids: Optional[list[str]] = Field(default_factory=list, max_items=10, description="List of project UUIDs to link this note to")
     are_projects_exclusive: Optional[bool] = Field(False, description="Apply exclusive flag to all project associations")
@@ -25,19 +22,23 @@ class NoteCreate(CamelCaseModel):
         from app.utils.security import sanitize_text_input
         return sanitize_text_input(v, max_length=200)
 
-    @field_validator('project_uuids')
-    def validate_project_uuids_are_uuid4(cls, v: Optional[List[str]]):
-        if not v:
-            return v
-        for pid in v:
-            if not isinstance(pid, str) or not UUID4_RE.match(pid):
-                raise ValueError("project_uuids must contain valid UUID4 strings")
+    @field_validator('content', mode='after')
+    def validate_content_size(cls, v: str):
+        """Validate content doesn't exceed 2KB when UTF-8 encoded (larger content stored as file)"""
+        MAX_DB_CONTENT_SIZE = 2048  # 2KB threshold
+        content_size_bytes = len(v.encode('utf-8'))
+        if content_size_bytes > MAX_DB_CONTENT_SIZE * 10:  # Allow up to 20KB for file storage
+            raise ValueError(f"Content too large: {content_size_bytes} bytes (max 20KB)")
         return v
+
+    @field_validator('project_uuids')
+    def validate_project_uuids(cls, v: Optional[List[str]]):
+        return validate_uuid_list(v)
 
 class NoteUpdate(CamelCaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=500)  # Brief description for FTS5 search
-    content: Optional[str] = Field(None, min_length=0, max_length=50000)
+    content: Optional[str] = Field(None, min_length=0, max_length=50000)  # Character limit - actual 2KB byte limit enforced in service
     tags: Optional[list[str]] = Field(None, max_items=20)
     force_file_storage: Optional[bool] = Field(None, description="Force content to be saved as file even if small")
     is_archived: Optional[bool] = None
@@ -52,14 +53,20 @@ class NoteUpdate(CamelCaseModel):
         from app.utils.security import sanitize_text_input
         return sanitize_text_input(v, max_length=200) if v else v
 
-    @field_validator('project_uuids')
-    def validate_project_uuids_are_uuid4_update(cls, v: Optional[list[str]]):
+    @field_validator('content', mode='after')
+    def validate_content_size(cls, v: Optional[str]):
+        """Validate content doesn't exceed 20KB when UTF-8 encoded (will be stored as file if > 2KB)"""
         if v is None:
             return v
-        for pid in v:
-            if not isinstance(pid, str) or not UUID4_RE.match(pid):
-                raise ValueError("project_uuids must contain valid UUID4 strings")
+        MAX_CONTENT_SIZE = 2048 * 10  # 20KB max (2KB for DB, rest goes to file)
+        content_size_bytes = len(v.encode('utf-8'))
+        if content_size_bytes > MAX_CONTENT_SIZE:
+            raise ValueError(f"Content too large: {content_size_bytes} bytes (max 20KB)")
         return v
+
+    @field_validator('project_uuids')
+    def validate_project_uuids_update(cls, v: Optional[list[str]]):
+        return validate_uuid_list(v)
 
 class NoteResponse(CamelCaseModel):
     uuid: str

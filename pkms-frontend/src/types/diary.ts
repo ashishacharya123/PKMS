@@ -101,8 +101,8 @@ export interface DiaryFormValues {
 export interface DiaryEntryCreatePayload {
   date: string;
   title?: string;
-  encryptedBlob: string;
-  encryptionIv: string;
+  // Note: Content is uploaded as a file separately, not included in payload
+  // encryptedBlob and encryptionIv removed - content stored via file upload
   mood?: number;
   weatherCode?: WeatherCode;
   location?: string;

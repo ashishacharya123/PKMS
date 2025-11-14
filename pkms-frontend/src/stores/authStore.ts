@@ -35,7 +35,11 @@ interface AuthActions {
 
 export const useAuthStore = create<AuthState & AuthActions>()(
   devtools(
-    (set, get) => ({
+    (set, get) => {
+      // Track if auth check is in progress to prevent duplicate calls (React Strict Mode)
+      let authCheckInProgress = false;
+      
+      return {
       // Initial state
       user: null,
       token: null,
@@ -277,6 +281,13 @@ export const useAuthStore = create<AuthState & AuthActions>()(
 
       // State management
       checkAuth: async () => {
+        // Prevent duplicate auth checks (React Strict Mode causes double renders)
+        if (authCheckInProgress) {
+          logger.auth('checkAuth already in progress, skipping duplicate call');
+          return;
+        }
+        
+        authCheckInProgress = true;
         // Set loading state immediately to prevent race conditions
         set({ isLoading: true, error: null });
         
@@ -305,17 +316,38 @@ export const useAuthStore = create<AuthState & AuthActions>()(
 
           // Start session monitoring
           get().startSessionMonitoring();
-        } catch (error) {
+        } catch (error: any) {
           logger.error('Authentication validation failed:', error);
-          // Authentication failed - clear state
-          apiService.clearAuthToken();
-          set({
-            user: null,
-            token: null,
-            isAuthenticated: false,
-            isLoading: false,
-            error: null
-          });
+          
+          // Check if this is a network error (backend not running)
+          const isNetworkError = error?.isNetworkError || 
+                                error?.code === 'ECONNREFUSED' ||
+                                error?.message?.includes('Network Error') ||
+                                error?.message?.includes('ERR_CONNECTION_REFUSED');
+          
+          if (isNetworkError) {
+            // For network errors, fail fast and don't block the UI
+            logger.error('Backend server is not available');
+            set({
+              user: null,
+              token: null,
+              isAuthenticated: false,
+              isLoading: false, // Don't keep loading when backend is down
+              error: null // Don't show error in auth store - let UI handle it
+            });
+          } else {
+            // For auth errors (401, etc.), clear state normally
+            apiService.clearAuthToken();
+            set({
+              user: null,
+              token: null,
+              isAuthenticated: false,
+              isLoading: false,
+              error: null
+            });
+          }
+        } finally {
+          authCheckInProgress = false;
         }
       },
 
@@ -337,7 +369,7 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           } catch (error) {
             console.warn('Session monitoring error:', error);
           }
-        }, 15_000); // Check every 15 seconds for more responsive UX near expiry
+        }, 30_000); // Check every 30 seconds for more responsive UX near expiry
 
         set({ sessionTimer: timer });
       },
@@ -349,7 +381,8 @@ export const useAuthStore = create<AuthState & AuthActions>()(
           set({ sessionTimer: null });
         }
       }
-    }),
+    };
+    },
     {
       name: 'auth-store',
     }

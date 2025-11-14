@@ -8,7 +8,7 @@ Handles encrypted/unencrypted content storage, file management, and associations
 import logging
 import base64
 import hashlib
-import uuid as uuid_lib
+from uuid6 import uuid7
 import aiofiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -37,7 +37,7 @@ class ContentDocumentService:
     description = options.get('description', f"{module.title()} content")
 
     # Generate identifiers and paths
-    document_uuid = str(uuid_lib.uuid4())
+    document_uuid = str(uuid7())
     storage_dir: Path = get_user_storage_path(user_uuid, 'documents') / module
     storage_dir.mkdir(parents=True, exist_ok=True)
 

@@ -138,30 +138,30 @@ export interface FtsTablesData {
 export const databaseService = {
   // Comprehensive statistics with all recent changes
   async getComprehensiveStats(): Promise<DatabaseStats> {
-    const response = await apiService.get('/testing/database/comprehensive-stats');
+    const response = await apiService.get('/testing/database/stats');
     return response.data;
   },
 
   // Legacy endpoint for backward compatibility
   async getStats(): Promise<DatabaseStats> {
-    return this.getComprehensiveStats();
+    return await this.getComprehensiveStats();
   },
 
   // Detailed table analysis
   async getTableAnalysis(tableName: string): Promise<TableSchema> {
-    const response = await apiService.get(`/testing/database/table-analysis/${tableName}`);
+    const response = await apiService.get(`/testing/database/table-schema?table_name=${tableName}`);
     return response.data;
   },
 
   // FTS5 analysis
   async getFtsAnalysis(): Promise<FtsTablesData> {
-    const response = await apiService.get('/testing/database/fts-analysis');
+    const response = await apiService.get('/testing/database/fts-tables');
     return response.data;
   },
 
   // Sample data from tables
   async getSampleData(tableName: string, limit: number = 5): Promise<SampleRowsResponse> {
-    const response = await apiService.get(`/testing/database/sample-data/${tableName}?limit=${limit}`);
+    const response = await apiService.get(`/testing/database/sample-rows?table=${tableName}&limit=${limit}`);
     return response.data;
   },
 
@@ -172,14 +172,14 @@ export const databaseService = {
   },
 
   async getTableSchema(tableName: string): Promise<TableSchema> {
-    return this.getTableAnalysis(tableName);
+    return await databaseService.getTableAnalysis(tableName);
   },
 
   async getSampleRows(tableName: string, limit: number = 5): Promise<SampleRowsResponse> {
-    return this.getSampleData(tableName, limit);
+    return await databaseService.getSampleData(tableName, limit);
   },
 
   async getFtsTables(): Promise<FtsTablesData> {
-    return this.getFtsAnalysis();
+    return await databaseService.getFtsAnalysis();
   }
 };

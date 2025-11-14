@@ -26,17 +26,17 @@ import {
   IconChevronDown,
   IconBook,
   IconLogout,
-  IconBug,
   IconDatabase,
   IconKey,
   IconRefresh,
   IconRotateClockwise,
   IconTrash,
+  IconBug,
 } from '@tabler/icons-react';
 import { useAuthStore } from '../../stores/authStore';
 import { dashboardService } from '../../services/dashboardService';
-import { TestingInterface } from './TestingInterface';
 import { BackupRestoreModal } from './BackupRestoreModal';
+import { TestingInterface } from './TestingInterface';
 import RecoveryViewModal from '../auth/RecoveryViewModal';
 import { apiService } from '../../services/api';
 import { notifications } from '@mantine/notifications';
@@ -98,8 +98,8 @@ const navigationItems: NavigationItem[] = [
     path: '/archive',
     color: 'teal',
     description: 'Hierarchical file organization'
-  }
-];
+  },
+  ];
 
 interface NavigationProps {
   collapsed?: boolean;
@@ -109,8 +109,8 @@ interface NavigationProps {
 export function Navigation({ collapsed = false }: NavigationProps) {
   const navigate = useNavigate();
   const [userMenuOpened, setUserMenuOpened] = useState(false);
+    const [backupModalOpened, setBackupModalOpened] = useState(false);
   const [testingModalOpened, setTestingModalOpened] = useState(false);
-  const [backupModalOpened, setBackupModalOpened] = useState(false);
   const [recoveryViewModalOpened, setRecoveryViewModalOpened] = useState(false);
   const [reindexing, setReindexing] = useState(false);
   const { user, logout } = useAuthStore();
@@ -256,19 +256,14 @@ export function Navigation({ collapsed = false }: NavigationProps) {
               }}
             >
               <Group gap="sm" wrap="nowrap">
-                <Avatar size="sm" color="blue">
+                <Avatar size="xs" color="blue">
                   {user?.username ? user.username.charAt(0).toUpperCase() : 'A'}
                 </Avatar>
                 {!collapsed && (
                   <>
-                    <div style={{ flex: 1 }}>
-                      <Text size="sm" fw={500} lineClamp={1}>
-                        {user?.username || 'User'}
-                      </Text>
-                      <Text size="xs" c="dimmed">
-                        {user?.lastLogin ? `Last login: ${dashboardService.formatLastUpdated(user.lastLogin)}` : 'Active'}
-                      </Text>
-                    </div>
+                    <Text size="sm" fw={500} lineClamp={1}>
+                      {user?.username || 'User'}
+                    </Text>
                     <IconChevronDown size={14} />
                   </>
                 )}
@@ -308,7 +303,14 @@ export function Navigation({ collapsed = false }: NavigationProps) {
             >
               Backup & Restore
             </Menu.Item>
-            
+
+            <Menu.Item
+              leftSection={<IconBug size={14} />}
+              onClick={() => { setTestingModalOpened(true); setUserMenuOpened(false); }}
+            >
+              Testing & Performance
+            </Menu.Item>
+
             <Menu.Divider />
             <Menu.Label>Search Tools</Menu.Label>
             <Menu.Item
@@ -362,15 +364,7 @@ export function Navigation({ collapsed = false }: NavigationProps) {
             >
               Recycle Bin
             </Menu.Item>
-            
-            <Menu.Item 
-              leftSection={<IconBug size={14} />}
-              onClick={() => setTestingModalOpened(true)}
-            >
-              Testing & Debug
-            </Menu.Item>
 
-            <Menu.Divider />
             <Menu.Item 
               leftSection={<IconLogout size={14} />} 
               color="red"
@@ -382,12 +376,7 @@ export function Navigation({ collapsed = false }: NavigationProps) {
         </Menu>
       </AppShell.Section>
 
-      {/* Testing Interface Modal */}
-      <TestingInterface 
-        opened={testingModalOpened}
-        onClose={() => setTestingModalOpened(false)}
-      />
-
+      
       {/* Backup & Restore Modal */}
       <BackupRestoreModal
         opened={backupModalOpened}
@@ -398,6 +387,12 @@ export function Navigation({ collapsed = false }: NavigationProps) {
       <RecoveryViewModal
         opened={recoveryViewModalOpened}
         onClose={() => setRecoveryViewModalOpened(false)}
+      />
+
+      {/* Testing Interface Modal */}
+      <TestingInterface
+        opened={testingModalOpened}
+        onClose={() => setTestingModalOpened(false)}
       />
     </AppShell.Navbar>
   );

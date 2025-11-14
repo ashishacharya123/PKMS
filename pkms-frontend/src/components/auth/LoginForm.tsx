@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   TextInput, 
   Button, 
@@ -37,14 +37,20 @@ export function LoginForm({ onSwitchToSetup, onShowRecovery }: LoginFormProps) {
   });
   const { login, isLoading, error, clearError } = useAuthStore();
   const { colorScheme } = useMantineColorScheme();
+  
+  // Use ref to prevent duplicate health checks from React Strict Mode double mounting
+  const healthCheckExecutedRef = useRef(false);
 
   // Perform an initial backend connectivity check when component mounts
   useEffect(() => {
-    checkBackendConnectivity();
-    
+    if (!healthCheckExecutedRef.current) {
+      healthCheckExecutedRef.current = true;
+      checkBackendConnectivity();
+    }
   }, []);
 
   const checkBackendConnectivity = async () => {
+    console.log('[LoginForm] Checking backend connectivity...');
     setBackendStatus(prev => ({ ...prev, checking: true }));
     
     try {
@@ -272,12 +278,17 @@ export function LoginForm({ onSwitchToSetup, onShowRecovery }: LoginFormProps) {
             <Button
               type="submit"
               loading={isLoading}
-              size="md"
+              size="lg"
               fullWidth
-              leftSection={<IconLogin size="1rem" />}
+              variant="gradient"
+              gradient={{ from: 'blue', to: 'cyan', deg: 60 }}
+              leftSection={<IconLogin size="1.2rem" />}
               disabled={!username.trim() || !password.trim() || !backendStatus.isOnline}
-              mt="sm"
-              style={{ cursor: 'pointer' }}
+              mt="md"
+              style={{ 
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
             >
               {isLoading ? 'Signing in...' : !backendStatus.isOnline ? 'Backend Offline' : 'Sign In'}
             </Button>

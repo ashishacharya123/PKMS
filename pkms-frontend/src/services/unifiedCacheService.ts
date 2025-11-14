@@ -492,7 +492,7 @@ class UnifiedCacheService<T = any> {
 // Global cache instances - OPTIMIZED for dashboard display (50 items max)
 export const dashboardCache = new UnifiedCacheService('dashboard', {
   maxSize: 50, // Only cache what we show in dashboard
-  defaultTtl: 120000, // 2 minutes
+  defaultTtl: 300000, // 5 minutes (we invalidate on mutations anyway)
   enableIndexedDB: true,
   enablePerformanceMonitoring: true
 });
@@ -527,7 +527,7 @@ export const projectsCache = new UnifiedCacheService('projects', {
 
 export const diaryCache = new UnifiedCacheService('diary', {
   maxSize: 50, // Only cache visible diary entries
-  defaultTtl: 60000, // 1 minute
+  defaultTtl: 300000, // 5 minutes (only individual entries change, we invalidate on mutations)
   enableIndexedDB: true,
   enablePerformanceMonitoring: true
 });

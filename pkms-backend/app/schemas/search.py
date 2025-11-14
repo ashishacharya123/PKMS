@@ -29,8 +29,10 @@ class FuzzySearchResult(CamelCaseModel):
     tags: List[str]
     created_at: str
     module: str
-    # Backward compatibility fields
-    description: Optional[str] = None  # Populated with snippet for compatibility
-    type_info: Optional[str] = None
-    media_count: Optional[int] = None
+    # Display fields for all match types (handles tag-only matches)
+    # When search matches only tags (not content): snippet=None, description=model's actual description
+    # This ensures users always see relevant text even for tag-only matches
+    description: Optional[str] = None  # Model's description field (reliable fallback when snippet is None)
+    type_info: Optional[str] = None    # Contextual info (e.g., "ProjectName: TodoTitle")
+    media_count: Optional[int] = None  # Media attachment count for filtering
 

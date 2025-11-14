@@ -187,20 +187,24 @@ export const TodoCard = React.memo(function TodoCard({
             </Group>
           )}
 
-          {/* Progress */}
-          {todo.completionPercentage !== undefined && todo.completionPercentage > 0 && (
-            <Box>
-              <Group justify="space-between" mb={2}>
-                <Text size="xs" c="dimmed">Progress</Text>
-                <Text size="xs" c="dimmed">{todo.completionPercentage}%</Text>
-              </Group>
-              <Progress 
-                value={todo.completionPercentage} 
-                size="xs" 
-                color={todo.completionPercentage === 100 ? 'green' : 'blue'}
-              />
-            </Box>
-          )}
+          {/* Progress - calculated from subtasks */}
+          {todo.subtasks && todo.subtasks.length > 0 && (() => {
+            const completed = todo.subtasks.filter(s => s.status === TodoStatus.DONE).length;
+            const percentage = Math.round((completed / todo.subtasks.length) * 100);
+            return percentage > 0 && (
+              <Box>
+                <Group justify="space-between" mb={2}>
+                  <Text size="xs" c="dimmed">Progress</Text>
+                  <Text size="xs" c="dimmed">{percentage}%</Text>
+                </Group>
+                <Progress 
+                  value={percentage} 
+                  size="xs" 
+                  color={percentage === 100 ? 'green' : 'blue'}
+                />
+              </Box>
+            );
+          })()}
 
           {/* Subtasks */}
           {todo.subtasks && todo.subtasks.length > 0 && (

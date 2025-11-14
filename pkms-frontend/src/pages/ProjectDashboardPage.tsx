@@ -45,7 +45,6 @@ import { ModuleLayout } from '../components/common/ModuleLayout';
 import { ModuleHeader } from '../components/common/ModuleHeader';
 import { ModuleFilters } from '../components/common/ModuleFilters';
 import { useDataLoader } from '../hooks/useDataLoader';
-import { useModal } from '../hooks/useModal';
 
 // Type guards for discriminated unions
 type ExclusiveItem = { isExclusiveMode: boolean };
@@ -76,6 +75,7 @@ export function ProjectDashboardPage() {
   const {
     data: project,
     loading,
+    isRefreshing,
     error,
     refetch: refetchProject
   } = useDataLoader(
@@ -89,7 +89,8 @@ export function ProjectDashboardPage() {
           message: 'Failed to load project data',
           color: 'red'
         });
-      }
+      },
+      keepDataWhileLoading: true // Prevent flickering during refresh
     }
   );
 
@@ -97,6 +98,7 @@ export function ProjectDashboardPage() {
   const {
     data: itemsData = { notes: [], documents: [], todos: [] },
     loading: itemsLoading,
+    isRefreshing: itemsRefreshing,
     error: itemsError,
     refetch: refetchItems
   } = useDataLoader(
@@ -125,7 +127,8 @@ export function ProjectDashboardPage() {
           message: 'Failed to load project items',
           color: 'red'
         });
-      }
+      },
+      keepDataWhileLoading: true // Prevent flickering during refresh
     }
   );
 
@@ -696,7 +699,7 @@ export function ProjectDashboardPage() {
                         key={todo.uuid}
                         item={todo}
                         type="todo"
-                        onNavigate={() => navigate(`/todos?todo=${todo.uuid}`)}
+                        onNavigate={() => navigate(`/todos/${todo.uuid}`)}
                       />
                     ))}
                   </Stack>
@@ -794,7 +797,7 @@ export function ProjectDashboardPage() {
                         key={todo.uuid}
                         item={todo}
                         type="todo"
-                        onNavigate={() => navigate(`/todos?todo=${todo.uuid}`)}
+                        onNavigate={() => navigate(`/todos/${todo.uuid}`)}
                       />
                     ))}
                   </Stack>
@@ -892,7 +895,7 @@ export function ProjectDashboardPage() {
                         key={todo.uuid}
                         item={todo}
                         type="todo"
-                        onNavigate={() => navigate(`/todos?todo=${todo.uuid}`)}
+                        onNavigate={() => navigate(`/todos/${todo.uuid}`)}
                       />
                     ))}
                   </Stack>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Modal,
   Stack,
@@ -13,8 +13,7 @@ import {
 import {
   IconAlertTriangle,
   IconInfoCircle,
-  IconTrash,
-  IconRestore
+  IconTrash
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
 import deletionImpactService, { DeletionImpact, ItemType, DeletionMode } from '../../services/deletionImpactService';

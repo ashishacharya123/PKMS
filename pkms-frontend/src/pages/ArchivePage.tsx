@@ -37,7 +37,8 @@ import {
 } from '@tabler/icons-react';
 import { useDisclosure } from '@mantine/hooks';
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
-import { formatDate, formatFileSize } from '../components/common/ViewModeLayouts';
+import { formatDate } from '../components/common/ViewModeLayouts';
+import { formatFileSize } from '../utils/fileUtils';
 import { useViewPreferences } from '../hooks/useViewPreferences';
 import ModuleFilters, { getModuleFilterConfig } from '../components/common/ModuleFilters';
 import {
@@ -180,7 +181,7 @@ export default function ArchivePageNew() {
     // Load root folders on initial mount
     const loadInitialData = async () => {
       try {
-        await useArchiveStore.getState().loadItems();
+        await useArchiveStore.getState().loadFolders(undefined);
       } catch (error) {
         console.error('Failed to load archive data:', error);
       }
@@ -252,7 +253,7 @@ export default function ArchivePageNew() {
       if (currentFolder) {
         await loadFolderItems(currentFolder.uuid);
       } else {
-        await useArchiveStore.getState().loadItems();
+        await useArchiveStore.getState().loadFolders(undefined);
       }
       
       notifications.show({
@@ -286,7 +287,7 @@ export default function ArchivePageNew() {
       if (currentFolder) {
         await loadFolderItems(currentFolder.uuid);
       } else {
-        await useArchiveStore.getState().loadItems();
+        await useArchiveStore.getState().loadFolders(undefined);
       }
       
       notifications.show({

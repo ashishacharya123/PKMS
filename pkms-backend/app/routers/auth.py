@@ -354,9 +354,9 @@ async def logout(
     User logout - Clear cookies and invalidate session
     """
     try:
-        # Clear diary session (in-memory) on logout for safety
-        # TODO: Implement diary session cleanup if needed
-        # Note: _clear_diary_session function does not exist - removing broken import
+        # Clear diary session immediately for security
+        from app.services.diary_session_service import diary_session_service
+        await diary_session_service.clear_session(current_user.uuid)
         
         # Delete session from database (only current user's session)
         if session_token:
