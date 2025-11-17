@@ -405,9 +405,13 @@ export default function HabitDashboard() {
                       const daysAgo = 6 - index;
                       dateLabel = `${daysAgo} day${daysAgo === 1 ? '' : 's'} ago`;
                     }
+                    // Normalize exercise values to binary (0 or 1) for consistent visualization
+                    // This ensures all bars represent presence/absence consistently
+                    const exerciseValue = point.value;
+                    const normalizedValue = exerciseValue && exerciseValue > 0 ? 1 : 0;
                     return {
                       date: dateLabel,
-                      value: point.value
+                      value: normalizedValue
                     };
                   })}
                   title=""

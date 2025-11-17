@@ -68,26 +68,46 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
       let definedDataMap: Record<string, number> = {};
 
       try {
-        // Access default_habits from metrics object
+        // Access default_habits from metrics object with proper type checking
         const defaultHabits = existing?.metrics?.default_habits;
-        if (defaultHabits && typeof defaultHabits === 'object') {
-          defaultDataMap = defaultHabits as Record<string, number>;
+        if (defaultHabits && typeof defaultHabits === 'object' && !Array.isArray(defaultHabits)) {
+          // Validate and convert to Record<string, number>
+          const validated: Record<string, number> = {};
+          for (const [key, value] of Object.entries(defaultHabits)) {
+            if (typeof value === 'number' && !isNaN(value)) {
+              validated[key] = value;
+            }
+          }
+          defaultDataMap = validated;
         }
       } catch (error) {
         console.warn('Failed to parse default habits, using empty object:', error);
       }
 
       try {
-        // Access defined_habits from metrics object
+        // Access defined_habits from metrics object with proper type checking
         // Backend may return defined_habits.habits nested structure
         const definedHabits = existing?.metrics?.defined_habits;
-        if (definedHabits && typeof definedHabits === 'object') {
+        if (definedHabits && typeof definedHabits === 'object' && !Array.isArray(definedHabits)) {
+          let habitsObj: Record<string, unknown> | null = null;
+          
           // Check if it has a nested 'habits' key
-          if ('habits' in definedHabits && typeof definedHabits.habits === 'object') {
-            definedDataMap = definedHabits.habits as Record<string, number>;
+          if ('habits' in definedHabits && typeof definedHabits.habits === 'object' && !Array.isArray(definedHabits.habits)) {
+            habitsObj = definedHabits.habits as Record<string, unknown>;
           } else {
             // Otherwise use the object directly
-            definedDataMap = definedHabits as Record<string, number>;
+            habitsObj = definedHabits as Record<string, unknown>;
+          }
+          
+          // Validate and convert to Record<string, number>
+          if (habitsObj) {
+            const validated: Record<string, number> = {};
+            for (const [key, value] of Object.entries(habitsObj)) {
+              if (typeof value === 'number' && !isNaN(value)) {
+                validated[key] = value;
+              }
+            }
+            definedDataMap = validated;
           }
         }
       } catch (error) {
