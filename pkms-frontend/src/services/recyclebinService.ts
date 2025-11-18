@@ -178,7 +178,7 @@ class RecycleBinService {
    */
   async getDeletedProjects(): Promise<ProjectResponse[]> {
     try {
-      const response = await apiService.get<ProjectResponse[]>('/api/v1/projects/deleted');
+      const response = await apiService.get<ProjectResponse[]>('/projects/deleted');
       return response.data;
     } catch (error) {
       console.error('Error fetching deleted projects:', error);
@@ -191,7 +191,7 @@ class RecycleBinService {
    */
   async getDeletedNotes(): Promise<NoteResponse[]> {
     try {
-      const response = await apiService.get<NoteResponse[]>('/api/v1/notes/deleted');
+      const response = await apiService.get<NoteResponse[]>('/notes/deleted');
       return response.data;
     } catch (error) {
       console.error('Error fetching deleted notes:', error);
@@ -204,7 +204,7 @@ class RecycleBinService {
    */
   async getDeletedTodos(): Promise<TodoResponse[]> {
     try {
-      const response = await apiService.get<TodoResponse[]>('/api/v1/todos/deleted');
+      const response = await apiService.get<TodoResponse[]>('/todos/deleted');
       return response.data;
     } catch (error) {
       console.error('Error fetching deleted todos:', error);
@@ -217,7 +217,7 @@ class RecycleBinService {
    */
   async getDeletedDocuments(): Promise<DocumentResponse[]> {
     try {
-      const response = await apiService.get<DocumentResponse[]>('/api/v1/documents/deleted');
+      const response = await apiService.get<DocumentResponse[]>('/documents/deleted');
       return response.data;
     } catch (error) {
       console.error('Error fetching deleted documents:', error);
@@ -230,7 +230,7 @@ class RecycleBinService {
    */
   async getDeletedDiaryEntries(): Promise<DiaryEntryResponse[]> {
     try {
-      const response = await apiService.get<DiaryEntryResponse[]>('/api/v1/diary/entries/deleted');
+      const response = await apiService.get<DiaryEntryResponse[]>('/diary/entries/deleted');
       return response.data;
     } catch (error) {
       console.error('Error fetching deleted diary entries:', error);
@@ -243,7 +243,7 @@ class RecycleBinService {
    */
   async getDeletedArchiveItems(): Promise<ArchiveItemResponse[]> {
     try {
-      const response = await apiService.get<ArchiveItemResponse[]>('/api/v1/archive/items/deleted');
+      const response = await apiService.get<ArchiveItemResponse[]>('/archive/items/deleted');
       return response.data;
     } catch (error) {
       console.error('Error fetching deleted archive items:', error);
@@ -258,7 +258,7 @@ class RecycleBinService {
    */
   async getAllProjects(): Promise<ProjectResponse[]> {
     try {
-      const response = await apiService.get<ProjectResponse[]>('/api/v1/projects');
+      const response = await apiService.get<ProjectResponse[]>('/projects');
       return response.data;
     } catch (error) {
       console.error('Error fetching all projects:', error);
@@ -271,7 +271,7 @@ class RecycleBinService {
    */
   async getAllNotes(): Promise<NoteResponse[]> {
     try {
-      const response = await apiService.get<NoteResponse[]>('/api/v1/notes');
+      const response = await apiService.get<NoteResponse[]>('/notes');
       return response.data;
     } catch (error) {
       console.error('Error fetching all notes:', error);
@@ -284,7 +284,7 @@ class RecycleBinService {
    */
   async getAllTodos(): Promise<TodoResponse[]> {
     try {
-      const response = await apiService.get<TodoResponse[]>('/api/v1/todos');
+      const response = await apiService.get<TodoResponse[]>('/todos');
       return response.data;
     } catch (error) {
       console.error('Error fetching all todos:', error);
@@ -297,7 +297,7 @@ class RecycleBinService {
    */
   async getAllDocuments(): Promise<DocumentResponse[]> {
     try {
-      const response = await apiService.get<DocumentResponse[]>('/api/v1/documents');
+      const response = await apiService.get<DocumentResponse[]>('/documents');
       return response.data;
     } catch (error) {
       console.error('Error fetching all documents:', error);
@@ -311,7 +311,7 @@ class RecycleBinService {
    */
   async getAllDiaryEntries(): Promise<DiaryEntryResponse[]> {
     try {
-      const response = await apiService.get<DiaryEntryResponse[]>('/api/v1/diary/entries');
+      const response = await apiService.get<DiaryEntryResponse[]>('/diary/entries');
       return response.data;
     } catch (error) {
       console.error('Error fetching all diary entries:', error);
@@ -324,7 +324,7 @@ class RecycleBinService {
    */
   async getAllArchiveItems(): Promise<ArchiveItemResponse[]> {
     try {
-      const response = await apiService.get<ArchiveItemResponse[]>('/api/v1/archive/items');
+      const response = await apiService.get<ArchiveItemResponse[]>('/archive/items');
       return response.data;
     } catch (error) {
       console.error('Error fetching all archive items:', error);
@@ -337,7 +337,7 @@ class RecycleBinService {
    */
   async restoreProject(uuid: string): Promise<void> {
     try {
-      await apiService.post(`/api/v1/projects/${uuid}/restore`);
+      await apiService.post(`/projects/${uuid}/restore`);
     } catch (error) {
       console.error('Error restoring project:', error);
       throw error;
@@ -349,7 +349,7 @@ class RecycleBinService {
    */
   async restoreNote(uuid: string): Promise<void> {
     try {
-      await apiService.post(`/api/v1/notes/${uuid}/restore`);
+      await apiService.post(`/notes/${uuid}/restore`);
     } catch (error) {
       console.error('Error restoring note:', error);
       throw error;
@@ -361,7 +361,7 @@ class RecycleBinService {
    */
   async restoreTodo(uuid: string): Promise<void> {
     try {
-      await apiService.post(`/api/v1/todos/${uuid}/restore`);
+      await apiService.post(`/todos/${uuid}/restore`);
     } catch (error) {
       console.error('Error restoring todo:', error);
       throw error;
@@ -373,7 +373,7 @@ class RecycleBinService {
    */
   async restoreDocument(uuid: string): Promise<void> {
     try {
-      await apiService.post(`/api/v1/documents/${uuid}/restore`);
+      await apiService.post(`/documents/${uuid}/restore`);
     } catch (error) {
       console.error('Error restoring document:', error);
       throw error;
@@ -385,7 +385,7 @@ class RecycleBinService {
    */
   async restoreDiaryEntry(uuid: string): Promise<void> {
     try {
-      await apiService.post(`/api/v1/diary/entries/${uuid}/restore`);
+      await apiService.post(`/diary/entries/${uuid}/restore`);
     } catch (error) {
       console.error('Error restoring diary entry:', error);
       throw error;
@@ -397,7 +397,7 @@ class RecycleBinService {
    */
   async restoreArchiveItem(uuid: string): Promise<void> {
     try {
-      await apiService.post(`/api/v1/archive/items/${uuid}/restore`);
+      await apiService.post(`/archive/items/${uuid}/restore`);
     } catch (error) {
       console.error('Error restoring archive item:', error);
       throw error;
@@ -409,7 +409,7 @@ class RecycleBinService {
    */
   async permanentDeleteProject(uuid: string): Promise<void> {
     try {
-      await apiService.delete(`/api/v1/projects/${uuid}/permanent`);
+      await apiService.delete(`/projects/${uuid}/permanent`);
     } catch (error) {
       console.error('Error permanently deleting project:', error);
       throw error;
@@ -421,7 +421,7 @@ class RecycleBinService {
    */
   async permanentDeleteNote(uuid: string): Promise<void> {
     try {
-      await apiService.delete(`/api/v1/notes/${uuid}/permanent`);
+      await apiService.delete(`/notes/${uuid}/permanent`);
     } catch (error) {
       console.error('Error permanently deleting note:', error);
       throw error;
@@ -433,7 +433,7 @@ class RecycleBinService {
    */
   async permanentDeleteTodo(uuid: string): Promise<void> {
     try {
-      await apiService.delete(`/api/v1/todos/${uuid}/permanent`);
+      await apiService.delete(`/todos/${uuid}/permanent`);
     } catch (error) {
       console.error('Error permanently deleting todo:', error);
       throw error;
@@ -445,7 +445,7 @@ class RecycleBinService {
    */
   async permanentDeleteDocument(uuid: string): Promise<void> {
     try {
-      await apiService.delete(`/api/v1/documents/${uuid}/permanent`);
+      await apiService.delete(`/documents/${uuid}/permanent`);
     } catch (error) {
       console.error('Error permanently deleting document:', error);
       throw error;
@@ -457,7 +457,7 @@ class RecycleBinService {
    */
   async permanentDeleteDiaryEntry(uuid: string): Promise<void> {
     try {
-      await apiService.delete(`/api/v1/diary/entries/${uuid}/permanent`);
+      await apiService.delete(`/diary/entries/${uuid}/permanent`);
     } catch (error) {
       console.error('Error permanently deleting diary entry:', error);
       throw error;
@@ -469,7 +469,7 @@ class RecycleBinService {
    */
   async permanentDeleteArchiveItem(uuid: string): Promise<void> {
     try {
-      await apiService.delete(`/api/v1/archive/items/${uuid}/permanent`);
+      await apiService.delete(`/archive/items/${uuid}/permanent`);
     } catch (error) {
       console.error('Error permanently deleting archive item:', error);
       throw error;
@@ -481,7 +481,7 @@ class RecycleBinService {
    */
   async emptyRecycleBin(): Promise<{ deletedCount: number }> {
     try {
-      const response = await apiService.post<{ deletedCount: number }>('/api/v1/recycle-bin/empty');
+      const response = await apiService.post<{ deletedCount: number }>('/recycle-bin/empty');
       return response.data;
     } catch (error) {
       console.error('Error emptying recycle bin:', error);

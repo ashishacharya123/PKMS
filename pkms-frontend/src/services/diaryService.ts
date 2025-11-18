@@ -11,10 +11,13 @@ import {
   HabitData,
   HabitAnalytics,
   HabitInsights,
+  DefaultHabitsAnalytics,
 } from '../types/diary';
 import { coreUploadService } from './shared/coreUploadService';
 import { coreDownloadService } from './shared/coreDownloadService';
 import { diaryCryptoService } from './diaryCryptoService';
+import { logger } from '../utils/logger';
+import { analyticsCache, AnalyticsCache } from './analyticsCache';
 
 class DiaryService {
   private baseUrl = '/diary';
@@ -26,7 +29,7 @@ class DiaryService {
       const response = await apiService.get<{ isSetup: boolean; isUnlocked: boolean }>(`${this.baseUrl}/encryption/status`);
 
       // DEBUG: Log actual response structure to identify the issue
-      console.log('Diary Encryption Status Response:', {
+      logger.debug('Diary Encryption Status Response:', {
         fullResponse: response.data,
         responseKeys: Object.keys(response.data),
         is_setup_value: response.data.is_setup,
@@ -39,13 +42,13 @@ class DiaryService {
       const isSetup = response.data.isSetup;
 
       if (typeof isSetup !== 'boolean') {
-        console.warn('Encryption status is not a boolean:', isSetup);
+        logger.warn('Encryption status is not a boolean:', isSetup);
         return false; // Default to false for safety
       }
 
       return isSetup;
     } catch (error: any) {
-      console.error('Failed to check encryption status:', error);
+      logger.error('Failed to check encryption status:', error);
       // For security, assume encryption is set up on errors (don't expose unencrypted diary)
       return true;
     }
@@ -65,7 +68,7 @@ class DiaryService {
     return { key: null, success: false };
   }
 
-  async unlockSession(password: string): Promise<{ key: CryptoKey | null; success: boolean }> {
+  async unlockSession(password: string): Promise<{ key: CryptoKey | null; success: boolean; errorType?: 'wrong_password' | 'network' | 'server' | 'unknown'; error?: string }> {
     try {
       const response = await apiService.post<{ success: boolean }>(`${this.baseUrl}/encryption/unlock`, {
         password,
@@ -78,9 +81,43 @@ class DiaryService {
 
       return { key: null, success: false };
     } catch (error: any) {
-      // Handle HTTP errors (like 401 for wrong password)
-      console.log('Diary unlock failed:', error?.response?.status, error?.response?.data?.detail || error.message);
-      return { key: null, success: false };
+      // Handle different types of errors
+      logger.error('Diary unlock failed:', error?.response?.status, error?.response?.data?.detail || error.message);
+
+      // Provide specific error information to help UI handle appropriately
+      if (error?.response?.status === 401) {
+        return {
+          key: null,
+          success: false,
+          errorType: 'wrong_password',
+          error: 'Invalid password'
+        };
+      }
+
+      if (error?.code === 'ERR_NETWORK' || error?.code === 'ERR_FAILED') {
+        return {
+          key: null,
+          success: false,
+          errorType: 'network',
+          error: 'Network error - unable to reach server'
+        };
+      }
+
+      if (error?.response?.status >= 500) {
+        return {
+          key: null,
+          success: false,
+          errorType: 'server',
+          error: 'Server temporarily unavailable'
+        };
+      }
+
+      return {
+        key: null,
+        success: false,
+        errorType: 'unknown',
+        error: error?.response?.data?.detail || error?.message || 'Unknown error occurred'
+      };
     }
   }
 
@@ -138,7 +175,7 @@ class DiaryService {
       // Convert to text
       return await decryptedFile.text();
     } catch (error) {
-      console.error('❌ Failed to get diary entry content:', error);
+      logger.error('Failed to get diary entry content:', error);
       throw error;
     }
   }
@@ -327,7 +364,7 @@ class DiaryService {
 
       return document.data;
     } catch (error) {
-      console.error('❌ Diary file upload failed:', error);
+      logger.error('Diary file upload failed:', error);
       throw error;
     }
   }
@@ -366,7 +403,7 @@ class DiaryService {
 
       return encryptedBlob;
     } catch (error) {
-      console.error('❌ Diary file download failed:', error);
+      logger.error('Diary file download failed:', error);
       throw error;
     }
   }
@@ -384,7 +421,7 @@ class DiaryService {
       // Create object URL
       return URL.createObjectURL(blob);
     } catch (error) {
-      console.error('❌ Diary file download failed:', error);
+      logger.error('Diary file download failed:', error);
       throw error;
     }
   }
@@ -632,17 +669,48 @@ class DiaryService {
     days: number = 30,
     includeSMA: boolean = false,
     smaWindows: number[] = [7, 14, 30]
-  ): Promise<any> {
+  ): Promise<DefaultHabitsAnalytics> {
     const params = new URLSearchParams({
       days: days.toString(),
       include_sma: includeSMA.toString(),
-      sma_windows: smaWindows.join(',')
     });
+
+    // Only add sma_windows if SMA is enabled and windows are provided
+    if (includeSMA && smaWindows.length > 0) {
+      params.append('sma_windows', smaWindows.join(','));
+    }
     
-    const response = await apiService.get<any>(
-      `${this.baseUrl}/habits/analytics/default?${params}`
-    );
-    return response.data;
+    // Generate cache key
+    const cacheParams: Record<string, any> = {
+      days: days.toString(),
+      include_sma: includeSMA.toString(),
+    };
+    if (includeSMA && smaWindows.length > 0) {
+      cacheParams.sma_windows = smaWindows.join(',');
+    }
+    const cacheKey = AnalyticsCache.generateKey('analytics_default', cacheParams);
+    
+    // Check cache first
+    const cached = analyticsCache.get(cacheKey);
+    if (cached) {
+      logger.debug('Analytics cache hit:', cacheKey);
+      return cached;
+    }
+    
+    try {
+      const response = await apiService.get<any>(
+        `${this.baseUrl}/habits/analytics/default?${params}`
+      );
+      
+      // Cache the result
+      analyticsCache.set(cacheKey, response.data);
+      logger.debug('Analytics cached:', cacheKey);
+      
+      return response.data;
+    } catch (error) {
+      logger.error('Analytics fetch failed:', error);
+      throw error;
+    }
   }
 
   /**
@@ -722,8 +790,12 @@ class DiaryService {
     const params = new URLSearchParams({
       days: days.toString(),
       include_sma: includeSMA.toString(),
-      sma_windows: smaWindows.join(',')
     });
+
+    // Only add sma_windows if SMA is enabled AND windows are provided
+    if (includeSMA && smaWindows.length > 0) {
+      params.append('sma_windows', smaWindows.join(','));
+    }
     
     const response = await apiService.get<any>(
       `${this.baseUrl}/habits/trend/${habitKey}?${params}`
@@ -754,7 +826,7 @@ class DiaryService {
         missing: dashboard.missing_today || []
       };
     } catch (error) {
-      console.error('Failed to check today data:', error);
+      logger.error('Failed to check today data:', error);
       return { filled: false, missing: [] };
     }
   }

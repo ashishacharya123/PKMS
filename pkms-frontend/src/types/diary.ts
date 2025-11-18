@@ -288,6 +288,59 @@ export interface HabitInsights {
 }
 
 /**
+ * Default Habits Analytics Response Structure
+ * Used by getDefaultHabitsAnalytics API endpoint
+ */
+export interface TrendPoint {
+  date: string;
+  value: number;
+  streak?: number;
+}
+
+export interface SMAData {
+  window_days: number;
+  completion_rate: number;
+  trend_direction: 'up' | 'down' | 'stable';
+}
+
+export interface HabitAnalyticsData {
+  // Backend returns snake_case fields (no response_model, raw dict)
+  average: number;
+  min?: number;
+  max?: number;
+  trend: TrendPoint[];
+  total_days: number;
+  days_with_data: number;
+  sma_overlays?: Record<string, TrendPoint[]>; // Backend provides {"7": [...], "14": [...], "30": [...]}
+  trend_analysis?: {
+    direction: 'up' | 'down' | 'stable';
+    strength: number;
+  };
+  // Legacy/computed fields (may be added by frontend)
+  name?: string;
+  unit?: string;
+  totalValue?: number;
+  averageValue?: number;
+  daysCompleted?: number;
+  completionRate?: number;
+  currentStreak?: number;
+  longestStreak?: number;
+  sma?: SMAData[]; // Legacy format
+}
+
+export interface DefaultHabitsAnalytics {
+  habits: Record<string, HabitAnalyticsData>;
+  // Backend returns snake_case at root level (no response_model, raw dict)
+  period_start: string;
+  period_end: string;
+  total_days: number;
+  days_with_data?: number;
+  analytics_type?: string;
+  calculation_days?: number;
+  from_cache?: boolean;
+}
+
+/**
  * URL Query Parameter Values - MUST stay snake_case
  * These values are sent to the backend API as URL query parameters
  * (e.g., ?sort_by=created_at&sort_order=desc)

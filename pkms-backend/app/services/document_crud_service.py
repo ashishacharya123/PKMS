@@ -284,7 +284,7 @@ class DocumentCRUDService:
         """Get a specific document by UUID."""
         result = await db.execute(
             select(Document).options(selectinload(Document.tag_objs)).where(
-                and_(Document.uuid == document_uuid, Document.created_by == user_uuid)
+                and_(Document.active_only(), Document.uuid == document_uuid, Document.created_by == user_uuid)
             )
         )
         doc = result.scalar_one_or_none()
@@ -306,7 +306,7 @@ class DocumentCRUDService:
         """Update document metadata and tags."""
         result = await db.execute(
             select(Document).options(selectinload(Document.tag_objs)).where(
-                and_(Document.uuid == document_uuid, Document.created_by == user_uuid)
+                and_(Document.active_only(), Document.uuid == document_uuid, Document.created_by == user_uuid)
             )
         )
         doc = result.scalar_one_or_none()

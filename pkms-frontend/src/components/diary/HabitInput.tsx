@@ -23,6 +23,8 @@ import { notifications } from '@mantine/notifications';
 import { format } from 'date-fns';
 import { IconAlertCircle, IconCheck, IconTarget } from '@tabler/icons-react';
 import { diaryService } from '../../services/diaryService';
+import { validateHabitData } from '../../utils/habitValidation';
+import { logger } from '../../utils/logger';
 
 interface HabitConfig {
   habitId: string;
@@ -81,7 +83,7 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
           defaultDataMap = validated;
         }
       } catch (error) {
-        console.warn('Failed to parse default habits, using empty object:', error);
+        logger.warn('Failed to parse default habits, using empty object:', error);
       }
 
       try {
@@ -111,13 +113,13 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
           }
         }
       } catch (error) {
-        console.warn('Failed to parse defined habits, using empty object:', error);
+        logger.warn('Failed to parse defined habits, using empty object:', error);
       }
 
       setDefaultData(defaultDataMap);
       setDefinedData(definedDataMap);
     } catch (error) {
-      console.error('Failed to load habit data:', error);
+      logger.error('Failed to load habit data:', error);
     } finally {
       setIsLoading(false);
     }
@@ -129,6 +131,18 @@ export function HabitInput({ selectedDate }: HabitInputProps) {
   }, [loadAllData]); // Only need loadAllData since it already depends on selectedDate
 
   const handleSave = async () => {
+    // Validate before saving
+    const validation = validateHabitData(defaultData, definedData);
+    
+    if (!validation.isValid) {
+      notifications.show({
+        title: 'Validation Error',
+        message: validation.errors.join(', '),
+        color: 'red'
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
       // Calculate dateKey for the save operation

@@ -31,7 +31,7 @@ class DeletionImpactService {
   ): Promise<DeletionImpact> {
     try {
       const response = await apiService.get(
-        `/api/v1/deletion-impact/analyze/${itemType}/${itemUuid}`,
+        `/deletion-impact/analyze/${itemType}/${itemUuid}`,
         {
           params: { mode }
         }

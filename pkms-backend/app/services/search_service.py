@@ -11,7 +11,7 @@ from datetime import datetime
 import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text, select
+from sqlalchemy import text, select, and_
 from sqlalchemy.orm import selectinload
 
 from ..models.note import Note
@@ -399,34 +399,34 @@ class SearchService:
         """
         logger.info("Starting bulk index for user %s", created_by)
         
-        # Collect all items with tags pre-loaded
+        # Collect all items with tags pre-loaded (exclude deleted items)
         notes_result = await db.execute(
             select(Note).options(selectinload(Note.tag_objs), selectinload(Note.documents))
-            .where(Note.created_by == created_by)
+            .where(and_(Note.active_only(), Note.created_by == created_by))
         )
         notes = list(notes_result.scalars())
-        
+
         docs_result = await db.execute(
             select(Document).options(selectinload(Document.tag_objs))
-            .where(Document.created_by == created_by)
+            .where(and_(Document.active_only(), Document.created_by == created_by))
         )
         documents = list(docs_result.scalars())
-        
+
         todos_result = await db.execute(
             select(Todo).options(selectinload(Todo.tag_objs))
-            .where(Todo.created_by == created_by)
+            .where(and_(Todo.active_only(), Todo.created_by == created_by))
         )
         todos = list(todos_result.scalars())
-        
+
         projects_result = await db.execute(
             select(Project).options(selectinload(Project.tag_objs))
-            .where(Project.created_by == created_by)
+            .where(and_(Project.active_only(), Project.created_by == created_by))
         )
         projects = list(projects_result.scalars())
-        
+
         diary_result = await db.execute(
             select(DiaryEntry).options(selectinload(DiaryEntry.tag_objs), selectinload(DiaryEntry.documents))
-            .where(DiaryEntry.created_by == created_by)
+            .where(and_(DiaryEntry.active_only(), DiaryEntry.created_by == created_by))
         )
         diary_entries = list(diary_result.scalars())
         

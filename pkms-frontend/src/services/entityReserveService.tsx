@@ -3,6 +3,7 @@ import { apiService } from './api';
 import { notifications } from '@mantine/notifications';
 import { modals } from '@mantine/modals';
 import { getModuleDisplayName } from '../utils/save_discard_verification';
+import { logger } from '../utils/logger';
 
 export type ReserveModule = 'notes' | 'diary' | 'projects';
 
@@ -52,14 +53,43 @@ export const entityReserveService = {
       });
 
       return result;
-    } catch (error) {
-      // Show error notification
+    } catch (error: any) {
+      // Show specific error notification based on error type
       const moduleName = getModuleDisplayName(module);
-      notifications.show({
-        title: 'Reservation failed',
-        message: `Could not prepare ${moduleName}`,
-        color: 'red',
-      });
+
+      logger.error(`${module} reservation failed:`, error);
+
+      // Handle specific error types
+      if (error?.code === 'ERR_NETWORK' || error?.code === 'ERR_FAILED') {
+        notifications.show({
+          title: 'Connection Error',
+          message: `Unable to connect to ${moduleName} service. Please check your internet connection and try again.`,
+          color: 'red',
+          autoClose: 5000,
+        });
+      } else if (error?.response?.status >= 500) {
+        notifications.show({
+          title: 'Service Unavailable',
+          message: `${moduleName} service is temporarily unavailable. Please try again in a few moments.`,
+          color: 'orange',
+          autoClose: 4000,
+        });
+      } else if (error?.response?.status === 401) {
+        notifications.show({
+          title: 'Authentication Required',
+          message: `Please log in to reserve ${moduleName}.`,
+          color: 'yellow',
+          autoClose: 3000,
+        });
+      } else {
+        notifications.show({
+          title: 'Reservation failed',
+          message: `Could not prepare ${moduleName}. Please try again.`,
+          color: 'red',
+          autoClose: 3000,
+        });
+      }
+
       throw error;
     }
   },
@@ -95,7 +125,7 @@ export const entityReserveService = {
       return { hasFiles, fileCount: files.length, fileNames };
     } catch (error) {
       // If we can't check files, assume no files to avoid blocking discard
-      console.warn('Could not check associated files:', error);
+      logger.warn('Could not check associated files:', error);
       return { hasFiles: false, fileCount: 0, fileNames: [] };
     }
   },

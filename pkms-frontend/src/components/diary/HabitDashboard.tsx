@@ -48,6 +48,7 @@ import {
 } from '@tabler/icons-react';
 import HabitCharts from './HabitCharts';
 import { diaryService } from '../../services/diaryService';
+import { DefaultHabitsAnalytics, TrendPoint } from '../../types/diary';
 
 interface DashboardData {
   sleep_avg_7d: number;
@@ -119,7 +120,7 @@ function MetricCard({ title, value, unit, trend, icon, color, goal, current }: M
 export default function HabitDashboard() {
   const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [analyticsData, setAnalyticsData] = useState<DefaultHabitsAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
@@ -131,7 +132,7 @@ export default function HabitDashboard() {
     try {
       const [dashboard, analytics] = await Promise.all([
         diaryService.getHabitsDashboardSummary(),
-        diaryService.getDefaultHabitsAnalytics(7, false, [])
+        diaryService.getDefaultHabitsAnalytics(7, false, [7, 14, 30])
       ]);
       setDashboardData(dashboard);
       setAnalyticsData(analytics);
@@ -361,7 +362,7 @@ export default function HabitDashboard() {
               {analyticsData?.habits?.sleep?.trend && analyticsData.habits.sleep.trend.length > 0 ? (
                 <HabitCharts
                   chartType="line"
-                  data={analyticsData.habits.sleep.trend.slice(-7).map((point: any, index: number) => {
+                  data={analyticsData.habits.sleep.trend.slice(-7).map((point: TrendPoint, index: number) => {
                     let dateLabel: string;
                     if (index === 6) {
                       dateLabel = 'Today';
@@ -395,7 +396,7 @@ export default function HabitDashboard() {
               {analyticsData?.habits?.exercise?.trend && analyticsData.habits.exercise.trend.length > 0 ? (
                 <HabitCharts
                   chartType="bar"
-                  data={analyticsData.habits.exercise.trend.slice(-7).map((point: any, index: number) => {
+                  data={analyticsData.habits.exercise.trend.slice(-7).map((point: TrendPoint, index: number) => {
                     let dateLabel: string;
                     if (index === 6) {
                       dateLabel = 'Today';

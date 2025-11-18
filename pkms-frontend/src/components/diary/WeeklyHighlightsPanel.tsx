@@ -3,6 +3,7 @@ import { Card, Group, Stack, Text, Badge, Loader, Collapse, ActionIcon } from '@
 import { IconChevronDown, IconChevronUp } from '@tabler/icons-react';
 import { diaryService } from '../../services/diaryService';
 import { WeeklyHighlights } from '../../types/diary';
+import { logger } from '../../utils/logger';
 
 const isWeekend = (date: Date = new Date()) => {
   const day = date.getDay();
@@ -46,7 +47,7 @@ export function WeeklyHighlightsPanel() {
         setError(null);
       })
       .catch((err) => {
-        console.error('Weekly highlights load error', err);
+        logger.error('Weekly highlights load error', err);
         if (mounted) setError('Failed to load weekly highlights');
       })
       .finally(() => {

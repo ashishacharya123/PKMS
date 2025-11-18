@@ -25,6 +25,7 @@ import { notifications } from '@mantine/notifications';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { notesService, Note } from '../services/notesService';
 import { entityReserveService } from '../services/entityReserveService';
+import { logger } from '../utils/logger';
 import { isEmptyNote } from '../utils/save_discard_verification';
 import { UnifiedContentModal } from '../components/file/UnifiedContentModal';
 import { UnifiedFileItem } from '../services/unifiedFileService';
@@ -93,7 +94,7 @@ export function NoteEditorPage() {
           projects: []
         });
       } catch (err) {
-        console.error('Failed to reserve UUID for note:', err);
+        logger.error('Failed to reserve UUID for note:', err);
         setError(err instanceof Error ? err.message : 'Failed to reserve UUID');
       }
     };
@@ -131,7 +132,7 @@ export function NoteEditorPage() {
           await entityReserveService.discard('notes', reservedUuid);
           setReservedUuid(null);
         } catch (err) {
-          console.error('Failed to discard reserved UUID:', err);
+          logger.error('Failed to discard reserved UUID:', err);
         }
         return updated;
       }
@@ -144,7 +145,7 @@ export function NoteEditorPage() {
           await entityReserveService.discard('notes', reservedUuid);
           setReservedUuid(null);
         } catch (err) {
-          console.error('Failed to discard reserved UUID:', err);
+          logger.error('Failed to discard reserved UUID:', err);
         }
       }
 
@@ -217,7 +218,7 @@ export function NoteEditorPage() {
         try {
           await entityReserveService.discard('notes', reservedUuid);
         } catch (err) {
-          console.error('Failed to discard empty note:', err);
+          logger.error('Failed to discard empty note:', err);
         }
       }
     }

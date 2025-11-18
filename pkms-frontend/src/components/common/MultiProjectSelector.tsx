@@ -10,12 +10,12 @@ import {
   Alert
 } from '@mantine/core';
 import { IconAlertCircle, IconLock, IconLink } from '@tabler/icons-react';
-import { todosService } from '../../services/todosService';
+import { projectsService } from '../../services/projectsService';
+import { logger } from '../../utils/logger';
 
 interface Project {
   uuid: string;
   name: string;
-  color: string;
 }
 
 interface MultiProjectSelectorProps {
@@ -49,10 +49,10 @@ export const MultiProjectSelector: React.FC<MultiProjectSelectorProps> = ({
   const loadProjects = async () => {
     try {
       setLoading(true);
-      const response = await todosService.getProjects(false);  // Pass archived flag directly
+      const response = await projectsService.listProjects(false);  // includeDeleted=false
       setProjects(response);
     } catch (error) {
-      console.error('Failed to load projects:', error);
+      logger.error('Failed to load projects:', error);
     } finally {
       setLoading(false);
     }

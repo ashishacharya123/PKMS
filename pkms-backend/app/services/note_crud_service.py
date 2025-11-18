@@ -42,25 +42,36 @@ class NoteCRUDService:
         pass
     async def reserve_note(self, db: AsyncSession, user_uuid: str) -> str:
         """Reserve a minimal note row and return its UUID (owner-scoped)."""
-        async def reserve_operation():
+        try:
             new_uuid = str(uuid7())
             note = Note(
                 uuid=new_uuid,
                 title="",
-                content=None,
+                content="",
                 is_template=False,
                 is_archived=False,
                 created_by=user_uuid,
                 size_bytes=0
             )
             db.add(note)
-            return new_uuid
+            await db.commit()
+            await db.refresh(note)
+        except Exception as e:
+            await db.rollback()
+            logger.exception("Error reserving note for user %s", user_uuid)
 
-        return await TransactionHelper.execute_with_transaction(
-            db,
-            reserve_operation,
-            error_message=f"Failed to reserve note for user {user_uuid}"
-        )
+            # Consistent dev mode error details
+            from app.decorators.error_handler import is_development_mode
+            detail_msg = "Failed to reserve note"
+            if is_development_mode():
+                detail_msg += f": {e!s}"
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=detail_msg
+            ) from e
+        else:
+            return note.uuid
 
     
     def _get_note_content_path(self, user_uuid: str, note_uuid: str) -> Path:
@@ -193,7 +204,7 @@ class NoteCRUDService:
         """List notes with filters and pagination"""
         try:
             # Build query conditions
-            cond = and_(Note.created_by == user_uuid)
+            cond = and_(Note.active_only(), Note.created_by == user_uuid)
             
             if search:
                 cond = and_(cond, or_(
@@ -333,7 +344,7 @@ class NoteCRUDService:
             result = await db.execute(
                 select(Note)
                 .options(selectinload(Note.tag_objs), selectinload(Note.documents))
-                .where(and_(Note.uuid == note_uuid, Note.created_by == user_uuid))
+                .where(and_(Note.active_only(), Note.uuid == note_uuid, Note.created_by == user_uuid))
             )
             note = result.scalar_one_or_none()
             
@@ -374,7 +385,7 @@ class NoteCRUDService:
             # Get existing note
             result = await db.execute(
                 select(Note).where(
-                    and_(Note.uuid == note_uuid, Note.created_by == user_uuid)
+                    and_(Note.active_only(), Note.uuid == note_uuid, Note.created_by == user_uuid)
                 )
             )
             note = result.scalar_one_or_none()
@@ -497,15 +508,7 @@ class NoteCRUDService:
                         f"This would break other notes."
                     )
             
-            # Delete content file if it exists
-            if note.content_file_path:
-                full_path = get_file_storage_dir() / note.content_file_path
-                if full_path.exists():
-                    try:
-                        full_path.unlink()
-                    except Exception as e:
-                        logger.warning(f"Could not delete note content file {full_path}: {e}")
-            
+              
             # Remove from search index
             await search_service.remove_item(db, note_uuid)
             

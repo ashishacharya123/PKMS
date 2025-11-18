@@ -26,6 +26,7 @@ import { isEmptyDiaryEntry } from '../../utils/save_discard_verification';
 import { ContentEditor } from '../common/ContentEditor';
 import { UnifiedFileItem } from '../../services/unifiedFileService';
 import { diaryService } from '../../services/diaryService';
+import { logger } from '../../utils/logger';
 
 interface DiaryEntryModalProps {
   opened: boolean;
@@ -64,7 +65,7 @@ export function DiaryEntryModal({ opened, onClose, initialDate }: DiaryEntryModa
         const { uuid } = await entityReserveService.reserve('diary', { date: dateStr });
         setReservedUuid(uuid);
       } catch (err) {
-        console.error('Failed to reserve UUID for diary entry:', err);
+        logger.error('Failed to reserve UUID for diary entry:', err);
         setError(err instanceof Error ? err.message : 'Failed to reserve UUID');
       } finally {
         setIsLoading(false);
@@ -153,7 +154,7 @@ export function DiaryEntryModal({ opened, onClose, initialDate }: DiaryEntryModa
       
       onClose();
     } catch (err) {
-      console.error('Failed to create diary entry:', err);
+      logger.error('Failed to create diary entry:', err);
       throw err;
     }
   };
@@ -176,7 +177,7 @@ export function DiaryEntryModal({ opened, onClose, initialDate }: DiaryEntryModa
         try {
           await entityReserveService.discard('diary', reservedUuid);
         } catch (err) {
-          console.error('Failed to discard empty diary entry:', err);
+          logger.error('Failed to discard empty diary entry:', err);
         }
       }
     }

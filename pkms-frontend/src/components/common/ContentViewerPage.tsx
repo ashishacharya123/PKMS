@@ -6,6 +6,7 @@ import { ContentViewer, type ContentViewerProps } from './ContentViewer';
 import { useDataLoader } from '../../hooks/useDataLoader';
 import { transformFilesToUnifiedItems } from '../../utils/fileTransformers';
 import { UnifiedFileItem } from '../../services/unifiedFileService';
+import { logger } from '../../utils/logger';
 
 export interface ContentViewerPageService<T> {
   getItem: (id: string) => Promise<T>;
@@ -62,8 +63,18 @@ export function ContentViewerPage<T>({ id, config }: { id: string; config: Conte
 
   const handleDelete = async () => {
     if (!config.service.deleteItem) return;
-    await config.service.deleteItem(id);
-    navigate(config.listPath);
+
+    try {
+      logger.info('Attempting to delete item:', { id, module: config.module });
+      await config.service.deleteItem(id);
+      logger.info('Item deleted successfully, navigating to list:', { id });
+      // Success - navigate to list
+      navigate(config.listPath);
+    } catch (error: any) {
+      logger.error('Failed to delete item:', { id, error: error.message, config: config.module });
+      // Re-throw the error so the UI can handle it (show error message)
+      throw error;
+    }
   };
 
   if (loading && !item) {

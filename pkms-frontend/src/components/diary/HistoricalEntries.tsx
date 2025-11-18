@@ -14,6 +14,7 @@ import {
 } from '@mantine/core';
 import { IconCalendar, IconMapPin, IconEye, IconAlertCircle } from '@tabler/icons-react';
 import { DiaryEntrySummary } from '../../types/diary';
+import { logger } from '../../utils/logger';
 import { format, subDays, subWeeks, subMonths, subYears } from 'date-fns';
 import { diaryService } from '../../services/diaryService';
 
@@ -104,7 +105,7 @@ export function HistoricalEntries({ onViewEntry, selectedDate }: { onViewEntry: 
       setHistoricalEntries(historical);
       setIsUnlocked(true);
     } catch (error) {
-      console.error('Failed to load historical entries:', error);
+      logger.error('Failed to load historical entries:', error);
     } finally {
       setIsLoading(false);
     }
