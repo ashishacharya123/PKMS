@@ -124,7 +124,7 @@ class UnifiedUploadService:
             
             # === END: NEW LOGIC ===
             
-            final_path, temp_path = await self._generate_paths(module, assembled_path, metadata, db)
+            final_path, temp_path = await self._generate_paths(module, assembled_path, metadata, created_by, db)
             
             await self._move_to_temp(assembled_path, temp_path)
             
@@ -201,10 +201,10 @@ class UnifiedUploadService:
         
         return assembled
 
-    async def _generate_paths(self, module: str, assembled: Path, metadata: Dict[str, Any], db: Optional[AsyncSession] = None) -> tuple[Path, Path]:
+    async def _generate_paths(self, module: str, assembled: Path, metadata: Dict[str, Any], created_by: str, db: Optional[AsyncSession] = None) -> tuple[Path, Path]:
         file_uuid = metadata.get("file_uuid", str(uuid7()))
         extension = assembled.suffix
-        created_by = metadata.get("created_by", "unknown")
+        # created_by is now a parameter, use it directly
         
         if module == "documents":
             original_name = metadata.get("original_name", assembled.name.replace(f"complete_{metadata.get('upload_id', '')}_", ""))

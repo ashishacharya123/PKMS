@@ -41,7 +41,7 @@ import { TodoCard } from '../todos/TodoCard';
 import { Todo } from '../../types/todo';
 import { UnifiedContentModal } from './UnifiedContentModal';
 import { useModal } from '../../hooks/useModal';
-import { formatFileSize } from '../../utils/fileUtils';
+import { formatFileSize, getFileTypeConfig, getFileTypeConfigByExtension } from '../../utils/fileUtils';
 
 // Utility function for getting cache module
 const getCacheModule = (module: string): 'documents' | 'archive' | 'diary' => {
@@ -226,8 +226,16 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   };
 
   const handleViewDocument = (file: UnifiedFileItem) => {
-    // Get the proper download URL for the file
-    const downloadUrl = unifiedFileService.getDownloadUrl(file);
+    // Check if this is a PDF file that should use preview
+    const isPdf = file.mimeType === 'application/pdf';
+
+    // Get download URL with appropriate preview parameter
+    const downloadUrl = unifiedFileService.getFileDownloadUrl(
+      file.uuid,
+      file.module,
+      isPdf  // preview=true for PDFs, false for others
+    );
+
     // Open document in new tab using the download URL with security flags
     window.open(downloadUrl, '_blank', 'noopener,noreferrer');
   };
@@ -424,7 +432,17 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
                   </Text>
                   <Group gap="xs">
                     <Badge size="xs" variant="light">
-                      {file.mimeType.split('/')[0].toUpperCase()}
+                      {(() => {
+                        const config = getFileTypeConfig(file.mimeType);
+                        // Fallback to extension-based lookup if MIME type is generic
+                        if (config.label === 'Unknown File' && file.originalName) {
+                          const extConfig = getFileTypeConfigByExtension(file.originalName);
+                          if (extConfig.label !== 'Unknown File') {
+                            return extConfig.label;
+                          }
+                        }
+                        return config.label;
+                      })()}
                     </Badge>
                     <Text size="sm" c="dimmed">
                       {formatFileSize(file.fileSize)}
@@ -653,23 +671,43 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const getFileIcon = (mimeType: string, mediaType?: string) => {
+  const getFileIcon = (mimeType: string, originalName?: string, mediaType?: string) => {
+    // Special handling for mediaType-based overrides
     if (mediaType === 'voice' || mimeType.startsWith('audio/')) {
       return <IconMicrophone size={20} className="text-green-500" />;
-    }
-    if (mimeType.startsWith('image/')) {
-      return <IconPhoto size={20} className="text-blue-500" />;
-    }
-    if (mimeType.startsWith('video/')) {
-      return <IconVideo size={20} className="text-purple-500" />;
-    }
-    if (mimeType === 'application/pdf' || mediaType === 'pdf') {
-      return <IconFileText size={20} className="text-red-500" />;
     }
     if (mimeType === 'application/json' && mediaType === 'todo') {
       return <IconChecklist size={20} className="text-orange-500" />;
     }
-    return <IconFileText size={20} className="text-gray-500" />;
+
+    // Use comprehensive file type configuration
+    const config = getFileTypeConfig(mimeType);
+
+    // Fallback to extension-based lookup if MIME type is generic
+    if (config.label === 'Unknown File' && originalName) {
+      const extConfig = getFileTypeConfigByExtension(originalName);
+      if (extConfig.label !== 'Unknown File') {
+        const IconComponent = extConfig.icon;
+        return <IconComponent size={20} className={`text-${extConfig.color}-500`} />;
+      }
+    }
+
+    const IconComponent = config.icon;
+    // Apply appropriate color classes
+    const colorClass = {
+      red: 'text-red-500',
+      blue: 'text-blue-500',
+      green: 'text-green-500',
+      orange: 'text-orange-500',
+      purple: 'text-purple-500',
+      yellow: 'text-yellow-500',
+      cyan: 'text-cyan-500',
+      pink: 'text-pink-500',
+      indigo: 'text-indigo-500',
+      gray: 'text-gray-500'
+    }[config.color] || 'text-gray-500';
+
+    return <IconComponent size={20} className={colorClass} />;
   };
 
   useEffect(() => {
@@ -723,5 +761,5 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
     );
   }
 
-  return getFileIcon(file.mimeType, file.mediaType);
+  return getFileIcon(file.mimeType, file.originalName, file.mediaType);
 };

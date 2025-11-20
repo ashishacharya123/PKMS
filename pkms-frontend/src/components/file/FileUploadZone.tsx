@@ -10,6 +10,7 @@ import { IconUpload, IconX, IconFile, IconPhoto, IconFileText, IconMusic, IconVi
 import { useState, useCallback, useMemo } from 'react';
 import { notifications } from '@mantine/notifications';
 import { formatFileSize } from '../../utils/fileUtils';
+import { FILE_UPLOAD_CONFIG, getHumanReadableFileTypes } from '../../utils/fileUploadConfig';
 
 interface DropzoneError {
   code: string;
@@ -48,11 +49,12 @@ const getFileIcon = (mimeType: string) => {
 };
 
 
+
 export function FileUploadZone({
-  accept = ['image/*', 'application/pdf', 'text/*'],
+  accept = FILE_UPLOAD_CONFIG.acceptedTypes,
   multiple = true,
-  maxFiles = 10,
-  maxSize = 10 * 1024 * 1024, // 10MB default
+  maxFiles = FILE_UPLOAD_CONFIG.maxFiles,
+  maxSize = FILE_UPLOAD_CONFIG.maxSize, // 50MB default (matches backend)
   onFilesSelected,
   onFileUpload,
   existingFiles = [],
@@ -65,7 +67,9 @@ export function FileUploadZone({
   const [uploadingFiles, setUploadingFiles] = useState<Map<string, number>>(new Map());
 
   const handleDrop = useCallback(async (files: File[]) => {
-    if (disabled || loading) return;
+    if (disabled || loading) {
+      return;
+    }
 
     // Validate files
     const validFiles: File[] = [];
@@ -78,18 +82,7 @@ export function FileUploadZone({
         return;
       }
 
-      // Check file type
-      const isValidType = accept.some(type => {
-        if (type.endsWith('/*')) {
-          return file.type.startsWith(type.slice(0, -1));
-        }
-        return file.type === type;
-      });
-
-      if (!isValidType) {
-        errors.push(`${file.name} has an unsupported file type`);
-        return;
-      }
+      // File type validation now handled by Mantine Dropzone accept prop
 
       // Check max files
       const totalCount = selectedFiles.length + existingFiles.length + validFiles.length;
@@ -161,6 +154,7 @@ export function FileUploadZone({
     [selectedFiles]
   );
 
+  
   return (
     <Stack gap="md">
       {/* Enhanced Upload Zone */}
@@ -168,17 +162,18 @@ export function FileUploadZone({
         onDrop={handleDrop}
         onReject={(files: FileRejection[]) => {
           files.forEach((file: FileRejection) => {
+            const errorMessages = file.errors.map((e: DropzoneError) => e.message);
+            const allowedTypes = getHumanReadableFileTypes(accept);
+
             notifications.show({
               title: 'File Rejected',
-              message: file.errors.map((e: DropzoneError) => e.message).join(', '),
+              message: `${file.name}: ${errorMessages.join(', ')}\n\nAllowed file types: ${allowedTypes}`,
               color: 'red',
+              autoClose: 8000,
             });
           });
         }}
-        accept={accept.reduce((acc, type) => {
-          acc[type] = [];
-          return acc;
-        }, {} as Record<string, string[]>)}
+        accept={accept}
         multiple={multiple}
         maxFiles={maxFiles}
         maxSize={maxSize}
@@ -442,6 +437,7 @@ export function FileUploadZone({
           </Stack>
         </>
       )}
+
     </Stack>
   );
 }

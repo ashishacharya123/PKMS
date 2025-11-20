@@ -142,9 +142,9 @@ async def get_thumbnail_by_path(
         
         # Check if thumbnail exists
         thumbnail_dir = storage_dir / "thumbnails"
-        thumbnail_path = thumbnail_service.get_thumbnail_path(
-            full_file_path, 
-            thumbnail_dir, 
+        thumbnail_path = await thumbnail_service.get_thumbnail_path(
+            full_file_path,
+            thumbnail_dir,
             size
         )
         

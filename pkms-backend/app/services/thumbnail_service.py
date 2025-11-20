@@ -26,9 +26,7 @@ class ThumbnailService:
             'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 
             'image/webp', 'image/bmp', 'image/tiff'
         }
-        self.supported_document_types = {
-            'application/pdf'
-        }
+        self.supported_document_types = set()  # No document thumbnails - UI will show file type icons
     
     async def generate_thumbnail(
         self, 
@@ -65,7 +63,7 @@ class ThumbnailService:
             
             # Generate consistent thumbnail filename
             # Format: {original_filename}_{size}.jpg (always .jpg for consistency)
-            file_hash = self._get_file_hash(file_path)
+            file_hash = await self._get_file_hash(file_path)
             thumbnail_name = f"{file_hash}_{size}.jpg"
             thumbnail_path = output_dir / thumbnail_name
             
@@ -77,10 +75,9 @@ class ThumbnailService:
             # Generate thumbnail based on file type
             if mime_type in self.supported_image_types:
                 return await self._generate_image_thumbnail(file_path, thumbnail_path, size)
-            elif mime_type in self.supported_document_types:
-                return await self._generate_document_thumbnail(file_path, thumbnail_path, size)
             else:
-                logger.warning(f"No thumbnail generator for type: {mime_type}")
+                # For documents (PDF, Word, etc.), no thumbnails - UI will show file type icons
+                logger.info(f"Skipping thumbnail generation for document type: {mime_type}")
                 return None
                 
         except Exception as e:
@@ -125,59 +122,8 @@ class ThumbnailService:
             logger.error(f"Failed to generate image thumbnail: {e}")
             return None
     
-    async def _generate_document_thumbnail(
-        self, 
-        file_path: Path, 
-        thumbnail_path: Path, 
-        size: str
-    ) -> Optional[Path]:
-        """Generate thumbnail for PDF documents"""
-        try:
-            # For PDFs, we'll create a simple document icon thumbnail
-            max_width, max_height = self.thumbnail_sizes[size]
-            
-            # Create a document icon thumbnail
-            thumbnail = Image.new('RGB', (max_width, max_height), '#f8f9fa')
-            
-            # Add document icon (simplified)
-            from PIL import ImageDraw
-            draw = ImageDraw.Draw(thumbnail)
-            
-            # Draw document outline
-            margin = 20
-            doc_width = max_width - 2 * margin
-            doc_height = max_height - 2 * margin
-            
-            # Document background
-            draw.rectangle(
-                [margin, margin, margin + doc_width, margin + doc_height],
-                fill='white',
-                outline='#dee2e6',
-                width=2
-            )
-            
-            # Document lines (simulating text)
-            line_height = 15
-            num_lines = min(8, (doc_height - 40) // line_height)
-            for i in range(num_lines):
-                y = margin + 20 + i * line_height
-                line_length = doc_width - 20
-                if i < num_lines - 1:  # Not the last line
-                    line_length = int(line_length * (0.7 + (i % 3) * 0.1))
-                draw.rectangle(
-                    [margin + 10, y, margin + 10 + line_length, y + 2],
-                    fill='#6c757d'
-                )
-            
-            # Save thumbnail with optimized JPEG settings
-            thumbnail.save(thumbnail_path, 'JPEG', quality=75, optimize=True, progressive=True)
-            
-            logger.info(f"Generated document thumbnail: {thumbnail_path}")
-            return thumbnail_path
-            
-        except Exception as e:
-            logger.error(f"Failed to generate document thumbnail: {e}")
-            return None
+    # Document thumbnail generation removed - UI will show file type icons for documents
+    # PDFs, Word docs, etc. will use file type icons instead of generated thumbnails
     
     def _get_mime_type(self, file_path: Path) -> str:
         """Get MIME type for file"""
@@ -190,13 +136,15 @@ class ThumbnailService:
         return (mime_type in self.supported_image_types or 
                 mime_type in self.supported_document_types)
     
-    def _get_file_hash(self, file_path: Path) -> str:
+    async def _get_file_hash(self, file_path: Path) -> str:
         """Generate consistent hash for file to avoid duplicate thumbnails"""
         import hashlib
-        
+        import asyncio
+
         # Use file path + modification time for consistent hash
         # This ensures same file = same hash, even if moved
-        file_info = f"{file_path.name}_{file_path.stat().st_mtime}"
+        stat_result = await asyncio.to_thread(file_path.stat)
+        file_info = f"{file_path.name}_{stat_result.st_mtime}"
         return hashlib.md5(file_info.encode()).hexdigest()[:12]  # 12 chars is enough
     
     async def generate_all_sizes(self, file_path: Path, output_dir: Path) -> Dict[str, Optional[Path]]:
@@ -211,7 +159,7 @@ class ThumbnailService:
     async def cleanup_thumbnails(self, file_path: Path, thumbnail_dir: Path):
         """Clean up thumbnails when original file is deleted"""
         try:
-            file_hash = self._get_file_hash(file_path)
+            file_hash = await self._get_file_hash(file_path)
             
             for size in self.thumbnail_sizes.keys():
                 thumbnail_name = f"{file_hash}_{size}.jpg"
@@ -224,9 +172,9 @@ class ThumbnailService:
         except Exception as e:
             logger.error(f"Failed to cleanup thumbnails for {file_path}: {e}")
     
-    def get_thumbnail_path(self, file_path: Path, thumbnail_dir: Path, size: str = 'medium') -> Optional[Path]:
+    async def get_thumbnail_path(self, file_path: Path, thumbnail_dir: Path, size: str = 'medium') -> Optional[Path]:
         """Get path to existing thumbnail"""
-        file_hash = self._get_file_hash(file_path)
+        file_hash = await self._get_file_hash(file_path)
         thumbnail_name = f"{file_hash}_{size}.jpg"
         thumbnail_path = thumbnail_dir / thumbnail_name
         

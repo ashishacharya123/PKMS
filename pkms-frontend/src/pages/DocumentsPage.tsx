@@ -28,6 +28,7 @@ import {
   Tooltip
 } from '@mantine/core';
 import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
+import { getFileTypeConfig, getFileTypeConfigByExtension } from '../utils/fileUtils';
 import ViewModeLayouts, { formatDate } from '../components/common/ViewModeLayouts';
 import { formatFileSize } from '../utils/fileUtils';
 import { useViewPreferences } from '../hooks/useViewPreferences';
@@ -43,7 +44,8 @@ import {
   IconFolder,
   IconArchive,
   IconStar,
-  IconRefresh
+  IconRefresh,
+  IconExternalLink
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
@@ -55,12 +57,13 @@ import { ErrorState } from '../components/common/ErrorState';
 import { documentsService } from '../services/documentsService';
 import { Document } from '../types/document';
 import { ActionMenu } from '../components/common/ActionMenu';
-import { FileUploadModal } from '../components/file/FileUploadModal';
+import { FileUploadModalMemo } from '../components/file/FileUploadModal';
 import { ModuleLayout } from '../components/common/ModuleLayout';
 import { ModuleHeader } from '../components/common/ModuleHeader';
 import { ModuleFilters, getModuleFilterConfig } from '../components/common/ModuleFilters';
 import { useDataLoader } from '../hooks/useDataLoader';
 import { useModal } from '../hooks/useModal';
+import { UnifiedContentModal } from '../components/file/UnifiedContentModal';
 
 type SortField = 'originalName' | 'fileSize' | 'createdAt' | 'updatedAt';
 type SortOrder = 'asc' | 'desc';
@@ -93,6 +96,22 @@ const getFileIcon = (mimeType: string, name?: string): string => {
   if (mimeType.startsWith('video/') || ['mp4','mkv','webm','mov','avi'].includes(ext)) return '🎥';
   if (mimeType.startsWith('audio/') || ['mp3','wav','ogg','m4a','flac'].includes(ext)) return '🎵';
   return '📎';
+};
+
+// New React component for professional file type icons
+const getFileIconComponent = (mimeType: string, name?: string) => {
+  const config = getFileTypeConfig(mimeType);
+  // Fallback to extension-based lookup if MIME type is generic
+  if (config.label === 'Unknown File' && name) {
+    const ext = getExt(name);
+    const extConfig = getFileTypeConfigByExtension(name);
+    if (extConfig.label !== 'Unknown File') {
+      const IconComponent = extConfig.icon;
+      return <IconComponent size={16} color={extConfig.color} />;
+    }
+  }
+  const IconComponent = config.icon;
+  return <IconComponent size={16} color={config.color} />;
 };
 
 const getFileTypeLabel = (mimeType: string, name?: string): string => {
@@ -130,6 +149,7 @@ export function DocumentsPage() {
   const uploadModal = useModal<File>();
   const filterModal = useModal();
   const imagePreviewModal = useModal<{ url: string; name: string }>();
+  const contentModal = useModal<{ file: any; mode: 'view' | 'edit' }>();
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const { getPreference, updatePreference } = useViewPreferences();
   const [viewMode, setViewMode] = useState<ViewMode>(getPreference('documents'));
@@ -153,6 +173,7 @@ export function DocumentsPage() {
     toggleArchive,
     downloadDocument,
     previewDocument,
+    getDownloadUrl,
     setMimeType,
     setTag,
     setSearch,
@@ -198,42 +219,40 @@ export function DocumentsPage() {
   }, [debouncedSearchQuery, setSearch]);
 
   useAuthenticatedEffect(() => {
-    loadDocuments();
-  }, [loadDocuments]);
+    // Skip loading documents if upload modal is open to prevent state reset
+    if (!uploadModal.isOpen) {
+      loadDocuments();
+    }
+  }, [loadDocuments, uploadModal.isOpen]);
 
   // Reload documents when the page becomes visible again (fixes minimize/restore issue)
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (!document.hidden) {
+      if (!document.hidden && !uploadModal.isOpen) {
         // Page became visible, reload documents to ensure fresh data
-        // Page became visible, reloading documents for fresh data
+        // Skip if upload modal is open to prevent state reset
         loadDocuments();
       }
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    
+
     // Also handle window focus as a backup
     const handleWindowFocus = () => {
-      // Window focused, reloading documents for fresh data
-      loadDocuments();
+      if (!uploadModal.isOpen) {
+        // Window focused, reloading documents for fresh data
+        // Skip if upload modal is open to prevent state reset
+        loadDocuments();
+      }
     };
-    
+
     window.addEventListener('focus', handleWindowFocus);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleWindowFocus);
     };
-  }, [loadDocuments]);
-
-  // Revoke object URL when closing image preview modal
-  const handleCloseImagePreview = useCallback(() => {
-    if (imagePreviewModal.selectedItem?.url) {
-      try { URL.revokeObjectURL(imagePreviewModal.selectedItem.url); } catch {}
-    }
-    imagePreviewModal.closeModal();
-  }, [imagePreviewModal]);
+  }, [loadDocuments, uploadModal.isOpen]);
 
   // Auto-open upload modal when navigated with ?action=upload
   useEffect(() => {
@@ -245,6 +264,15 @@ export function DocumentsPage() {
       setSearchParams(newParams, { replace: true });
     }
   }, [searchParams, setSearchParams]);
+
+  // Revoke object URL when closing image preview modal (only for blob URLs)
+  const handleCloseImagePreview = useCallback(() => {
+    // Only revoke blob URLs, not streaming URLs
+    if (imagePreviewModal.selectedItem?.url && imagePreviewModal.selectedItem.url.startsWith('blob:')) {
+      try { URL.revokeObjectURL(imagePreviewModal.selectedItem.url); } catch {}
+    }
+    imagePreviewModal.closeModal();
+  }, [imagePreviewModal]);
 
   const handleTagSearch = async (query: string) => {
     if (query.length < 1) {
@@ -307,41 +335,159 @@ export function DocumentsPage() {
   };
 
   const renderActionMenu = (document: any, size: 'sm' | 'md' = 'md') => (
-    <ActionMenu
-      onDownload={() => handleDownloadFile(document)}
-      onArchive={document.isArchived ? undefined : () => handleToggleArchive(document)}
-      onUnarchive={document.isArchived ? () => handleToggleArchive(document) : undefined}
-      onDelete={() => handleDeleteDocument(document.uuid, document.originalName)}
-      isArchived={document.isArchived}
-      variant="subtle"
-      color="gray"
-      size={size === 'sm' ? 14 : 16}
-      customActions={[
-        {
-          label: 'Preview',
-          icon: <IconEye size={14} />,
-          onClick: () => handlePreview(document)
-        }
-      ]}
-    />
+    <div onClick={(e) => e.stopPropagation()}>
+      <ActionMenu
+        onDownload={() => handleDownloadFile(document)}
+        onArchive={document.isArchived ? undefined : () => handleToggleArchive(document)}
+        onUnarchive={document.isArchived ? () => handleToggleArchive(document) : undefined}
+        onDelete={() => handleDeleteDocument(document.uuid, document.originalName)}
+        isArchived={document.isArchived}
+        variant="subtle"
+        color="gray"
+        size={size === 'sm' ? 14 : 16}
+        customActions={[
+          {
+            label: 'Open in New Tab',
+            icon: <IconExternalLink size={14} />,
+            onClick: () => handlePreview(document, true)
+          }
+        ]}
+      />
+    </div>
   );
 
-  // Handle preview: inline modal for images, fallback to existing behavior
-  const handlePreview = async (doc: any) => {
+  // Handle preview: document-focused preview system
+  const handlePreview = async (doc: any, openInNewTab: boolean = false) => {
     try {
-      if (typeof doc?.mimeType === 'string' && doc.mimeType.startsWith('image/')) {
+      const mimeType = doc?.mimeType;
+      const originalName = doc?.originalName || '';
+
+      // Helper function to open in new tab
+      const openInNewTab = () => {
+        const url = getDownloadUrl(doc.uuid, false); // preview=false for download
+        window.open(url, '_blank', 'noopener,noreferrer');
+      };
+
+      // If user explicitly wants new tab, just open the download URL
+      if (openInNewTab) {
+        openInNewTab();
+        return;
+      }
+
+      // 1. Images: Download to blob for inline preview (documents need this)
+      if (mimeType?.startsWith('image/')) {
         const blob = await downloadDocument(doc.uuid);
         if (!blob) return;
         const url = URL.createObjectURL(blob);
-        imagePreviewModal.openModal({ url, name: doc.originalName || 'image' });
+        imagePreviewModal.openModal({ url, name: originalName });
         return;
       }
-      // Non-images: keep existing open-in-new-tab behavior
-      previewDocument(doc.uuid);
-    } catch {
-      notifications.show({ title: 'Preview failed', message: 'Could not load preview. Try downloading instead.', color: 'red' });
+
+      // 2. Text files: Download to blob and extract content
+      const textTypes = [
+        'text/plain',
+        'text/markdown',
+        'text/html',
+        'text/css',
+        'text/javascript',
+        'application/json',
+        'application/xml',
+        'text/xml'
+      ];
+
+      if (textTypes.includes(mimeType) || originalName?.match(/\.(txt|md|markdown|html|css|js|json|xml)$/i)) {
+        try {
+          const blob = await downloadDocument(doc.uuid);
+          if (!blob) return;
+          const content = await blob.text();
+
+          contentModal.openModal(
+            { file: doc, mode: 'view' },  // selectedItem
+            { content }                    // modalData
+          );
+        } catch (error) {
+          console.warn('Failed to load text content:', error);
+          // Fallback to new tab
+          openInNewTab();
+        }
+        return;
+      }
+
+      // 3. PDFs: Use preview URL for inline iframe display
+      if (mimeType === 'application/pdf') {
+        try {
+          // Use preview endpoint with Content-Disposition: inline (already implemented!)
+          const url = getDownloadUrl(doc.uuid, true); // preview=true
+          contentModal.openModal(
+            { file: doc, mode: 'view' },
+            { content: null, pdfUrl: url }
+          );
+        } catch (error) {
+          console.warn('Failed to get PDF preview URL, opening in new tab:', error);
+          openInNewTab();
+        }
+        return;
+      }
+
+      // 4. Other documents: Try inline, fallback to new tab
+      if (mimeType?.includes('document') ||
+          mimeType?.includes('sheet') ||
+          mimeType?.includes('presentation')) {
+        openInNewTab();
+        return;
+      }
+
+      // 5. Archives and binary files: Download instead of preview
+      if (mimeType?.includes('zip') ||
+          mimeType?.includes('rar') ||
+          mimeType?.includes('tar') ||
+          mimeType?.includes('gzip') ||
+          mimeType?.includes('application/octet-stream')) {
+        notifications.show({
+          title: 'Archive File',
+          message: 'This file type cannot be previewed. Use the download button instead.',
+          color: 'blue'
+        });
+        return;
+      }
+
+      // 6. Fallback: Try to open in new tab
+      openInNewTab();
+    } catch (error) {
+      console.error('Preview error:', error);
+      notifications.show({
+        title: 'Preview failed',
+        message: 'Could not load preview. Try downloading instead.',
+        color: 'red'
+      });
     }
   };
+
+  // 🔍 FIX 1: Extract onUpload function to useCallback to prevent excessive re-renders
+  const handleUpload = useCallback(async (files: File[], metadata: { description?: string; tags?: string[] }) => {
+    try {
+      for (const file of files) {
+        await uploadDocument(file, {
+          description: metadata.description || '',
+          tags: metadata.tags || [],
+          // Note: projectIds and isExclusive not available in FileMetadata interface
+          // If needed, extend FileMetadata interface to include these fields
+        });
+      }
+      uploadModal.closeModal();
+      notifications.show({
+        title: 'Upload Successful',
+        message: `Successfully uploaded ${files.length} file(s)`,
+        color: 'green'
+      });
+    } catch (error) {
+      notifications.show({
+        title: 'Upload Failed',
+        message: 'Failed to upload files. Please try again.',
+        color: 'red'
+      });
+    }
+  }, [uploadModal.closeModal, uploadDocument]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -356,11 +502,22 @@ export function DocumentsPage() {
   // Sort and filter documents
   const sortedDocuments = useMemo(() => {
     if (!Array.isArray(documents)) return [];
-    
-    const sorted = [...documents].sort((a, b) => {
+
+    // Apply client-side filtering for "other" file types
+    let filteredDocuments = documents;
+    if (currentMimeType === 'other') {
+      const specificTypes = ['application/pdf', 'image/', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
+      filteredDocuments = documents.filter(doc =>
+        !specificTypes.some(type =>
+          type.endsWith('/') ? doc.mimeType.startsWith(type) : doc.mimeType === type
+        )
+      );
+    }
+
+    const sorted = [...filteredDocuments].sort((a, b) => {
       let aValue: any = a[sortField];
       let bValue: any = b[sortField];
-      
+
       if (sortField === 'fileSize') {
         aValue = a.fileSize || 0;
         bValue = b.fileSize || 0;
@@ -368,14 +525,14 @@ export function DocumentsPage() {
         aValue = aValue.toLowerCase();
         bValue = bValue.toLowerCase();
       }
-      
+
       if (aValue < bValue) return sortOrder === 'asc' ? -1 : 1;
       if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
-    
+
     return sorted;
-  }, [documents, sortField, sortOrder]);
+  }, [documents, sortField, sortOrder, currentMimeType]);
 
   const paginatedDocuments = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
@@ -448,13 +605,13 @@ export function DocumentsPage() {
                 
                 {['application/pdf', 'image/', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'].map((type) => {
                   const documentsArray = Array.isArray(documents) ? documents : [];
-                  const count = documentsArray.filter(doc => 
+                  const count = documentsArray.filter(doc =>
                     type.endsWith('/') ? doc.mimeType.startsWith(type) : doc.mimeType === type
                   ).length;
                   const label = type === 'application/pdf' ? 'PDF' :
                                type === 'image/' ? 'Images' :
                                type.includes('word') ? 'Word Docs' : 'Text Files';
-                  
+
                   return (
                     <Button
                       key={type}
@@ -469,6 +626,30 @@ export function DocumentsPage() {
                     </Button>
                   );
                 })}
+
+                {/* Other file types catch-all */}
+                {(() => {
+                  const documentsArray = Array.isArray(documents) ? documents : [];
+                  const specificTypes = ['application/pdf', 'image/', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
+                  const otherCount = documentsArray.filter(doc =>
+                    !specificTypes.some(type =>
+                      type.endsWith('/') ? doc.mimeType.startsWith(type) : doc.mimeType === type
+                    )
+                  ).length;
+
+                  return (
+                    <Button
+                      variant={currentMimeType === 'other' ? 'filled' : 'subtle'}
+                      size="xs"
+                      justify="space-between"
+                      fullWidth
+                      onClick={() => setMimeType('other')}
+                    >
+                      <span>Other</span>
+                      <Badge size="xs" variant="light">{otherCount}</Badge>
+                    </Button>
+                  );
+                })()}
               </Stack>
             </Paper>
 
@@ -548,11 +729,13 @@ export function DocumentsPage() {
                   Filters
                 </Button>
                 <Button
-                  leftSection={<IconUpload size={14} />}
+                  variant="filled"
+                  color="blue"
+                  size="sm"
+                  leftSection={<IconUpload size={16} />}
                   onClick={handleOpenUploadModal}
-                  size="xs"
                 >
-                  Upload
+                  Upload Document
                 </Button>
               </Group>
             </Group>
@@ -584,7 +767,7 @@ export function DocumentsPage() {
               onItemClick={(document) => handlePreview(document)}
               renderSmallIcon={(document) => (
                 <Stack gap={2} align="center">
-                  <Text size="lg">{getFileIcon(document.mimeType, document.originalName)}</Text>
+                  {getFileIconComponent(document.mimeType, document.originalName)}
                   {document.isArchived && (
                     <Badge size="xs" color="orange" variant="dot">A</Badge>
                   )}
@@ -595,7 +778,7 @@ export function DocumentsPage() {
                   <Group justify="flex-end" w="100%" gap={4} style={{ opacity: 0.9 }}>
                     {renderActionMenu(document, 'sm')}
                   </Group>
-                  <Text size="xl">{getFileIcon(document.mimeType, document.originalName)}</Text>
+                  <div style={{ transform: 'scale(1.5)' }}>{getFileIconComponent(document.mimeType, document.originalName)}</div>
                   <Group gap={4}>
                     <Badge size="xs" variant="light" color="blue">
                       {formatFileSize(document.fileSize)}
@@ -611,7 +794,7 @@ export function DocumentsPage() {
               renderListItem={(document) => (
                 <Group justify="space-between" style={{ transition: 'background 120ms ease, box-shadow 120ms ease' }}>
                   <Group gap="md">
-                    <Text size="lg">{getFileIcon(document.mimeType, document.originalName)}</Text>
+                    {getFileIconComponent(document.mimeType, document.originalName)}
                     <Stack gap={2}>
                       <Group gap="xs">
                         <Text 
@@ -655,11 +838,11 @@ export function DocumentsPage() {
               )}
               renderDetailColumns={(document) => [
                 <Group key="name" gap="xs">
-                  <Text size="sm">{getFileIcon(document.mimeType, document.originalName)}</Text>
+                  {getFileIconComponent(document.mimeType, document.originalName)}
                   <Stack gap={2}>
-                    <Text 
-                      fw={500} 
-                      size="sm" 
+                    <Text
+                      fw={500}
+                      size="sm"
                       style={{ cursor: 'pointer', color: '#228be6' }}
                       onClick={() => handlePreview(document)}
                     >
@@ -676,7 +859,7 @@ export function DocumentsPage() {
                   </Badge>
                 </Group>,
                 <Group key="type" gap={6}>
-                  <Text size="sm">{getFileIcon(document.mimeType, document.originalName)}</Text>
+                  {getFileIconComponent(document.mimeType, document.originalName)}
                   <Text size="sm" c="dimmed">{getFileTypeLabel(document.mimeType, document.originalName)}</Text>
                 </Group>,
                 <Group key="tags" gap={4}>
@@ -758,9 +941,44 @@ export function DocumentsPage() {
         onClose={handleCloseImagePreview}
         title={
           imagePreviewModal.selectedItem ? (
-            <Group gap={8}>
-              <Text>{getFileIcon('image/', imagePreviewModal.selectedItem.name)}</Text>
-              <Text>{imagePreviewModal.selectedItem.name || 'Image'}</Text>
+            <Group gap={8} justify="space-between">
+              <Group gap={8}>
+                {getFileIconComponent('image/', imagePreviewModal.selectedItem.name)}
+                <Text>{imagePreviewModal.selectedItem.name || 'Image'}</Text>
+              </Group>
+              <Group gap="xs">
+                <Button
+                  variant="light"
+                  size="sm"
+                  leftSection={<IconExternalLink size={14} />}
+                  onClick={() => {
+                    if (imagePreviewModal.selectedItem) {
+                      // Find the original file by name
+                      const originalFile = documents.find(f => f.originalName === imagePreviewModal.selectedItem?.name);
+                      if (originalFile) {
+                        handlePreview(originalFile, true);
+                      }
+                    }
+                  }}
+                >
+                  Open in New Tab
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftSection={<IconDownload size={14} />}
+                  onClick={() => {
+                    if (imagePreviewModal.selectedItem) {
+                      const originalFile = documents.find(f => f.originalName === imagePreviewModal.selectedItem?.name);
+                      if (originalFile) {
+                        handleDownloadFile(originalFile);
+                      }
+                    }
+                  }}
+                >
+                  Download
+                </Button>
+              </Group>
             </Group>
           ) : 'Image'
         }
@@ -780,34 +998,12 @@ export function DocumentsPage() {
       </Modal>
 
       {/* Upload Modal */}
-      <FileUploadModal
+      <FileUploadModalMemo
         opened={uploadModal.isOpen}
         onClose={uploadModal.closeModal}
-        onUpload={async (files, metadata) => {
-          try {
-            for (const file of files) {
-              await uploadDocument(file, {
-                description: metadata.description || '',
-                tags: metadata.tags || [],
-                // Note: projectIds and isExclusive not available in FileMetadata interface
-                // If needed, extend FileMetadata interface to include these fields
-              });
-            }
-            uploadModal.closeModal();
-            notifications.show({
-              title: 'Upload Successful',
-              message: `Successfully uploaded ${files.length} file(s)`,
-              color: 'green'
-            });
-          } catch (error) {
-            notifications.show({
-              title: 'Upload Failed',
-              message: 'Failed to upload files. Please try again.',
-              color: 'red'
-            });
-          }
-        }}
+        onUpload={handleUpload}
         multiple={true}
+        loading={isUploading}
       />
 
       {/* Modular Filter Modal */}
@@ -829,6 +1025,94 @@ export function DocumentsPage() {
           customFilters={filterConfig.customFilters}
           sortOptions={filterConfig.sortOptions}
         />
+      </Modal>
+
+      {/* Content Modal for text files and PDFs */}
+      <Modal
+        opened={contentModal.isOpen}
+        onClose={contentModal.closeModal}
+        size="xl"
+        title={
+          contentModal.selectedItem ? (
+            <Group gap={8} justify="space-between">
+              <Group gap={8}>
+                <Text fw={600}>
+                  {contentModal.selectedItem.file.originalName}
+                </Text>
+                <Badge size="sm" variant="light" color="blue">
+                  Read-Only
+                </Badge>
+              </Group>
+              <Group gap="xs">
+                <Button
+                  variant="light"
+                  size="sm"
+                  leftSection={<IconExternalLink size={14} />}
+                  onClick={() => {
+                    if (contentModal.selectedItem?.file) {
+                      handlePreview(contentModal.selectedItem.file, true);
+                    }
+                  }}
+                >
+                  Open in New Tab
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftSection={<IconDownload size={14} />}
+                  onClick={() => {
+                    if (contentModal.selectedItem?.file) {
+                      handleDownloadFile(contentModal.selectedItem.file);
+                    }
+                  }}
+                >
+                  Download
+                </Button>
+              </Group>
+            </Group>
+          ) : 'File Preview'
+        }
+      >
+        {contentModal.selectedItem && (
+          <>
+            {contentModal.modalData?.pdfUrl ? (
+              // PDF preview with iframe
+              <div style={{
+                width: '100%',
+                height: '70vh',
+                border: '1px solid #e9ecef',
+                borderRadius: '8px',
+                overflow: 'hidden'
+              }}>
+                <iframe
+                  src={contentModal.modalData.pdfUrl}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    border: 'none'
+                  }}
+                  title={contentModal.selectedItem.file.originalName}
+                />
+              </div>
+            ) : (
+              // Text content preview
+              <div style={{
+                maxHeight: '70vh',
+                overflow: 'auto',
+                fontFamily: 'monospace',
+                fontSize: '14px',
+                lineHeight: '1.5',
+                whiteSpace: 'pre-wrap',
+                backgroundColor: '#f8f9fa',
+                padding: '20px',
+                borderRadius: '8px',
+                border: '1px solid #e9ecef'
+              }}>
+                {contentModal.modalData?.content || 'No content available'}
+              </div>
+            )}
+          </>
+        )}
       </Modal>
     </Container>
   );

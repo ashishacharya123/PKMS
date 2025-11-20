@@ -8,7 +8,8 @@ import { IconUpload, IconX, IconInfoCircle } from '@tabler/icons-react';
 import { FileUploadZone } from './FileUploadZone';
 import { MetadataPreview } from './MetadataPreview';
 import { useMetadataExtraction } from '../../hooks/useMetadataExtraction';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, memo } from 'react';
+import { FILE_UPLOAD_CONFIG } from '../../utils/fileUploadConfig';
 
 interface FileMetadata {
   title?: string;
@@ -32,13 +33,14 @@ export function FileUploadModal({
   opened,
   onClose,
   onUpload,
-  accept = ['image/*', 'application/pdf', 'text/*'],
+  accept = FILE_UPLOAD_CONFIG.acceptedTypes,
   multiple = true,
-  maxFiles = 10,
-  maxSize = 10 * 1024 * 1024, // 10MB
+  maxFiles = FILE_UPLOAD_CONFIG.maxFiles,
+  maxSize = FILE_UPLOAD_CONFIG.maxSize, // 50MB (matches backend)
   title = "Upload Files",
   loading = false
 }: FileUploadModalProps) {
+
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [metadata, setMetadata] = useState<FileMetadata>({
     title: '',
@@ -137,7 +139,6 @@ export function FileUploadModal({
       padding="md"
     >
       <Stack gap="md">
-        {/* File Upload Zone with Enhanced UI */}
         <FileUploadZone
           accept={accept}
           multiple={multiple}
@@ -229,3 +230,23 @@ export function FileUploadModal({
     </Modal>
   );
 }
+
+// React.memo with custom comparison to prevent unnecessary re-renders when parent state changes
+// This fixes the critical state persistence issue where selectedFiles was being reset
+export const FileUploadModalMemo = memo(FileUploadModal, (prevProps, nextProps) => {
+  // Only re-render if these critical props actually change
+  return (
+    prevProps.opened === nextProps.opened &&
+    prevProps.loading === nextProps.loading &&
+    prevProps.title === nextProps.title &&
+    prevProps.multiple === nextProps.multiple &&
+    prevProps.maxFiles === nextProps.maxFiles &&
+    prevProps.maxSize === nextProps.maxSize &&
+    // Compare accept arrays by content, not reference (safe for undefined/null)
+    (!prevProps.accept && !nextProps.accept) || // Both undefined/null
+    (prevProps.accept?.length === nextProps.accept?.length &&
+     prevProps.accept?.every((val, index) => val === nextProps.accept?.[index])) &&
+    prevProps.onClose === nextProps.onClose &&
+    prevProps.onUpload === nextProps.onUpload
+  );
+});

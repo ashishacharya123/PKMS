@@ -211,21 +211,25 @@ class UnifiedFileService {
     return this.getDownloadPath(file.module, file.uuid);
   }
 
-  private getDownloadPath(module: string, uuid: string): string {
-    switch (module) {
-      case 'documents':
-      case 'projects':
-        return `/documents/${uuid}/download`;
-      case 'notes':
-        return `/notes/files/${uuid}/download`;
-      case 'diary':
-        // Diary files are documents under the hood
-        return `/documents/${uuid}/download`;
-      case 'archive':
-        return `/archive/items/${uuid}/download`;
-      default:
-        throw new Error(`Unsupported module for download: ${module}`);
-    }
+  private getDownloadPath(module: string, uuid: string, preview?: boolean): string {
+    const basePath = (() => {
+      switch (module) {
+        case 'documents':
+        case 'projects':
+          return `/documents/${uuid}/download`;
+        case 'notes':
+          return `/notes/files/${uuid}/download`;
+        case 'diary':
+          // Diary files are documents under the hood
+          return `/documents/${uuid}/download`;
+        case 'archive':
+          return `/archive/items/${uuid}/download`;
+        default:
+          throw new Error(`Unsupported module for download: ${module}`);
+      }
+    })();
+
+    return preview ? `${basePath}?preview=true` : basePath;
   }
 
   /**
@@ -491,9 +495,9 @@ class UnifiedFileService {
   /**
    * Get download URL for a file
    */
-  getFileDownloadUrl(uuid: string, module: string = 'documents'): string {
+  getFileDownloadUrl(uuid: string, module: string = 'documents', preview?: boolean): string {
     const baseURL = apiService.getAxiosInstance().defaults.baseURL;
-    return `${baseURL}${this.getDownloadPath(module, uuid)}`;
+    return `${baseURL}${this.getDownloadPath(module, uuid, preview)}`;
   }
 
   /**
@@ -569,8 +573,10 @@ class UnifiedFileService {
       title: file.name,
       description: options.description,
       tags: options.tags || [],
-      projectIds: options.projectIds,
-      isExclusiveMode: options.isExclusive
+      projectUuids: options.projectIds,
+      areProjectsExclusive: options.isExclusive,
+      isEncrypted: false,
+      originalName: file.name
     });
 
     return this.normalizeFileItem(response.data, 'documents', '');
@@ -606,8 +612,10 @@ class UnifiedFileService {
       title: file.name,
       description: options.description,
       tags: options.tags || [],
-      projectIds: [projectUuid],
-      isExclusiveMode: options.isExclusive
+      projectUuids: [projectUuid],
+      areProjectsExclusive: options.isExclusive,
+      isEncrypted: false,
+      originalName: file.name
     });
 
     return this.normalizeFileItem(response.data, 'projects', projectUuid);

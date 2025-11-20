@@ -1,9 +1,17 @@
 '''
-Unified Download Service for PKMS
+DEPRECATED: This service is not used anywhere in the codebase.
 
-This service provides consistent download functionality across all modules
-while supporting module-specific requirements like file path resolution.
+All modules use their own download services:
+- Documents: document_crud_service.download_document()
+- Archive: archive_item_service.download_item()
+- Notes: Uses document_crud_service
+
+This file can be safely removed. Kept for reference only.
 '''
+
+# Legacy unified download service - NOT USED
+# This code is kept for reference but is not imported or used anywhere
+# in the current codebase. All modules have their own download implementations.
 
 from pathlib import Path
 from typing import Optional, Union, Type

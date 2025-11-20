@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button, Group, Title, Progress, Alert, Stack } from '@mantine/core';
 import { IconPlus, IconMicrophone } from '@tabler/icons-react';
-import { FileUploadModal } from './FileUploadModal';
+import { FileUploadModalMemo } from './FileUploadModal';
 import { AudioRecorderModal } from './AudioRecorderModal';
 import { UnifiedFileList } from './UnifiedFileList';
 import { unifiedFileService, UnifiedFileItem } from '../../services/unifiedFileService';
@@ -405,7 +405,7 @@ export const UnifiedFileSection: React.FC<UnifiedFileSectionProps> = ({
         encryptionKey={encryptionKey}
       />
 
-      <FileUploadModal
+      <FileUploadModalMemo
         opened={uploadModalOpen}
         onClose={() => setUploadModalOpen(false)}
         onUpload={handleFileUpload}

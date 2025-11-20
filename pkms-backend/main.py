@@ -190,6 +190,7 @@ app.add_middleware(
         "Content-Type",
         "Content-Length",
         "Location",  # For redirects
+        "Content-Disposition",  # For preview/download handling
     ]
 )
 
@@ -298,20 +299,30 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def add_security_headers(request: Request, call_next):
     """Add security headers to all responses"""
     response = await call_next(request)
-    
+
     if settings.enable_security_headers:
-        # Prevent clickjacking
-        response.headers["X-Frame-Options"] = "DENY"
-        
+        # Robust check for preview requests using FastAPI's native query_params
+        is_preview_request = (
+            request.url.path.endswith("/download") and
+            request.query_params.get("preview", "").lower() == "true"
+        )
+
+        if is_preview_request:
+            # Allow same-origin iframe embedding for PDF previews
+            response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        else:
+            # Prevent clickjacking for all other endpoints
+            response.headers["X-Frame-Options"] = "DENY"
+
         # Prevent MIME type sniffing
         response.headers["X-Content-Type-Options"] = "nosniff"
-        
+
         # XSS Protection
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        
+
         # Referrer Policy
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        
+
         # Content Security Policy (relaxed for local development)
         if settings.environment == "production":
             response.headers["Content-Security-Policy"] = (
@@ -321,11 +332,22 @@ async def add_security_headers(request: Request, call_next):
                 "img-src 'self' data: blob:; "
                 "font-src 'self'"
             )
-        
+        elif settings.environment == "development":
+            # Allow PDF frames for preview functionality in development
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob:; "
+                "font-src 'self'; "
+                "frame-src 'self' blob:; "
+                "object-src 'self'"
+            )
+
         # HSTS (only in production with HTTPS)
         if settings.environment == "production":
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    
+
     return response
 
 # Trusted Host Middleware - Only in production for security
