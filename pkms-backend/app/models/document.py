@@ -3,7 +3,7 @@ Document Model for File Management
 """
 from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 
 from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now

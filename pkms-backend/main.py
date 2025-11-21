@@ -307,12 +307,55 @@ async def add_security_headers(request: Request, call_next):
             request.query_params.get("preview", "").lower() == "true"
         )
 
+        
         if is_preview_request:
-            # Allow same-origin iframe embedding for PDF previews
-            response.headers["X-Frame-Options"] = "SAMEORIGIN"
+            # Remove X-Frame-Options to allow iframe embedding for all preview requests
+            # Add frame-ancestors permission for inline preview in both environments
+            if settings.environment == "production":
+                response.headers["Content-Security-Policy"] = (
+                    "default-src 'self'; "
+                    "script-src 'self' 'unsafe-inline'; "
+                    "style-src 'self' 'unsafe-inline'; "
+                    "img-src 'self' data: blob:; "
+                    "font-src 'self'; "
+                    "frame-ancestors 'self' *; "
+                    "object-src 'self'"
+                )
+            elif settings.environment == "development":
+                # Allow all frames for preview functionality in development
+                response.headers["Content-Security-Policy"] = (
+                    "default-src 'self'; "
+                    "script-src 'self' 'unsafe-inline'; "
+                    "style-src 'self' 'unsafe-inline'; "
+                    "img-src 'self' data: blob:; "
+                    "font-src 'self'; "
+                    "frame-ancestors 'self' *; "
+                    "object-src 'self'"
+                )
         else:
             # Prevent clickjacking for all other endpoints
             response.headers["X-Frame-Options"] = "DENY"
+
+            # Content Security Policy for non-preview requests
+            if settings.environment == "production":
+                response.headers["Content-Security-Policy"] = (
+                    "default-src 'self'; "
+                    "script-src 'self' 'unsafe-inline'; "
+                    "style-src 'self' 'unsafe-inline'; "
+                    "img-src 'self' data: blob:; "
+                    "font-src 'self'"
+                )
+            elif settings.environment == "development":
+                # Allow PDF frames for preview functionality in development
+                response.headers["Content-Security-Policy"] = (
+                    "default-src 'self'; "
+                    "script-src 'self' 'unsafe-inline'; "
+                    "style-src 'self' 'unsafe-inline'; "
+                    "img-src 'self' data: blob:; "
+                    "font-src 'self'; "
+                    "frame-src 'self' blob:; "
+                    "object-src 'self'"
+                )
 
         # Prevent MIME type sniffing
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -322,27 +365,6 @@ async def add_security_headers(request: Request, call_next):
 
         # Referrer Policy
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-
-        # Content Security Policy (relaxed for local development)
-        if settings.environment == "production":
-            response.headers["Content-Security-Policy"] = (
-                "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline'; "
-                "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data: blob:; "
-                "font-src 'self'"
-            )
-        elif settings.environment == "development":
-            # Allow PDF frames for preview functionality in development
-            response.headers["Content-Security-Policy"] = (
-                "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline'; "
-                "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data: blob:; "
-                "font-src 'self'; "
-                "frame-src 'self' blob:; "
-                "object-src 'self'"
-            )
 
         # HSTS (only in production with HTTPS)
         if settings.environment == "production":

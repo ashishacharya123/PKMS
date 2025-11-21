@@ -135,7 +135,7 @@ async def permanent_delete_document(
 @handle_api_errors("download document")
 async def download_document(
     document_uuid: str,
-    preview: bool = Query(False, description="Preview inline instead of download"),
+    preview: bool = Query(True, description="Preview inline instead of download"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):

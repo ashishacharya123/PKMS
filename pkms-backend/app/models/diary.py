@@ -6,7 +6,7 @@ Includes DiaryEntry for journal entries and DiaryDailyMetadata for habit trackin
 financial data, and wellness analytics. Supports Nepali calendar integration.
 """
 
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, SmallInteger, UniqueConstraint, Index, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.asyncio import AsyncSession

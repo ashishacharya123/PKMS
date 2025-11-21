@@ -3,7 +3,7 @@ Archive Folder Service
 Handles folder CRUD operations, tree structure, and bulk operations
 """
 
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, update, text

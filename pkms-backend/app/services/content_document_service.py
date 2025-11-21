@@ -8,7 +8,7 @@ Handles encrypted/unencrypted content storage, file management, and associations
 import logging
 import base64
 import hashlib
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 import aiofiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select

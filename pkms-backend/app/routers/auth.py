@@ -143,6 +143,16 @@ async def setup_user(
         samesite="strict"  # SECURITY: Strict SameSite for CSRF protection
     )
 
+    # Set additional access token for iframe usage (non-HttpOnly)
+    response.set_cookie(
+        key="pkms_access_token",
+        value=access_token,
+        max_age=settings.access_token_expire_minutes * 60,  # 30 minutes
+        httponly=False,  # Allow JavaScript access for iframe URLs
+        secure=(settings.environment == "production"),
+        samesite="lax"  # Less restrictive for iframe compatibility
+    )
+
     # Set refresh token cookie
     response.set_cookie(
         key="pkms_refresh",
@@ -374,6 +384,7 @@ async def logout(
     
     # Clear cookies
     response.delete_cookie(key="pkms_token", samesite="strict")
+    response.delete_cookie(key="pkms_access_token", samesite="lax")  # Clear iframe access token
     response.delete_cookie(key="pkms_refresh", samesite="strict")
     
     return {"message": "Successfully logged out"}

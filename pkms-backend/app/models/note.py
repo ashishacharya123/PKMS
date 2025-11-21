@@ -4,7 +4,7 @@ Note Model for Knowledge Management
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Index, CheckConstraint
 from sqlalchemy.orm import relationship
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 
 from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now

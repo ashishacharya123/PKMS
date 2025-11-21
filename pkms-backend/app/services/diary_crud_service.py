@@ -7,7 +7,7 @@ Includes entry creation, reading, updating, deletion, and file operations.
 
 import logging
 import json
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 from sqlalchemy.ext.asyncio import AsyncSession

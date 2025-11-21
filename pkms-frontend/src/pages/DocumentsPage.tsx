@@ -31,6 +31,7 @@ import ViewMenu, { ViewMode } from '../components/common/ViewMenu';
 import { getFileTypeConfig, getFileTypeConfigByExtension } from '../utils/fileUtils';
 import ViewModeLayouts, { formatDate } from '../components/common/ViewModeLayouts';
 import { formatFileSize } from '../utils/fileUtils';
+import { addTokenToUrl } from '../utils/cookieUtils';
 import { useViewPreferences } from '../hooks/useViewPreferences';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { ProjectBadges } from '../components/common/ProjectBadges';
@@ -45,7 +46,8 @@ import {
   IconArchive,
   IconStar,
   IconRefresh,
-  IconExternalLink
+  IconExternalLink,
+  IconDownload,
 } from '@tabler/icons-react';
 import { useDebouncedValue } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
@@ -363,14 +365,16 @@ export function DocumentsPage() {
       const originalName = doc?.originalName || '';
 
       // Helper function to open in new tab
-      const openInNewTab = () => {
-        const url = getDownloadUrl(doc.uuid, false); // preview=false for download
+      const openDownloadUrlInNewTab = (preview: boolean) => {
+        const url = getDownloadUrl(doc.uuid, preview);
+        console.log('🔍 DEBUG: New tab URL being opened:', url);
+        console.log('🔍 DEBUG: New tab preview mode:', preview);
         window.open(url, '_blank', 'noopener,noreferrer');
       };
 
       // If user explicitly wants new tab, just open the download URL
       if (openInNewTab) {
-        openInNewTab();
+        openDownloadUrlInNewTab(true); // Open with preview flag
         return;
       }
 
@@ -382,77 +386,42 @@ export function DocumentsPage() {
         imagePreviewModal.openModal({ url, name: originalName });
         return;
       }
-
-      // 2. Text files: Download to blob and extract content
-      const textTypes = [
-        'text/plain',
-        'text/markdown',
-        'text/html',
-        'text/css',
-        'text/javascript',
-        'application/json',
-        'application/xml',
-        'text/xml'
+      
+      // 2. Archives and binary files: show notification
+      const nonPreviewableTypes = [
+        'application/zip',
+        'application/x-rar-compressed',
+        'application/x-7z-compressed',
+        'application/x-tar',
+        'application/gzip',
+        'application/octet-stream'
       ];
 
-      if (textTypes.includes(mimeType) || originalName?.match(/\.(txt|md|markdown|html|css|js|json|xml)$/i)) {
-        try {
-          const blob = await downloadDocument(doc.uuid);
-          if (!blob) return;
-          const content = await blob.text();
-
-          contentModal.openModal(
-            { file: doc, mode: 'view' },  // selectedItem
-            { content }                    // modalData
-          );
-        } catch (error) {
-          console.warn('Failed to load text content:', error);
-          // Fallback to new tab
-          openInNewTab();
-        }
-        return;
-      }
-
-      // 3. PDFs: Use preview URL for inline iframe display
-      if (mimeType === 'application/pdf') {
-        try {
-          // Use preview endpoint with Content-Disposition: inline (already implemented!)
-          const url = getDownloadUrl(doc.uuid, true); // preview=true
-          contentModal.openModal(
-            { file: doc, mode: 'view' },
-            { content: null, pdfUrl: url }
-          );
-        } catch (error) {
-          console.warn('Failed to get PDF preview URL, opening in new tab:', error);
-          openInNewTab();
-        }
-        return;
-      }
-
-      // 4. Other documents: Try inline, fallback to new tab
-      if (mimeType?.includes('document') ||
-          mimeType?.includes('sheet') ||
-          mimeType?.includes('presentation')) {
-        openInNewTab();
-        return;
-      }
-
-      // 5. Archives and binary files: Download instead of preview
-      if (mimeType?.includes('zip') ||
-          mimeType?.includes('rar') ||
-          mimeType?.includes('tar') ||
-          mimeType?.includes('gzip') ||
-          mimeType?.includes('application/octet-stream')) {
+      if (nonPreviewableTypes.includes(mimeType) || originalName?.match(/\.(zip|rar|7z|tar|gz)$/i)) {
         notifications.show({
-          title: 'Archive File',
-          message: 'This file type cannot be previewed. Use the download button instead.',
+          title: 'File Cannot Be Previewed',
+          message: 'This file type must be downloaded to be viewed.',
           color: 'blue'
         });
         return;
       }
 
-      // 6. Fallback: Try to open in new tab
-      openInNewTab();
+      // 3. All other file types (PDF, text, office docs, etc.): Use preview URL for inline iframe display
+      try {
+        const url = getDownloadUrl(doc.uuid, true); // preview=true
+        const urlWithToken = addTokenToUrl(url); // Add authentication token for iframe
+        console.log('🔍 DEBUG: Modal iframe URL being generated:', urlWithToken);
+        console.log('🔍 DEBUG: Document being previewed:', { uuid: doc.uuid, name: doc.originalName, type: doc.mimeType });
+        contentModal.openModal(
+          { file: doc, mode: 'view' },
+          { content: null, pdfUrl: urlWithToken } // pdfUrl is reused for any iframe src with token
+        );
+        console.log('🔍 DEBUG: Modal opened with pdfUrl:', urlWithToken);
+      } catch (error) {
+        console.warn('Failed to get preview URL, opening in new tab:', error);
+        openDownloadUrlInNewTab(true);
+      }
+
     } catch (error) {
       console.error('Preview error:', error);
       notifications.show({
@@ -1092,6 +1061,12 @@ export function DocumentsPage() {
                     border: 'none'
                   }}
                   title={contentModal.selectedItem.file.originalName}
+                  onLoad={() => console.log('🔍 DEBUG: Iframe loaded successfully:', contentModal.modalData.pdfUrl)}
+                  onError={() => {
+                    console.error('🔍 DEBUG: Iframe failed to load:', contentModal.modalData.pdfUrl);
+                    console.log('🔍 DEBUG: Falling back to new tab for document');
+                    handlePreview(contentModal.selectedItem.file, true); // Open in new tab as fallback
+                  }}
                 />
               </div>
             ) : (

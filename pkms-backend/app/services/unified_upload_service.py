@@ -4,7 +4,7 @@ UnifiedUploadService - Ensures atomic file operations and database consistency
 
 import asyncio
 import shutil
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 import errno
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable

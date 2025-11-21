@@ -7,7 +7,7 @@ file operations integration, and search indexing.
 
 import logging
 import re
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 from typing import List, Optional
 from datetime import datetime
 from pathlib import Path

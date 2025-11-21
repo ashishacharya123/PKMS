@@ -7,7 +7,7 @@ from sqlalchemy import (
     UniqueConstraint, Index
 )
 from sqlalchemy.orm import relationship
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 
 from app.models.base import Base
 from app.config import nepal_now

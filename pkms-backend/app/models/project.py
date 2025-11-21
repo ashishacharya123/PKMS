@@ -6,7 +6,7 @@ Supports FTS5 search and project duplication functionality.
 """
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Date, Enum, Index
 from sqlalchemy.orm import relationship
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 from datetime import date
 import warnings
 

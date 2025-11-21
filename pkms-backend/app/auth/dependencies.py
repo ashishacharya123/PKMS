@@ -2,7 +2,7 @@
 Authentication dependencies for FastAPI
 """
 
-from fastapi import Depends, HTTPException, status, Request, Cookie
+from fastapi import Depends, HTTPException, status, Request, Cookie, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -23,26 +23,38 @@ async def get_current_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
     token_cookie: str | None = Cookie(default=None, alias="pkms_token"),
+    token_query: str | None = Query(default=None, alias="token"),  # URL parameter for iframe support
     credentials: HTTPAuthorizationCredentials | None = Depends(security)
 ) -> User:
     """
-    Get the current authenticated user from HttpOnly cookie (preferred) or Authorization header (fallback)
-    
+    Get the current authenticated user from HttpOnly cookie (preferred), URL parameter (for iframes), or Authorization header (fallback)
+
     Args:
         request: FastAPI request
         db: Database session
         token_cookie: JWT token from HttpOnly cookie (primary method)
+        token_query: JWT token from URL query parameter (for iframe preview support)
         credentials: HTTP Bearer token (fallback method)
-    
+
     Returns:
         Current user object
-    
+
     Raises:
         HTTPException: If authentication fails
     """
     # Try cookie first (preferred, XSS-safe)
     token = token_cookie
-    
+
+    # Check URL parameter for preview requests (iframe support)
+    if not token and token_query:
+        # Only allow URL parameter for preview requests to maintain security
+        is_preview_request = (
+            request.url.path.endswith("/download") and
+            request.query_params.get("preview", "").lower() == "true"
+        )
+        if is_preview_request:
+            token = token_query
+
     # Fallback to Authorization header
     if not token and credentials:
         token = credentials.credentials
