@@ -150,7 +150,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         });
         
       } catch (error: any) {
-        console.error('Failed to initialize diary:', error);
+        logger.error('Failed to initialize diary:', error);
 
         // SECURITY: Default to mandatory encryption on errors for safety
         // Better to incorrectly show password prompt than expose unencrypted diary
@@ -179,7 +179,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         }
         return success;
       } catch (error) {
-        console.error('Failed to setup encryption:', error);
+        logger.error('Failed to setup encryption:', error);
         set({ error: 'Failed to setup encryption' });
         return false;
       } finally {
@@ -190,14 +190,17 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
     unlockSession: async (password: string) => {
       try {
         set({ isLoading: true, error: null });
-        const { key, success } = await diaryService.unlockSession(password);
+        const { key, success, errorType, error } = await diaryService.unlockSession(password);
         if (success) {
           set({ encryptionKey: key, isUnlocked: true, error: null });
           // Note: Auto-lock is now handled by DiaryPage component (5 min after leaving page)
+        } else if (error) {
+          // Set specific error message based on error type
+          set({ error: error });
         }
         return success;
       } catch (error) {
-        console.error('Failed to unlock session:', error);
+        logger.error('Failed to unlock session:', error);
         set({ error: 'Failed to unlock session' });
         return false;
       } finally {
@@ -256,7 +259,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         set({ isLoading: true });
         const state = get();
         
-        console.log('[DIARY STORE] Loading entries, current state:', {
+        logger.debug('[DIARY STORE] Loading entries, current state:', {
           isUnlocked: state.isUnlocked,
           searchQuery: state.searchQuery,
           currentDayOfWeek: state.currentDayOfWeek,
@@ -292,7 +295,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
           set({ currentEntry: entry });
         }
       } catch (error) {
-        console.error('Failed to load entry:', error);
+        logger.error('Failed to load entry:', error);
         set({ error: 'Failed to load entry' });
       } finally {
         set({ isLoading: false });
@@ -313,7 +316,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         await get().loadCalendarData(get().currentYear, get().currentMonth);
         return true;
       } catch (error) {
-        console.error('Failed to create entry:', error);
+        logger.error('Failed to create entry:', error);
         set({ error: 'Failed to create entry' });
         return false;
       } finally {
@@ -335,7 +338,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         await get().loadCalendarData(get().currentYear, get().currentMonth);
         return true;
       } catch (error) {
-        console.error('Failed to update entry:', error);
+        logger.error('Failed to update entry:', error);
         set({ error: 'Failed to update entry' });
         return false;
       } finally {
@@ -357,7 +360,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         await get().loadCalendarData(get().currentYear, get().currentMonth);
         return true;
       } catch (error) {
-        console.error('Failed to delete entry:', error);
+        logger.error('Failed to delete entry:', error);
         set({ error: 'Failed to delete entry' });
         return false;
       } finally {
@@ -377,7 +380,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         const data = await diaryService.getCalendarData(year, month);
         set({ calendarData: data });
       } catch (error) {
-        console.error('Failed to load calendar data:', error);
+        logger.error('Failed to load calendar data:', error);
         if (get().isUnlocked) set({ error: 'Failed to load calendar data' });
       } finally {
         set({ isLoading: false });
@@ -396,7 +399,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         const stats = await diaryService.getMoodStats();
         set({ moodStats: stats });
       } catch (error) {
-        console.error('Failed to load mood stats:', error);
+        logger.error('Failed to load mood stats:', error);
         if (get().isUnlocked) set({ error: 'Failed to load mood stats' });
       } finally {
         set({ isLoading: false });
@@ -428,7 +431,7 @@ export const useDiaryStore = create<DiaryState>((set, get) => {
         if (get().isUnlocked) {
           const isStillUnlocked = await get().checkUnlockStatus();
           if (!isStillUnlocked) {
-            console.log('[DIARY STORE] Diary session expired during monitoring');
+            logger.debug('[DIARY STORE] Diary session expired during monitoring');
           }
         }
       }, 5 * 60 * 1000); // 5 minutes

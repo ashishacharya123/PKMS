@@ -8,9 +8,13 @@ Used by all CRUD services to detect orphans and check link counts.
 import asyncio
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 from app.models.associations import project_items, note_documents, document_diary
 from app.models.todo import Todo
+from app.models.note import Note
+from app.models.document import Document
+from app.models.project import Project
+from app.models.diary import DiaryEntry
 
 logger = logging.getLogger(__name__)
 
@@ -22,18 +26,32 @@ class AssociationCounterService:
     """
     
     async def get_document_link_count(self, db: AsyncSession, doc_uuid: str) -> int:
-        """Count all associations for a Document."""
-        q_proj = select(func.count(project_items.c.id)).where(
+        """Count all associations for a Document (excluding deleted items)."""
+        # Project associations - join with Project to filter deleted projects
+        q_proj = select(func.count(project_items.c.id)).select_from(
+            project_items.join(Project, project_items.c.project_uuid == Project.uuid)
+        ).where(
             project_items.c.item_type == 'Document',
-            project_items.c.item_uuid == doc_uuid
+            project_items.c.item_uuid == doc_uuid,
+            Project.active_only()  # Only count active projects
         )
-        q_note = select(func.count(note_documents.c.id)).where(
-            note_documents.c.document_uuid == doc_uuid
+
+        # Note associations - join with Note to filter deleted notes
+        q_note = select(func.count(note_documents.c.id)).select_from(
+            note_documents.join(Note, note_documents.c.note_uuid == Note.uuid)
+        ).where(
+            note_documents.c.document_uuid == doc_uuid,
+            Note.active_only()  # Only count active notes
         )
-        q_diary = select(func.count(document_diary.c.id)).where(
-            document_diary.c.document_uuid == doc_uuid
+
+        # Diary associations - join with DiaryEntry to filter deleted entries
+        q_diary = select(func.count(document_diary.c.id)).select_from(
+            document_diary.join(DiaryEntry, document_diary.c.diary_entry_uuid == DiaryEntry.uuid)
+        ).where(
+            document_diary.c.document_uuid == doc_uuid,
+            DiaryEntry.active_only()  # Only count active diary entries
         )
-        
+
         counts = await asyncio.gather(
             db.scalar(q_proj),
             db.scalar(q_note),
@@ -42,39 +60,90 @@ class AssociationCounterService:
         return sum(c or 0 for c in counts)
 
     async def get_note_link_count(self, db: AsyncSession, note_uuid: str) -> int:
-        """Count all associations for a Note (projects only)."""
-        q_proj = select(func.count(project_items.c.id)).where(
+        """Count all associations for a Note (projects only, excluding deleted projects)."""
+        # Project associations - join with Project model to filter deleted projects
+        q_proj = select(func.count(project_items.c.id)).select_from(
+            project_items.join(Project, project_items.c.project_uuid == Project.uuid)
+        ).where(
             project_items.c.item_type == 'Note',
-            project_items.c.item_uuid == note_uuid
+            project_items.c.item_uuid == note_uuid,
+            Project.active_only()
         )
         count = (await db.execute(q_proj)).scalar() or 0
         return count
 
     async def get_todo_link_count(self, db: AsyncSession, todo_uuid: str) -> int:
-        """Count all associations for a Todo (projects + parent check)."""
-        q_proj = select(func.count(project_items.c.id)).where(
+        """Count all associations for a Todo (projects + parent check, excluding deleted items)."""
+        # Project associations - join with Project model to filter deleted projects
+        q_proj = select(func.count(project_items.c.id)).select_from(
+            project_items.join(Project, project_items.c.project_uuid == Project.uuid)
+        ).where(
             project_items.c.item_type == 'Todo',
-            project_items.c.item_uuid == todo_uuid
+            project_items.c.item_uuid == todo_uuid,
+            Project.active_only()
         )
-        # Check if todo has parent (if yes, it's linked)
-        q_parent = select(func.count(Todo.uuid)).where(
+
+        # Check if todo has active parent (only if todo itself is active)
+        from sqlalchemy.orm import aliased
+        ParentTodo = aliased(Todo)
+        q_parent = select(func.count(ParentTodo.uuid)).select_from(
+            Todo.join(ParentTodo, Todo.parent_uuid == ParentTodo.uuid)
+        ).where(
             Todo.uuid == todo_uuid,
-            Todo.parent_uuid.is_not(None)
+            Todo.active_only(),      # Todo itself must be active
+            ParentTodo.active_only() # Parent must be active
         )
-        
+
         counts = await asyncio.gather(
             db.scalar(q_proj),
             db.scalar(q_parent)
         )
-        return sum(c or 0 for c in counts)
+        project_count = counts[0] or 0
+        has_parent = (counts[1] or 0) > 0
+
+        return project_count + (1 if has_parent else 0)
     
     async def get_project_link_count(self, db: AsyncSession, project_uuid: str) -> int:
-        """Count all children of a Project."""
-        q = select(func.count(project_items.c.id)).where(
-            project_items.c.project_uuid == project_uuid
+        """Count all children of a Project (excluding deleted items)."""
+        # Note associations - join with Note to filter deleted notes
+        q_notes = select(func.count(project_items.c.id)).select_from(
+            project_items.join(Note, and_(
+                project_items.c.item_type == 'Note',
+                project_items.c.item_uuid == Note.uuid
+            ))
+        ).where(
+            project_items.c.project_uuid == project_uuid,
+            Note.active_only()  # Only count active notes
         )
-        count = (await db.execute(q)).scalar() or 0
-        return count
+
+        # Todo associations - join with Todo to filter deleted todos
+        q_todos = select(func.count(project_items.c.id)).select_from(
+            project_items.join(Todo, and_(
+                project_items.c.item_type == 'Todo',
+                project_items.c.item_uuid == Todo.uuid
+            ))
+        ).where(
+            project_items.c.project_uuid == project_uuid,
+            Todo.active_only()  # Only count active todos
+        )
+
+        # Document associations - join with Document to filter deleted documents
+        q_documents = select(func.count(project_items.c.id)).select_from(
+            project_items.join(Document, and_(
+                project_items.c.item_type == 'Document',
+                project_items.c.item_uuid == Document.uuid
+            ))
+        ).where(
+            project_items.c.project_uuid == project_uuid,
+            Document.active_only()  # Only count active documents
+        )
+
+        counts = await asyncio.gather(
+            db.scalar(q_notes),
+            db.scalar(q_todos),
+            db.scalar(q_documents)
+        )
+        return sum(c or 0 for c in counts)
 
     async def get_item_link_count(
         self, db: AsyncSession, item_type: str, item_uuid: str

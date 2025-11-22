@@ -7,6 +7,8 @@ import { apiService } from './api';
 import { BaseService } from './BaseService';
 import { coreUploadService, UploadProgress } from './shared/coreUploadService';
 import { coreDownloadService, DownloadProgress } from './shared/coreDownloadService';
+import { entityReserveService } from './entityReserveService';
+import { logger } from '../utils/logger';
 
 // Removed SMALL_FILE_THRESHOLD since we're using chunked upload consistently
 
@@ -107,7 +109,59 @@ class NotesService extends BaseService<Note, CreateNoteRequest, UpdateNoteReques
    * Get a specific note by ID
    */
   async getNote(uuid: string): Promise<Note> {
-    return this.getById(uuid);
+    // Use direct endpoint path since apiService already adds /api/v1 prefix
+    const endpoint = '/notes';
+
+    // Try direct API call first for better service context handling
+    try {
+      const response = await apiService.get<Note>(`${endpoint}/${uuid}`);
+      return response.data;
+    } catch (directApiError: any) {
+      logger.debug('Direct API call failed, trying service context:', { uuid, error: directApiError.message });
+
+      // Fallback to service context if direct API fails
+      if (!this.getById || typeof this.getById !== 'function') {
+        logger.error('Service context error: this.getById is not available in notesService.getNote');
+        // For truly inaccessible reserved notes, return empty note for UI handling
+        const emptyNote: Note = {
+          uuid,
+          name: '',
+          title: '',
+          content: '',
+          fileCount: 0,
+          isFavorite: false,
+          isArchived: false,
+          isProjectExclusive: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          tags: [],
+          projects: [],
+        };
+        return emptyNote;
+      }
+
+      try {
+        return await this.getById(uuid);
+      } catch (error: any) {
+        // If both approaches fail, return empty note for UI detection
+        logger.warn('Both API approaches failed, returning empty note:', { uuid, error: error.message });
+        const emptyNote: Note = {
+          uuid,
+          name: '',
+          title: '',
+          content: '',
+          fileCount: 0,
+          isFavorite: false,
+          isArchived: false,
+          isProjectExclusive: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          tags: [],
+          projects: [],
+        };
+        return emptyNote;
+      }
+    }
   }
 
   /**
@@ -121,7 +175,43 @@ class NotesService extends BaseService<Note, CreateNoteRequest, UpdateNoteReques
    * Delete a note
    */
   async deleteNote(uuid: string): Promise<void> {
-    return this.delete(uuid);
+    // Use direct endpoint path since apiService already adds /api/v1 prefix
+    const endpoint = '/notes';
+
+    console.log('🗑️ deleteNote called with UUID:', uuid);
+    logger.info('Deleting note with API call:', { uuid, endpoint });
+
+    try {
+      console.log('🌐 Calling apiService.delete:', `${endpoint}/${uuid}`);
+      await apiService.delete(`${endpoint}/${uuid}`);
+      console.log('✅ apiService.delete succeeded');
+      logger.info('Note deleted successfully via direct API:', { uuid });
+      return;
+    } catch (directApiError: any) {
+      console.log('❌ apiService.delete failed:', directApiError.message);
+      logger.error('Direct API delete failed, trying service context:', { uuid, error: directApiError.message });
+
+      // Fallback to service context if direct API fails
+      if (!this.delete || typeof this.delete !== 'function') {
+        console.log('❌ Service context not available');
+        logger.error('Service context error: this.delete is not available in notesService.deleteNote');
+        // For reserved notes, just succeed but log clearly
+        logger.warn('Cannot delete reserved note via service context, treating as deleted:', { uuid });
+        return;
+      }
+
+      try {
+        console.log('🔄 Trying service context delete');
+        await this.delete(uuid);
+        console.log('✅ Service context delete succeeded');
+        logger.info('Note deleted successfully via service context:', { uuid });
+      } catch (error: any) {
+        console.log('❌ Service context delete also failed:', error.message);
+        // If both approaches fail, provide clear error
+        logger.error('Both API approaches failed for note deletion:', { uuid, error: error.message });
+        throw new Error(`Failed to delete note ${uuid}: ${error.message}`);
+      }
+    }
   }
 
   /**

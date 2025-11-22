@@ -30,6 +30,7 @@ from app.schemas.unified_upload import (
     UnifiedCommitResponse,
     UploadStatusResponse
 )
+from app.models.enums import ChunkUploadStatus
 import logging
 
 # Allowed modules for file uploads
@@ -142,21 +143,38 @@ async def upload_chunk(
         )
         
         # Check if all chunks received and auto-trigger assembly
-        progress = await chunk_manager.get_progress(file_id)
-        if progress and progress.get("chunks_completed", 0) >= total_chunks:
-            # All chunks received, trigger assembly
+        logger.info(f"Checking assembly trigger for file {file_id}")
+        status_obj = await chunk_manager.get_upload_status(file_id)
+
+        if status_obj:
+            logger.info(f"Upload status for {file_id}: {status_obj.get('status')}, progress: {status_obj.get('progress', 0)}%")
+        else:
+            logger.warning(f"No status found for file {file_id}")
+            raise HTTPException(status_code=404, detail="Upload not found")
+
+        # Check if status is ASSEMBLING (means all chunks received, assembly started)
+        # OR check if progress is 100%
+        if (status_obj.get('status') == ChunkUploadStatus.ASSEMBLING or
+            status_obj.get('progress', 0) >= 100):
+            # All chunks received, trigger assembly NOW
+            logger.info(f"Triggering assembly for file {file_id} (status: {status_obj.get('status')}, progress: {status_obj.get('progress', 0)}%)")
             try:
                 await chunk_manager.assemble_file(file_id)
+                logger.info(f"Assembly completed successfully for file {file_id}")
             except Exception as e:
-                logger.error(f"Failed to assemble file {file_id}: {str(e)}")
-                # Don't raise here, let the status endpoint handle it
-        
-        # Return current progress
+                logger.error(f"Assembly failed for file {file_id}: {str(e)}")
+                # Update status to FAILED to prevent frontend hanging
+                if file_id in chunk_manager.uploads:
+                    chunk_manager.uploads[file_id]['status'] = ChunkUploadStatus.FAILED
+                    chunk_manager.uploads[file_id]['error'] = str(e)
+
+        # Return current progress - re-fetch after assembly to get latest status
+        status_obj = await chunk_manager.get_upload_status(file_id)
         return {
             "success": True,
             "file_id": file_id,
             "chunk_number": chunk_number,
-            "progress": progress
+            "progress": status_obj
         }
         
     except HTTPException:
@@ -284,9 +302,16 @@ async def get_upload_status(
                 detail="Upload not found"
             )
 
+        # Handle both enum objects and string values safely
+        status_value = status_obj.get("status", "unknown")
+        if hasattr(status_value, 'value'):  # It's an enum object
+            status = status_value.value.lower()
+        else:  # It's already a string
+            status = str(status_value).lower()
+
         return UploadStatusResponse(
             upload_id=upload_id,
-            status=str(status_obj.get("status", "unknown")),
+            status=status,
             progress=status_obj.get("progress"),
             chunks_total=status_obj.get("chunks_total"),
             chunks_completed=status_obj.get("chunks_completed"),

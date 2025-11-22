@@ -46,11 +46,13 @@ import {
   IconRefresh,
 } from '@tabler/icons-react';
 import { notifications } from '@mantine/notifications';
+import { logger } from '../../utils/logger';
 
 // Import analytics components
 import HabitDashboard from './HabitDashboard';
 import { HabitInput } from './HabitInput';
 import HabitAnalyticsView from './HabitAnalyticsView';
+import { ErrorBoundary } from '../common/ErrorBoundary';
 import { HabitManagement } from './HabitManagement';
 import { AdvancedSearchAnalytics } from './AdvancedSearchAnalytics';
 
@@ -106,7 +108,7 @@ export const DiaryAnalyticsTab = React.memo(function DiaryAnalyticsTab() {
       setHabitStreaks(dashboardData.habitStreaks || {});
       setSearchStats(dashboardData.analytics || null);
     } catch (error) {
-      console.error('Failed to load dashboard data:', error);
+      logger.error('Failed to load dashboard data:', error);
       notifications.show({
         title: 'Error',
         message: 'Failed to load dashboard data. Please check your connection and try again.',
@@ -252,16 +254,37 @@ export const DiaryAnalyticsTab = React.memo(function DiaryAnalyticsTab() {
                 <Skeleton height={100} />
               </Stack>
             ) : (
-              <HabitDashboard />
+              <ErrorBoundary
+                showErrorDetails={process.env.NODE_ENV === 'development'}
+                onError={(error, errorInfo) => {
+                  logger.error('HabitDashboard component error:', error, errorInfo);
+                }}
+              >
+                <HabitDashboard />
+              </ErrorBoundary>
             )}
           </Tabs.Panel>
 
           <Tabs.Panel value="habit-input" pt="md">
-            <HabitInput selectedDate={selectedDate} />
+              <ErrorBoundary
+                showErrorDetails={process.env.NODE_ENV === 'development'}
+                onError={(error, errorInfo) => {
+                  logger.error('HabitInput component error:', error, errorInfo);
+                }}
+              >
+              <HabitInput selectedDate={selectedDate} />
+            </ErrorBoundary>
           </Tabs.Panel>
 
           <Tabs.Panel value="habit-analytics" pt="md">
-            <HabitAnalyticsView />
+              <ErrorBoundary
+                showErrorDetails={process.env.NODE_ENV === 'development'}
+                onError={(error, errorInfo) => {
+                  logger.error('HabitAnalyticsView component error:', error, errorInfo);
+                }}
+              >
+              <HabitAnalyticsView />
+            </ErrorBoundary>
           </Tabs.Panel>
 
           <Tabs.Panel value="habit-management" pt="md">

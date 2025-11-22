@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button, Group, Title, Progress, Alert, Stack } from '@mantine/core';
 import { IconPlus, IconMicrophone } from '@tabler/icons-react';
-import { FileUploadModal } from './FileUploadModal';
+import { FileUploadModalMemo } from './FileUploadModal';
 import { AudioRecorderModal } from './AudioRecorderModal';
 import { UnifiedFileList } from './UnifiedFileList';
 import { unifiedFileService, UnifiedFileItem } from '../../services/unifiedFileService';
@@ -107,6 +107,8 @@ interface UnifiedFileSectionProps {
   enableDragDrop?: boolean;
   showUnlink?: boolean; // For project context
   encryptionKey?: CryptoKey; // For diary encryption
+  enableAdvancedPreview?: boolean;
+  onAdvancedPreview?: (file: UnifiedFileItem) => void;
 }
 
 export const UnifiedFileSection: React.FC<UnifiedFileSectionProps> = ({
@@ -119,7 +121,9 @@ export const UnifiedFileSection: React.FC<UnifiedFileSectionProps> = ({
   showAudioRecorder = false,
   enableDragDrop = false,
   showUnlink = false,
-  encryptionKey
+  encryptionKey,
+  enableAdvancedPreview = false,
+  onAdvancedPreview
 }) => {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [audioRecorderOpen, setAudioRecorderOpen] = useState(false);
@@ -403,9 +407,11 @@ export const UnifiedFileSection: React.FC<UnifiedFileSectionProps> = ({
         showUnlink={showUnlink}
         enableDragDrop={enableDragDrop}
         encryptionKey={encryptionKey}
+        enableAdvancedPreview={enableAdvancedPreview}
+        onAdvancedPreview={onAdvancedPreview}
       />
 
-      <FileUploadModal
+      <FileUploadModalMemo
         opened={uploadModalOpen}
         onClose={() => setUploadModalOpen(false)}
         onUpload={handleFileUpload}

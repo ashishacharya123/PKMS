@@ -61,6 +61,7 @@ class DocumentCRUDService:
                     "are_projects_exclusive": payload.are_projects_exclusive,
                     "diary_entry_uuid": payload.diary_entry_uuid,  # Link to diary entry if provided
                     "is_encrypted": payload.is_encrypted,  # Track encryption status
+                    "original_name": payload.original_name,  # Preserve original filename
                 }
             )
 
@@ -284,7 +285,7 @@ class DocumentCRUDService:
         """Get a specific document by UUID."""
         result = await db.execute(
             select(Document).options(selectinload(Document.tag_objs)).where(
-                and_(Document.uuid == document_uuid, Document.created_by == user_uuid)
+                and_(Document.active_only(), Document.uuid == document_uuid, Document.created_by == user_uuid)
             )
         )
         doc = result.scalar_one_or_none()
@@ -306,7 +307,7 @@ class DocumentCRUDService:
         """Update document metadata and tags."""
         result = await db.execute(
             select(Document).options(selectinload(Document.tag_objs)).where(
-                and_(Document.uuid == document_uuid, Document.created_by == user_uuid)
+                and_(Document.active_only(), Document.uuid == document_uuid, Document.created_by == user_uuid)
             )
         )
         doc = result.scalar_one_or_none()
@@ -490,7 +491,7 @@ class DocumentCRUDService:
         
 
     async def download_document(
-        self, db: AsyncSession, user_uuid: str, document_uuid: str
+        self, db: AsyncSession, user_uuid: str, document_uuid: str, preview: bool = False
     ) -> FileResponse:
         """Download a document file."""
         result = await db.execute(
@@ -505,15 +506,49 @@ class DocumentCRUDService:
         file_path = get_file_storage_dir() / doc.file_path
         if not file_path.exists():
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, 
+                status_code=status.HTTP_404_NOT_FOUND,
                 detail="Document file not found on disk"
             )
 
-        return FileResponse(
+        # Manually construct response headers BEFORE FileResponse to prevent automatic attachment
+        headers = {}
+        if preview:
+            # Define previewable MIME types that support inline display
+            previewable_types = [
+                'application/pdf',  # PDFs for iframe
+                'image/',           # Images (though we use blob URLs, this helps with direct links)
+                'text/',            # Text files (though we use blob extraction, this helps with direct links)
+                'application/json',
+                'application/xml'
+            ]
+
+            # Check if file type is previewable
+            is_previewable = any(
+                doc.mime_type.startswith(pt) if pt.endswith('/') else doc.mime_type == pt
+                for pt in previewable_types
+            )
+
+            if is_previewable:
+                headers["Content-Disposition"] = f'inline; filename="{doc.original_name or doc.filename}"'
+                logger.info(f"PDF Preview - inline: {doc.original_name or doc.filename}, MIME: {doc.mime_type}")
+            else:
+                # For non-previewable types, force attachment even if preview=true
+                headers["Content-Disposition"] = f'attachment; filename="{doc.original_name or doc.filename}"'
+                logger.info(f"PDF Preview - attachment (non-previewable): {doc.original_name or doc.filename}, MIME: {doc.mime_type}")
+        else:
+            # Default behavior (attachment) - still set explicitly since we're not using filename parameter
+            headers["Content-Disposition"] = f'attachment; filename="{doc.original_name or doc.filename}"'
+            logger.info(f"PDF Download - attachment: {doc.original_name or doc.filename}, MIME: {doc.mime_type}")
+
+        # Create FileResponse WITHOUT filename parameter to prevent automatic attachment override
+        file_response = FileResponse(
             path=str(file_path),
-            filename=doc.original_name or doc.filename,
-            media_type=doc.mime_type
+            # filename parameter omitted entirely to prevent automatic Content-Disposition: attachment
+            media_type=doc.mime_type,
+            headers=headers
         )
+
+        return file_response
 
     def _convert_doc_to_response(
         self, doc: Document, project_badges: Optional[List[ProjectBadge]] = None

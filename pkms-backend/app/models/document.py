@@ -3,7 +3,7 @@ Document Model for File Management
 """
 from sqlalchemy import Column, String, Text, DateTime, Boolean, ForeignKey, BigInteger, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 
 from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
@@ -17,12 +17,12 @@ class Document(Base, SoftDeleteMixin):
     
     __tablename__ = "documents"
     
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)  # Primary key
+    uuid = Column(String(20), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)  # Primary key
     
     title = Column(String(255), nullable=False, index=True)
     filename = Column(String(255), nullable=False)  # Stored filename on disk
     original_name = Column(String(255), nullable=False)  # Original uploaded name
-    file_path = Column(String(500), nullable=False)  # Path relative to data directory
+    file_path = Column(String(255), nullable=False)  # Path relative to data directory
     file_size = Column(BigInteger, nullable=False)
     file_hash = Column(String(64), nullable=False, index=True)  # SHA-256 hash for deduplication
     mime_type = Column(String(100), nullable=False)
@@ -33,10 +33,10 @@ class Document(Base, SoftDeleteMixin):
     # is_deleted now provided by SoftDeleteMixin
 
     # Upload status removed - only needed during upload process, handled by upload services
-    thumbnail_path = Column(String(500), nullable=True)  # Path to thumbnail file
+    thumbnail_path = Column(String(255), nullable=True)  # Path to thumbnail file
 
     # Audit trail
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(20), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)

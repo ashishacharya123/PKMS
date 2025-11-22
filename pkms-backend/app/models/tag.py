@@ -7,7 +7,7 @@ from sqlalchemy import (
     UniqueConstraint, Index
 )
 from sqlalchemy.orm import relationship
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 
 from app.models.base import Base
 from app.config import nepal_now
@@ -24,7 +24,7 @@ class Tag(Base):
     
     __tablename__ = "tags"
 
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
+    uuid = Column(String(20), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
     name = Column(String(100), nullable=False, index=True)
     
     description = Column(Text, nullable=True)
@@ -36,7 +36,7 @@ class Tag(Base):
     # Simplified: Universal tags work across all modules - no module_type separation needed
     is_system = Column(Boolean, default=False, index=True)  # System tags can't be deleted
     is_archived = Column(Boolean, default=False, index=True)
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(20), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     

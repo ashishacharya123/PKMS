@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, update
 from sqlalchemy.orm import selectinload

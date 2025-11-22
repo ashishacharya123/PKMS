@@ -6,7 +6,7 @@ Supports FTS5 search and project duplication functionality.
 """
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, Date, Enum, Index
 from sqlalchemy.orm import relationship
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 from datetime import date
 import warnings
 
@@ -22,7 +22,7 @@ class Project(Base, SoftDeleteMixin):
     __tablename__ = "projects"
 
     # Primary identity
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
+    uuid = Column(String(20), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
 
     # Basic info
     name = Column(String(255), nullable=False, index=True)
@@ -45,7 +45,7 @@ class Project(Base, SoftDeleteMixin):
     completion_date = Column(DateTime(timezone=True), nullable=True)  # When project was actually completed
 
     # Audit trail
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(20), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     # Search indexing - FTS5 full-text search content (name, description, tags)
@@ -180,7 +180,7 @@ class ProjectSectionOrder(Base):
     
     __tablename__ = 'project_section_order'
     
-    project_uuid = Column(String(36), ForeignKey('projects.uuid', ondelete='CASCADE'), primary_key=True)
+    project_uuid = Column(String(20), ForeignKey('projects.uuid', ondelete='CASCADE'), primary_key=True)
     section_type = Column(Text, primary_key=True)  # enforce values in app: 'documents','notes','todos'
     sort_order = Column(Integer, nullable=False)
     

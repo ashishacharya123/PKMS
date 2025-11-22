@@ -220,16 +220,8 @@ class MetadataExtractionService {
    */
   private async extractPDFContent(file: File): Promise<string | null> {
     // In production, use pdf-parse or similar library
-    // This is a placeholder implementation
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        // This would require actual PDF parsing library
-        resolve(`Sample PDF content from ${file.name}`);
-      };
-      reader.onerror = () => resolve(null);
-      reader.readAsArrayBuffer(file);
-    });
+    // For documents, we don't extract content since full-text search is only for notes
+    return null;
   }
 
   /**

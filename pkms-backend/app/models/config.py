@@ -12,7 +12,7 @@ class AppConfig(Base):
     )
 
     config_name = Column(String(100), primary_key=True)  # e.g., 'default_habits', 'defined_habits'
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), primary_key=True, index=True)
+    created_by = Column(String(20), ForeignKey("users.uuid", ondelete="CASCADE"), primary_key=True, index=True)
     config_json = Column(Text, nullable=False, default='[]')  # JSON array or object
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)

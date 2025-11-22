@@ -6,21 +6,22 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  IconPlayerPlay, 
-  IconPlayerPause, 
-  IconDownload, 
-  IconTrash, 
-  IconPhoto, 
-  IconFileText, 
-  IconMicrophone, 
-  IconVideo, 
-  IconUnlink, 
+import {
+  IconPlayerPlay,
+  IconPlayerPause,
+  IconDownload,
+  IconTrash,
+  IconPhoto,
+  IconFileText,
+  IconMicrophone,
+  IconVideo,
+  IconUnlink,
   IconGripVertical,
   IconEye,
   IconChecklist,
   IconRefresh,
-  IconEdit
+  IconEdit,
+  IconZoomScan
 } from '@tabler/icons-react';
 import {
   Group,
@@ -41,7 +42,8 @@ import { TodoCard } from '../todos/TodoCard';
 import { Todo } from '../../types/todo';
 import { UnifiedContentModal } from './UnifiedContentModal';
 import { useModal } from '../../hooks/useModal';
-import { formatFileSize } from '../../utils/fileUtils';
+import { formatFileSize, getFileTypeConfig, getFileTypeConfigByExtension } from '../../utils/fileUtils';
+import { addTokenToUrl } from '../../utils/cookieUtils';
 
 // Utility function for getting cache module
 const getCacheModule = (module: string): 'documents' | 'archive' | 'diary' => {
@@ -58,34 +60,38 @@ const getCacheModule = (module: string): 'documents' | 'archive' | 'diary' => {
 };
 
 // Utility function for getting thumbnail URLs
-const getThumbnailUrl = async (file: UnifiedFileItem, size: 'small' | 'medium' | 'large' = 'small'): Promise<string | null> => {
-  // First check if we have a cached thumbnail
-  const cacheKey = `${file.uuid}_thumbnail`;
-  const module = getCacheModule(file.module);
-  
+const getThumbnailUrl = async (file: UnifiedFileItem): Promise<string | null> => {
+  // First try unifiedFileService.getThumbnail which handles caching properly
   try {
-    const cachedThumbnail = await fileService.getThumbnail(cacheKey, module);
-    if (cachedThumbnail) {
+    const thumbnailUrl = await unifiedFileService.getThumbnail(file);
+    if (thumbnailUrl) {
       if (process.env.NODE_ENV !== 'production') {
         // eslint-disable-next-line no-console
-        console.log(`🎯 THUMBNAIL CACHE HIT: ${file.originalName}`);
+        console.log(`🎯 THUMBNAIL from unifiedFileService: ${file.originalName}`);
       }
-      return URL.createObjectURL(cachedThumbnail);
+      return thumbnailUrl;
     }
   } catch (error) {
-    console.warn('Failed to get cached thumbnail:', error);
+    console.warn('Failed to get thumbnail from unifiedFileService:', error);
   }
 
-  // Fallback to backend thumbnail
-  if (file.thumbnailPath) {
-    return file.thumbnailPath;
+  // Fallback: try backend thumbnail API with authentication (single size)
+  if (file.thumbnailPath || file.filePath) {
+    try {
+      // Construct authenticated thumbnail URL (single size, CSS will handle resizing)
+      const baseUrl = file.thumbnailPath
+        ? `/api/v1/thumbnails/${file.uuid}`
+        : `/api/v1/thumbnails/file/${encodeURIComponent(file.filePath.replace(/\\/g, '/'))}`;
+
+      // Add authentication token
+      const authenticatedUrl = addTokenToUrl(baseUrl);
+      console.log(`🔒 Authenticated thumbnail URL for ${file.originalName}: ${authenticatedUrl}`);
+      return authenticatedUrl;
+    } catch (error) {
+      console.warn('Failed to construct authenticated thumbnail URL:', error);
+    }
   }
-  if (file.filePath) {
-    const basePath = file.filePath.replace(/\\/g, '/');
-    const encoded = encodeURIComponent(basePath);
-    return `/api/v1/thumbnails/file/${encoded}?size=${size}`;
-  }
-  
+
   return null;
 };
 
@@ -104,6 +110,9 @@ interface UnifiedFileListProps {
   entityId: string; // Parent entity UUID
   onContentSave?: (data: any) => Promise<void>; // For content saving
   onContentDelete?: () => Promise<void>; // For content deletion
+  // Advanced preview props
+  enableAdvancedPreview?: boolean;
+  onAdvancedPreview?: (file: UnifiedFileItem) => void;
 }
 
 export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
@@ -119,7 +128,9 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   module,
   entityId,
   onContentSave,
-  onContentDelete
+  onContentDelete,
+  enableAdvancedPreview = false,
+  onAdvancedPreview
 }) => {
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -213,8 +224,8 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
         const decryptedBlob = await unifiedFileService.downloadFile(file, encryptionKey);
         imageUrl = URL.createObjectURL(decryptedBlob);
       } else {
-        // Use existing thumbnail logic
-        imageUrl = await getThumbnailUrl(file, 'large') || file.filePath || '';
+        // Use existing thumbnail logic (single size)
+        imageUrl = await getThumbnailUrl(file) || file.filePath || '';
       }
 
       imageModal.openModal({ url: imageUrl, name: file.originalName || 'Image' });
@@ -226,8 +237,16 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   };
 
   const handleViewDocument = (file: UnifiedFileItem) => {
-    // Get the proper download URL for the file
-    const downloadUrl = unifiedFileService.getDownloadUrl(file);
+    // Check if this is a PDF file that should use preview
+    const isPdf = file.mimeType === 'application/pdf';
+
+    // Get download URL with appropriate preview parameter
+    const downloadUrl = unifiedFileService.getFileDownloadUrl(
+      file.uuid,
+      file.module,
+      isPdf  // preview=true for PDFs, false for others
+    );
+
     // Open document in new tab using the download URL with security flags
     window.open(downloadUrl, '_blank', 'noopener,noreferrer');
   };
@@ -424,7 +443,17 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
                   </Text>
                   <Group gap="xs">
                     <Badge size="xs" variant="light">
-                      {file.mimeType.split('/')[0].toUpperCase()}
+                      {(() => {
+                        const config = getFileTypeConfig(file.mimeType);
+                        // Fallback to extension-based lookup if MIME type is generic
+                        if (config.label === 'Unknown File' && file.originalName) {
+                          const extConfig = getFileTypeConfigByExtension(file.originalName);
+                          if (extConfig.label !== 'Unknown File') {
+                            return extConfig.label;
+                          }
+                        }
+                        return config.label;
+                      })()}
                     </Badge>
                     <Text size="sm" c="dimmed">
                       {formatFileSize(file.fileSize)}
@@ -472,7 +501,20 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
                     </ActionIcon>
                   </Tooltip>
                 )}
-                
+
+                {/* Advanced preview */}
+                {enableAdvancedPreview && (
+                  <Tooltip label="Advanced Preview">
+                    <ActionIcon
+                      variant="light"
+                      size="sm"
+                      onClick={() => onAdvancedPreview && onAdvancedPreview(file)}
+                    >
+                      <IconZoomScan size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+
                 {/* TODO viewer */}
                 {isTodo && (
                   <Tooltip label="View TODO">
@@ -653,23 +695,43 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const getFileIcon = (mimeType: string, mediaType?: string) => {
+  const getFileIcon = (mimeType: string, originalName?: string, mediaType?: string) => {
+    // Special handling for mediaType-based overrides
     if (mediaType === 'voice' || mimeType.startsWith('audio/')) {
       return <IconMicrophone size={20} className="text-green-500" />;
-    }
-    if (mimeType.startsWith('image/')) {
-      return <IconPhoto size={20} className="text-blue-500" />;
-    }
-    if (mimeType.startsWith('video/')) {
-      return <IconVideo size={20} className="text-purple-500" />;
-    }
-    if (mimeType === 'application/pdf' || mediaType === 'pdf') {
-      return <IconFileText size={20} className="text-red-500" />;
     }
     if (mimeType === 'application/json' && mediaType === 'todo') {
       return <IconChecklist size={20} className="text-orange-500" />;
     }
-    return <IconFileText size={20} className="text-gray-500" />;
+
+    // Use comprehensive file type configuration
+    const config = getFileTypeConfig(mimeType);
+
+    // Fallback to extension-based lookup if MIME type is generic
+    if (config.label === 'Unknown File' && originalName) {
+      const extConfig = getFileTypeConfigByExtension(originalName);
+      if (extConfig.label !== 'Unknown File') {
+        const IconComponent = extConfig.icon;
+        return <IconComponent size={20} className={`text-${extConfig.color}-500`} />;
+      }
+    }
+
+    const IconComponent = config.icon;
+    // Apply appropriate color classes
+    const colorClass = {
+      red: 'text-red-500',
+      blue: 'text-blue-500',
+      green: 'text-green-500',
+      orange: 'text-orange-500',
+      purple: 'text-purple-500',
+      yellow: 'text-yellow-500',
+      cyan: 'text-cyan-500',
+      pink: 'text-pink-500',
+      indigo: 'text-indigo-500',
+      gray: 'text-gray-500'
+    }[config.color] || 'text-gray-500';
+
+    return <IconComponent size={20} className={colorClass} />;
   };
 
   useEffect(() => {
@@ -680,7 +742,7 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
       }
 
       try {
-        const url = await getThumbnailUrl(file, 'small');
+        const url = await getThumbnailUrl(file);
         setThumbUrl(url);
       } catch (error) {
         console.warn('Failed to load thumbnail:', error);
@@ -696,7 +758,7 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
         URL.revokeObjectURL(thumbUrl);
       }
     };
-  }, [file, thumbUrl]);
+  }, [file]); // Remove thumbUrl from dependency array to prevent infinite loop
 
   if (isLoading) {
     return (
@@ -723,5 +785,5 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
     );
   }
 
-  return getFileIcon(file.mimeType, file.mediaType);
+  return getFileIcon(file.mimeType, file.originalName, file.mediaType);
 };

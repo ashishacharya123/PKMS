@@ -10,6 +10,7 @@ import {
   type DocumentsListParams
 } from '../types/document';
 import { documentsCacheAware } from '../services/cacheAwareService';
+import { logger } from '../utils/logger';
 
 interface DocumentsState {
   // Data
@@ -43,7 +44,12 @@ interface DocumentsState {
   loadDocuments: () => Promise<void>;
   loadMore: () => Promise<void>;
   loadDocument: (uuid: string) => Promise<void>;
-  uploadDocument: (file: File, tags?: string[], projectIds?: string[], isExclusive?: boolean) => Promise<Document | null>;
+  uploadDocument: (file: File, options?: {
+  description?: string;
+  tags?: string[];
+  projectIds?: string[];
+  isExclusive?: boolean
+}) => Promise<Document>;
   updateDocument: (uuid: string, data: UpdateDocumentRequest) => Promise<Document | null>;
   deleteDocument: (uuid: string) => Promise<boolean>;
   toggleArchive: (uuid: string, archived: boolean) => Promise<Document | null>;
@@ -54,7 +60,7 @@ interface DocumentsState {
   
   // Actions - Download/Preview
   downloadDocument: (uuid: string) => Promise<Blob | null>;
-  getDownloadUrl: (uuid: string) => string;
+  getDownloadUrl: (uuid: string, preview?: boolean) => string;
   getPreviewUrl: (uuid: string) => string;
   previewDocument: (uuid: string) => void;
   
@@ -176,7 +182,18 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     }
   },
   
-  uploadDocument: async (file: File, tags: string[] = [], projectIds: string[] = [], isExclusive: boolean = false) => {
+  uploadDocument: async (file: File, options?: {
+    description?: string;
+    tags?: string[];
+    projectIds?: string[];
+    isExclusive?: boolean
+  }) => {
+    const {
+      description,
+      tags = [],
+      projectIds = [],
+      isExclusive = false
+    } = options || {};
     set({ isUploading: true, error: null, uploadProgress: 0 });
     
     try {
@@ -185,6 +202,7 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         '', // entityId not needed for documents module
         file,
         {
+          description,
           tags,
           projectIds,
           isExclusive,
@@ -211,49 +229,32 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         projects: (document as any).projects ?? []
       };
       
-      // Add to documents list if it matches current filters
-      const state = get();
+      // Always add uploaded documents to state (removed filter checking since we always add)
       
-      // Check if document matches current filters
-      const matchesMimeType = !state.currentMimeType || document.mimeType === state.currentMimeType;
-      const matchesTag = !state.currentTag || (document.tags ?? []).includes(state.currentTag);
-      const matchesSearch = !state.searchQuery || document.originalName.toLowerCase().includes(state.searchQuery.toLowerCase());
-      const matchesArchived = state.showArchived || !document.isArchived;
-      const matchesFavorite = !state.showFavoritesOnly || document.isFavorite;
-      
-      // Check project filter: if showProjectOnly is true, only show documents with project_id
-      // For now, assume uploaded documents are unassigned (no project), so they should show when !showProjectOnly
-      const matchesProjectFilter = !state.showProjectOnly;
-      
-      const shouldAdd = matchesMimeType && matchesTag && matchesSearch && matchesArchived && matchesFavorite && matchesProjectFilter;
-      
-      set({ 
-        documents: shouldAdd ? [documentSummary, ...state.documents] : state.documents,
+      set(state => ({
+        documents: [documentSummary, ...state.documents], // Always add uploaded documents
         isUploading: false,
         uploadProgress: 0
-      });
-      
-      // If document was uploaded but doesn't match filters, user might be confused
-      // Debug: Uploaded document does not match current filters
-      if (!shouldAdd) {
-        console.log('Document filtered out based on current view settings:', {
-          mimeType: state.currentMimeType,
-          tag: state.currentTag,
-          search: state.searchQuery,
-          showArchived: state.showArchived,
-          showFavoritesOnly: state.showFavoritesOnly,
-          showProjectOnly: state.showProjectOnly
-        });
+      }));
+
+      // Invalidate dashboard cache to refresh file counts and activity
+      try {
+        const { dashboardService } = await import('../services/dashboardService');
+        await dashboardService.invalidateCache();
+        console.log('✅ Dashboard cache invalidated after document upload');
+      } catch (error) {
+        console.warn('⚠️ Failed to invalidate dashboard cache:', error);
       }
-      
+
       return document;
     } catch (error) {
-      set({ 
-        error: error instanceof Error ? error.message : 'Failed to upload document', 
+      const errorMessage = error instanceof Error ? error.message : 'Failed to upload document';
+      set({
+        error: errorMessage,
         isUploading: false,
         uploadProgress: 0
       });
-      return null;
+      throw error; // Let the page catch block handle it
     }
   },
   
@@ -322,7 +323,16 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
         documents: state.documents.filter(doc => doc.uuid !== uuid),
         currentDocument: state.currentDocument?.uuid === uuid ? null : state.currentDocument
       }));
-      
+
+      // Invalidate dashboard cache to refresh file counts and activity
+      try {
+        const { dashboardService } = await import('../services/dashboardService');
+        await dashboardService.invalidateCache();
+        console.log('✅ Dashboard cache invalidated after document deletion');
+      } catch (error) {
+        console.warn('⚠️ Failed to invalidate dashboard cache:', error);
+      }
+
       return true;
     } catch (error) {
       set({ 
@@ -432,15 +442,15 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
     }
   },
   
-  getDownloadUrl: (uuid: string) => {
+  getDownloadUrl: (uuid: string, preview?: boolean) => {
     // Find the document to get its ID
     const state = get();
     const document = state.documents.find(doc => doc.uuid === uuid);
     if (!document) {
       throw new Error('Document not found');
     }
-    
-    return unifiedFileService.getFileDownloadUrl(document.uuid, 'documents');
+
+    return unifiedFileService.getFileDownloadUrl(document.uuid, 'documents', preview);
   },
   
   getPreviewUrl: (uuid: string) => {
@@ -500,7 +510,10 @@ export const useDocumentsStore = create<DocumentsState>((set, get) => ({
   // Filter actions
   setMimeType: (mimeType: string | null) => {
     set({ currentMimeType: mimeType });
-    get().loadDocuments();
+    // For 'other' filter, we don't need to reload from backend as it's handled client-side
+    if (mimeType !== 'other') {
+      get().loadDocuments();
+    }
   },
   
   setTag: (tag: string | null) => {

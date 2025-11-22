@@ -36,7 +36,7 @@ python-docx>=1.1.0          # MS Word .docx parsing
 python-dateutil>=2.8.2      # Date/time parsing
 pydantic[email]>=2.5.0      # Data validation
 pydantic-settings>=2.1.0    # Settings management
-uuid6>=2024.1.12            # UUIDv7 support for time-ordered primary keys
+# uuid6>=2024.1.12           # REMOVED: Replaced with app.utils.uuid_generator (no compilation needed)
 
 # Environment variables
 python-dotenv>=1.0.1        # Load .env files

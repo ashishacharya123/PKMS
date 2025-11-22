@@ -25,6 +25,7 @@ import {
   IconTags,
 } from '@tabler/icons-react';
 import { useDiaryStore } from '../../stores/diaryStore';
+import { logger } from '../../utils/logger';
 
 interface SearchFilters {
   searchQuery: string;
@@ -138,7 +139,7 @@ export function AdvancedDiarySearch() {
     // Trigger search
     store.loadEntries();
     
-    console.log('Applied filters:', filters);
+    logger.debug('Applied filters:', filters);
   };
 
   const handleClearFilters = () => {

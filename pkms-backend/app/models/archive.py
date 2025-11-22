@@ -4,7 +4,7 @@ Archive Models for File Organization
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, BigInteger
 from sqlalchemy.orm import relationship
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 
 from app.models.base import Base, SoftDeleteMixin
 from app.config import nepal_now
@@ -16,17 +16,17 @@ class ArchiveFolder(Base, SoftDeleteMixin):
     
     __tablename__ = "archive_folders"
     
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
+    uuid = Column(String(20), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
-    parent_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
+    parent_uuid = Column(String(20), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
     # is_deleted now provided by SoftDeleteMixin
     # Derived counts and metadata - updated via service methods when items are added/removed
     depth = Column(Integer, default=0, nullable=False)
     item_count = Column(Integer, default=0, nullable=False)
     total_size = Column(BigInteger, default=0, nullable=False)
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(20), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
 
@@ -46,25 +46,25 @@ class ArchiveItem(Base, SoftDeleteMixin):
     
     __tablename__ = "archive_items"
     
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
+    uuid = Column(String(20), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
     name = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)
     original_filename = Column(String(255), nullable=False)
     stored_filename = Column(String(255), nullable=False)
-    file_path = Column(String(500), nullable=False)
+    file_path = Column(String(255), nullable=False)
     file_size = Column(BigInteger, nullable=False)
     mime_type = Column(String(100), nullable=False)
     # upload_status removed - only needed during upload process, handled by upload services
-    folder_uuid = Column(String(36), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
+    folder_uuid = Column(String(20), ForeignKey("archive_folders.uuid", ondelete="CASCADE"), nullable=True, index=True)
     is_favorite = Column(Boolean, default=False, index=True)
     # is_deleted now provided by SoftDeleteMixin
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(20), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     
     # Additional metadata as JSON
     metadata_json = Column(Text, default="{}")  # Additional metadata as JSON
-    thumbnail_path = Column(String(500), nullable=True)  # Path to thumbnail file
+    thumbnail_path = Column(String(255), nullable=True)  # Path to thumbnail file
     file_hash = Column(String(64), nullable=True, index=True)  # SHA-256 hash for duplicate detection
 
     # Relationships

@@ -27,6 +27,7 @@ import {
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { searchService, SearchResult, SearchResponse, SearchFilters, TagInfo } from '../../services/searchService';
+import { logger } from '../../utils/logger';
 import { useDiaryStore } from '../../stores/diaryStore';
 import UnifiedSearchFilters from '../search/UnifiedSearchFilters';
 
@@ -69,7 +70,7 @@ const DiarySearch: React.FC<DiarySearchProps> = ({ onEntrySelect }) => {
       .getPopularTags('diary')
       .then(setAvailableTags)
       .catch((error) => {
-        console.error('Failed to load diary tags:', error);
+        logger.error('Failed to load diary tags:', error);
       });
   }, []);
 
@@ -125,7 +126,7 @@ const DiarySearch: React.FC<DiarySearchProps> = ({ onEntrySelect }) => {
         icon: <IconSearch size={16} />,
       });
     } catch (error) {
-      console.error('Diary search error:', error);
+      logger.error('Diary search error:', error);
       notifications.show({
         title: 'Search Error',
         message: 'Failed to search diary entries. Try again.',

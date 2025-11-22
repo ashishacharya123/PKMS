@@ -246,11 +246,11 @@ def validate_file_size(file_size: int, max_size: int = 50 * 1024 * 1024) -> None
 
 def validate_uuid_format(uuid_str: str) -> str:
     """
-    Validate UUID format to prevent injection
-    
+    Validate custom UUID7 format to prevent injection
+
     Args:
         uuid_str: UUID string to validate
-    
+
     Returns:
         Validated UUID string
     """
@@ -259,17 +259,17 @@ def validate_uuid_format(uuid_str: str) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="UUID cannot be empty"
         )
-    
-    # UUID pattern (36 characters with hyphens)
-    uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
-    
+
+    # Custom UUID7 pattern: YYYYMMDDHH-XXXXXXXX (10 digits + dash + 8 hex chars)
+    uuid_pattern = re.compile(r'^\d{10}-[a-f0-9]{8}$')
+
     if not uuid_pattern.match(uuid_str):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid UUID format"
+            detail=f"Invalid UUID format. Expected YYYYMMDDHH-XXXXXXXX, got: {uuid_str}"
         )
-    
-    return uuid_str.lower()
+
+    return uuid_str
 
 
 def sanitize_tags(tags: List[str]) -> List[str]:

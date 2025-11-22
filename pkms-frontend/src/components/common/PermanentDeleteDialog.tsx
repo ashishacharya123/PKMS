@@ -168,8 +168,8 @@ export function PermanentDeleteDialog({
           <Alert icon={<IconAlertTriangle size={16} />} color="yellow" variant="light">
             <Text fw={500} size="sm">Warnings:</Text>
             <List size="sm" mt="xs">
-              {details.warnings.map((warning) => (
-                <List.Item key={warning}>{warning}</List.Item>
+              {details.warnings.map((warning, index) => (
+                <List.Item key={`warning-${index}`}>{warning}</List.Item>
               ))}
             </List>
           </Alert>

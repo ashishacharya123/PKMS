@@ -328,7 +328,7 @@ export { default as EncryptionStatus } from './diary/EncryptionStatus';
 
 // File Components (frequently used)
 export { default as FileUploadZone } from './file/FileUploadZone';
-export { default as FileUploadModal } from './file/FileUploadModal';
+export { FileUploadModalMemo as FileUploadModal } from './file/FileUploadModal';
 export { UnifiedFileList } from './file/UnifiedFileList';
 
 // Notes Components

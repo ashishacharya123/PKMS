@@ -37,6 +37,8 @@ import {
 } from '@tabler/icons-react';
 import HabitCharts from './HabitCharts';
 import { diaryService } from '../../services/diaryService';
+import { DefaultHabitsAnalytics, HabitAnalyticsData, TrendPoint } from '../../types/diary';
+import { logger } from '../../utils/logger';
 
 // State type for useReducer
 type AnalyticsState = {
@@ -45,7 +47,7 @@ type AnalyticsState = {
   selectedPeriod: number;
   isLoading: boolean;
   error: string | null;
-  analyticsData: any;
+  analyticsData: DefaultHabitsAnalytics | null;
   missingToday: string[];
   dashboardSummary: any;
   habitConfigs: {
@@ -62,7 +64,7 @@ type AnalyticsAction =
   | { type: 'SET_PERIOD'; payload: number }
   | { type: 'LOADING' }
   | { type: 'ERROR'; payload: string }
-  | { type: 'DATA_LOADED'; payload: any }
+  | { type: 'DATA_LOADED'; payload: DefaultHabitsAnalytics }
   | { type: 'DASHBOARD_LOADED'; payload: any }
   | { type: 'MISSING_TODAY_LOADED'; payload: string[] }
   | { type: 'HABIT_CONFIGS_LOADED'; payload: { default: any[]; defined: any[] } };
@@ -207,7 +209,7 @@ export default function HabitAnalyticsView() {
       dispatch({ type: 'DASHBOARD_LOADED', payload: dashboard });
       dispatch({ type: 'MISSING_TODAY_LOADED', payload: dashboard.missing_today || [] });
     } catch (error) {
-      console.error('Failed to load dashboard data:', error);
+      logger.error('Failed to load dashboard data:', error);
     }
   }, []);
 
@@ -227,7 +229,7 @@ export default function HabitAnalyticsView() {
         }
       });
     } catch (error) {
-      console.error('Failed to load habit configs:', error);
+      logger.error('Failed to load habit configs:', error);
       // Set empty configs on error to prevent crashes
       dispatch({
         type: 'HABIT_CONFIGS_LOADED',
@@ -380,13 +382,13 @@ export default function HabitAnalyticsView() {
     if (!habitData) return null;
 
     // Fix SMA data mapping - backend provides sma_overlays separately
-    const chartData = habitData.trend?.map((point: any) => ({
+    const chartData = habitData.trend?.map((point: TrendPoint) => ({
       date: point.date,
       value: point.value,
       // SMA data comes from sma_overlays, not from trend points
-      sma_7: habitData.sma_overlays?.["7"]?.find((sma: any) => sma.date === point.date)?.value,
-      sma_14: habitData.sma_overlays?.["14"]?.find((sma: any) => sma.date === point.date)?.value,
-      sma_30: habitData.sma_overlays?.["30"]?.find((sma: any) => sma.date === point.date)?.value,
+      sma_7: habitData.sma_overlays?.["7"]?.find((sma: TrendPoint) => sma.date === point.date)?.value,
+      sma_14: habitData.sma_overlays?.["14"]?.find((sma: TrendPoint) => sma.date === point.date)?.value,
+      sma_30: habitData.sma_overlays?.["30"]?.find((sma: TrendPoint) => sma.date === point.date)?.value,
     })) || [];
 
     return (
@@ -413,7 +415,7 @@ export default function HabitAnalyticsView() {
 
     // --- START FIX ---
     // We must transform the data for the "pure" chart component
-    const chartData = habitData.trend?.map((point: any) => ({
+    const chartData = habitData.trend?.map((point: TrendPoint) => ({
       date: point.date,
       value: point.value,
       // You can also add SMA data here if your backend provides it

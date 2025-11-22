@@ -831,6 +831,7 @@ class UnifiedHabitAnalyticsService:
             select(DiaryEntry)
             .where(
                 and_(
+                    DiaryEntry.active_only(),
                     DiaryEntry.created_by == user_uuid,
                     func.date(DiaryEntry.date) >= start_date,
                     func.date(DiaryEntry.date) <= end_date

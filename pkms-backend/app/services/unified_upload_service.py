@@ -4,7 +4,7 @@ UnifiedUploadService - Ensures atomic file operations and database consistency
 
 import asyncio
 import shutil
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 import errno
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
@@ -124,7 +124,7 @@ class UnifiedUploadService:
             
             # === END: NEW LOGIC ===
             
-            final_path, temp_path = await self._generate_paths(module, assembled_path, metadata, db)
+            final_path, temp_path = await self._generate_paths(module, assembled_path, metadata, created_by, db)
             
             await self._move_to_temp(assembled_path, temp_path)
             
@@ -164,12 +164,12 @@ class UnifiedUploadService:
             # Documents use central thumbnail directory
             if module in ["documents", "notes", "diary"]:
                 thumbnail_dir = storage_dir / "thumbnails"
-                results = await thumbnail_service.generate_all_sizes(file_path, thumbnail_dir)
-                
-                # Return medium thumbnail path (relative to storage_dir)
-                medium_thumb = results.get('medium')
+                # OPTIMIZATION: Generate only medium thumbnail (300x300) for all use cases
+                # This saves 67% of storage space and processing time compared to generating 3 sizes
+                medium_thumb = await thumbnail_service.generate_thumbnail(file_path, thumbnail_dir, 'medium')
+
                 if medium_thumb:
-                    logger.info(f"Generated thumbnails for document: {file_path}")
+                    logger.info(f"Generated medium thumbnail for document: {file_path}")
                     return str(medium_thumb.relative_to(storage_dir))
             
             # Archive items use subdirectory thumbnails (handled separately in archive_item_service)
@@ -201,10 +201,10 @@ class UnifiedUploadService:
         
         return assembled
 
-    async def _generate_paths(self, module: str, assembled: Path, metadata: Dict[str, Any], db: Optional[AsyncSession] = None) -> tuple[Path, Path]:
+    async def _generate_paths(self, module: str, assembled: Path, metadata: Dict[str, Any], created_by: str, db: Optional[AsyncSession] = None) -> tuple[Path, Path]:
         file_uuid = metadata.get("file_uuid", str(uuid7()))
         extension = assembled.suffix
-        created_by = metadata.get("created_by", "unknown")
+        # created_by is now a parameter, use it directly
         
         if module == "documents":
             original_name = metadata.get("original_name", assembled.name.replace(f"complete_{metadata.get('upload_id', '')}_", ""))

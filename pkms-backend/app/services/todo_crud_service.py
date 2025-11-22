@@ -150,7 +150,7 @@ class TodoCRUDService:
         """List todos with filters and pagination"""
         try:
             # Build query conditions
-            cond = and_(Todo.created_by == user_uuid)
+            cond = and_(Todo.active_only(), Todo.created_by == user_uuid)
             
             if status:
                 cond = and_(cond, Todo.status == status)
@@ -258,7 +258,7 @@ class TodoCRUDService:
             result = await db.execute(
                 select(Todo)
                 .options(selectinload(Todo.tag_objs))
-                .where(and_(Todo.uuid == todo_uuid, Todo.created_by == user_uuid))
+                .where(and_(Todo.active_only(), Todo.uuid == todo_uuid, Todo.created_by == user_uuid))
             )
             todo = result.scalar_one_or_none()
             

@@ -347,7 +347,7 @@ export function Navigation({ collapsed = false }: NavigationProps) {
               onClick={async () => {
                 try {
                   notifications.show({ id: 'thumb-build', title: 'Building Thumbnails', message: 'Scanning and generating missing thumbnails...', loading: true, autoClose: false });
-                  const res = await apiService.buildThumbnails('medium');
+                  const res = await apiService.buildThumbnails();
                   notifications.update({ id: 'thumb-build', title: 'Thumbnails Built', message: `Created: ${res.created}, Existing: ${res.existing}, Failed: ${res.failed}`, color: 'green', loading: false, autoClose: 4000 });
                   setUserMenuOpened(false);
                 } catch (e: any) {

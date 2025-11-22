@@ -1,13 +1,7 @@
 # Multi-stage build for optimized production image
 FROM python:3.11-slim as builder
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create virtual environment
+# Create virtual environment (no build dependencies needed - removed uuid6)
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 

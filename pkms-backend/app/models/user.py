@@ -4,7 +4,7 @@ User Model for Authentication and User Management
 
 from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.orm import relationship
-from uuid6 import uuid7
+from app.utils.uuid_generator import uuid7
 
 from app.models.base import Base
 from app.config import nepal_now
@@ -20,8 +20,8 @@ class User(Base):
     
     __tablename__ = "users"
     
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
-    username = Column(String(50), unique=True, index=True, nullable=False)
+    uuid = Column(String(20), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
+    username = Column(String(20), unique=True, index=True, nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=True)
     password_hash = Column(String(255), nullable=False)  # bcrypt hash (includes salt)
     login_password_hint = Column(String(255), nullable=True)  # Simple hint for login password
@@ -64,12 +64,12 @@ class Session(Base):
     __tablename__ = "sessions"
     
     session_token = Column(String(255), primary_key=True, index=True)
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(20), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     last_activity = Column(DateTime(timezone=True), server_default=nepal_now())
     ip_address = Column(String(45), nullable=True)  # IPv6 support
-    user_agent = Column(String(500), nullable=True)
+    user_agent = Column(String(300), nullable=True)
     
     # Relationships
     user = relationship("User", back_populates="sessions")
@@ -83,8 +83,8 @@ class RecoveryKey(Base):
     
     __tablename__ = "recovery_keys"
     
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    uuid = Column(String(20), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
+    created_by = Column(String(20), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     key_hash = Column(String(255), nullable=False)
     questions_json = Column(Text, nullable=False)  # Security questions as JSON
     answers_hash = Column(String(255), nullable=False)  # Hashed answers
@@ -104,14 +104,14 @@ class PasswordReset(Base):
 
     __tablename__ = "password_resets"
 
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
-    user_uuid = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    uuid = Column(String(20), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)
+    user_uuid = Column(String(20), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     token = Column(String(255), nullable=False, unique=True, index=True)  # Secure reset token
     expires_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     used_at = Column(DateTime(timezone=True), nullable=True)  # When token was used
     ip_address = Column(String(45), nullable=True)  # IPv6 support
-    user_agent = Column(String(500), nullable=True)
+    user_agent = Column(String(300), nullable=True)
 
     # Relationships
     user = relationship("User", back_populates="password_resets")

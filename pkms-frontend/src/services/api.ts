@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 
 import { notifications } from '@mantine/notifications';
 import { API_BASE_URL } from '../config';
+import { logger } from '../utils/logger';
 
 interface ApiResponse<T> {
   data: T;
@@ -37,7 +38,7 @@ class ApiService {
                                 error.config?.url?.includes('/auth/setup');
           
           // SECURITY: Don't log sensitive information to console
-          console.error('Network Error:', error.message);
+          logger.error('Network Error:', error.message);
           
           // Create a comprehensive network error message
           const networkError = new Error(this.createNetworkErrorMessage(isLoginAttempt));
@@ -102,7 +103,7 @@ class ApiService {
         }
 
         // Handle request setup errors
-        console.error('Request Setup Error:', error.message);
+        logger.error('Request Setup Error:', error.message);
         throw new Error(`Request failed: ${error.message}`);
       }
     );
@@ -191,7 +192,7 @@ class ApiService {
       const response = await this.instance.get('/auth/session-status');
       return response.data.is_expiring_soon || false;
     } catch (error) {
-      console.warn('Failed to check token expiry status:', error);
+      logger.warn('Failed to check token expiry status:', error);
       return false;
     }
   }
@@ -205,7 +206,7 @@ class ApiService {
       const response = await this.instance.get('/auth/session-status');
       return response.data.is_critically_expiring || false;
     } catch (error) {
-      console.warn('Failed to check token expiry status:', error);
+      logger.warn('Failed to check token expiry status:', error);
       return false;
     }
   }
@@ -315,7 +316,7 @@ class ApiService {
         });
       } catch (fallbackError) {
         // Silent fallback if all audio methods fail
-        console.log('Sound alert not supported in this environment');
+        logger.debug('Sound alert not supported in this environment');
       }
     }
   }
@@ -346,7 +347,7 @@ class ApiService {
       this.tokenExpiryWarningShown = false;
       (this as any).finalExpiryPromptShown = false;
     } catch (error: any) {
-      console.error('Failed to extend session:', error);
+      logger.error('Failed to extend session:', error);
 
       // Do not force logout on transient failure; let normal 401 handling take over if needed
       const detail = error?.response?.data?.detail || error?.message || 'Session extension failed';
@@ -390,7 +391,7 @@ class ApiService {
         });
       }
     } catch (error: any) {
-      console.error('Failed to reindex search content:', error);
+      logger.error('Failed to reindex search content:', error);
       const detail = error?.response?.data?.detail || error?.message || 'Re-indexing failed';
 
       notifications.show({
@@ -405,7 +406,7 @@ class ApiService {
     }
   }
 
-  async buildThumbnails(size: 'small' | 'medium' | 'large' = 'medium'): Promise<{
+  async buildThumbnails(): Promise<{
     status: string;
     created: number;
     existing: number;
@@ -418,7 +419,7 @@ class ApiService {
       existing: number;
       failed: number;
       total_scanned: number;
-    }>(`/thumbnails/build?size=${size}`, {});
+    }>('/thumbnails/build', {});
     return res.data;
   }
 

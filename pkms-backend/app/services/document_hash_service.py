@@ -21,36 +21,42 @@ class DocumentHashService:
     """Service for calculating and managing file hashes for deduplication"""
     
     @staticmethod
-    def calculate_file_hash(file_path: str) -> str:
+    async def calculate_file_hash(file_path: str) -> str:
         """
-        Calculate SHA-256 hash of a file.
-        
+        Calculate SHA-256 hash of a file asynchronously.
+
         Args:
             file_path: Path to the file to hash
-            
+
         Returns:
             SHA-256 hash as hexadecimal string
-            
+
         Raises:
             FileNotFoundError: If file doesn't exist
             IOError: If file can't be read
         """
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
-        
-        sha256_hash = hashlib.sha256()
-        
-        try:
-            with open(file_path, "rb") as f:
-                # Read file in chunks to handle large files efficiently
-                for chunk in iter(lambda: f.read(4096), b""):
-                    sha256_hash.update(chunk)
-            
-            return sha256_hash.hexdigest()
-            
-        except IOError as e:
-            logger.error(f"Error reading file {file_path}: {str(e)}")
-            raise IOError(f"Could not read file {file_path}: {str(e)}")
+        import asyncio
+
+        def _calculate_hash():
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"File not found: {file_path}")
+
+            sha256_hash = hashlib.sha256()
+
+            try:
+                with open(file_path, "rb") as f:
+                    # Read file in chunks to handle large files efficiently
+                    for chunk in iter(lambda: f.read(4096), b""):
+                        sha256_hash.update(chunk)
+
+                return sha256_hash.hexdigest()
+
+            except IOError as e:
+                logger.error(f"Error reading file {file_path}: {str(e)}")
+                raise IOError(f"Could not read file {file_path}: {str(e)}")
+
+        # Wrap the blocking file I/O in a separate thread
+        return await asyncio.to_thread(_calculate_hash)
     
     @staticmethod
     async def find_duplicate_document(

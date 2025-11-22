@@ -120,7 +120,7 @@ class ChunkUploadManager:
                         try:
                             upload['status'] = ChunkUploadStatus(upload['status'])
                         except Exception:
-                            upload['status'] = ChunkUploadStatus.ERROR
+                            upload['status'] = ChunkUploadStatus.ERROR.value
                     self.uploads[file_id] = upload
                 
                 logger.info(f"Loaded {len(self.uploads)} upload states from {self.state_file}")
@@ -139,7 +139,7 @@ class ChunkUploadManager:
                     'received_chunks': set(),
                     'total_size': metadata.get('total_size', 0),
                     'bytes_received': 0,
-                    'status': ChunkUploadStatus.UPLOADING,
+                    'status': ChunkUploadStatus.UPLOADING.value,
                     'started_at': datetime.now(NEPAL_TZ),
                     'last_update': datetime.now(NEPAL_TZ),
                     'chunk_hashes': {},
@@ -175,7 +175,7 @@ class ChunkUploadManager:
             
             # Check if upload is complete
             if len(upload['received_chunks']) == total_chunks:
-                upload['status'] = ChunkUploadStatus.ASSEMBLING
+                upload['status'] = ChunkUploadStatus.ASSEMBLING.value
             
             # Save state after important changes
             await self._save_state_to_file()
@@ -204,7 +204,7 @@ class ChunkUploadManager:
                 if not upload:
                     raise ValueError(f"No upload found for file_id: {file_id}")
                 
-                if upload['status'] != ChunkUploadStatus.ASSEMBLING:
+                if upload['status'] != ChunkUploadStatus.ASSEMBLING.value:
                     raise ValueError(f"Upload not ready for assembly, status: {upload['status']}")
                 
                 chunk_dir = Path(get_data_dir()) / "temp_uploads" / file_id
@@ -239,7 +239,7 @@ class ChunkUploadManager:
                     raise ValueError("Assembled file size mismatch")
                 
                 # Update status
-                upload['status'] = ChunkUploadStatus.COMPLETED
+                upload['status'] = ChunkUploadStatus.COMPLETED.value
                 
                 # Save state after completion
                 await self._save_state_to_file()
@@ -273,7 +273,7 @@ class ChunkUploadManager:
             except Exception as e:
                 logger.error(f"Error assembling file {file_id}: {str(e)}")
                 if file_id in self.uploads:
-                    self.uploads[file_id]['status'] = ChunkUploadStatus.FAILED
+                    self.uploads[file_id]['status'] = ChunkUploadStatus.FAILED.value
                     self.uploads[file_id]['error'] = str(e)
                     # Save state after failure
                     await self._save_state_to_file()
@@ -290,7 +290,7 @@ class ChunkUploadManager:
             'filename': upload['filename'],
             'bytes_uploaded': upload['bytes_received'],
             'total_size': upload['total_size'],
-            'status': upload['status'],
+            'status': upload['status'].value if hasattr(upload['status'], 'value') else str(upload['status']),
             'progress': len(upload['received_chunks']) / upload['total_chunks'] * 100 if upload['total_chunks'] > 0 else 0,
             'created_by': upload.get('created_by')
         }
