@@ -139,11 +139,15 @@ class UserResponse(CamelCaseModel):
     @field_validator('uuid')
     @classmethod
     def validate_uuid_format(cls, v):
-        try:
-            uuid.UUID(v)
-        except ValueError as e:
-            raise ValueError('uuid must be a valid UUID') from e
-        return v
+        # Only accept our custom UUID7 format: YYYYMMDDHH-XXXXXXXX
+        # Format: 2025112210-e9cf8c5c (10 digits + dash + 8 hex chars)
+        import re
+
+        # Check for custom UUID7 format: YYYYMMDDHH-XXXXXXXX (10 digits + dash + 8 hex chars)
+        if re.match(r'^\d{10}-[a-f0-9]{8}$', v):
+            return v
+
+        raise ValueError(f'uuid must be in custom UUID7 format (YYYYMMDDHH-XXXXXXXX), got: {v}')
 
 class RefreshTokenRequest(CamelCaseModel):
     pass

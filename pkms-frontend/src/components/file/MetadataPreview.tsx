@@ -7,7 +7,6 @@ import { Stack, Group, Text, Badge, Progress, Skeleton, Paper, Divider, Spoiler 
 import {
   IconCalendar,
   IconFileText,
-  IconTag,
   IconUser,
   IconPhoto,
   IconClock,
@@ -78,7 +77,7 @@ export function MetadataPreview({
 
   const hasBasicInfo = metadata.title || metadata.description;
   const hasTechnicalInfo = metadata.createdDate || metadata.dimensions || metadata.pageCount;
-  const hasTags = metadata.tags && metadata.tags.length > 0;
+  // REMOVED: hasTags - auto-generated tags are not displayed since they're not used anywhere
 
   if (compact) {
     return (
@@ -95,18 +94,7 @@ export function MetadataPreview({
           </Text>
         )}
 
-        {hasTags && (
-          <Group gap="xs" wrap="wrap">
-            {metadata.tags!.slice(0, 3).map(tag => (
-              <Badge key={tag} size="xs" variant="light">
-                {tag}
-              </Badge>
-            ))}
-            {metadata.tags!.length > 3 && (
-              <Text size="xs" c="dimmed">+{metadata.tags!.length - 3} more</Text>
-            )}
-          </Group>
-        )}
+        {/* REMOVED: Auto-generated tags in compact view - these aren't used anywhere */}
       </Stack>
     );
   }
@@ -147,22 +135,7 @@ export function MetadataPreview({
           </>
         )}
 
-        {/* Tags */}
-        {hasTags && (
-          <Stack gap="xs">
-            <Group gap="sm" align="center">
-              <IconTag size={16} c="green" />
-              <Text size="sm" fw={500}>Tags</Text>
-            </Group>
-            <Group gap="xs" wrap="wrap" ml={34}>
-              {metadata.tags!.map(tag => (
-                <Badge key={tag} size="sm" variant="light" color="green">
-                  {tag}
-                </Badge>
-              ))}
-            </Group>
-          </Stack>
-        )}
+        {/* REMOVED: Auto-generated tags section - these aren't used anywhere and just clutter the UI */}
 
         {/* Technical Information */}
         {hasTechnicalInfo && (

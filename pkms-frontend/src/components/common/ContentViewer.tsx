@@ -5,7 +5,7 @@
  * Supports markdown rendering, file display, and various metadata fields.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Container,
   Stack,
@@ -18,7 +18,8 @@ import {
   Skeleton,
   Alert,
   Paper,
-  Grid
+  Grid,
+  Tooltip
 } from '@mantine/core';
 import {
   IconEdit,
@@ -32,12 +33,16 @@ import {
   IconMapPin,
   IconCalendar,
   IconTag,
-  IconFolder
+  IconFolder,
+  IconZoomScan,
+  IconExternalLink
 } from '@tabler/icons-react';
 import MDEditor from '@uiw/react-md-editor';
 import { modals } from '@mantine/modals';
 import { UnifiedFileSection } from '../file/UnifiedFileSection';
 import { UnifiedFileItem } from '../../services/unifiedFileService';
+import { useModal } from '../../hooks/useModal';
+import { AdvancedPreviewModal } from './AdvancedPreviewModal';
 
 export interface ContentViewerProps {
   // Content fields
@@ -80,6 +85,10 @@ export interface ContentViewerProps {
   showProjects?: boolean;
   showDiaryFields?: boolean;
   enableDragDrop?: boolean;
+
+  // Advanced preview options
+  enableAdvancedPreview?: boolean;
+  onAdvancedPreview?: (file: UnifiedFileItem) => void;
 }
 
 export const ContentViewer: React.FC<ContentViewerProps> = ({
@@ -107,8 +116,17 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
   showFiles = true,
   showProjects = false,
   showDiaryFields = false,
-  enableDragDrop = false
+  enableDragDrop = false,
+  enableAdvancedPreview = true,
+  onAdvancedPreview
 }) => {
+  const [advancedPreviewFile, setAdvancedPreviewFile] = useState<UnifiedFileItem | null>(null);
+  const [isAdvancedPreviewOpen, setIsAdvancedPreviewOpen] = useState(false);
+  const {
+    opened: isModalOpen,
+    open: openModal,
+    close: closeModal
+  } = useModal();
   const weatherLabels = [
     'Sunny', 'Partly Cloudy', 'Cloudy', 'Rainy', 'Stormy', 'Snowy', 'Foggy'
   ];
@@ -131,6 +149,24 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
       confirmProps: { color: 'red' },
       onConfirm: onDelete
     });
+  };
+
+  const handleAdvancedPreview = (file: UnifiedFileItem) => {
+    setAdvancedPreviewFile(file);
+    setIsAdvancedPreviewOpen(true);
+  };
+
+  const isPreviewableFile = (file: UnifiedFileItem) => {
+    return file.mimeType && (
+      file.mimeType.startsWith('image/') ||
+      file.mimeType === 'application/pdf' ||
+      file.mimeType?.includes('document') ||
+      file.mimeType?.includes('pdf') ||
+      file.mimeType?.startsWith('text/') ||
+      file.mimeType?.includes('office') ||
+      file.mimeType?.includes('sheet') ||
+      file.mimeType?.includes('presentation')
+    );
   };
 
   if (isLoading) {
@@ -317,6 +353,17 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
             showUpload={false}
             showAudioRecorder={false}
             enableDragDrop={enableDragDrop}
+            enableAdvancedPreview={enableAdvancedPreview}
+            onAdvancedPreview={handleAdvancedPreview}
+          />
+        )}
+
+        {/* Advanced Preview Modal */}
+        {enableAdvancedPreview && advancedPreviewFile && (
+          <AdvancedPreviewModal
+            opened={isAdvancedPreviewOpen}
+            onClose={() => setIsAdvancedPreviewOpen(false)}
+            file={advancedPreviewFile}
           />
         )}
       </Stack>

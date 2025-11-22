@@ -8,8 +8,8 @@
 
 -- Users table
 CREATE TABLE users (
-    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
-    username VARCHAR(50) NOT NULL UNIQUE,
+    uuid VARCHAR(20) NOT NULL PRIMARY KEY,
+    username VARCHAR(20) NOT NULL UNIQUE,
     email VARCHAR(100) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
@@ -20,8 +20,8 @@ CREATE TABLE users (
 
 -- Sessions table
 CREATE TABLE sessions (
-    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
-    user_uuid VARCHAR(36) NOT NULL,
+    uuid VARCHAR(20) NOT NULL PRIMARY KEY,
+    user_uuid VARCHAR(20) NOT NULL,
     token_hash VARCHAR(255) NOT NULL,
     expires_at DATETIME NOT NULL,
     created_at DATETIME NOT NULL,
@@ -30,8 +30,8 @@ CREATE TABLE sessions (
 
 -- Recovery keys table
 CREATE TABLE recovery_keys (
-    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
-    user_uuid VARCHAR(36) NOT NULL,
+    uuid VARCHAR(20) NOT NULL PRIMARY KEY,
+    user_uuid VARCHAR(20) NOT NULL,
     key_hash VARCHAR(255) NOT NULL,
     hint VARCHAR(255),
     created_at DATETIME NOT NULL,
@@ -44,11 +44,11 @@ CREATE TABLE recovery_keys (
 
 -- Documents table (updated with file_hash, removed exclusivity flags)
 CREATE TABLE documents (
-    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
+    uuid VARCHAR(20) NOT NULL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     filename VARCHAR(255) NOT NULL,
     original_name VARCHAR(255) NOT NULL,
-    file_path VARCHAR(500) NOT NULL,
+    file_path VARCHAR(255) NOT NULL,
     file_size BIGINT NOT NULL,
     file_hash VARCHAR(64) NOT NULL UNIQUE,  -- SHA-256 hash for deduplication
     mime_type VARCHAR(100) NOT NULL,
@@ -56,8 +56,8 @@ CREATE TABLE documents (
     is_favorite BOOLEAN DEFAULT FALSE,
     is_archived BOOLEAN DEFAULT FALSE,
     is_deleted BOOLEAN DEFAULT FALSE,
-    thumbnail_path VARCHAR(500),
-    created_by VARCHAR(36) NOT NULL,
+    thumbnail_path VARCHAR(255),
+    created_by VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
@@ -77,20 +77,20 @@ CREATE INDEX ix_doc_file_hash ON documents(file_hash);  -- Fast duplicate detect
 
 -- Notes table (updated relationships)
 CREATE TABLE notes (
-    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
+    uuid VARCHAR(20) NOT NULL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     description TEXT,
     content TEXT NOT NULL,
-    content_file_path VARCHAR(500),
+    content_file_path VARCHAR(255),
     size_bytes BIGINT DEFAULT 0,
     is_favorite BOOLEAN DEFAULT FALSE,
     is_archived BOOLEAN DEFAULT FALSE,
     is_project_exclusive BOOLEAN DEFAULT FALSE,
     version INTEGER DEFAULT 1,
     content_diff TEXT,
-    last_version_uuid VARCHAR(36),
+    last_version_uuid VARCHAR(20),
     file_count INTEGER DEFAULT 0,  -- Count of associated documents
-    created_by VARCHAR(36) NOT NULL,
+    created_by VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
@@ -102,7 +102,7 @@ CREATE TABLE notes (
 
 -- Projects table
 CREATE TABLE projects (
-    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
+    uuid VARCHAR(20) NOT NULL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     sort_order INTEGER DEFAULT 0,
@@ -115,7 +115,7 @@ CREATE TABLE projects (
     start_date DATE,
     due_date DATE,
     completion_date DATETIME,
-    created_by VARCHAR(36) NOT NULL,
+    created_by VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
@@ -127,7 +127,7 @@ CREATE TABLE projects (
 
 -- Todos table
 CREATE TABLE todos (
-    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
+    uuid VARCHAR(20) NOT NULL PRIMARY KEY,
     task VARCHAR(255) NOT NULL,
     description TEXT,
     status VARCHAR(20) DEFAULT 'PENDING',
@@ -138,7 +138,7 @@ CREATE TABLE todos (
     is_archived BOOLEAN DEFAULT FALSE,
     is_deleted BOOLEAN DEFAULT FALSE,
     sort_order INTEGER DEFAULT 0,
-    created_by VARCHAR(36) NOT NULL,
+    created_by VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
@@ -150,7 +150,7 @@ CREATE TABLE todos (
 
 -- Diary entries table
 CREATE TABLE diary_entries (
-    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
+    uuid VARCHAR(20) NOT NULL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
     date DATETIME NOT NULL,
     mood SMALLINT,
@@ -158,13 +158,13 @@ CREATE TABLE diary_entries (
     location VARCHAR(100),
     file_count INTEGER DEFAULT 0,
     content_length INTEGER DEFAULT 0,
-    content_file_path VARCHAR(500),
+    content_file_path VARCHAR(255),
     file_hash VARCHAR(128),
     encryption_tag VARCHAR(255),
     encryption_iv VARCHAR(255),
     is_favorite BOOLEAN DEFAULT FALSE,
     is_template BOOLEAN DEFAULT FALSE,
-    created_by VARCHAR(36) NOT NULL,
+    created_by VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE
@@ -172,8 +172,8 @@ CREATE TABLE diary_entries (
 
 -- Diary daily metadata table
 CREATE TABLE diary_daily_metadata (
-    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
-    user_uuid VARCHAR(36) NOT NULL,
+    uuid VARCHAR(20) NOT NULL PRIMARY KEY,
+    user_uuid VARCHAR(20) NOT NULL,
     date DATE NOT NULL,
     nepali_date VARCHAR(20),
     weather_code SMALLINT,
@@ -197,15 +197,15 @@ CREATE TABLE diary_daily_metadata (
 
 -- Archive folders table
 CREATE TABLE archive_folders (
-    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
+    uuid VARCHAR(20) NOT NULL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
-    parent_uuid VARCHAR(36),
+    parent_uuid VARCHAR(20),
     sort_order INTEGER DEFAULT 0,
     item_count INTEGER DEFAULT 0,
     total_size BIGINT DEFAULT 0,
     is_deleted BOOLEAN DEFAULT FALSE,
-    created_by VARCHAR(36) NOT NULL,
+    created_by VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     FOREIGN KEY (parent_uuid) REFERENCES archive_folders(uuid) ON DELETE CASCADE,
@@ -214,18 +214,18 @@ CREATE TABLE archive_folders (
 
 -- Archive items table
 CREATE TABLE archive_items (
-    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
+    uuid VARCHAR(20) NOT NULL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
-    folder_uuid VARCHAR(36),
+    folder_uuid VARCHAR(20),
     original_filename VARCHAR(255) NOT NULL,
     stored_filename VARCHAR(255) NOT NULL,
-    file_path VARCHAR(500) NOT NULL,
+    file_path VARCHAR(255) NOT NULL,
     file_size BIGINT NOT NULL,
     mime_type VARCHAR(100),
     upload_status VARCHAR(20) DEFAULT 'COMPLETED',
     is_deleted BOOLEAN DEFAULT FALSE,
-    created_by VARCHAR(36) NOT NULL,
+    created_by VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     FOREIGN KEY (folder_uuid) REFERENCES archive_folders(uuid) ON DELETE CASCADE,
@@ -238,11 +238,11 @@ CREATE TABLE archive_items (
 
 -- Tags table
 CREATE TABLE tags (
-    uuid VARCHAR(36) NOT NULL PRIMARY KEY,
+    uuid VARCHAR(20) NOT NULL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     color VARCHAR(7) DEFAULT '#3B82F6',
     description TEXT,
-    created_by VARCHAR(36) NOT NULL,
+    created_by VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL,
     FOREIGN KEY (created_by) REFERENCES users(uuid) ON DELETE CASCADE,
@@ -256,8 +256,8 @@ CREATE TABLE tags (
 -- Note-Document associations (NEW)
 CREATE TABLE note_documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    note_uuid VARCHAR(36) NOT NULL,
-    document_uuid VARCHAR(36) NOT NULL,
+    note_uuid VARCHAR(20) NOT NULL,
+    document_uuid VARCHAR(20) NOT NULL,
     sort_order INTEGER DEFAULT 0,
     is_exclusive BOOLEAN DEFAULT FALSE,  -- Exclusivity on the link
     created_at DATETIME NOT NULL,
@@ -273,8 +273,8 @@ CREATE INDEX ix_notedoc_note_order ON note_documents(note_uuid, sort_order);
 -- Document-Diary associations (UPDATED)
 CREATE TABLE document_diary (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    document_uuid VARCHAR(36) NOT NULL,
-    diary_entry_uuid VARCHAR(36) NOT NULL,
+    document_uuid VARCHAR(20) NOT NULL,
+    diary_entry_uuid VARCHAR(20) NOT NULL,
     sort_order INTEGER DEFAULT 0,
     is_exclusive BOOLEAN DEFAULT TRUE,  -- Diary files always exclusive
     created_at DATETIME NOT NULL,
@@ -290,9 +290,9 @@ CREATE INDEX ix_docdiary_entry_order ON document_diary(diary_entry_uuid, sort_or
 -- Polymorphic Project Items (NEW - replaces document_projects)
 CREATE TABLE project_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_uuid VARCHAR(36) NOT NULL,
+    project_uuid VARCHAR(20) NOT NULL,
     item_type VARCHAR(20) NOT NULL,  -- 'Note', 'Document', 'Todo'
-    item_uuid VARCHAR(36) NOT NULL,
+    item_uuid VARCHAR(20) NOT NULL,
     sort_order INTEGER DEFAULT 0,
     is_exclusive BOOLEAN DEFAULT FALSE,  -- Exclusivity on the link
     created_at DATETIME NOT NULL,
@@ -308,8 +308,8 @@ CREATE INDEX ix_projitems_type_uuid ON project_items(item_type, item_uuid);
 -- Note-Project associations
 CREATE TABLE note_projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    note_uuid VARCHAR(36) NOT NULL,
-    project_uuid VARCHAR(36) NOT NULL,
+    note_uuid VARCHAR(20) NOT NULL,
+    project_uuid VARCHAR(20) NOT NULL,
     sort_order INTEGER DEFAULT 0,
     is_exclusive BOOLEAN DEFAULT FALSE,  -- Exclusivity on the link
     created_at DATETIME NOT NULL,
@@ -322,8 +322,8 @@ CREATE TABLE note_projects (
 -- Todo-Project associations
 CREATE TABLE todo_projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    todo_uuid VARCHAR(36) NOT NULL,
-    project_uuid VARCHAR(36) NOT NULL,
+    todo_uuid VARCHAR(20) NOT NULL,
+    project_uuid VARCHAR(20) NOT NULL,
     sort_order INTEGER DEFAULT 0,
     is_exclusive BOOLEAN DEFAULT FALSE,  -- Exclusivity on the link
     created_at DATETIME NOT NULL,
@@ -336,8 +336,8 @@ CREATE TABLE todo_projects (
 -- Todo dependencies
 CREATE TABLE todo_dependencies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    todo_uuid VARCHAR(36) NOT NULL,
-    depends_on_uuid VARCHAR(36) NOT NULL,
+    todo_uuid VARCHAR(20) NOT NULL,
+    depends_on_uuid VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     FOREIGN KEY (todo_uuid) REFERENCES todos(uuid) ON DELETE CASCADE,
     FOREIGN KEY (depends_on_uuid) REFERENCES todos(uuid) ON DELETE CASCADE,
@@ -351,8 +351,8 @@ CREATE TABLE todo_dependencies (
 -- Note tags
 CREATE TABLE note_tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    note_uuid VARCHAR(36) NOT NULL,
-    tag_uuid VARCHAR(36) NOT NULL,
+    note_uuid VARCHAR(20) NOT NULL,
+    tag_uuid VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     FOREIGN KEY (note_uuid) REFERENCES notes(uuid) ON DELETE CASCADE,
     FOREIGN KEY (tag_uuid) REFERENCES tags(uuid) ON DELETE CASCADE,
@@ -362,8 +362,8 @@ CREATE TABLE note_tags (
 -- Document tags
 CREATE TABLE document_tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    document_uuid VARCHAR(36) NOT NULL,
-    tag_uuid VARCHAR(36) NOT NULL,
+    document_uuid VARCHAR(20) NOT NULL,
+    tag_uuid VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     FOREIGN KEY (document_uuid) REFERENCES documents(uuid) ON DELETE CASCADE,
     FOREIGN KEY (tag_uuid) REFERENCES tags(uuid) ON DELETE CASCADE,
@@ -373,8 +373,8 @@ CREATE TABLE document_tags (
 -- Todo tags
 CREATE TABLE todo_tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    todo_uuid VARCHAR(36) NOT NULL,
-    tag_uuid VARCHAR(36) NOT NULL,
+    todo_uuid VARCHAR(20) NOT NULL,
+    tag_uuid VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     FOREIGN KEY (todo_uuid) REFERENCES todos(uuid) ON DELETE CASCADE,
     FOREIGN KEY (tag_uuid) REFERENCES tags(uuid) ON DELETE CASCADE,
@@ -384,8 +384,8 @@ CREATE TABLE todo_tags (
 -- Diary entry tags
 CREATE TABLE diary_entry_tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    diary_entry_uuid VARCHAR(36) NOT NULL,
-    tag_uuid VARCHAR(36) NOT NULL,
+    diary_entry_uuid VARCHAR(20) NOT NULL,
+    tag_uuid VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     FOREIGN KEY (diary_entry_uuid) REFERENCES diary_entries(uuid) ON DELETE CASCADE,
     FOREIGN KEY (tag_uuid) REFERENCES tags(uuid) ON DELETE CASCADE,
@@ -395,8 +395,8 @@ CREATE TABLE diary_entry_tags (
 -- Archive item tags
 CREATE TABLE archive_item_tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    archive_item_uuid VARCHAR(36) NOT NULL,
-    tag_uuid VARCHAR(36) NOT NULL,
+    archive_item_uuid VARCHAR(20) NOT NULL,
+    tag_uuid VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     FOREIGN KEY (archive_item_uuid) REFERENCES archive_items(uuid) ON DELETE CASCADE,
     FOREIGN KEY (tag_uuid) REFERENCES tags(uuid) ON DELETE CASCADE,
@@ -406,8 +406,8 @@ CREATE TABLE archive_item_tags (
 -- Archive folder tags
 CREATE TABLE archive_folder_tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    archive_folder_uuid VARCHAR(36) NOT NULL,
-    tag_uuid VARCHAR(36) NOT NULL,
+    archive_folder_uuid VARCHAR(20) NOT NULL,
+    tag_uuid VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL,
     FOREIGN KEY (archive_folder_uuid) REFERENCES archive_folders(uuid) ON DELETE CASCADE,
     FOREIGN KEY (tag_uuid) REFERENCES tags(uuid) ON DELETE CASCADE,

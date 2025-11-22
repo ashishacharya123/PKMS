@@ -406,7 +406,7 @@ class ApiService {
     }
   }
 
-  async buildThumbnails(size: 'small' | 'medium' | 'large' = 'medium'): Promise<{
+  async buildThumbnails(): Promise<{
     status: string;
     created: number;
     existing: number;
@@ -419,7 +419,7 @@ class ApiService {
       existing: number;
       failed: number;
       total_scanned: number;
-    }>(`/thumbnails/build?size=${size}`, {});
+    }>('/thumbnails/build', {});
     return res.data;
   }
 

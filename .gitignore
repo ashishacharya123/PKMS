@@ -27,7 +27,11 @@ frontend.log
 Thumbs.db 
 # Ignore accidental backend-local SQLite copies
 pkms-backend/data/
-pkms-backend/PKMS_Data/ 
+pkms-backend/PKMS_Data/
+
+# Ignore PKMS-Data directory at root level
+PKMS_Data/
+PKMS-Data/
 
 # Ignore all text files
-*.txtPKMS_Data/ 
+*.txt 

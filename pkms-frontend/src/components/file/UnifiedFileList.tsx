@@ -6,21 +6,22 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  IconPlayerPlay, 
-  IconPlayerPause, 
-  IconDownload, 
-  IconTrash, 
-  IconPhoto, 
-  IconFileText, 
-  IconMicrophone, 
-  IconVideo, 
-  IconUnlink, 
+import {
+  IconPlayerPlay,
+  IconPlayerPause,
+  IconDownload,
+  IconTrash,
+  IconPhoto,
+  IconFileText,
+  IconMicrophone,
+  IconVideo,
+  IconUnlink,
   IconGripVertical,
   IconEye,
   IconChecklist,
   IconRefresh,
-  IconEdit
+  IconEdit,
+  IconZoomScan
 } from '@tabler/icons-react';
 import {
   Group,
@@ -42,6 +43,7 @@ import { Todo } from '../../types/todo';
 import { UnifiedContentModal } from './UnifiedContentModal';
 import { useModal } from '../../hooks/useModal';
 import { formatFileSize, getFileTypeConfig, getFileTypeConfigByExtension } from '../../utils/fileUtils';
+import { addTokenToUrl } from '../../utils/cookieUtils';
 
 // Utility function for getting cache module
 const getCacheModule = (module: string): 'documents' | 'archive' | 'diary' => {
@@ -58,34 +60,38 @@ const getCacheModule = (module: string): 'documents' | 'archive' | 'diary' => {
 };
 
 // Utility function for getting thumbnail URLs
-const getThumbnailUrl = async (file: UnifiedFileItem, size: 'small' | 'medium' | 'large' = 'small'): Promise<string | null> => {
-  // First check if we have a cached thumbnail
-  const cacheKey = `${file.uuid}_thumbnail`;
-  const module = getCacheModule(file.module);
-  
+const getThumbnailUrl = async (file: UnifiedFileItem): Promise<string | null> => {
+  // First try unifiedFileService.getThumbnail which handles caching properly
   try {
-    const cachedThumbnail = await fileService.getThumbnail(cacheKey, module);
-    if (cachedThumbnail) {
+    const thumbnailUrl = await unifiedFileService.getThumbnail(file);
+    if (thumbnailUrl) {
       if (process.env.NODE_ENV !== 'production') {
         // eslint-disable-next-line no-console
-        console.log(`🎯 THUMBNAIL CACHE HIT: ${file.originalName}`);
+        console.log(`🎯 THUMBNAIL from unifiedFileService: ${file.originalName}`);
       }
-      return URL.createObjectURL(cachedThumbnail);
+      return thumbnailUrl;
     }
   } catch (error) {
-    console.warn('Failed to get cached thumbnail:', error);
+    console.warn('Failed to get thumbnail from unifiedFileService:', error);
   }
 
-  // Fallback to backend thumbnail
-  if (file.thumbnailPath) {
-    return file.thumbnailPath;
+  // Fallback: try backend thumbnail API with authentication (single size)
+  if (file.thumbnailPath || file.filePath) {
+    try {
+      // Construct authenticated thumbnail URL (single size, CSS will handle resizing)
+      const baseUrl = file.thumbnailPath
+        ? `/api/v1/thumbnails/${file.uuid}`
+        : `/api/v1/thumbnails/file/${encodeURIComponent(file.filePath.replace(/\\/g, '/'))}`;
+
+      // Add authentication token
+      const authenticatedUrl = addTokenToUrl(baseUrl);
+      console.log(`🔒 Authenticated thumbnail URL for ${file.originalName}: ${authenticatedUrl}`);
+      return authenticatedUrl;
+    } catch (error) {
+      console.warn('Failed to construct authenticated thumbnail URL:', error);
+    }
   }
-  if (file.filePath) {
-    const basePath = file.filePath.replace(/\\/g, '/');
-    const encoded = encodeURIComponent(basePath);
-    return `/api/v1/thumbnails/file/${encoded}?size=${size}`;
-  }
-  
+
   return null;
 };
 
@@ -104,6 +110,9 @@ interface UnifiedFileListProps {
   entityId: string; // Parent entity UUID
   onContentSave?: (data: any) => Promise<void>; // For content saving
   onContentDelete?: () => Promise<void>; // For content deletion
+  // Advanced preview props
+  enableAdvancedPreview?: boolean;
+  onAdvancedPreview?: (file: UnifiedFileItem) => void;
 }
 
 export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
@@ -119,7 +128,9 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
   module,
   entityId,
   onContentSave,
-  onContentDelete
+  onContentDelete,
+  enableAdvancedPreview = false,
+  onAdvancedPreview
 }) => {
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -213,8 +224,8 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
         const decryptedBlob = await unifiedFileService.downloadFile(file, encryptionKey);
         imageUrl = URL.createObjectURL(decryptedBlob);
       } else {
-        // Use existing thumbnail logic
-        imageUrl = await getThumbnailUrl(file, 'large') || file.filePath || '';
+        // Use existing thumbnail logic (single size)
+        imageUrl = await getThumbnailUrl(file) || file.filePath || '';
       }
 
       imageModal.openModal({ url: imageUrl, name: file.originalName || 'Image' });
@@ -490,7 +501,20 @@ export const UnifiedFileList: React.FC<UnifiedFileListProps> = ({
                     </ActionIcon>
                   </Tooltip>
                 )}
-                
+
+                {/* Advanced preview */}
+                {enableAdvancedPreview && (
+                  <Tooltip label="Advanced Preview">
+                    <ActionIcon
+                      variant="light"
+                      size="sm"
+                      onClick={() => onAdvancedPreview && onAdvancedPreview(file)}
+                    >
+                      <IconZoomScan size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+
                 {/* TODO viewer */}
                 {isTodo && (
                   <Tooltip label="View TODO">
@@ -718,7 +742,7 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
       }
 
       try {
-        const url = await getThumbnailUrl(file, 'small');
+        const url = await getThumbnailUrl(file);
         setThumbUrl(url);
       } catch (error) {
         console.warn('Failed to load thumbnail:', error);
@@ -734,7 +758,7 @@ const ThumbnailRenderer: React.FC<{ file: UnifiedFileItem }> = ({ file }) => {
         URL.revokeObjectURL(thumbUrl);
       }
     };
-  }, [file, thumbUrl]);
+  }, [file]); // Remove thumbUrl from dependency array to prevent infinite loop
 
   if (isLoading) {
     return (

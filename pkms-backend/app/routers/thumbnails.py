@@ -58,19 +58,17 @@ def _serve_thumbnail(thumbnail_path: str, data_dir: Path) -> FileResponse | None
 @router.get("/{file_uuid}")
 async def get_thumbnail(
     file_uuid: str,
-    size: str = Query("medium", regex="^(small|medium|large)$"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Get thumbnail for a file by UUID.
-    
+    Get single thumbnail for a file by UUID.
+
     Searches both Document and ArchiveItem tables for the file.
     Returns thumbnail if exists, otherwise 404.
-    
+
     Args:
         file_uuid: UUID of the file
-        size: Thumbnail size (small, medium, large) - note: currently returns stored thumbnail
         current_user: Current authenticated user
         db: Database session
     """
@@ -180,15 +178,15 @@ async def get_thumbnail_by_path(
 
 @router.post("/build")
 async def build_missing_thumbnails(
-    size: str = Query("medium", regex="^(small|medium|large)$"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Build missing thumbnails for all user files (Documents + ArchiveItems).
+    Build missing single thumbnails for all user files (Documents + ArchiveItems).
     Queries database for accurate file tracking and updates thumbnail_path in DB.
     Safe to run multiple times.
-    
+    CSS will handle resizing for different views.
+
     Returns counts for created/existing/failed.
     """
     try:
@@ -230,7 +228,7 @@ async def build_missing_thumbnails(
                     continue
             
             # Generate thumbnail
-            result = await thumbnail_service.generate_thumbnail(file_path, thumbs_dir, size)
+            result = await thumbnail_service.generate_thumbnail(file_path, thumbs_dir)
             if result:
                 # Update document with thumbnail path (relative to storage_dir)
                 doc.thumbnail_path = str(result.relative_to(storage_dir))
@@ -254,7 +252,7 @@ async def build_missing_thumbnails(
             
             # Generate thumbnail in subdirectory (archive items use local thumbnails)
             thumbnail_dir = file_path.parent / "thumbnails"
-            result = await thumbnail_service.generate_thumbnail(file_path, thumbnail_dir, size)
+            result = await thumbnail_service.generate_thumbnail(file_path, thumbnail_dir)
             if result:
                 # Update archive item with thumbnail path (relative to file parent for subdirectory structure)
                 item.thumbnail_path = str(result.relative_to(file_path.parent))
@@ -267,7 +265,7 @@ async def build_missing_thumbnails(
         
         return {
             "status": "ok",
-            "size": size,
+            "size": "single",  # Single thumbnail system
             "created": created,
             "existing": existing,
             "failed": failed,

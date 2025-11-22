@@ -252,6 +252,16 @@ async def login(
         samesite="strict"  # SECURITY: Consistent strict SameSite for CSRF protection
     )
     
+    # Set additional access token for iframe usage (non-HttpOnly)
+    response.set_cookie(
+        key="pkms_access_token",
+        value=access_token,
+        max_age=settings.access_token_expire_minutes * 60,  # 30 minutes
+        httponly=False,  # Allow JavaScript access for iframe URLs
+        secure=(settings.environment == "production"),
+        samesite="lax"  # Less restrictive for iframe compatibility
+    )
+
     # Set refresh token cookie
     response.set_cookie(
         key="pkms_refresh",
@@ -686,6 +696,16 @@ async def refresh_access_token(
             httponly=True,
             secure=(settings.environment == "production"),
             samesite="strict"  # SECURITY: Strict SameSite for CSRF protection
+        )
+
+        # Set additional access token for iframe usage (non-HttpOnly)
+        response.set_cookie(
+            key="pkms_access_token",
+            value=access_token,
+            max_age=settings.access_token_expire_minutes * 60,  # 30 minutes
+            httponly=False,  # Allow JavaScript access for iframe URLs
+            secure=(settings.environment == "production"),
+            samesite="lax"  # Less restrictive for iframe compatibility
         )
 
         # Set new refresh cookie with new token

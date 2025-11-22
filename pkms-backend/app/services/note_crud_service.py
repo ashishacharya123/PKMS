@@ -600,10 +600,10 @@ class NoteCRUDService:
     ) -> List[Document]:
         """Get all documents attached to a note via note_documents association"""
         try:
-            # Verify note ownership
+            # Verify note ownership and ensure note is not soft-deleted
             note_result = await db.execute(
                 select(Note).where(
-                    and_(Note.uuid == note_uuid, Note.created_by == user_uuid)
+                    and_(Note.active_only(), Note.uuid == note_uuid, Note.created_by == user_uuid)
                 )
             )
             note = note_result.scalar_one_or_none()
@@ -707,10 +707,10 @@ class NoteCRUDService:
     ) -> List[DocumentResponse]:
         """Get all files attached to a note"""
         try:
-            # Verify note ownership first
+            # Verify note ownership and ensure note is not soft-deleted
             note_result = await db.execute(
                 select(Note).where(
-                    and_(Note.uuid == note_uuid, Note.created_by == user_uuid)
+                    and_(Note.active_only(), Note.uuid == note_uuid, Note.created_by == user_uuid)
                 )
             )
             note = note_result.scalar_one_or_none()

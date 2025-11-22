@@ -164,12 +164,12 @@ class UnifiedUploadService:
             # Documents use central thumbnail directory
             if module in ["documents", "notes", "diary"]:
                 thumbnail_dir = storage_dir / "thumbnails"
-                results = await thumbnail_service.generate_all_sizes(file_path, thumbnail_dir)
-                
-                # Return medium thumbnail path (relative to storage_dir)
-                medium_thumb = results.get('medium')
+                # OPTIMIZATION: Generate only medium thumbnail (300x300) for all use cases
+                # This saves 67% of storage space and processing time compared to generating 3 sizes
+                medium_thumb = await thumbnail_service.generate_thumbnail(file_path, thumbnail_dir, 'medium')
+
                 if medium_thumb:
-                    logger.info(f"Generated thumbnails for document: {file_path}")
+                    logger.info(f"Generated medium thumbnail for document: {file_path}")
                     return str(medium_thumb.relative_to(storage_dir))
             
             # Archive items use subdirectory thumbnails (handled separately in archive_item_service)

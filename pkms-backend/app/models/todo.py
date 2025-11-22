@@ -18,7 +18,7 @@ class Todo(Base, SoftDeleteMixin):
     
     __tablename__ = "todos"
     
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)  # Primary key
+    uuid = Column(String(20), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)  # Primary key
     
     title = Column(String(255), nullable=False)
     description = Column(Text)
@@ -30,7 +30,7 @@ class Todo(Base, SoftDeleteMixin):
     checklist_items = Column(Text, nullable=True)  # JSON array of {text, completed, order}
     
     # Phase 2: Subtasks and Dependencies
-    parent_uuid = Column(String(36), ForeignKey("todos.uuid", ondelete="CASCADE"), nullable=True)  # For subtasks
+    parent_uuid = Column(String(20), ForeignKey("todos.uuid", ondelete="CASCADE"), nullable=True)  # For subtasks
     # blocked_by removed - replaced with todo_dependencies junction table
     
     # Phase 2: Time Tracking - calculated in frontend from dates
@@ -49,7 +49,7 @@ class Todo(Base, SoftDeleteMixin):
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     
     # Audit trail
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(20), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     
     # is_deleted now provided by SoftDeleteMixin
     

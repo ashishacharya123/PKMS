@@ -13,8 +13,8 @@ note_documents = Table(
     'note_documents', 
     Base.metadata,
     Column('id', Integer, primary_key=True, autoincrement=True),  # Surrogate PK
-    Column('note_uuid', String(36), ForeignKey('notes.uuid', ondelete='CASCADE'), nullable=False, index=True),
-    Column('document_uuid', String(36), ForeignKey('documents.uuid', ondelete='CASCADE'), nullable=False, index=True),
+    Column('note_uuid', String(20), ForeignKey('notes.uuid', ondelete='CASCADE'), nullable=False, index=True),
+    Column('document_uuid', String(20), ForeignKey('documents.uuid', ondelete='CASCADE'), nullable=False, index=True),
     Column('sort_order', Integer, nullable=False, default=0),
     Column('is_exclusive', Boolean, nullable=False, default=False),  # Exclusivity on the link
     Column('created_at', DateTime(timezone=True), server_default=func.now(), nullable=False),
@@ -30,8 +30,8 @@ document_diary = Table(
     'document_diary', 
     Base.metadata,
     Column('id', Integer, primary_key=True, autoincrement=True),  # Surrogate PK
-    Column('document_uuid', String(36), ForeignKey('documents.uuid', ondelete='CASCADE'), nullable=False, index=True),
-    Column('diary_entry_uuid', String(36), ForeignKey('diary_entries.uuid', ondelete='CASCADE'), nullable=False, index=True),
+    Column('document_uuid', String(20), ForeignKey('documents.uuid', ondelete='CASCADE'), nullable=False, index=True),
+    Column('diary_entry_uuid', String(20), ForeignKey('diary_entries.uuid', ondelete='CASCADE'), nullable=False, index=True),
     Column('sort_order', Integer, nullable=False, default=0),
     Column('is_exclusive', Boolean, nullable=False, default=True),  # Diary files always exclusive (encrypted, private)
     Column('is_encrypted', Boolean, nullable=False, default=False),  # Track if file is encrypted
@@ -49,8 +49,8 @@ Index('ix_docdiary_entry_order', document_diary.c.diary_entry_uuid, document_dia
 todo_dependencies = Table(
     'todo_dependencies',
     Base.metadata,
-    Column('blocked_todo_uuid', String(36), ForeignKey('todos.uuid', ondelete='CASCADE'), primary_key=True),
-    Column('blocking_todo_uuid', String(36), ForeignKey('todos.uuid', ondelete='CASCADE'), primary_key=True),
+    Column('blocked_todo_uuid', String(20), ForeignKey('todos.uuid', ondelete='CASCADE'), primary_key=True),
+    Column('blocking_todo_uuid', String(20), ForeignKey('todos.uuid', ondelete='CASCADE'), primary_key=True),
     Column('created_at', DateTime, default=func.now()),
     Column('dependency_type', String(20), default='blocks')  # blocks, depends_on, related_to
 )
@@ -61,9 +61,9 @@ project_items = Table(
     'project_items',
     Base.metadata,
     Column('id', Integer, primary_key=True, autoincrement=True),  # Surrogate PK
-    Column('project_uuid', String(36), ForeignKey('projects.uuid', ondelete='CASCADE'), nullable=False, index=True),
+    Column('project_uuid', String(20), ForeignKey('projects.uuid', ondelete='CASCADE'), nullable=False, index=True),
     Column('item_type', String(20), nullable=False, index=True),  # 'Note', 'Document', 'Todo'
-    Column('item_uuid', String(36), nullable=False, index=True),  # UUID of the item (no FK due to polymorphism)
+    Column('item_uuid', String(20), nullable=False, index=True),  # UUID of the item (no FK due to polymorphism)
     Column('sort_order', Integer, nullable=False, default=0),
     Column('is_exclusive', Boolean, nullable=False, default=False),  # Exclusivity on the link
     Column('created_at', DateTime(timezone=True), server_default=func.now(), nullable=False),

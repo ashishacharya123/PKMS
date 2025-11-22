@@ -11,6 +11,7 @@ from typing import Optional
 from app.database import get_db
 from app.models.user import User
 from app.auth.security import verify_token
+from app.utils.helpers import is_preview_request
 import logging
 
 logger = logging.getLogger(__name__)
@@ -48,11 +49,7 @@ async def get_current_user(
     # Check URL parameter for preview requests (iframe support)
     if not token and token_query:
         # Only allow URL parameter for preview requests to maintain security
-        is_preview_request = (
-            request.url.path.endswith("/download") and
-            request.query_params.get("preview", "").lower() == "true"
-        )
-        if is_preview_request:
+        if is_preview_request(request):
             token = token_query
 
     # Fallback to Authorization header

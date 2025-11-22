@@ -26,7 +26,7 @@ class DiaryEntry(Base, SoftDeleteMixin):
     
     __tablename__ = "diary_entries"
     
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)  # Primary key
+    uuid = Column(String(20), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)  # Primary key
     title = Column(String(255), nullable=False, index=True)
     date = Column(DateTime(timezone=True), nullable=False, index=True)  # Date for the diary entry
     mood = Column(SmallInteger, nullable=True, index=True)  # 1-5 scale
@@ -38,8 +38,8 @@ class DiaryEntry(Base, SoftDeleteMixin):
     # encryption_tag and encryption_iv removed - IV and tag are embedded in encrypted file (PKMS format)
     is_favorite = Column(Boolean, default=False, index=True)
     is_template = Column(Boolean, default=False, index=True)  # Template flag for reusable entries
-    from_template_id = Column(String(36), nullable=True, index=True)  # Source template UUID/ID
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    from_template_id = Column(String(20), nullable=True, index=True)  # Source template UUID/ID
+    created_by = Column(String(20), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=nepal_now(), onupdate=nepal_now(), nullable=False)
     
@@ -97,8 +97,8 @@ class DiaryDailyMetadata(Base):
         Index('ix_diary_metadata_office_day', 'created_by', 'is_office_day'),
     )
 
-    uuid = Column(String(36), primary_key=True, default=lambda: str(uuid7()), index=True)
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    uuid = Column(String(20), primary_key=True, default=lambda: str(uuid7()), index=True)
+    created_by = Column(String(20), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
     date = Column(DateTime(timezone=True), nullable=False, index=True)
     nepali_date = Column(String(20), nullable=True)
     day_of_week = Column(SmallInteger, nullable=True, index=True)  # 0=Sunday .. 6=Saturday

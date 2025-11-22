@@ -17,19 +17,19 @@ class Note(Base, SoftDeleteMixin):
     
     __tablename__ = "notes"
     
-    uuid = Column(String(36), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)  # Primary key
+    uuid = Column(String(20), primary_key=True, nullable=False, default=lambda: str(uuid7()), index=True)  # Primary key
     
     title = Column(String(255), nullable=False, index=True)
     description = Column(Text, nullable=True)  # Brief description for FTS5 search
     content = Column(Text, nullable=True)  # May be None when file-backed
-    content_file_path = Column(String(500), nullable=True)  # For large content stored as files
+    content_file_path = Column(String(255), nullable=True)  # For large content stored as files
     size_bytes = Column(BigInteger, default=0, nullable=False)  # Calculated on the fly and stored for analytics
     is_favorite = Column(Boolean, default=False, index=True)
     is_archived = Column(Boolean, default=False, index=True)
     is_template = Column(Boolean, default=False, index=True)  # Template flag for reusable notes
-    from_template_id = Column(String(36), nullable=True, index=True)  # Source template UUID/ID
+    from_template_id = Column(String(20), nullable=True, index=True)  # Source template UUID/ID
     # Ownership
-    created_by = Column(String(36), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
+    created_by = Column(String(20), ForeignKey("users.uuid", ondelete="CASCADE"), nullable=False, index=True)
 
     # Audit trail
     created_at = Column(DateTime(timezone=True), server_default=nepal_now(), nullable=False)
@@ -40,7 +40,7 @@ class Note(Base, SoftDeleteMixin):
     # Lightweight Versioning (diff-based)
     version = Column(Integer, default=1)
     content_diff = Column(Text, nullable=True)  # Stores diff from previous version
-    last_version_uuid = Column(String(36), ForeignKey('notes.uuid'), nullable=True, index=True)  # Points to previous version
+    last_version_uuid = Column(String(20), ForeignKey('notes.uuid'), nullable=True, index=True)  # Points to previous version
     
     # is_deleted now provided by SoftDeleteMixin
     # Derived counts - updated via service methods when files are added/removed
@@ -55,7 +55,7 @@ class Note(Base, SoftDeleteMixin):
         Index('ix_note_user_deleted', 'created_by', 'is_deleted'),
         CheckConstraint('(content IS NOT NULL OR content_file_path IS NOT NULL)', name='ck_note_content_or_file')
     )
-    thumbnail_path = Column(String(500), nullable=True)  # Path to note thumbnail (if applicable)
+    thumbnail_path = Column(String(255), nullable=True)  # Path to note thumbnail (if applicable)
     
     # Search optimization removed - word_count and reading_time_minutes not needed
     

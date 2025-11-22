@@ -17,11 +17,9 @@ class ThumbnailService:
     """Service for generating and managing thumbnails"""
     
     def __init__(self):
-        self.thumbnail_sizes = {
-            'small': (150, 150),    # List view thumbnails
-            'medium': (300, 300),   # Detail view thumbnails
-            'large': (600, 600)     # Full preview thumbnails
-        }
+        # Single thumbnail size - CSS will handle resizing for different views
+        # Medium size (300x300) provides good balance of quality and file size
+        self.thumbnail_size = (300, 300)
         self.supported_image_types = {
             'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 
             'image/webp', 'image/bmp', 'image/tiff'
@@ -29,19 +27,17 @@ class ThumbnailService:
         self.supported_document_types = set()  # No document thumbnails - UI will show file type icons
     
     async def generate_thumbnail(
-        self, 
-        file_path: Path, 
+        self,
+        file_path: Path,
         output_dir: Path,
-        size: str = 'medium',
         force_regenerate: bool = False
     ) -> Optional[Path]:
         """
         Generate thumbnail for a file
-        
+
         Args:
             file_path: Path to the original file
             output_dir: Directory to save thumbnail
-            size: Thumbnail size ('small', 'medium', 'large')
             force_regenerate: Force regeneration even if thumbnail exists
             
         Returns:
@@ -62,9 +58,9 @@ class ThumbnailService:
             output_dir.mkdir(parents=True, exist_ok=True)
             
             # Generate consistent thumbnail filename
-            # Format: {original_filename}_{size}.jpg (always .jpg for consistency)
+            # Format: {file_hash}_thumb.jpg (single size, CSS will handle resizing)
             file_hash = await self._get_file_hash(file_path)
-            thumbnail_name = f"{file_hash}_{size}.jpg"
+            thumbnail_name = f"{file_hash}_thumb.jpg"
             thumbnail_path = output_dir / thumbnail_name
             
             # Check if thumbnail already exists
@@ -74,7 +70,7 @@ class ThumbnailService:
             
             # Generate thumbnail based on file type
             if mime_type in self.supported_image_types:
-                return await self._generate_image_thumbnail(file_path, thumbnail_path, size)
+                return await self._generate_image_thumbnail(file_path, thumbnail_path)
             else:
                 # For documents (PDF, Word, etc.), no thumbnails - UI will show file type icons
                 logger.info(f"Skipping thumbnail generation for document type: {mime_type}")
@@ -85,15 +81,14 @@ class ThumbnailService:
             return None
     
     async def _generate_image_thumbnail(
-        self, 
-        file_path: Path, 
-        thumbnail_path: Path, 
-        size: str
+        self,
+        file_path: Path,
+        thumbnail_path: Path
     ) -> Optional[Path]:
         """Generate thumbnail for image files"""
         try:
-            # Get thumbnail dimensions
-            max_width, max_height = self.thumbnail_sizes[size]
+            # Get thumbnail dimensions (single size)
+            max_width, max_height = self.thumbnail_size
             
             # Open and process image
             with Image.open(file_path) as img:
@@ -147,37 +142,30 @@ class ThumbnailService:
         file_info = f"{file_path.name}_{stat_result.st_mtime}"
         return hashlib.md5(file_info.encode()).hexdigest()[:12]  # 12 chars is enough
     
-    async def generate_all_sizes(self, file_path: Path, output_dir: Path) -> Dict[str, Optional[Path]]:
-        """Generate thumbnails for all sizes"""
-        results = {}
-        
-        for size in self.thumbnail_sizes.keys():
-            results[size] = await self.generate_thumbnail(file_path, output_dir, size)
-        
-        return results
+    async def generate_thumbnail_single(self, file_path: Path, output_dir: Path) -> Optional[Path]:
+        """Generate single thumbnail (CSS will handle resizing)"""
+        return await self.generate_thumbnail(file_path, output_dir)
     
     async def cleanup_thumbnails(self, file_path: Path, thumbnail_dir: Path):
-        """Clean up thumbnails when original file is deleted"""
+        """Clean up single thumbnail when original file is deleted"""
         try:
             file_hash = await self._get_file_hash(file_path)
-            
-            for size in self.thumbnail_sizes.keys():
-                thumbnail_name = f"{file_hash}_{size}.jpg"
-                thumbnail_path = thumbnail_dir / thumbnail_name
-                
-                if thumbnail_path.exists():
-                    thumbnail_path.unlink()
-                    logger.info(f"Cleaned up thumbnail: {thumbnail_path}")
+            thumbnail_name = f"{file_hash}_thumb.jpg"
+            thumbnail_path = thumbnail_dir / thumbnail_name
+
+            if thumbnail_path.exists():
+                thumbnail_path.unlink()
+                logger.info(f"Cleaned up thumbnail: {thumbnail_path}")
                     
         except Exception as e:
             logger.error(f"Failed to cleanup thumbnails for {file_path}: {e}")
     
-    async def get_thumbnail_path(self, file_path: Path, thumbnail_dir: Path, size: str = 'medium') -> Optional[Path]:
-        """Get path to existing thumbnail"""
+    async def get_thumbnail_path(self, file_path: Path, thumbnail_dir: Path) -> Optional[Path]:
+        """Get path to existing single thumbnail"""
         file_hash = await self._get_file_hash(file_path)
-        thumbnail_name = f"{file_hash}_{size}.jpg"
+        thumbnail_name = f"{file_hash}_thumb.jpg"
         thumbnail_path = thumbnail_dir / thumbnail_name
-        
+
         return thumbnail_path if thumbnail_path.exists() else None
 
 # Global thumbnail service

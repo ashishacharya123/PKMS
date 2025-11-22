@@ -65,7 +65,7 @@ import { ModuleHeader } from '../components/common/ModuleHeader';
 import { ModuleFilters, getModuleFilterConfig } from '../components/common/ModuleFilters';
 import { useDataLoader } from '../hooks/useDataLoader';
 import { useModal } from '../hooks/useModal';
-import { UnifiedContentModal } from '../components/file/UnifiedContentModal';
+import { AdvancedPreviewModal } from '../components/common/AdvancedPreviewModal';
 
 type SortField = 'originalName' | 'fileSize' | 'createdAt' | 'updatedAt';
 type SortOrder = 'asc' | 'desc';
@@ -150,8 +150,8 @@ export function DocumentsPage() {
   // Modal management with useModal hook
   const uploadModal = useModal<File>();
   const filterModal = useModal();
-  const imagePreviewModal = useModal<{ url: string; name: string }>();
   const contentModal = useModal<{ file: any; mode: 'view' | 'edit' }>();
+  const advancedPreviewModal = useModal<any>();
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const { getPreference, updatePreference } = useViewPreferences();
   const [viewMode, setViewMode] = useState<ViewMode>(getPreference('documents'));
@@ -187,9 +187,6 @@ export function DocumentsPage() {
 
   const [debouncedSearchQuery] = useDebouncedValue(searchQuery, 300);
 
-  // Image preview state (inline viewer)
-  // Image preview now handled by imagePreviewModal
-
   // Modal handlers
   const handleOpenUploadModal = useCallback(() => {
     uploadModal.openModal();
@@ -198,10 +195,6 @@ export function DocumentsPage() {
   const handleOpenFilterModal = useCallback(() => {
     filterModal.openModal();
   }, [filterModal]);
-
-  const handleImagePreview = useCallback((url: string, name: string) => {
-    imagePreviewModal.openModal({ url, name });
-  }, [imagePreviewModal]);
 
   // Keyboard shortcuts: search focus, toggle archived/favorites via sidebar, refresh
   useKeyboardShortcuts({
@@ -267,15 +260,7 @@ export function DocumentsPage() {
     }
   }, [searchParams, setSearchParams]);
 
-  // Revoke object URL when closing image preview modal (only for blob URLs)
-  const handleCloseImagePreview = useCallback(() => {
-    // Only revoke blob URLs, not streaming URLs
-    if (imagePreviewModal.selectedItem?.url && imagePreviewModal.selectedItem.url.startsWith('blob:')) {
-      try { URL.revokeObjectURL(imagePreviewModal.selectedItem.url); } catch {}
-    }
-    imagePreviewModal.closeModal();
-  }, [imagePreviewModal]);
-
+  
   const handleTagSearch = async (query: string) => {
     if (query.length < 1) {
       setTagSuggestions([]);
@@ -364,6 +349,8 @@ export function DocumentsPage() {
       const mimeType = doc?.mimeType;
       const originalName = doc?.originalName || '';
 
+      console.log('🔍 DEBUG: handlePreview called for:', { uuid: doc?.uuid, originalName, mimeType, openInNewTab });
+
       // Helper function to open in new tab
       const openDownloadUrlInNewTab = (preview: boolean) => {
         const url = getDownloadUrl(doc.uuid, preview);
@@ -374,16 +361,18 @@ export function DocumentsPage() {
 
       // If user explicitly wants new tab, just open the download URL
       if (openInNewTab) {
+        console.log('🔍 DEBUG: User requested new tab, opening:', originalName);
         openDownloadUrlInNewTab(true); // Open with preview flag
         return;
       }
 
-      // 1. Images: Download to blob for inline preview (documents need this)
-      if (mimeType?.startsWith('image/')) {
-        const blob = await downloadDocument(doc.uuid);
-        if (!blob) return;
-        const url = URL.createObjectURL(blob);
-        imagePreviewModal.openModal({ url, name: originalName });
+      // 1. Images and Documents: Use direct AdvancedPreviewModal
+      if (mimeType?.startsWith('image/') || mimeType?.startsWith('application/pdf') ||
+          mimeType?.startsWith('text/') || mimeType?.includes('document') ||
+          mimeType?.includes('office') || mimeType?.includes('sheet') || mimeType?.includes('presentation')) {
+        console.log('🖼️ DEBUG: File detected for AdvancedPreviewModal:', { originalName, mimeType });
+        // Direct preview using AdvancedPreviewModal (which uses IframePreview internally)
+        advancedPreviewModal.openModal(doc);
         return;
       }
       
@@ -904,68 +893,7 @@ export function DocumentsPage() {
         </Grid.Col>
       </Grid>
 
-      {/* Image Preview Modal */}
-      <Modal
-        opened={imagePreviewModal.isOpen}
-        onClose={handleCloseImagePreview}
-        title={
-          imagePreviewModal.selectedItem ? (
-            <Group gap={8} justify="space-between">
-              <Group gap={8}>
-                {getFileIconComponent('image/', imagePreviewModal.selectedItem.name)}
-                <Text>{imagePreviewModal.selectedItem.name || 'Image'}</Text>
-              </Group>
-              <Group gap="xs">
-                <Button
-                  variant="light"
-                  size="sm"
-                  leftSection={<IconExternalLink size={14} />}
-                  onClick={() => {
-                    if (imagePreviewModal.selectedItem) {
-                      // Find the original file by name
-                      const originalFile = documents.find(f => f.originalName === imagePreviewModal.selectedItem?.name);
-                      if (originalFile) {
-                        handlePreview(originalFile, true);
-                      }
-                    }
-                  }}
-                >
-                  Open in New Tab
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  leftSection={<IconDownload size={14} />}
-                  onClick={() => {
-                    if (imagePreviewModal.selectedItem) {
-                      const originalFile = documents.find(f => f.originalName === imagePreviewModal.selectedItem?.name);
-                      if (originalFile) {
-                        handleDownloadFile(originalFile);
-                      }
-                    }
-                  }}
-                >
-                  Download
-                </Button>
-              </Group>
-            </Group>
-          ) : 'Image'
-        }
-        size="auto"
-        centered
-        overlayProps={{ opacity: 0.55, blur: 3 }}
-      >
-        {imagePreviewModal.selectedItem && (
-          <div style={{ maxWidth: '90vw', maxHeight: '80vh' }}>
-            <img
-              src={imagePreviewModal.selectedItem.url}
-              alt={imagePreviewModal.selectedItem.name}
-              style={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain', borderRadius: 8 }}
-            />
-          </div>
-        )}
-      </Modal>
-
+      
       {/* Upload Modal */}
       <FileUploadModalMemo
         opened={uploadModal.isOpen}
@@ -996,99 +924,12 @@ export function DocumentsPage() {
         />
       </Modal>
 
-      {/* Content Modal for text files and PDFs */}
-      <Modal
-        opened={contentModal.isOpen}
-        onClose={contentModal.closeModal}
-        size="xl"
-        title={
-          contentModal.selectedItem ? (
-            <Group gap={8} justify="space-between">
-              <Group gap={8}>
-                <Text fw={600}>
-                  {contentModal.selectedItem.file.originalName}
-                </Text>
-                <Badge size="sm" variant="light" color="blue">
-                  Read-Only
-                </Badge>
-              </Group>
-              <Group gap="xs">
-                <Button
-                  variant="light"
-                  size="sm"
-                  leftSection={<IconExternalLink size={14} />}
-                  onClick={() => {
-                    if (contentModal.selectedItem?.file) {
-                      handlePreview(contentModal.selectedItem.file, true);
-                    }
-                  }}
-                >
-                  Open in New Tab
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  leftSection={<IconDownload size={14} />}
-                  onClick={() => {
-                    if (contentModal.selectedItem?.file) {
-                      handleDownloadFile(contentModal.selectedItem.file);
-                    }
-                  }}
-                >
-                  Download
-                </Button>
-              </Group>
-            </Group>
-          ) : 'File Preview'
-        }
-      >
-        {contentModal.selectedItem && (
-          <>
-            {contentModal.modalData?.pdfUrl ? (
-              // PDF preview with iframe
-              <div style={{
-                width: '100%',
-                height: '70vh',
-                border: '1px solid #e9ecef',
-                borderRadius: '8px',
-                overflow: 'hidden'
-              }}>
-                <iframe
-                  src={contentModal.modalData.pdfUrl}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    border: 'none'
-                  }}
-                  title={contentModal.selectedItem.file.originalName}
-                  onLoad={() => console.log('🔍 DEBUG: Iframe loaded successfully:', contentModal.modalData.pdfUrl)}
-                  onError={() => {
-                    console.error('🔍 DEBUG: Iframe failed to load:', contentModal.modalData.pdfUrl);
-                    console.log('🔍 DEBUG: Falling back to new tab for document');
-                    handlePreview(contentModal.selectedItem.file, true); // Open in new tab as fallback
-                  }}
-                />
-              </div>
-            ) : (
-              // Text content preview
-              <div style={{
-                maxHeight: '70vh',
-                overflow: 'auto',
-                fontFamily: 'monospace',
-                fontSize: '14px',
-                lineHeight: '1.5',
-                whiteSpace: 'pre-wrap',
-                backgroundColor: '#f8f9fa',
-                padding: '20px',
-                borderRadius: '8px',
-                border: '1px solid #e9ecef'
-              }}>
-                {contentModal.modalData?.content || 'No content available'}
-              </div>
-            )}
-          </>
-        )}
-      </Modal>
+      {/* Advanced Preview Modal - Direct document preview with full controls */}
+      <AdvancedPreviewModal
+        opened={advancedPreviewModal.isOpen}
+        onClose={advancedPreviewModal.closeModal}
+        file={advancedPreviewModal.selectedItem}
+      />
     </Container>
   );
 }
